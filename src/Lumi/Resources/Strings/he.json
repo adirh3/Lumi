@@ -3313,6 +3313,7 @@
   "Remote_LocalHostRequired": "יש להשתמש בכתובת Lumi של המחשב הזה במקום בשם מארח אחר.",
   "Remote_MakingChanges": "מבצעת שינויים...",
   "Remote_MessageAlreadyAccepted": "ההודעה כבר התקבלה.",
+  "Remote_MessageNotFound": "הודעת המשתמש הזו אינה זמינה עוד לעריכה.",
   "Remote_MessageSent": "ההודעה נשלחה.",
   "Remote_MessageStartFailed": "לא ניתן להתחיל את הטיפול בהודעה ב־Lumi.",
   "Remote_MessageSteerFailed": "לא ניתן להעביר את ההודעה להכוונת התגובה ב־Lumi.",

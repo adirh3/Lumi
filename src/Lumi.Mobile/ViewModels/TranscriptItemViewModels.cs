@@ -27,6 +27,8 @@ public abstract partial class TranscriptItemViewModel : ObservableObject, IDispo
 
     public string Kind { get; }
 
+    public IRelayCommand? OpenActionsCommand { get; internal set; }
+
     internal void RequestEntranceAnimation() => _entranceRequestedAt = Stopwatch.GetTimestamp();
 
     internal bool TryConsumeEntranceAnimation()
@@ -1138,6 +1140,7 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
     private readonly Action<string, IReadOnlyList<RemoteInlineImage>>? _releaseInlineImages;
     private readonly Func<string, string?>? _displayModel;
     private WorkSummaryItemViewModel? _workSummary;
+    private readonly Action<TranscriptItemViewModel>? _openMessageActions;
     private readonly HashSet<string> _workItemIds = new(StringComparer.Ordinal);
 
     public TranscriptTurnViewModel(
@@ -1152,7 +1155,8 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
             Task<string>>? resolveInlineImages = null,
         Action<string, IReadOnlyList<RemoteInlineImage>>? releaseInlineImages = null,
         Action<JobWakeItemViewModel>? openJobWake = null,
-        Func<string, string?>? displayModel = null)
+        Func<string, string?>? displayModel = null,
+        Action<TranscriptItemViewModel>? openMessageActions = null)
     {
         Id = id;
         _openActivity = openActivity;
@@ -1161,6 +1165,7 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
         _releaseInlineImages = releaseInlineImages;
         _openJobWake = openJobWake;
         _displayModel = displayModel;
+        _openMessageActions = openMessageActions;
         Items.CollectionChanged += (_, _) =>
         {
             if (!_applying)
@@ -1196,6 +1201,8 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
                 _releaseInlineImages,
                 _openJobWake,
                 _displayModel);
+            if (created is UserTurnItemViewModel or AssistantItemViewModel && _openMessageActions is not null)
+                created.OpenActionsCommand = new RelayCommand(() => _openMessageActions(created));
             if (i < Items.Count)
             {
                 var replaced = Items[i];

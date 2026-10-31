@@ -505,6 +505,11 @@ public sealed partial class MobileShellViewModel :
         });
         Chat.ChatActivitySubmitted += (chatId, preview) =>
             _post(() => PromoteActiveChat(chatId, preview));
+        Chat.MessageEditAccepted += chatId => _post(() =>
+        {
+            if (Chat.ChatId == chatId)
+                ReturnToLatestCommand.Execute(null);
+        });
         Chat.ChatActivitySubmissionFailed += _failedChatId =>
             _post(() =>
             {
@@ -540,6 +545,7 @@ public sealed partial class MobileShellViewModel :
     public LumiRemoteClient Client { get; }
     public bool SupportsInteractiveResponses => Client.SupportsInteractiveResponses;
     public bool SupportsModelPins => Client.SupportsModelPins;
+    public bool SupportsMessageEditing => Client.SupportsMessageEditing;
 
     public ILumiDiscoveryClient Discovery { get; }
 

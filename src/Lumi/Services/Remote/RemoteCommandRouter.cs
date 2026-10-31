@@ -66,6 +66,7 @@ internal sealed class RemoteCommandRouter
             RemoteProtocol.Actions.RenameChat => await RenameChatAsync(command),
             RemoteProtocol.Actions.PinChat => await PinChatAsync(command),
             RemoteProtocol.Actions.SendMessage => await SendMessageAsync(command, cancellationToken),
+            RemoteProtocol.Actions.EditMessage => await EditMessageAsync(command, cancellationToken),
             RemoteProtocol.Actions.StopGeneration => await StopGenerationAsync(command),
             RemoteProtocol.Actions.AnswerQuestion => await AnswerQuestionAsync(command),
             RemoteProtocol.Actions.UpdateInteraction => await UpdateInteractionAsync(command, cancellationToken),
@@ -270,6 +271,31 @@ internal sealed class RemoteCommandRouter
 
         await _dataStore.SaveAsync().ConfigureAwait(true);
         return Success(pinned ? Loc.Remote_ModelPinned : Loc.Remote_ModelUnpinned);
+    }
+
+    private async Task<RemoteCommandResult> EditMessageAsync(RemoteCommand command, CancellationToken cancellationToken)
+    {
+        if (ResolveExplicitChat(command) is not { } chat)
+            return Fail(Loc.Remote_ChatNotFound);
+        if (command.GetGuid("messageId") is not { } messageId)
+            return Fail(Loc.Get("Remote_ArgumentRequired", "messageId"), chat.Id);
+        if (string.IsNullOrWhiteSpace(command.Get("message")))
+            return Fail(Loc.Get("Remote_ArgumentRequired", "message"), chat.Id);
+
+        if (command.AuthenticatedDeviceId is { Length: > 0 } deviceId
+            && command.RequestId is { Length: > 0 } requestId
+            && chat.LastRemoteDeviceId == deviceId && chat.LastRemoteRequestId == requestId)
+            return Success(Loc.Remote_MessageAlreadyAccepted, chat.Id);
+
+        var owner = await ResolveChatOwnerAsync(chat).ConfigureAwait(true);
+        if (owner is null)
+            return Fail(Loc.Remote_ChatOpenFailed, chat.Id);
+        var result = await owner.StartExternalMessageEditAsync(
+            chat, messageId, command.Get("message")!, command.AuthenticatedDeviceId,
+            command.RequestId, cancellationToken).ConfigureAwait(true);
+        return result.Accepted
+            ? Success(Loc.Remote_MessageSent, chat.Id)
+            : Fail(result.Error ?? Loc.Remote_MessageStartFailed, chat.Id);
     }
 
     private async Task<RemoteCommandResult> SendMessageAsync(RemoteCommand command, CancellationToken cancellationToken, InteractionReceipt? interactionReceipt = null)

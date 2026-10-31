@@ -179,6 +179,9 @@
   <SolidColorBrush x:Key="Brush.SegmentSelected" Color="#24FFFFFF" />
   <BoxShadows x:Key="Shadow.Segment">0 1 2 0 #40000000</BoxShadows>
   <BoxShadows x:Key="Shadow.Sheet">0 18 40 -20 #D9000000</BoxShadows>
+  <!-- A message's menu: the page dims hard enough that the pressed message stands out lit. -->
+  <SolidColorBrush x:Key="Brush.MessageMenuScrim" Color="#99000000" />
+  <BoxShadows x:Key="Shadow.MessageMenu">0 1 2 0 #4D000000, 0 12 32 -8 #B3000000</BoxShadows>
 
   <!-- Scroll-edge veils over the frost, as the desktop's: light enough that what scrolls beneath the
        header and the places still shows through, softened, and deepest at the screen's edge. -->

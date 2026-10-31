@@ -244,6 +244,7 @@ public static class RemoteProtocol
         public const string FileSuggestionsV1 = "file-suggestions-v1";
         public const string GitChangesV1 = "git-changes-v1";
         public const string InteractiveResponsesV1 = "interactive-responses-v1";
+        public const string MessageEditingV1 = "message-editing-v1";
 
         /// <summary>
         /// A latest-window transcript request may carry the <see cref="RemoteTranscript.TranscriptVersion"/>
@@ -275,7 +276,8 @@ public static class RemoteProtocol
             InteractiveResponsesV1,
             ConditionalTranscriptV1,
             ResumePingV1,
-            ModelPinsV1
+            ModelPinsV1,
+            MessageEditingV1
         ];
     }
 
@@ -357,6 +359,7 @@ public static class RemoteProtocol
         public const string RenameChat = "rename_chat";
         public const string PinChat = "pin_chat";
         public const string SendMessage = "send_message";
+        public const string EditMessage = "edit_message";
         public const string StopGeneration = "stop_generation";
         public const string RevokeDevice = "revoke_device";
         public const string AnswerQuestion = "answer_question";

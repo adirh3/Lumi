@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Lumi.Localization;
 using Lumi.Models;
+using Lumi.Remote.Protocol;
 
 namespace Lumi.ViewModels;
 
@@ -178,6 +179,55 @@ public partial class ChatViewModel
         if (includeFoldedSteps && _history.FindHydratedSegment(messageId) is { } segment)
             await _history.BuildFoldedStepsAsync(segment).ConfigureAwait(true);
         return ReferenceEquals(CurrentChat, chat);
+    }
+
+    /// <summary>Edits an explicit remote user's turn without consuming the desktop composer's draft.</summary>
+    internal async Task<ExternalMessageStartResult> StartExternalMessageEditAsync(
+        Chat chat, Guid messageId, string text, string? remoteDeviceId, string? remoteRequestId,
+        CancellationToken cancellationToken)
+    {
+        if (CurrentChat?.Id != chat.Id)
+            return ExternalMessageStartResult.Rejected(Loc.Remote_ChatSurfaceActivationFailed);
+        if (chat.IsPaused)
+            return ExternalMessageStartResult.Rejected(Loc.Get("Chat_PausedSendBlocked"));
+        if (IsEditingMessage || IsExternalSendReserved(chat.Id))
+            return ExternalMessageStartResult.Rejected(Loc.Remote_ChatAlreadyStartingTurn);
+        if (_dataStore.IsMissingLegacyMessages(chat))
+            return ExternalMessageStartResult.Rejected(Loc.Get("Chat_EditUnavailableMissingMessages"));
+        if (!await EnsureMessageInTranscriptAsync(messageId).ConfigureAwait(true)
+            || CurrentChat?.Id != chat.Id)
+            return ExternalMessageStartResult.Rejected(Loc.Get("Remote_MessageNotFound"));
+        var original = EnumerateShownMessages(chat).FirstOrDefault(message => message.Id == messageId);
+        if (original is not { Role: "user" } || string.IsNullOrWhiteSpace(text))
+            return ExternalMessageStartResult.Rejected(Loc.Get("Remote_MessageNotFound"));
+
+        var edited = original.Clone();
+        edited.StorageSeq = original.StorageSeq;
+        var content = RemoteUserMessageContent.Parse(original.Content, original.Author);
+        edited.Content = RemoteUserMessageContent.BuildPrompt(text.Trim(), content.Attachments);
+        var accepted = new TaskCompletionSource<ExternalMessageStartResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = RunAsync();
+        return await accepted.Task.ConfigureAwait(true);
+
+        async Task RunAsync()
+        {
+            try
+            {
+                await ResendFromMessageAsync(edited, wasEdited: true, attachmentsOverride: null,
+                    remoteDeviceId: remoteDeviceId, remoteRequestId: remoteRequestId,
+                    onAccepted: () => accepted.TrySetResult(ExternalMessageStartResult.Success),
+                    cancellationToken: cancellationToken).ConfigureAwait(true);
+                var error = CurrentChat?.Id == chat.Id ? StatusText : Loc.Remote_ChatSurfaceActivationFailed;
+                accepted.TrySetResult(ExternalMessageStartResult.Rejected(
+                    string.IsNullOrWhiteSpace(error) ? Loc.Remote_MessageStartFailed : error));
+            }
+            catch (Exception ex)
+            {
+                if (!accepted.TrySetResult(ExternalMessageStartResult.Rejected(ex.Message)))
+                    Trace.TraceWarning($"[RemoteEdit] Turn failed after acceptance: {ex}");
+            }
+        }
     }
 
     /// <summary>True when <paramref name="turn"/> shows (or stands in for) an older exchange.</summary>

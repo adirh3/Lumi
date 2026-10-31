@@ -1379,6 +1379,59 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task RemoteMessageEdit_InterruptionFailureKeepsTheOriginalMessageAndDesktopDraft()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc
+        {
+            Result = new AbortResult { Success = false, Error = "The session could not be interrupted." }
+        };
+        var original = new ChatMessage { Role = "user", Content = "Keep this turn." };
+        host.Chat.Messages.Add(original);
+        host.ViewModel.Messages.Add(new ChatMessageViewModel(original));
+        host.ViewModel.PromptText = "Keep this newer draft.";
+        host.AttachSession(rpc);
+        host.MarkTurnEndedWithBackgroundWorkPending();
+
+        var result = await host.ViewModel.StartExternalMessageEditAsync(
+            host.Chat, original.Id, "Do not replace it yet.", "phone", "edit-request", CancellationToken.None);
+
+        Assert.False(result.Accepted);
+        Assert.Same(original, Assert.Single(host.Chat.Messages));
+        Assert.Equal("Keep this turn.", original.Content);
+        Assert.Equal("Keep this newer draft.", host.ViewModel.PromptText);
+        Assert.Equal(0, rpc.SendCount);
+        Assert.Null(host.Chat.LastRemoteRequestId);
+    }
+
+    [Fact]
+    public async Task RemoteMessageEdit_AcceptedEditCarriesItsReceiptAndKeepsTheDesktopDraft()
+    {
+        using var host = DeferredSendHost.Create();
+        var original = new ChatMessage { Role = "user", Content = "Replace this turn." };
+        var answer = new ChatMessage { Role = "assistant", Content = "An answer the edit removes." };
+        host.Chat.Messages.Add(original);
+        host.Chat.Messages.Add(answer);
+        host.ViewModel.Messages.Add(new ChatMessageViewModel(original));
+        host.ViewModel.Messages.Add(new ChatMessageViewModel(answer));
+        host.ViewModel.PromptText = "Keep this newer draft.";
+
+        var result = await host.ViewModel.StartExternalMessageEditAsync(
+            host.Chat, original.Id, "The corrected turn.", "phone", "edit-request", CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(result.Accepted, result.Error);
+        var edited = Assert.Single(host.Chat.Messages, message => message.Role == "user");
+        Assert.NotEqual(original.Id, edited.Id);
+        Assert.Contains("The corrected turn.", edited.Content);
+        Assert.DoesNotContain(answer, host.Chat.Messages);
+        Assert.Equal("edit-request", edited.RemoteRequestId);
+        Assert.Equal("phone", host.Chat.LastRemoteDeviceId);
+        Assert.Equal("edit-request", host.Chat.LastRemoteRequestId);
+        Assert.Equal("Keep this newer draft.", host.ViewModel.PromptText);
+    }
+
+    [Fact]
     public async Task Stop_CoalescesRequestsAndKeepsNewSendsQueuedUntilCleanupCompletes()
     {
         using var host = DeferredSendHost.Create();

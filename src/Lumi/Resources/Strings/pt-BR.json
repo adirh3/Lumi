@@ -3257,6 +3257,7 @@
   "Remote_LocalHostRequired": "Use o endereço Lumi deste computador em vez de outro hostname.",
   "Remote_MakingChanges": "Fazendo alterações...",
   "Remote_MessageAlreadyAccepted": "Mensagem já aceita.",
+  "Remote_MessageNotFound": "Esta mensagem do usuário não está mais disponível para edição.",
   "Remote_MessageSent": "Mensagem enviada.",
   "Remote_MessageStartFailed": "O Lumi não conseguiu iniciar essa mensagem.",
   "Remote_MessageSteerFailed": "O Lumi não conseguiu redirecionar essa mensagem.",

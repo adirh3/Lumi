@@ -66,6 +66,8 @@ public static class PdfPreviewLimits
 
 public interface ITextSelectionPresenter
 {
+    bool IsAvailable => true;
+
     void Show(string text);
 
     void Dismiss();
@@ -189,6 +191,7 @@ public static class MobilePlatformServices
 {
     private static readonly object TextSelectionGestureSync = new();
     private static string? _armedTextSelection;
+    private static Action? _armedTextSelectionAction;
     private static bool _isTextSelectionGestureActive;
 
     public static IProducedFileOpener ProducedFileOpener { get; set; } =
@@ -246,11 +249,12 @@ public static class MobilePlatformServices
             NativeComposerEditorFactory = new DefaultNativeComposerEditorFactory();
     }
 
-    internal static void ArmTextSelectionGesture(string text)
+    internal static void ArmTextSelectionGesture(string text, Action? present = null)
     {
         lock (TextSelectionGestureSync)
         {
             _armedTextSelection = text;
+            _armedTextSelectionAction = present;
             _isTextSelectionGestureActive = true;
         }
     }
@@ -261,8 +265,30 @@ public static class MobilePlatformServices
         {
             var text = _armedTextSelection;
             _armedTextSelection = null;
+            _armedTextSelectionAction = null;
             return text;
         }
+    }
+
+    internal static bool PresentTextSelectionGesture()
+    {
+        string? text;
+        Action? present;
+        lock (TextSelectionGestureSync)
+        {
+            text = _armedTextSelection;
+            present = _armedTextSelectionAction;
+            _armedTextSelection = null;
+            _armedTextSelectionAction = null;
+        }
+
+        if (present is not null)
+            present();
+        else if (!string.IsNullOrWhiteSpace(text))
+            TextSelectionPresenter.Show(text);
+        else
+            return false;
+        return true;
     }
 
     internal static bool IsTextSelectionGestureActive()
@@ -276,6 +302,7 @@ public static class MobilePlatformServices
         lock (TextSelectionGestureSync)
         {
             _armedTextSelection = null;
+            _armedTextSelectionAction = null;
             _isTextSelectionGestureActive = false;
         }
     }
@@ -361,6 +388,8 @@ internal sealed class DefaultPdfPreviewRenderer : IPdfPreviewRenderer
 
 internal sealed class DefaultTextSelectionPresenter : ITextSelectionPresenter
 {
+    public bool IsAvailable => false;
+
     public void Show(string text)
     {
     }

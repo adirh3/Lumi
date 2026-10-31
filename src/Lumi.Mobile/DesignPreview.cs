@@ -148,7 +148,9 @@ public static class DesignPreview
 
         // A PC whose picker has pins, costs, context sizes, a model that still has to be enabled and
         // one on a connected account.
-        shell.Client.UsePreviewCapabilities(RemoteProtocol.Capabilities.ModelPinsV1);
+        shell.Client.UsePreviewCapabilities(
+            RemoteProtocol.Capabilities.ModelPinsV1,
+            RemoteProtocol.Capabilities.MessageEditingV1);
         shell.Chat.ApplyCatalogs(new RemoteSettings
         {
             PreferredModel = "gpt-6.1-sol",
@@ -285,7 +287,7 @@ public static class DesignPreview
             [
                 new()
                 {
-                    Id = "user-1", Kind = RemoteProtocol.ItemKinds.User, Timestamp = now.AddMinutes(-26),
+                    Id = Guid.NewGuid().ToString("N"), Kind = RemoteProtocol.ItemKinds.User, Timestamp = now.AddMinutes(-26),
                     Text = "The composer jumps to the top when I come back from the file picker with the keyboard open. Fix it and run the mobile tests.",
                     Attachments = [new() { FileName = "fold-resume-before.png", Extension = ".png" }]
                 },
@@ -342,7 +344,7 @@ public static class DesignPreview
             WorkDurationMs = 21_000,
             Items =
             [
-                new() { Id = "user-2", Kind = RemoteProtocol.ItemKinds.User, Timestamp = now.AddMinutes(-12), Text = "Also check the unfolded screen at large display size." },
+                new() { Id = Guid.NewGuid().ToString("N"), Kind = RemoteProtocol.ItemKinds.User, Timestamp = now.AddMinutes(-12), Text = "Also check the unfolded screen at large display size." },
                 new()
                 {
                     Id = "progress-2", Kind = RemoteProtocol.ItemKinds.Assistant,
@@ -390,7 +392,7 @@ public static class DesignPreview
             Id = "turn-3",
             Items =
             [
-                new() { Id = "user-3", Kind = RemoteProtocol.ItemKinds.User, Timestamp = now.AddMinutes(-1), Text = "Run them on my Fold now." },
+                new() { Id = Guid.NewGuid().ToString("N"), Kind = RemoteProtocol.ItemKinds.User, Timestamp = now.AddMinutes(-1), Text = "Run them on my Fold now." },
                 new()
                 {
                     Id = "activity-4", Kind = RemoteProtocol.ItemKinds.Activity, ActivityId = "activity-4",

@@ -3312,6 +3312,7 @@
   "Remote_LocalHostRequired": "Use this computer's Lumi address instead of another hostname.",
   "Remote_MakingChanges": "Making changes...",
   "Remote_MessageAlreadyAccepted": "Message already accepted.",
+  "Remote_MessageNotFound": "That user message is no longer available to edit.",
   "Remote_MessageSent": "Message sent.",
   "Remote_MessageStartFailed": "Lumi could not start that message.",
   "Remote_MessageSteerFailed": "Lumi could not steer that message.",

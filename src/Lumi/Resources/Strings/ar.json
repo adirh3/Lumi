@@ -3257,6 +3257,7 @@
   "Remote_LocalHostRequired": "استخدم عنوان Lumi لهذا الحاسوب بدلًا من اسم مضيف آخر.",
   "Remote_MakingChanges": "جارٍ إجراء تغييرات...",
   "Remote_MessageAlreadyAccepted": "قُبلت الرسالة بالفعل.",
+  "Remote_MessageNotFound": "رسالة المستخدم هذه لم تعد متاحة للتعديل.",
   "Remote_MessageSent": "أُرسلت الرسالة.",
   "Remote_MessageStartFailed": "تعذّر على Lumi بدء هذه الرسالة.",
   "Remote_MessageSteerFailed": "تعذّر على Lumi توجيه هذه الرسالة.",

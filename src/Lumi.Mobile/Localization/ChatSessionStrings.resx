@@ -22,6 +22,16 @@
   <data name="Copy" xml:space="preserve"><value>Copy</value></data>
   <data name="SelectAll" xml:space="preserve"><value>Select all</value></data>
   <data name="SelectText" xml:space="preserve"><value>Select text</value></data>
+  <data name="EditMessage" xml:space="preserve"><value>Edit message</value></data>
+  <data name="SaveAndResend" xml:space="preserve"><value>Save and resend</value></data>
+  <data name="MessageEditWarning" xml:space="preserve"><value>This replaces your message and removes the messages after it.</value></data>
+  <data name="MessageEditUnavailable" xml:space="preserve"><value>Update Lumi on your computer to edit messages.</value></data>
+  <data name="MessageEditTruncated" xml:space="preserve"><value>Open this message on your computer to edit its full text.</value></data>
+  <data name="MessageEditPending" xml:space="preserve"><value>Wait until this message reaches your computer before editing it.</value></data>
+  <data name="MessageEditFailed" xml:space="preserve"><value>The message couldn't be edited. Your changes are still here.</value></data>
+  <data name="CopyMessageFailed" xml:space="preserve"><value>The message could not be copied.</value></data>
+  <data name="CopySelection" xml:space="preserve"><value>Copy selection</value></data>
+  <data name="NoTextSelected" xml:space="preserve"><value>Select the text you want to copy.</value></data>
   <data name="OpenWith" xml:space="preserve"><value>Open with</value></data>
   <data name="ClearSearch" xml:space="preserve"><value>Clear search</value></data>
   <data name="Settings" xml:space="preserve"><value>Settings</value></data>

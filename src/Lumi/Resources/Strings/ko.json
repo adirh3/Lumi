@@ -3257,6 +3257,7 @@
   "Remote_LocalHostRequired": "다른 호스트 이름 대신 이 컴퓨터의 Lumi 주소를 사용하세요.",
   "Remote_MakingChanges": "변경 중...",
   "Remote_MessageAlreadyAccepted": "이미 받은 메시지예요.",
+  "Remote_MessageNotFound": "이 사용자 메시지는 더 이상 편집할 수 없어요.",
   "Remote_MessageSent": "메시지를 보냈어요.",
   "Remote_MessageStartFailed": "메시지를 시작하지 못했어요.",
   "Remote_MessageSteerFailed": "진행 중인 응답에 메시지를 반영하지 못했어요.",

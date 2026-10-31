@@ -2,6 +2,16 @@
 <root>
   <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
   <resheader name="version"><value>2.0</value></resheader>
+  <data name="EditMessage" xml:space="preserve"><value>Nachricht bearbeiten</value></data>
+  <data name="SaveAndResend" xml:space="preserve"><value>Speichern und erneut senden</value></data>
+  <data name="MessageEditWarning" xml:space="preserve"><value>Dies ersetzt deine Nachricht und entfernt alle nachfolgenden Nachrichten.</value></data>
+  <data name="MessageEditUnavailable" xml:space="preserve"><value>Aktualisiere Lumi auf deinem Computer, um Nachrichten zu bearbeiten.</value></data>
+  <data name="MessageEditTruncated" xml:space="preserve"><value>Öffne diese Nachricht auf deinem Computer, um den vollständigen Text zu bearbeiten.</value></data>
+  <data name="MessageEditPending" xml:space="preserve"><value>Warte, bis diese Nachricht deinen Computer erreicht, bevor du sie bearbeitest.</value></data>
+  <data name="MessageEditFailed" xml:space="preserve"><value>Die Nachricht konnte nicht bearbeitet werden. Deine Änderungen sind noch hier.</value></data>
+  <data name="CopyMessageFailed" xml:space="preserve"><value>Die Nachricht konnte nicht kopiert werden.</value></data>
+  <data name="CopySelection" xml:space="preserve"><value>Auswahl kopieren</value></data>
+  <data name="NoTextSelected" xml:space="preserve"><value>Markiere den Text, den du kopieren möchtest.</value></data>
   <data name="ReadyWithBackgroundActivity" xml:space="preserve">
     <value>Bereit · Hintergrundaktivität</value>
   </data>

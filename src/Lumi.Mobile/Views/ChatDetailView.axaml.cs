@@ -124,6 +124,7 @@ public partial class ChatDetailView : UserControl
         _chatEntranceQueued = false;
         _transcriptContentChanged = false;
         ResetRealizations();
+        SetMessageMenuAnchor(null);
         if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
             transcript.IsHitTestVisible = true;
         base.OnDetachedFromVisualTree(e);
@@ -815,6 +816,8 @@ public partial class ChatDetailView : UserControl
 
     private void OnChatSurfaceReset()
     {
+        MobilePlatformServices.ClearTextSelectionGesture();
+        MobilePlatformServices.TextSelectionPresenter.Dismiss();
         ReleaseComposerFocus();
         var version = ++_chatEntranceVersion;
         _awaitingChatEntrance = true;
@@ -1136,6 +1139,32 @@ public partial class ChatDetailView : UserControl
             return;
         }
 
+        if (e.PropertyName == nameof(MobileChatViewModel.IsMessageMenuOpen))
+        {
+            OnMessageMenuOpenChanged();
+            return;
+        }
+
+        if (e.PropertyName is nameof(MobileChatViewModel.IsEditingMessage)
+            or nameof(MobileChatViewModel.IsMessageSelectionOpen))
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                var selecting = _shell?.Chat.IsMessageSelectionOpen == true;
+                if ((selecting || _shell?.Chat.IsEditingMessage == true)
+                    && this.FindControl<TextBox>(selecting ? "MessageSelectionTextBox" : "MessageEditTextBox")
+                        is { IsEffectivelyVisible: true } textBox)
+                {
+                    textBox.Focus();
+                    if (selecting)
+                        textBox.SelectAll();
+                    else
+                        textBox.CaretIndex = textBox.Text?.Length ?? 0;
+                }
+            }, DispatcherPriority.Loaded);
+            return;
+        }
+
         if (e.PropertyName == nameof(MobileChatViewModel.IsEffortSheetOpen)
             && _shell?.Chat.IsEffortSheetOpen == true)
         {
@@ -1289,6 +1318,81 @@ public partial class ChatDetailView : UserControl
             if (CopyFeedback.TryGetValue(button, out var current) && ReferenceEquals(current, feedback))
                 button.Classes.Set("copied", false);
         }, TimeSpan.FromSeconds(1.6));
+    }
+
+    private async Task CopyMessageTextAsync(string text)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard
+            ?? throw new InvalidOperationException(Strings.Get("CopyMessageFailed"));
+        var data = new DataTransfer();
+        data.Add(DataTransferItem.CreateText(text));
+        await clipboard.SetDataAsync(data);
+    }
+
+    private async void OnCopyMessageClick(object? sender, RoutedEventArgs e)
+    {
+        if (_shell is not { } shell || !shell.Chat.HasSelectedMessageText)
+            return;
+        var text = shell.Chat.SelectedMessageText;
+        shell.Chat.CloseMessageActionsCommand.Execute(null);
+        try
+        {
+            await CopyMessageTextAsync(text);
+        }
+        catch (Exception ex)
+        {
+            if (_shell == shell)
+                shell.Chat.ErrorText = Strings.Get("CopyMessageFailed");
+            Trace.TraceWarning($"[Mobile] Message copy failed: {ex}");
+        }
+    }
+
+    private void OnSelectMessageTextClick(object? sender, RoutedEventArgs e)
+    {
+        if (_shell is not { } shell || !shell.Chat.HasSelectedMessageText)
+            return;
+        var text = shell.Chat.SelectedMessageText;
+        if (!MobilePlatformServices.TextSelectionPresenter.IsAvailable)
+        {
+            shell.Chat.OpenMessageSelection(text);
+            return;
+        }
+
+        shell.Chat.CloseMessageActionsCommand.Execute(null);
+        try
+        {
+            MobilePlatformServices.TextSelectionPresenter.Show(text);
+        }
+        catch (Exception ex)
+        {
+            shell.Chat.ErrorText = ex.Message;
+            Trace.TraceWarning($"[Mobile] Text selection failed: {ex}");
+        }
+    }
+
+    private async void OnCopyMessageSelectionClick(object? sender, RoutedEventArgs e)
+    {
+        if (_shell is not { } shell || this.FindControl<TextBox>("MessageSelectionTextBox") is not { } textBox)
+            return;
+        var text = textBox.SelectedText;
+        if (string.IsNullOrEmpty(text))
+        {
+            shell.Chat.MessageActionError = Strings.Get("NoTextSelected");
+            return;
+        }
+        var selection = shell.Chat.MessageSelectionText;
+        try
+        {
+            await CopyMessageTextAsync(text);
+            if (_shell == shell && shell.Chat.MessageSelectionText == selection)
+                shell.Chat.MessageActionError = null;
+        }
+        catch (Exception ex)
+        {
+            if (_shell == shell && shell.Chat.MessageSelectionText == selection)
+                shell.Chat.MessageActionError = Strings.Get("CopyMessageFailed");
+            Trace.TraceWarning($"[Mobile] Selection copy failed: {ex}");
+        }
     }
 
     private void OnShareAnswerClick(object? sender, RoutedEventArgs e)

@@ -798,6 +798,18 @@ around the send button still while Lumi works.
 
 ### Mobile conversations
 
+Long-press your message to open **Copy**, **Edit**, or **Select text**; long-press
+Lumi's message for **Copy** or **Select text**. As in other phone apps, the page dims
+around the pressed message and a compact menu floats beside it; touch anywhere else
+or press Back to close it. **Edit** opens an editor sheet and keeps your current
+composer draft and attachments untouched: change the message, then choose **Save and
+resend** to replace it and the messages after it, or **Cancel** to leave the
+conversation unchanged. Editing needs an updated desktop host and is unavailable for
+text truncated on the phone.
+**Select text** opens Android's native selection handles and copy toolbar; the
+desktop simulator has a read-only selection sheet. Ordinary touch scrolling never
+starts text selection.
+
 Lumi's native Android app is distributed as an official APK on
 [GitHub Releases](https://github.com/adirh3/Lumi/releases/latest), not through Google Play
 or any other app store. In **Settings > Mobile**, choose **Android app** and scan the

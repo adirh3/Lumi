@@ -6,6 +6,16 @@
   <resheader name="version">
     <value>2.0</value>
   </resheader>
+  <data name="EditMessage" xml:space="preserve"><value>تعديل الرسالة</value></data>
+  <data name="SaveAndResend" xml:space="preserve"><value>حفظ وإعادة الإرسال</value></data>
+  <data name="MessageEditWarning" xml:space="preserve"><value>سيستبدل هذا رسالتك ويحذف الرسائل التي تليها.</value></data>
+  <data name="MessageEditUnavailable" xml:space="preserve"><value>حدّث Lumi على جهاز الكمبيوتر لتعديل الرسائل.</value></data>
+  <data name="MessageEditTruncated" xml:space="preserve"><value>افتح هذه الرسالة على جهاز الكمبيوتر لتعديل نصها الكامل.</value></data>
+  <data name="MessageEditPending" xml:space="preserve"><value>انتظر وصول هذه الرسالة إلى جهاز الكمبيوتر قبل تعديلها.</value></data>
+  <data name="MessageEditFailed" xml:space="preserve"><value>تعذّر تعديل الرسالة. تغييراتك ما زالت هنا.</value></data>
+  <data name="CopyMessageFailed" xml:space="preserve"><value>تعذّر نسخ الرسالة.</value></data>
+  <data name="CopySelection" xml:space="preserve"><value>نسخ التحديد</value></data>
+  <data name="NoTextSelected" xml:space="preserve"><value>حدّد النص الذي تريد نسخه.</value></data>
   <data name="ReadyWithBackgroundActivity" xml:space="preserve">
     <value>جاهز · نشاط في الخلفية</value>
   </data>

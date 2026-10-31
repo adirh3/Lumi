@@ -728,10 +728,13 @@
     <!-- The user's turn: the desktop's bubble with "You · 16:40" over it and what they attached inside. -->
     <DataTemplate DataType="vm:UserTurnItemViewModel">
       <StackPanel Spacing="4" Margin="48,16,0,6">
-        <sc:StrataChatMessage Role="User" Classes="mobile-message"
+        <sc:StrataChatMessage x:Name="UserMessageBubble" Role="User" Classes="mobile-message"
                               HorizontalAlignment="Right"
                               Author="{Binding Author}"
-                              Timestamp="{Binding TimestampText}">
+                              Timestamp="{Binding TimestampText}"
+                              behaviors:NativeTextSelection.IsEnabled="True"
+                              behaviors:NativeTextSelection.Text="{Binding Text}"
+                              behaviors:NativeTextSelection.Command="{Binding OpenActionsCommand}">
           <sc:StrataChatMessage.Content>
             <StackPanel Spacing="8">
               <!-- Spaced as the desktop's bubbles are (Segoe UI's own line height, 1.33 of the text's size). -->
@@ -740,9 +743,7 @@
                                    TextWrapping="Wrap"
                                    FontSize="{DynamicResource Font.SizeBody}"
                                    LineHeight="{DynamicResource Font.LineHeightBody}"
-                                   Foreground="{DynamicResource Brush.TextPrimary}"
-                                   behaviors:NativeTextSelection.IsEnabled="True"
-                                   behaviors:NativeTextSelection.Text="{Binding Text, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" />
+                                   Foreground="{DynamicResource Brush.TextPrimary}" />
               <ItemsControl x:Name="UserAttachments" ItemsSource="{Binding Attachments}"
                             IsVisible="{Binding HasAttachments}">
                 <ItemsControl.ItemsPanel>
@@ -826,7 +827,8 @@
                            IsInline="True"
                            RetainContentOnDetach="True"
                            behaviors:NativeTextSelection.IsEnabled="True"
-                           behaviors:NativeTextSelection.Text="{Binding SelectionText}" />
+                           behaviors:NativeTextSelection.Text="{Binding SelectionText}"
+                           behaviors:NativeTextSelection.Command="{Binding OpenActionsCommand}" />
 
         <!-- The files this turn made, as the desktop's file chips: tap one to open it. -->
         <ItemsControl x:Name="AnswerFiles" ItemsSource="{Binding Files}" IsVisible="{Binding HasFiles}"
@@ -2062,5 +2064,118 @@
             Background="{DynamicResource Brush.Surface0}" Padding="{Binding SafeArea}">
       <views:GitChangesView DataContext="{Binding Chat}" />
     </Border>
+
+    <!-- Editing a message the menu's Edit opened: dismissing it ends the message's actions. -->
+    <sc:StrataBottomSheet x:Name="MessageEditSheet" Classes="safe-area"
+                          IsVisible="{Binding $self.IsPresented}"
+                          IsOpen="{Binding Chat.IsMessageEditorOpen, Mode=TwoWay}"
+                          SheetMargin="{Binding SafeAreaSheetMargin}"
+                          Title="{loc:Str EditMessage}"
+                          Description="{loc:Str MessageEditWarning}">
+      <Border Padding="{Binding SafeAreaSides}">
+        <StackPanel x:Name="MessageEditPanel" Margin="{DynamicResource Mobile.Sheet.ContentMargin}" Spacing="16">
+          <TextBox x:Name="MessageEditTextBox" Classes="mobile"
+                   Text="{Binding Chat.EditedMessageText, Mode=TwoWay}"
+                   IsEnabled="{Binding !Chat.IsSavingMessageEdit}"
+                   AutomationProperties.Name="{loc:Str EditMessage}"
+                   AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top"
+                   MinHeight="120" MaxHeight="280"
+                   MaxLength="{x:Static proto:RemoteProtocol.MobileUserTextLimit}"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto" />
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+            <Button x:Name="CancelMessageEditButton" Classes="touch subtle"
+                    Content="{loc:Str Cancel}" Command="{Binding Chat.CancelMessageEditCommand}" />
+            <Button x:Name="SaveMessageEditButton" Grid.Column="1" Classes="touch accent"
+                    Command="{Binding Chat.SaveMessageEditCommand}">
+              <TextBlock Text="{loc:Str SaveAndResend}" TextWrapping="Wrap" TextAlignment="Center" />
+            </Button>
+          </Grid>
+          <TextBlock Text="{Binding Chat.MessageActionError}" TextWrapping="Wrap"
+                     IsVisible="{Binding Chat.MessageActionError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                     FontSize="{DynamicResource Font.SizeMeta}"
+                     Foreground="{DynamicResource Brush.DangerDefault}" />
+        </StackPanel>
+      </Border>
+    </sc:StrataBottomSheet>
+
+    <sc:StrataBottomSheet x:Name="MessageSelectionSheet" Classes="safe-area"
+                          IsVisible="{Binding $self.IsPresented}"
+                          IsOpen="{Binding Chat.IsMessageSelectionOpen, Mode=TwoWay}"
+                          SheetMargin="{Binding SafeAreaSheetMargin}" Title="{loc:Str SelectText}">
+      <Border Padding="{Binding SafeAreaSides}">
+        <StackPanel Margin="{DynamicResource Mobile.Sheet.ContentMargin}" Spacing="16">
+          <TextBox x:Name="MessageSelectionTextBox" Classes="mobile"
+                   Text="{Binding Chat.MessageSelectionText, Mode=OneWay}"
+                   AutomationProperties.Name="{loc:Str MessageText}"
+                   IsReadOnly="True" IsUndoEnabled="False"
+                   ClearSelectionOnLostFocus="False"
+                   behaviors:NativeTextInputOverlay.IsEnabled="False"
+                   AcceptsReturn="True" TextWrapping="Wrap"
+                   MinHeight="140" MaxHeight="320"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto" />
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+            <Button x:Name="CopyMessageSelectionButton" Classes="touch subtle"
+                    Content="{loc:Str CopySelection}" Click="OnCopyMessageSelectionClick" />
+            <Button x:Name="CloseMessageSelectionButton" Grid.Column="1" Classes="touch accent"
+                    Content="{loc:Str Done}" Command="{Binding Chat.CloseMessageSelectionCommand}" />
+          </Grid>
+          <TextBlock Text="{Binding Chat.MessageActionError}" TextWrapping="Wrap"
+                     IsVisible="{Binding Chat.MessageActionError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                     FontSize="{DynamicResource Font.SizeMeta}"
+                     Foreground="{DynamicResource Brush.DangerDefault}" />
+        </StackPanel>
+      </Border>
+    </sc:StrataBottomSheet>
+
+    <!--
+      A message's menu, as a phone's own: the page dims around the pressed message, which stays lit,
+      and a compact card of actions floats beside it. The layer works in screen coordinates (LTR);
+      the card itself reads in the interface's direction. Touching anywhere else closes it.
+    -->
+    <Panel x:Name="MessageMenuLayer" FlowDirection="LeftToRight"
+           IsVisible="{Binding Chat.IsMessageMenuOpen}"
+           SizeChanged="OnMessageMenuLayerSizeChanged">
+      <Border x:Name="MessageMenuDismissArea" Background="Transparent"
+              PointerPressed="OnMessageMenuDismissPressed" />
+      <Path x:Name="MessageMenuScrim" Classes="message-menu-scrim" IsHitTestVisible="False" />
+      <Canvas x:Name="MessageMenuCanvas">
+        <Panel x:Name="MessageMenuSurface" Classes="message-menu-surface">
+          <sc:StrataBackdropBlur Classes="floating-frost" CornerRadius="{Binding #MessageMenu.CornerRadius}" />
+          <Border x:Name="MessageMenu" Classes="message-menu"
+                  FlowDirection="{x:Static loc:ChatSessionStrings.UiFlowDirection}">
+            <StackPanel>
+              <Button x:Name="CopyMessageButton" Classes="message-menu-item"
+                      IsEnabled="{Binding Chat.HasSelectedMessageText}" Click="OnCopyMessageClick">
+                <Grid ColumnDefinitions="24,*" ColumnSpacing="14">
+                  <sc:StrataLineIcon Data="{DynamicResource Mobile.Icon.Copy}" />
+                  <TextBlock Grid.Column="1" Text="{loc:Str Copy}" />
+                </Grid>
+              </Button>
+              <Button x:Name="EditMessageButton" Classes="message-menu-item"
+                      IsVisible="{Binding Chat.IsUserMessageSelected}"
+                      IsEnabled="{Binding Chat.CanEditSelectedMessage}"
+                      Command="{Binding Chat.EditSelectedMessageCommand}">
+                <Grid ColumnDefinitions="24,*" ColumnSpacing="14">
+                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pencil}" />
+                  <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Text="{loc:Str Edit}" />
+                    <TextBlock x:Name="MessageEditUnavailableText" Classes="message-menu-caption"
+                               Text="{Binding Chat.MessageEditUnavailableReason}"
+                               IsVisible="{Binding Chat.HasMessageEditUnavailableReason}" />
+                  </StackPanel>
+                </Grid>
+              </Button>
+              <Button x:Name="SelectMessageTextButton" Classes="message-menu-item"
+                      IsEnabled="{Binding Chat.HasSelectedMessageText}" Click="OnSelectMessageTextClick">
+                <Grid ColumnDefinitions="24,*" ColumnSpacing="14">
+                  <sc:StrataLineIcon Data="{DynamicResource Mobile.Icon.SelectText}" />
+                  <TextBlock Grid.Column="1" Text="{loc:Str SelectText}" />
+                </Grid>
+              </Button>
+            </StackPanel>
+          </Border>
+        </Panel>
+      </Canvas>
+    </Panel>
   </Panel>
 </UserControl>

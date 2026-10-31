@@ -6,6 +6,16 @@
   <resheader name="version">
     <value>2.0</value>
   </resheader>
+  <data name="EditMessage" xml:space="preserve"><value>メッセージを編集</value></data>
+  <data name="SaveAndResend" xml:space="preserve"><value>保存して再送信</value></data>
+  <data name="MessageEditWarning" xml:space="preserve"><value>このメッセージを置き換え、その後のメッセージを削除します。</value></data>
+  <data name="MessageEditUnavailable" xml:space="preserve"><value>メッセージを編集するには、パソコンの Lumi を更新してください。</value></data>
+  <data name="MessageEditTruncated" xml:space="preserve"><value>全文を編集するには、パソコンでこのメッセージを開いてください。</value></data>
+  <data name="MessageEditPending" xml:space="preserve"><value>メッセージがパソコンに届くまで、編集をお待ちください。</value></data>
+  <data name="MessageEditFailed" xml:space="preserve"><value>メッセージを編集できませんでした。変更内容はここに残っています。</value></data>
+  <data name="CopyMessageFailed" xml:space="preserve"><value>メッセージをコピーできませんでした。</value></data>
+  <data name="CopySelection" xml:space="preserve"><value>選択範囲をコピー</value></data>
+  <data name="NoTextSelected" xml:space="preserve"><value>コピーするテキストを選択してください。</value></data>
   <data name="ReadyWithBackgroundActivity" xml:space="preserve">
     <value>準備完了 · バックグラウンド作業あり</value>
   </data>

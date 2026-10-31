@@ -91,23 +91,32 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
             DispatchConnectionRequest(launchRequest);
 #if DEBUG
         // Debug builds open the design preview on request (adb shell am start ... --ez lumi.design_preview
-        // true [--es lumi.theme Light] [--es lumi.open_file report.pdf]), so the design is judged on
-        // Android's own renderer without a PC.
+        // true [--es lumi.theme Light] [--es lumi.open_file report.pdf] [--ez lumi.preview_conversation true]),
+        // so the design is judged on Android's own renderer without a PC.
         if (Intent?.GetBooleanExtra("lumi.design_preview", false) == true)
         {
             var theme = Intent.GetStringExtra("lumi.theme");
             var file = Intent.GetStringExtra("lumi.open_file");
-            Avalonia.Threading.DispatcherTimer.RunOnce(() =>
+            var previewAttempts = 0;
+            Avalonia.Threading.DispatcherTimer.Run(() =>
             {
                 if (Avalonia.Application.Current is not App { Shell: { } shell })
-                    return;
+                {
+                    if (++previewAttempts < 75)
+                        return true;
+                    System.Diagnostics.Trace.TraceWarning("[MobileDebug] The design preview shell did not initialize.");
+                    return false;
+                }
                 if (Enum.TryParse<Lumi.Mobile.ViewModels.MobileShellViewModel.ThemePreference>(
                         theme, ignoreCase: true, out var preference))
                     shell.Theme = preference;
                 DesignPreview.Apply(shell);
                 if (file is { Length: > 0 })
                     DesignPreview.OpenFile(shell, file);
-            }, TimeSpan.FromSeconds(1));
+                if (Intent?.GetBooleanExtra("lumi.preview_conversation", false) == true)
+                    shell.CloseDrawerCommand.Execute(null);
+                return false;
+            }, TimeSpan.FromMilliseconds(200));
         }
 #endif
 
@@ -115,7 +124,8 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
         MobilePlatformServices.TextSelectionPresenter = _textSelectionPresenter;
         _textSelectionGestureDetector = new GestureDetector(
             this,
-            new TextSelectionGestureListener());
+            new TextSelectionGestureListener(
+                () => Window?.DecorView?.PerformHapticFeedback(FeedbackConstants.LongPress)));
         AndroidImeAutocorrect.Install(this);
 
         if (OperatingSystem.IsAndroidVersionAtLeast(37)
@@ -352,15 +362,17 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
     public sealed class TextSelectionGestureListener
         : GestureDetector.SimpleOnGestureListener
     {
+        private readonly Action _presented;
+
+        public TextSelectionGestureListener(Action presented) => _presented = presented;
+
         public override bool OnDown(MotionEvent e) => true;
 
         public override void OnLongPress(MotionEvent e)
         {
-            if (MobilePlatformServices.TakeTextSelectionGesture()
-                is { Length: > 0 } text)
-            {
-                MobilePlatformServices.TextSelectionPresenter.Show(text);
-            }
+            // A message's menu answers the press with the same tick as the platform's own menus.
+            if (MobilePlatformServices.PresentTextSelectionGesture())
+                _presented();
         }
     }
 

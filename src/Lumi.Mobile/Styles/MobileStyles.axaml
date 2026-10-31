@@ -1268,6 +1268,89 @@
     <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
   </Style>
 
+  <!--
+    A message's menu: the dim around the pressed message, and a compact card of actions in the popup
+    glass of the sheets. Rows keep the 48 dp target and one 24 dp icon column, so every glyph lines up.
+  -->
+  <Style Selector="Path.message-menu-scrim">
+    <Setter Property="Fill" Value="{DynamicResource Brush.MessageMenuScrim}" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.16" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Path.message-menu-scrim.shown">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="Panel.message-menu-surface">
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="RenderTransform" Value="scale(0.92)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.14" Easing="CubicEaseOut" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Panel.message-menu-surface.shown">
+    <Setter Property="Opacity" Value="1" />
+    <Setter Property="RenderTransform" Value="scale(1)" />
+  </Style>
+  <Style Selector="Border.message-menu">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetSurface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.SheetBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.MessageMenu}" />
+    <Setter Property="Padding" Value="6" />
+    <Setter Property="MinWidth" Value="208" />
+    <Setter Property="MaxWidth" Value="280" />
+  </Style>
+  <Style Selector="Border.message-menu Button.message-menu-item">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="14,10" />
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.message-menu Button.message-menu-item /template/ Border#PART_Surface">
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="Border.message-menu Button.message-menu-item:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowHover}" />
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="Border.message-menu Button.message-menu-item:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowPressed}" />
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="Border.message-menu Button.message-menu-item:disabled">
+    <Setter Property="Opacity" Value="0.45" />
+  </Style>
+  <Style Selector="Border.message-menu Button.message-menu-item sc|StrataLineIcon">
+    <Setter Property="Width" Value="20" />
+    <Setter Property="Height" Value="20" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Border.message-menu Button.message-menu-item TextBlock">
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="Border.message-menu TextBlock.message-menu-caption">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+
   <!-- Attachment chips: a file staged for the next message, with its own removal target. -->
   <Style Selector="Border.attachment-chip">
     <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />

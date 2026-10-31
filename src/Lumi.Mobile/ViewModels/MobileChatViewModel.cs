@@ -1197,6 +1197,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     /// <summary>Whether any modal sheet currently covers the conversation. A side panel does not.</summary>
     public bool HasOpenSheet =>
+        IsMessageActionsOpen ||
+        IsMessageSelectionOpen ||
         IsInteractivePickerOpen ||
         IsGitChangesOpen ||
         IsJobWakeSheetOpen ||
@@ -1214,6 +1216,16 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// </summary>
     internal bool DismissTopmostSheet()
     {
+        if (IsMessageSelectionOpen)
+        {
+            CloseMessageSelection();
+            return true;
+        }
+        if (IsMessageActionsOpen)
+        {
+            CloseMessageActions();
+            return true;
+        }
         if (IsInteractivePickerOpen)
         {
             IsInteractivePickerOpen = false;
@@ -1986,6 +1998,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>Clears everything so a chat switch never flashes the previous conversation.</summary>
     public void Reset(Guid chatId, string title, string? model = null, bool isLoading = false)
     {
+        ResetMessageActions();
         ResetGitChanges();
         ReplaceFilePreview(null);
         var previousSurface = CurrentSurface;
@@ -2226,7 +2239,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 resolveInlineImages,
                 releaseInlineImages,
                 OpenJobWake,
-                DisplayModel);
+                DisplayModel,
+                OpenMessageActions);
             created.Apply(incoming);
 
             if (i < Turns.Count)
@@ -3578,6 +3592,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             SteerState = steer ? "Steering" : null
         });
         user.RequestEntranceAnimation();
+        user.OpenActionsCommand = new RelayCommand(() => OpenMessageActions(user));
         turn.Items.Add(user);
 
         Turns.Add(turn);
@@ -4205,6 +4220,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
 /// <summary>Narrow seam so view models can issue commands without owning the transport.</summary>
 public interface IRemoteCommandSink
 {
+    bool SupportsMessageEditing => false;
+
     bool SupportsInteractiveResponses => false;
 
     /// <summary>True when the PC lists the picker's rows and takes pins from the phone.</summary>

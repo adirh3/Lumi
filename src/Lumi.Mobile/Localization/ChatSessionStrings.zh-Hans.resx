@@ -2,6 +2,16 @@
 <root>
   <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
   <resheader name="version"><value>2.0</value></resheader>
+  <data name="EditMessage" xml:space="preserve"><value>编辑消息</value></data>
+  <data name="SaveAndResend" xml:space="preserve"><value>保存并重新发送</value></data>
+  <data name="MessageEditWarning" xml:space="preserve"><value>这将替换你的消息并删除之后的消息。</value></data>
+  <data name="MessageEditUnavailable" xml:space="preserve"><value>请更新电脑上的 Lumi，以便编辑消息。</value></data>
+  <data name="MessageEditTruncated" xml:space="preserve"><value>请在电脑上打开此消息，以编辑完整文本。</value></data>
+  <data name="MessageEditPending" xml:space="preserve"><value>请等此消息发送到电脑后再编辑。</value></data>
+  <data name="MessageEditFailed" xml:space="preserve"><value>无法编辑消息。你的更改仍保留在这里。</value></data>
+  <data name="CopyMessageFailed" xml:space="preserve"><value>无法复制消息。</value></data>
+  <data name="CopySelection" xml:space="preserve"><value>复制所选文本</value></data>
+  <data name="NoTextSelected" xml:space="preserve"><value>请选择要复制的文本。</value></data>
   <data name="ReadyWithBackgroundActivity" xml:space="preserve">
     <value>已就绪 · 有后台活动</value>
   </data>

@@ -16,6 +16,79 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class RemoteCommandRouterSurfaceTests
 {
+    [Theory]
+    [InlineData(null)]
+    [InlineData("not-a-guid")]
+    public Task MessageEditRequiresAnExplicitChatAndMessage(string? chatId) => RunAsync(async () =>
+    {
+        var message = new ChatMessage { Role = "user", Content = "Keep this message" };
+        var chat = new Chat { Messages = [message] };
+        var store = new DataStore(new AppData { Settings = TestSettings(), Chats = [chat] });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        await main.OpenChatByIdAsync(chat.Id);
+        main.ChatVM.PromptText = "Keep this draft";
+        var command = new RemoteCommand(RemoteProtocol.Actions.EditMessage)
+            .With("messageId", message.Id.ToString()).With("message", "Changed");
+        if (chatId is not null)
+            command.With("chatId", chatId);
+        var result = await new RemoteCommandRouter(store, main).ExecuteAsync(command, CancellationToken.None);
+        Assert.False(result.Ok);
+        Assert.Same(message, Assert.Single(chat.Messages));
+        Assert.Equal("Keep this message", message.Content);
+        Assert.Equal("Keep this draft", main.ChatVM.PromptText);
+    });
+
+    [Fact]
+    public Task MessageEditRejectsAssistantMessagesAndPreservesTheComposer() => RunAsync(async () =>
+    {
+        var answer = new ChatMessage { Role = "assistant", Content = "Keep this answer" };
+        var chat = new Chat { Messages = [answer] };
+        var store = new DataStore(new AppData { Settings = TestSettings(), Chats = [chat] });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        await main.OpenChatByIdAsync(chat.Id);
+        main.ChatVM.PromptText = "Keep this draft";
+        var result = await new RemoteCommandRouter(store, main).ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.EditMessage).With("chatId", chat.Id.ToString())
+                .With("messageId", answer.Id.ToString()).With("message", "Changed"),
+            CancellationToken.None);
+        Assert.False(result.Ok);
+        Assert.Same(answer, Assert.Single(chat.Messages));
+        Assert.Equal("Keep this answer", answer.Content);
+        Assert.Equal("Keep this draft", main.ChatVM.PromptText);
+    });
+
+    [Fact]
+    public Task PersistedMessageEditReceiptMakesAReplaySafeAfterRestart() => RunAsync(async () =>
+    {
+        var chat = new Chat { LastRemoteDeviceId = "phone", LastRemoteRequestId = "edit-request" };
+        var store = new DataStore(new AppData { Settings = TestSettings(), Chats = [chat] });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        var result = await new RemoteCommandRouter(store, main).ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.EditMessage)
+            {
+                AuthenticatedDeviceId = "phone", RequestId = "edit-request"
+            }.With("chatId", chat.Id.ToString()).With("messageId", Guid.NewGuid().ToString()).With("message", "Already accepted"),
+            CancellationToken.None);
+        Assert.True(result.Ok, result.Error);
+        Assert.Empty(chat.Messages);
+    });
+
+    [Fact]
+    public Task PausedChatRejectsMessageEditsWithoutRemovingHistory() => RunAsync(async () =>
+    {
+        var message = new ChatMessage { Role = "user", Content = "Keep this message" };
+        var chat = new Chat { IsPaused = true, Messages = [message] };
+        var store = new DataStore(new AppData { Settings = TestSettings(), Chats = [chat] });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        var result = await new RemoteCommandRouter(store, main).ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.EditMessage).With("chatId", chat.Id.ToString())
+                .With("messageId", message.Id.ToString()).With("message", "Changed"),
+            CancellationToken.None);
+        Assert.False(result.Ok);
+        Assert.Same(message, Assert.Single(chat.Messages));
+        Assert.Equal("Keep this message", message.Content);
+    });
+
     [Fact]
     public Task SetupOnlyFusionEffortEditPersistsTheTierWithoutChangingDefaults() => RunAsync(async () =>
     {

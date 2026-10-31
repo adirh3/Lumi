@@ -1481,9 +1481,11 @@ public sealed class MobileShellViewTests
             var userText = Assert.Single(
                 selectableBlocks,
                 block => block.Text == "Selectable user text");
-            Assert.True(NativeTextSelection.GetIsEnabled(userText));
-            Assert.Equal("Selectable user text", NativeTextSelection.GetText(userText));
-            Assert.True(userText.GetValue(InputElement.IsHoldingEnabledProperty));
+            var userBubble = userText.FindAncestorOfType<StrataChatMessage>()!;
+            Assert.True(NativeTextSelection.GetIsEnabled(userBubble));
+            Assert.Equal("Selectable user text", NativeTextSelection.GetText(userBubble));
+            Assert.True(userBubble.GetValue(InputElement.IsHoldingEnabledProperty));
+            Assert.NotNull(NativeTextSelection.GetCommand(userBubble));
             Assert.True(userText.FontSize >= 14);
             Assert.Contains(
                 selectableBlocks,
@@ -1493,6 +1495,7 @@ public sealed class MobileShellViewTests
             Assert.True(NativeTextSelection.GetIsEnabled(assistantMarkdown));
             Assert.Equal("Selectable assistant text", NativeTextSelection.GetText(assistantMarkdown));
             Assert.True(assistantMarkdown.GetValue(InputElement.IsHoldingEnabledProperty));
+            Assert.NotNull(NativeTextSelection.GetCommand(assistantMarkdown));
         });
     }
 

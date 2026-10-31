@@ -164,6 +164,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         _capabilities.Contains(RemoteProtocol.Capabilities.ResumePingV1);
     public bool SupportsModelPins =>
         _capabilities.Contains(RemoteProtocol.Capabilities.ModelPinsV1);
+    public bool SupportsMessageEditing =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.MessageEditingV1);
 
     /// <summary>True once this host has proven a compatible protocol; a resume can skip the handshake.</summary>
     public bool HasCompatibleBootstrap => _hasCompatibleBootstrap;

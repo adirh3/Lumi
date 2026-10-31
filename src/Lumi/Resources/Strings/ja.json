@@ -3257,6 +3257,7 @@
   "Remote_LocalHostRequired": "別のホスト名ではなく、この端末の Lumi アドレスを使ってください。",
   "Remote_MakingChanges": "変更を適用中...",
   "Remote_MessageAlreadyAccepted": "メッセージは受け付け済みです。",
+  "Remote_MessageNotFound": "このユーザーメッセージは編集できなくなりました。",
   "Remote_MessageSent": "メッセージを送信しました。",
   "Remote_MessageStartFailed": "メッセージの処理を開始できませんでした。",
   "Remote_MessageSteerFailed": "メッセージの方針を反映できませんでした。",

@@ -7067,9 +7067,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ChatMessage userMessage,
         bool wasEdited,
         List<Attachment>? attachmentsOverride,
-        bool requiresSessionReconfiguration = false)
+        bool requiresSessionReconfiguration = false,
+        string? remoteDeviceId = null,
+        string? remoteRequestId = null,
+        Action? onAccepted = null,
+        CancellationToken cancellationToken = default)
     {
         if (CurrentChat is null) return;
+        var targetChat = CurrentChat;
+        cancellationToken.ThrowIfCancellationRequested();
         if (IsPaused)
         {
             StatusText = Loc.Get("Chat_Paused");
@@ -7098,18 +7104,27 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
         }
 
-        var idx = CurrentChat.Messages.IndexOf(userMessage);
+        if (CurrentChat?.Id != targetChat.Id)
+            return;
+        cancellationToken.ThrowIfCancellationRequested();
+        var idx = CurrentChat.Messages.FindIndex(message => message.Id == userMessage.Id);
         // A message older than the live tail can be edited or sent again too; its stored history is cut.
         var editsStoredHistory = idx < 0 && IsStoredHistoryMessage(CurrentChat, userMessage);
-        if (idx < 0 && !editsStoredHistory) return;
+        if (idx < 0 && !editsStoredHistory)
+        {
+            if (onAccepted is not null)
+                StatusText = Loc.Get("Remote_MessageNotFound");
+            return;
+        }
 
         // Cutting stored history waits for the database, and the turn starts only after it: until then
         // nothing else may start a turn in the chat, or it would count as one kept before the edit.
-        using var historyCutReservation = editsStoredHistory ? TryReserveExternalSend(CurrentChat.Id) : null;
-        if (editsStoredHistory && historyCutReservation is null)
+        var needsReservation = editsStoredHistory || onAccepted is not null;
+        using var historyCutReservation = needsReservation ? TryReserveExternalSend(CurrentChat.Id) : null;
+        if (needsReservation && historyCutReservation is null)
         {
             StatusText = Loc.Get("Chat_ResendChatBusy");
-            if (wasEdited)
+            if (wasEdited && onAccepted is null)
                 ReturnEditToComposer(userMessage);
             return;
         }
@@ -7149,7 +7164,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 Trace.TraceWarning("[Chat] Could not cut the chat's history to send a message again: {0}", ex.Message);
                 if (CurrentChat?.Id == editedChat.Id)
-                    RestoreUnsentHistoryEdit(userMessage, wasEdited);
+                {
+                    if (onAccepted is null)
+                        RestoreUnsentHistoryEdit(userMessage, wasEdited);
+                    else
+                        StatusText = Loc.Get("Chat_ResendSaveFailed");
+                }
                 return;
             }
 
@@ -7205,6 +7225,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             Role = "user",
             Content = prompt,
             Author = userMessage.Author,
+            RemoteRequestId = remoteRequestId,
             Model = userMessage.Model,
             ReasoningEffort = userMessage.ReasoningEffort,
             ContextWindowTier = userMessage.ContextWindowTier,
@@ -7228,9 +7249,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         CurrentChat.Messages.Add(newUserMsg);
         BeginChatLifecycleTurn(CurrentChat);
         Messages.Add(new ChatMessageViewModel(newUserMsg));
+        // The phone's receipt is saved with the edit itself; a replay is recognised from memory at once,
+        // and nothing yields here, so the turn still starts in the chat that was cut.
+        if (remoteDeviceId is { Length: > 0 } && remoteRequestId is { Length: > 0 })
+        {
+            targetChat.LastRemoteDeviceId = remoteDeviceId;
+            targetChat.LastRemoteRequestId = remoteRequestId;
+        }
         QueueSaveChat(CurrentChat, saveIndex: true, touchIndex: true);
         ChatUpdated?.Invoke();
         ScrollToEndRequested?.Invoke();
+        onAccepted?.Invoke();
 
         // Resend
         if (!_copilotService.IsConnected)
@@ -7298,7 +7327,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var shouldReplayPrompt = wasEdited;
             var previousSessionId = CurrentChat.CopilotSessionId;
 
-            var cts = new CancellationTokenSource();
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
             var historyRewound = false;
             if (wasEdited)

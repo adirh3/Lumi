@@ -3257,6 +3257,7 @@
   "Remote_LocalHostRequired": "请使用此计算机的 Lumi 地址，而非其他主机名。",
   "Remote_MakingChanges": "正在更改...",
   "Remote_MessageAlreadyAccepted": "消息已被接受。",
+  "Remote_MessageNotFound": "这条用户消息已无法编辑。",
   "Remote_MessageSent": "消息已发送。",
   "Remote_MessageStartFailed": "Lumi 无法开始处理该消息。",
   "Remote_MessageSteerFailed": "Lumi 无法使用该消息引导回复。",

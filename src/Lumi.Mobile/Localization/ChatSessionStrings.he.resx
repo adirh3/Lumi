@@ -22,6 +22,16 @@
   <data name="Copy" xml:space="preserve"><value>העתקה</value></data>
   <data name="SelectAll" xml:space="preserve"><value>בחירת הכול</value></data>
   <data name="SelectText" xml:space="preserve"><value>בחירת טקסט</value></data>
+  <data name="EditMessage" xml:space="preserve"><value>עריכת הודעה</value></data>
+  <data name="SaveAndResend" xml:space="preserve"><value>שמירה ושליחה מחדש</value></data>
+  <data name="MessageEditWarning" xml:space="preserve"><value>הפעולה מחליפה את ההודעה שלך ומסירה את ההודעות שאחריה.</value></data>
+  <data name="MessageEditUnavailable" xml:space="preserve"><value>יש לעדכן את Lumi במחשב כדי לערוך הודעות.</value></data>
+  <data name="MessageEditTruncated" xml:space="preserve"><value>יש לפתוח את ההודעה במחשב כדי לערוך את הטקסט המלא שלה.</value></data>
+  <data name="MessageEditPending" xml:space="preserve"><value>יש להמתין עד שההודעה תגיע למחשב לפני עריכתה.</value></data>
+  <data name="MessageEditFailed" xml:space="preserve"><value>לא ניתן לערוך את ההודעה. השינויים שלך עדיין כאן.</value></data>
+  <data name="CopyMessageFailed" xml:space="preserve"><value>לא ניתן להעתיק את ההודעה.</value></data>
+  <data name="CopySelection" xml:space="preserve"><value>העתקת הבחירה</value></data>
+  <data name="NoTextSelected" xml:space="preserve"><value>יש לבחור את הטקסט שברצונך להעתיק.</value></data>
   <data name="OpenWith" xml:space="preserve"><value>פתיחה באמצעות</value></data>
   <data name="ClearSearch" xml:space="preserve"><value>ניקוי החיפוש</value></data>
   <data name="Settings" xml:space="preserve"><value>הגדרות</value></data>
