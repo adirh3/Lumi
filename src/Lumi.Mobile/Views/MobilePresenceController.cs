@@ -83,21 +83,32 @@ internal sealed class MobilePresenceController : IDisposable
 
         _presence.ActualThemeVariantChanged += (_, _) =>
         {
-            ApplyThemeIntensity();
+            ApplyAppearance();
         };
-        ApplyThemeIntensity();
+        ApplyAppearance();
     }
 
-    private void ApplyThemeIntensity()
+    /// <summary>
+    /// A hint of Lumi behind the conversation, as on the desktop: the surfaces stay graphite. Light
+    /// surfaces need less of it to read as the same glow.
+    /// </summary>
+    internal static double ThemeIntensity(bool isLight) => isLight ? 0.18 : 0.48;
+
+    /// <summary>The glow as Settings → Appearance sets it: how brightly it shines, whether at all, and whether it moves while Lumi works.</summary>
+    private void ApplyAppearance()
     {
         var isLight = _presence.ActualThemeVariant == ThemeVariant.Light;
-        // A hint of Lumi behind the conversation, as on the desktop: the surfaces stay graphite.
-        _presence.Intensity = isLight ? 0.18 : 0.48;
+        var glow = _shell?.Glow ?? MobileShellViewModel.GlowPreference.Balanced;
+        _presence.IsVisible = glow != MobileShellViewModel.GlowPreference.Off;
+        _presence.Intensity = ThemeIntensity(isLight) * MobileShellViewModel.GlowMultiplierFor(glow);
+        // Strata's drift and breathing loop until stopped, so they run only while the glow can be seen.
+        _presence.AnimateWhileWorking = _shell?.AnimateGlowWhileWorking == true && CanAnimate;
     }
 
     public StrataPresence Visual => _presence;
 
     private bool CanAnimate => _shell is { IsChatPage: true } shell
+                               && _presence.IsVisible
                                && !shell.IsNavigationCoveringContent && !shell.Chat.IsGitChangesOpen
                                && !shell.IsFilePreviewCoveringChat && !shell.IsPaneMoving
                                && _host.IsEffectivelyVisible && !LifecycleOpacityPulse.GetIsPaused(_host);
@@ -261,7 +272,9 @@ internal sealed class MobilePresenceController : IDisposable
             or nameof(MobileShellViewModel.Page)
             or nameof(MobileShellViewModel.IsNavigationCoveringContent)
             or nameof(MobileShellViewModel.IsFilePreviewCoveringChat)
-            or nameof(MobileShellViewModel.IsPaneMoving))
+            or nameof(MobileShellViewModel.IsPaneMoving)
+            or nameof(MobileShellViewModel.Glow)
+            or nameof(MobileShellViewModel.AnimateGlowWhileWorking))
         {
             Sync();
         }
@@ -303,7 +316,7 @@ internal sealed class MobilePresenceController : IDisposable
         if (_presence.State != state)
             _presence.State = state;
         _presence.Halo = !chat.HasChat;
-        ApplyThemeIntensity();
+        ApplyAppearance();
         if (!CanAnimate)
             _followTimer?.Stop();
 

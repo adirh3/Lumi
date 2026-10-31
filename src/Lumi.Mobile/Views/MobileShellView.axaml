@@ -120,20 +120,7 @@
           <views:MobileSearchView x:Name="SearchPage" IsVisible="{Binding IsSearchPage}" />
         </Panel>
         </Border>
-
-        <!-- An overlay follows the live pane edge without remeasuring the conversation. -->
-        <Border x:Name="ConversationSeparation" Grid.Column="2"
-                Width="1" HorizontalAlignment="Left" IsHitTestVisible="False"
-                Background="{DynamicResource Brush.ChatPaneSeparation}"
-                BoxShadow="{DynamicResource Shadow.ChatPaneSeparation}">
-          <Border.IsVisible>
-            <MultiBinding Converter="{x:Static BoolConverters.And}">
-              <Binding Path="CanDockDrawer" />
-              <Binding Path="IsDrawerPresented" />
-              <Binding Path="!HasHingeGap" />
-            </MultiBinding>
-          </Border.IsVisible>
-        </Border>
+        <!-- A docked chat list and the conversation share one canvas: no line is drawn between them. -->
 
         <!-- The hinge between the chat and a file preview beside it, never painted over. -->
         <Border x:Name="FilePreviewHingeGap" Grid.Column="3"

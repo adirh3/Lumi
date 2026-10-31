@@ -100,7 +100,6 @@
   <SolidColorBrush x:Key="Brush.ChatRowSelected" Color="#1CFFFFFF" />
   <SolidColorBrush x:Key="Brush.ChatCanvas" Color="{StaticResource Color.Background}" />
   <SolidColorBrush x:Key="Brush.ChatPaneSeparation" Color="#14FFFFFF" />
-  <BoxShadows x:Key="Shadow.ChatPaneSeparation">0 0 0 0 #00000000</BoxShadows>
   <SolidColorBrush x:Key="Brush.ChatUserSurface" Color="#2C2A63" />
 
   <!-- Grouped rows: a raised graphite card with a hairline rim and dividers between rows. -->

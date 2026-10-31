@@ -357,6 +357,7 @@ public sealed partial class MobileShellViewModel :
         _connection.NetworkRestored += OnNetworkRestored;
 
         Theme = Enum.TryParse<ThemePreference>(_settings.Theme, ignoreCase: true, out var theme) ? theme : ThemePreference.System;
+        LoadAppearance();
 
         ChatList = new ChatListViewModel(this);
         SearchChatList = new ChatListViewModel(this);
@@ -2012,9 +2013,10 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(IsLightTheme));
         OnPropertyChanged(nameof(IsDarkTheme));
         OnPropertyChanged(nameof(ThemeLabel));
+        OnAppearanceChanged();
     }
 
-    /// <summary>The theme in words, beside Appearance in the Settings list.</summary>
+    /// <summary>The theme in words, in the Appearance summary of the Settings list.</summary>
     public string ThemeLabel => Strings.Get(Theme.ToString());
 
     public bool IsEnglishLanguage => Language == "en";

@@ -69,6 +69,42 @@ public sealed class SettingsCustomizationTests
     public void AccentIds_NormalizeToAKnownPalette(string? id, string expected)
         => Assert.Equal(expected, AccentPalettes.Normalize(id));
 
+    /// <summary>
+    /// The phone offers the desktop's palettes: the same ids, in the same order, under the same names and with
+    /// every tone the same, so a palette looks alike on the PC and the phone.
+    /// </summary>
+    [Fact]
+    public void PhonePalettes_MatchTheDesktops()
+    {
+        var phone = Lumi.Mobile.Appearance.MobileAccentPalettes.All;
+        Assert.Equal(AccentPalettes.All.Select(palette => (palette.Id, palette.NameKey)),
+            phone.Select(palette => (palette.Id, palette.NameKey)));
+        Assert.Equal(AccentPalettes.DefaultId, Lumi.Mobile.Appearance.MobileAccentPalettes.DefaultId);
+
+        foreach (var (desktop, mobile) in AccentPalettes.All.Zip(phone))
+        {
+            Assert.Equal(Tones(desktop.Dark), Tones(mobile.Dark));
+            Assert.Equal(Tones(desktop.Light), Tones(mobile.Light));
+        }
+
+        static IEnumerable<(string, object?)> Tones(object tones) =>
+            tones.GetType().GetProperties()
+                .Where(property => property.PropertyType == typeof(Avalonia.Media.Color))
+                .Select(property => (property.Name, property.GetValue(tones)))
+                .OrderBy(tone => tone.Name, StringComparer.Ordinal);
+    }
+
+    /// <summary>The phone's glow choices brighten and quieten Lumi's glow exactly as the desktop's do.</summary>
+    [Theory]
+    [InlineData(UserSettings.PresenceBrightnessSubtle, Lumi.Mobile.ViewModels.MobileShellViewModel.GlowPreference.Subtle)]
+    [InlineData(UserSettings.PresenceBrightnessBalanced, Lumi.Mobile.ViewModels.MobileShellViewModel.GlowPreference.Balanced)]
+    [InlineData(UserSettings.PresenceBrightnessVivid, Lumi.Mobile.ViewModels.MobileShellViewModel.GlowPreference.Vivid)]
+    public void PhoneGlow_MatchesTheDesktopsPresenceBrightness(
+        string desktop, Lumi.Mobile.ViewModels.MobileShellViewModel.GlowPreference phone)
+        => Assert.Equal(
+            SettingsViewModel.PresenceBrightnessMultiplier(desktop),
+            Lumi.Mobile.ViewModels.MobileShellViewModel.GlowMultiplierFor(phone));
+
     [Fact]
     public async Task AccentColor_RecolorsTheAppAndRevertsToLumi()
     {

@@ -158,11 +158,35 @@
   <data name="Working" xml:space="preserve"><value>עובד</value></data>
   <data name="BackToSettings" xml:space="preserve"><value>חזרה להגדרות</value></data>
   <data name="Theme" xml:space="preserve"><value>ערכת נושא</value></data>
-  <data name="LightOrDark" xml:space="preserve"><value>בהיר או כהה</value></data>
   <data name="ThemeDescription" xml:space="preserve"><value>בחירת מראה, או התאמה לטלפון שלך.</value></data>
+  <data name="AccentColor" xml:space="preserve"><value>צבע הדגשה</value></data>
+  <data name="Accent_Lumi" xml:space="preserve"><value>Lumi</value></data>
+  <data name="Accent_Ocean" xml:space="preserve"><value>אוקיינוס</value></data>
+  <data name="Accent_Lagoon" xml:space="preserve"><value>לגונה</value></data>
+  <data name="Accent_Forest" xml:space="preserve"><value>יער</value></data>
+  <data name="Accent_Sunset" xml:space="preserve"><value>שקיעה</value></data>
+  <data name="Accent_Blossom" xml:space="preserve"><value>פריחה</value></data>
+  <data name="Accent_Grape" xml:space="preserve"><value>ענבים</value></data>
+  <data name="Accent_Graphite" xml:space="preserve"><value>גרפיט</value></data>
+  <data name="TextSize" xml:space="preserve"><value>גודל הטקסט</value></data>
+  <data name="TextSizeDescription" xml:space="preserve"><value>הטקסט של Lumi מתאים את עצמו גם לגודל הגופן בטלפון שלך.</value></data>
+  <data name="TextSizeSmall" xml:space="preserve"><value>קטן</value></data>
+  <data name="TextSizeDefault" xml:space="preserve"><value>ברירת מחדל</value></data>
+  <data name="TextSizeLarge" xml:space="preserve"><value>גדול</value></data>
+  <data name="TextSizeLarger" xml:space="preserve"><value>גדול יותר</value></data>
+  <data name="TextSizeLargest" xml:space="preserve"><value>הכי גדול</value></data>
+  <data name="GlowTitle" xml:space="preserve"><value>הזוהר של Lumi</value></data>
+  <data name="GlowSubtle" xml:space="preserve"><value>עדין</value></data>
+  <data name="GlowBalanced" xml:space="preserve"><value>מאוזן</value></data>
+  <data name="GlowVivid" xml:space="preserve"><value>עז</value></data>
+  <data name="AnimateGlow" xml:space="preserve"><value>הנפשה בזמן ש־Lumi עובד</value></data>
+  <data name="AnimateGlowDescription" xml:space="preserve"><value>הזוהר נע ונושם בזמן ש־Lumi חושב או כותב. צורך יותר סוללה.</value></data>
+  <data name="LivePreview" xml:space="preserve"><value>תצוגה חיה</value></data>
+  <data name="PreviewUserMessage" xml:space="preserve"><value>אפשר להפוך את הסיכום הזה לידידותי יותר?</value></data>
+  <data name="PreviewAssistantMessage" xml:space="preserve"><value>בטח! הנה גרסה חמה יותר ששומרת על כל הנקודות החשובות.</value></data>
+  <data name="RestoreDefaultLook" xml:space="preserve"><value>שחזור המראה המקורי</value></data>
+  <data name="VersionNamed" xml:space="preserve"><value>גרסה {0}</value></data>
   <data name="ThisConnection" xml:space="preserve"><value>החיבור הזה</value></data>
-  <data name="Pc" xml:space="preserve"><value>מחשב</value></data>
-  <data name="Status" xml:space="preserve"><value>מצב</value></data>
   <data name="ThisDevice" xml:space="preserve"><value>המכשיר הזה</value></data>
   <data name="RefreshConnection" xml:space="preserve"><value>רענון החיבור</value></data>
   <data name="RefreshConnectionHelp" xml:space="preserve"><value>עדכון השיחות והספרייה שלך.</value></data>
@@ -173,8 +197,6 @@
   <data name="ReloadWebApp" xml:space="preserve"><value>טעינה מחדש של אפליקציית הרשת</value></data>
   <data name="DisconnectPc" xml:space="preserve"><value>ניתוק מהמחשב הזה</value></data>
   <data name="ChatsStayOnPc" xml:space="preserve"><value>השיחות והקבצים שלך נשארים במחשב.</value></data>
-  <data name="AppVersion" xml:space="preserve"><value>גרסת האפליקציה</value></data>
-  <data name="YourAssistant" xml:space="preserve"><value>העוזר שלך</value></data>
   <data name="AboutDescription" xml:space="preserve"><value>Lumi בטלפון עובד יחד עם Lumi במחשב: השיחות, הקבצים והכלים שלך נשארים שם.</value></data>
   <data name="DisconnectQuestion" xml:space="preserve"><value>להתנתק מהמחשב הזה?</value></data>
   <data name="DisconnectDescription" xml:space="preserve"><value>הטלפון יאבד גישה ויחזור למסך ההגדרה. השיחות והקבצים שלך נשארים במחשב.</value></data>

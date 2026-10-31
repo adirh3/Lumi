@@ -158,11 +158,35 @@
   <data name="Working" xml:space="preserve"><value>工作中</value></data>
   <data name="BackToSettings" xml:space="preserve"><value>返回设置</value></data>
   <data name="Theme" xml:space="preserve"><value>主题</value></data>
-  <data name="LightOrDark" xml:space="preserve"><value>浅色或深色</value></data>
   <data name="ThemeDescription" xml:space="preserve"><value>选择外观，或跟随手机设置。</value></data>
+  <data name="AccentColor" xml:space="preserve"><value>强调色</value></data>
+  <data name="Accent_Lumi" xml:space="preserve"><value>Lumi</value></data>
+  <data name="Accent_Ocean" xml:space="preserve"><value>海洋</value></data>
+  <data name="Accent_Lagoon" xml:space="preserve"><value>泻湖</value></data>
+  <data name="Accent_Forest" xml:space="preserve"><value>森林</value></data>
+  <data name="Accent_Sunset" xml:space="preserve"><value>落日</value></data>
+  <data name="Accent_Blossom" xml:space="preserve"><value>繁花</value></data>
+  <data name="Accent_Grape" xml:space="preserve"><value>葡萄</value></data>
+  <data name="Accent_Graphite" xml:space="preserve"><value>石墨</value></data>
+  <data name="TextSize" xml:space="preserve"><value>文字大小</value></data>
+  <data name="TextSizeDescription" xml:space="preserve"><value>Lumi 的文字也会跟随手机的字体大小。</value></data>
+  <data name="TextSizeSmall" xml:space="preserve"><value>小</value></data>
+  <data name="TextSizeDefault" xml:space="preserve"><value>默认</value></data>
+  <data name="TextSizeLarge" xml:space="preserve"><value>大</value></data>
+  <data name="TextSizeLarger" xml:space="preserve"><value>较大</value></data>
+  <data name="TextSizeLargest" xml:space="preserve"><value>特大</value></data>
+  <data name="GlowTitle" xml:space="preserve"><value>Lumi 的光晕</value></data>
+  <data name="GlowSubtle" xml:space="preserve"><value>柔和</value></data>
+  <data name="GlowBalanced" xml:space="preserve"><value>均衡</value></data>
+  <data name="GlowVivid" xml:space="preserve"><value>鲜明</value></data>
+  <data name="AnimateGlow" xml:space="preserve"><value>Lumi 工作时播放动画</value></data>
+  <data name="AnimateGlowDescription" xml:space="preserve"><value>Lumi 思考或书写时，光晕会缓缓流动、呼吸。耗电更多。</value></data>
+  <data name="LivePreview" xml:space="preserve"><value>实时预览</value></data>
+  <data name="PreviewUserMessage" xml:space="preserve"><value>能把这份摘要写得更亲切一些吗？</value></data>
+  <data name="PreviewAssistantMessage" xml:space="preserve"><value>当然！这是更温暖的版本，所有要点都保留了。</value></data>
+  <data name="RestoreDefaultLook" xml:space="preserve"><value>恢复默认外观</value></data>
+  <data name="VersionNamed" xml:space="preserve"><value>版本 {0}</value></data>
   <data name="ThisConnection" xml:space="preserve"><value>此连接</value></data>
-  <data name="Pc" xml:space="preserve"><value>计算机</value></data>
-  <data name="Status" xml:space="preserve"><value>状态</value></data>
   <data name="ThisDevice" xml:space="preserve"><value>此设备</value></data>
   <data name="RefreshConnection" xml:space="preserve"><value>刷新连接</value></data>
   <data name="RefreshConnectionHelp" xml:space="preserve"><value>更新你的聊天和资料库。</value></data>
@@ -173,8 +197,6 @@
   <data name="ReloadWebApp" xml:space="preserve"><value>重新加载网页应用</value></data>
   <data name="DisconnectPc" xml:space="preserve"><value>断开与此计算机的连接</value></data>
   <data name="ChatsStayOnPc" xml:space="preserve"><value>聊天和文件保留在计算机上。</value></data>
-  <data name="AppVersion" xml:space="preserve"><value>应用版本</value></data>
-  <data name="YourAssistant" xml:space="preserve"><value>你的助手</value></data>
   <data name="AboutDescription" xml:space="preserve"><value>手机上的 Lumi 与计算机上的 Lumi 协同工作：聊天、文件和工具都保留在计算机上。</value></data>
   <data name="DisconnectQuestion" xml:space="preserve"><value>断开与此计算机的连接？</value></data>
   <data name="DisconnectDescription" xml:space="preserve"><value>此手机将失去访问权限并返回设置页面。聊天和文件保留在计算机上。</value></data>

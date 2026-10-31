@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Controls;
 
@@ -10,10 +11,22 @@ namespace Lumi.Mobile.Layout;
 /// Lumi's text follows the phone's own font size, as every native app's text does. The platform head
 /// converts each rung of the type scale the way it converts its own text (on Android, sp to dp, which
 /// grows large text less than small text) and the rungs are restated at application level, where every
-/// view and every Strata control that reads them picks the new sizes up.
+/// view and every Strata control that reads them picks the new sizes up. Lumi's own text size
+/// (Settings → Appearance) then makes the converted scale larger or smaller on top.
 /// </summary>
 public static class MobileTypeScale
 {
+    /// <summary>What each application's scale is made of: the platform's conversion and Lumi's text size.</summary>
+    private sealed class Scale
+    {
+        /// <summary>Each rung as the platform converts it; a rung absent here is drawn at its designed size.</summary>
+        public Dictionary<string, double> Platform { get; } = new(StringComparer.Ordinal);
+
+        public double Text { get; set; } = 1;
+    }
+
+    private static readonly ConditionalWeakTable<Application, Scale> Scales = new();
+
     /// <summary>Every resource that sizes text: the type scale and the titles sized apart from it.</summary>
     public static IReadOnlyList<string> Keys { get; } =
     [
@@ -40,23 +53,55 @@ public static class MobileTypeScale
     ];
 
     /// <summary>
-    /// Restates every rung through <paramref name="convert"/>, which maps a size designed for the default
-    /// font size to the size to draw it at. Each call starts again from the designed sizes, so a new
-    /// setting replaces the last one instead of compounding it, and the default removes the restatement.
-    /// Call on the UI thread, before the views that should start at the new size are built.
+    /// Restates every rung through <paramref name="convert"/>, the platform's conversion of a size designed
+    /// for the default font size to the size to draw it at. Each call starts again from the designed sizes,
+    /// so a new setting replaces the last one instead of compounding it, and the default removes the
+    /// restatement. Lumi's own text size still applies on top. Call on the UI thread, before the views that
+    /// should start at the new size are built.
     /// </summary>
     public static void Apply(Application application, Func<double, double> convert)
     {
         ArgumentNullException.ThrowIfNull(application);
         ArgumentNullException.ThrowIfNull(convert);
 
+        // The converted sizes are kept rather than the conversion, which may hold the platform's activity.
+        var scale = Scales.GetOrCreateValue(application);
+        scale.Platform.Clear();
+        foreach (var key in Keys)
+        {
+            if (!TryGetDesignedSize(application, key, out var designed))
+                continue;
+
+            var size = convert(designed);
+            if (double.IsFinite(size) && size > 0)
+                scale.Platform[key] = size;
+        }
+
+        Restate(application, scale);
+    }
+
+    /// <summary>
+    /// Makes every rung <paramref name="textScale"/> times the size the platform draws it at (1 is the
+    /// platform's own size), as Lumi's text size setting does. Live views follow the restated rungs.
+    /// </summary>
+    public static void ApplyTextScale(Application application, double textScale)
+    {
+        ArgumentNullException.ThrowIfNull(application);
+
+        var scale = Scales.GetOrCreateValue(application);
+        scale.Text = double.IsFinite(textScale) && textScale > 0 ? textScale : 1;
+        Restate(application, scale);
+    }
+
+    private static void Restate(Application application, Scale scale)
+    {
         var resources = application.Resources;
         foreach (var key in Keys)
         {
             if (!TryGetDesignedSize(application, key, out var designed))
                 continue;
 
-            Restate(resources, key, designed, Converted(designed));
+            Restate(resources, key, designed, Converted(key, designed));
         }
 
         foreach (var (lineKey, sizeKey) in LineHeightKeys)
@@ -65,12 +110,12 @@ public static class MobileTypeScale
                 || !TryGetDesignedSize(application, sizeKey, out var designedSize) || designedSize <= 0)
                 continue;
 
-            Restate(resources, lineKey, designed, Math.Round(designed * Converted(designedSize) / designedSize, 2));
+            Restate(resources, lineKey, designed, Math.Round(designed * Converted(sizeKey, designedSize) / designedSize, 2));
         }
 
-        double Converted(double designed)
+        double Converted(string key, double designed)
         {
-            var size = convert(designed);
+            var size = (scale.Platform.TryGetValue(key, out var platform) ? platform : designed) * scale.Text;
             return double.IsFinite(size) && size > 0 ? Math.Round(size, 2) : designed;
         }
     }

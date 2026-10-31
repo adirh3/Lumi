@@ -290,51 +290,61 @@ public sealed class OpenCanvasDesignTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public Task ConversationSeparationOnlyFramesVisibleDockedNavigation(bool dark) =>
+    public Task EveryPlaceKeepsItsListAndPageOnOneCanvas(bool dark) =>
         RunAsync(1100, dark, async (model, view, window) =>
         {
+            // Chats: the docked list and the conversation meet with nothing drawn between them.
             var frame = Required<Border>(view, "ConversationFrame");
-            var edge = Required<Border>(view, "ConversationSeparation");
             var drawer = Required<StrataNavigationDrawer>(view, "NavDrawer");
-            Assert.True(edge.IsEffectivelyVisible);
-            Assert.False(edge.IsHitTestVisible);
-            Assert.Equal(1, edge.Bounds.Width);
-            Assert.Equal(frame.Bounds.Height, edge.Bounds.Height);
-            Assert.Equal(frame.TranslatePoint(default, view), edge.TranslatePoint(default, view));
-            Assert.Equal(drawer.PanelWidth, edge.TranslatePoint(default, view)!.Value.X, precision: 1);
-            // A hairline, as the hinge draws on the Fold: no shadow smearing into either pane.
-            for (var shadow = 0; shadow < edge.BoxShadow.Count; shadow++)
-                Assert.Equal(0, edge.BoxShadow[shadow].Color.A);
-            Assert.True(ColorOf(edge.Background).A > 0);
-            Assert.Equal(0, frame.BorderThickness.Left);
+            Assert.True(model.CanDockDrawer);
+            Assert.Equal(drawer.PanelWidth, frame.TranslatePoint(default, view)!.Value.X, precision: 1);
+            AssertOneCanvas(view, Required<Border>(view, "DrawerPane"), frame);
 
             model.IsNavigationOpen = false;
             await SettleAsync(window);
-            Assert.False(edge.IsEffectivelyVisible);
             Assert.Equal(0, frame.TranslatePoint(default, view)!.Value.X, precision: 1);
             Assert.Equal(view.Bounds.Width, frame.Bounds.Width, precision: 1);
 
-            model.IsNavigationOpen = true;
-            await SettleAsync(window);
-            Assert.True(edge.IsEffectivelyVisible);
-            Assert.Equal(frame.TranslatePoint(default, view), edge.TranslatePoint(default, view));
+            // Jobs, Customize and Settings keep their list beside the open page on the same canvas.
+            foreach (var place in new[] { MobilePlace.Jobs, MobilePlace.Customize })
+            {
+                model.SelectPlace(place);
+                await SettleAsync(window);
+                var library = Required<LibraryView>(view, "LibraryPage");
+                AssertOneCanvas(view, Required<Grid>(library, "LibraryListPane"), Required<Grid>(library, "LibraryDetailPane"));
+            }
 
-            view.HingePosition = 550;
-            view.HingeSize = 24;
-            view.Posture = Lumi.Mobile.Layout.FoldPosture.BookVerticalHinge;
+            model.SelectPlace(MobilePlace.Settings);
             await SettleAsync(window);
-            Assert.True(model.HasHingeGap);
-            Assert.False(edge.IsEffectivelyVisible);
-
-            view.Posture = Lumi.Mobile.Layout.FoldPosture.Flat;
-            view.HingeSize = 0;
-            window.Width = 360;
-            await SettleAsync(window);
-            model.IsNavigationOpen = true;
-            await SettleAsync(window);
-            Assert.False(model.CanDockDrawer);
-            Assert.False(edge.IsEffectivelyVisible);
+            var settings = Required<MobileSettingsView>(view, "SettingsPage");
+            AssertOneCanvas(view, Required<Grid>(settings, "SettingsListPane"), Required<Grid>(settings, "SettingsDetailPane"));
         });
+
+    /// <summary>Both panes wear the same surface, and nothing thin and tall is painted where they meet.</summary>
+    private static void AssertOneCanvas(Control root, Control list, Control page)
+    {
+        Assert.True(list.IsEffectivelyVisible && page.IsEffectivelyVisible);
+        Assert.Equal(ColorOf(BackgroundOf(list)), ColorOf(BackgroundOf(page)));
+        if (list is Border listBorder) Assert.Equal(0, listBorder.BorderThickness.Right);
+        if (page is Border pageBorder) Assert.Equal(0, pageBorder.BorderThickness.Left);
+
+        var seam = page.TranslatePoint(default, root)!.Value.X;
+        Assert.True(seam > 100, "the page sits beside its list");
+        Assert.DoesNotContain(root.GetVisualDescendants().OfType<Border>(), border =>
+            border.IsEffectivelyVisible && border.Bounds is { Width: <= 2, Height: > 100 }
+            && Math.Abs(border.TranslatePoint(default, root)!.Value.X - seam) < 2
+            && (Paints(border.Background) || border.BorderThickness != default && Paints(border.BorderBrush)));
+
+        static IBrush? BackgroundOf(Control pane) => pane switch
+        {
+            Panel panel => panel.Background,
+            Border border => border.Background,
+            _ => throw new ArgumentException($"{pane.GetType().Name} has no surface", nameof(pane))
+        };
+
+        static bool Paints(IBrush? brush) =>
+            brush is { Opacity: > 0 } && (brush is not ISolidColorBrush solid || solid.Color.A > 0);
+    }
 
     [Theory]
     [InlineData(360)]

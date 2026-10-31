@@ -30,6 +30,18 @@ public sealed class MobileConnectionSettings
     /// <summary>Empty follows the device at startup; explicit choices use a supported UI culture code.</summary>
     public string Language { get; set; } = "";
 
+    /// <summary>The accent palette's id, as the desktop names its palettes. Unknown ids show Lumi's own.</summary>
+    public string AccentColor { get; set; } = "lumi";
+
+    /// <summary>Lumi's text size, in percent of the phone's own; on top of the phone's font size.</summary>
+    public int TextSize { get; set; } = 100;
+
+    /// <summary>"Off", "Subtle", "Balanced" or "Vivid": how brightly Lumi's glow shines behind the chat.</summary>
+    public string Glow { get; set; } = "Balanced";
+
+    /// <summary>Lets the glow drift and breathe while Lumi works, which costs battery; off by default.</summary>
+    public bool AnimateGlowWhileWorking { get; set; }
+
     /// <summary>Docked sidebar collapsed on a tablet or unfolded foldable.</summary>
     public bool IsSidebarCollapsed { get; set; }
 }

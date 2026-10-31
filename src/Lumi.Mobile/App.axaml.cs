@@ -3,6 +3,8 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
+using Lumi.Mobile.Appearance;
+using Lumi.Mobile.Layout;
 using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Views;
 
@@ -31,10 +33,14 @@ public partial class App : Application
     {
         _shell = ShellFactory?.Invoke() ?? new MobileShellViewModel();
         ApplyTheme(_shell.Theme);
+        // The look applies before the first view is built, so nothing starts in Lumi's defaults and changes.
+        ApplyAppearance(this, _shell);
         _shell.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(MobileShellViewModel.Theme))
                 ApplyTheme(_shell.Theme);
+            else if (e.PropertyName is nameof(MobileShellViewModel.AccentColor) or nameof(MobileShellViewModel.TextSize))
+                ApplyAppearance(this, _shell);
         };
 
         switch (ApplicationLifetime)
@@ -84,4 +90,18 @@ public partial class App : Application
 
     private void ApplyTheme(MobileShellViewModel.ThemePreference preference) =>
         RequestedThemeVariant = VariantFor(preference);
+
+    /// <summary>
+    /// Shows the look Settings → Appearance chose across the app: the accent palette, and Lumi's text size
+    /// on top of the phone's font size. Static and public, as <see cref="VariantFor"/> is, so it can be
+    /// verified without the application lifetime.
+    /// </summary>
+    public static void ApplyAppearance(Application application, MobileShellViewModel shell)
+    {
+        ArgumentNullException.ThrowIfNull(application);
+        ArgumentNullException.ThrowIfNull(shell);
+
+        MobileAccentPalettes.Apply(application.Resources, shell.AccentColor);
+        MobileTypeScale.ApplyTextScale(application, shell.TextSize / 100.0);
+    }
 }

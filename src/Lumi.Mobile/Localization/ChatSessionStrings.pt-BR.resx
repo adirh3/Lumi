@@ -158,11 +158,35 @@
   <data name="Working" xml:space="preserve"><value>Trabalhando</value></data>
   <data name="BackToSettings" xml:space="preserve"><value>Voltar às Configurações</value></data>
   <data name="Theme" xml:space="preserve"><value>Tema</value></data>
-  <data name="LightOrDark" xml:space="preserve"><value>Claro ou escuro</value></data>
   <data name="ThemeDescription" xml:space="preserve"><value>Escolha um visual ou acompanhe seu celular.</value></data>
+  <data name="AccentColor" xml:space="preserve"><value>Cor de destaque</value></data>
+  <data name="Accent_Lumi" xml:space="preserve"><value>Lumi</value></data>
+  <data name="Accent_Ocean" xml:space="preserve"><value>Oceano</value></data>
+  <data name="Accent_Lagoon" xml:space="preserve"><value>Lagoa</value></data>
+  <data name="Accent_Forest" xml:space="preserve"><value>Floresta</value></data>
+  <data name="Accent_Sunset" xml:space="preserve"><value>Pôr do sol</value></data>
+  <data name="Accent_Blossom" xml:space="preserve"><value>Flor</value></data>
+  <data name="Accent_Grape" xml:space="preserve"><value>Uva</value></data>
+  <data name="Accent_Graphite" xml:space="preserve"><value>Grafite</value></data>
+  <data name="TextSize" xml:space="preserve"><value>Tamanho do texto</value></data>
+  <data name="TextSizeDescription" xml:space="preserve"><value>O texto do Lumi também acompanha o tamanho da fonte do seu celular.</value></data>
+  <data name="TextSizeSmall" xml:space="preserve"><value>Pequeno</value></data>
+  <data name="TextSizeDefault" xml:space="preserve"><value>Padrão</value></data>
+  <data name="TextSizeLarge" xml:space="preserve"><value>Grande</value></data>
+  <data name="TextSizeLarger" xml:space="preserve"><value>Maior</value></data>
+  <data name="TextSizeLargest" xml:space="preserve"><value>Muito grande</value></data>
+  <data name="GlowTitle" xml:space="preserve"><value>O brilho do Lumi</value></data>
+  <data name="GlowSubtle" xml:space="preserve"><value>Sutil</value></data>
+  <data name="GlowBalanced" xml:space="preserve"><value>Equilibrado</value></data>
+  <data name="GlowVivid" xml:space="preserve"><value>Vivo</value></data>
+  <data name="AnimateGlow" xml:space="preserve"><value>Animar enquanto o Lumi trabalha</value></data>
+  <data name="AnimateGlowDescription" xml:space="preserve"><value>O brilho se move e pulsa enquanto o Lumi pensa ou escreve. Gasta mais bateria.</value></data>
+  <data name="LivePreview" xml:space="preserve"><value>Prévia ao vivo</value></data>
+  <data name="PreviewUserMessage" xml:space="preserve"><value>Pode deixar este resumo mais amigável?</value></data>
+  <data name="PreviewAssistantMessage" xml:space="preserve"><value>Claro! Aqui está uma versão mais acolhedora que mantém todos os pontos importantes.</value></data>
+  <data name="RestoreDefaultLook" xml:space="preserve"><value>Restaurar aparência padrão</value></data>
+  <data name="VersionNamed" xml:space="preserve"><value>Versão {0}</value></data>
   <data name="ThisConnection" xml:space="preserve"><value>Esta conexão</value></data>
-  <data name="Pc" xml:space="preserve"><value>Computador</value></data>
-  <data name="Status" xml:space="preserve"><value>Status</value></data>
   <data name="ThisDevice" xml:space="preserve"><value>Este dispositivo</value></data>
   <data name="RefreshConnection" xml:space="preserve"><value>Atualizar conexão</value></data>
   <data name="RefreshConnectionHelp" xml:space="preserve"><value>Atualize suas conversas e biblioteca.</value></data>
@@ -173,8 +197,6 @@
   <data name="ReloadWebApp" xml:space="preserve"><value>Recarregar aplicativo web</value></data>
   <data name="DisconnectPc" xml:space="preserve"><value>Desconectar deste computador</value></data>
   <data name="ChatsStayOnPc" xml:space="preserve"><value>Suas conversas e arquivos ficam no computador.</value></data>
-  <data name="AppVersion" xml:space="preserve"><value>Versão do aplicativo</value></data>
-  <data name="YourAssistant" xml:space="preserve"><value>Seu assistente</value></data>
   <data name="AboutDescription" xml:space="preserve"><value>O Lumi no celular funciona com o Lumi no computador: suas conversas, arquivos e ferramentas ficam lá.</value></data>
   <data name="DisconnectQuestion" xml:space="preserve"><value>Desconectar deste computador?</value></data>
   <data name="DisconnectDescription" xml:space="preserve"><value>Este celular perde o acesso e volta à configuração. Suas conversas e arquivos ficam no computador.</value></data>

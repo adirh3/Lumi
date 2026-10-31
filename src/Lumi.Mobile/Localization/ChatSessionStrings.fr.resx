@@ -158,11 +158,35 @@
   <data name="Working" xml:space="preserve"><value>Au travail</value></data>
   <data name="BackToSettings" xml:space="preserve"><value>Retour aux paramètres</value></data>
   <data name="Theme" xml:space="preserve"><value>Thème</value></data>
-  <data name="LightOrDark" xml:space="preserve"><value>Clair ou sombre</value></data>
   <data name="ThemeDescription" xml:space="preserve"><value>Choisissez une apparence ou suivez votre téléphone.</value></data>
+  <data name="AccentColor" xml:space="preserve"><value>Couleur d’accentuation</value></data>
+  <data name="Accent_Lumi" xml:space="preserve"><value>Lumi</value></data>
+  <data name="Accent_Ocean" xml:space="preserve"><value>Océan</value></data>
+  <data name="Accent_Lagoon" xml:space="preserve"><value>Lagon</value></data>
+  <data name="Accent_Forest" xml:space="preserve"><value>Forêt</value></data>
+  <data name="Accent_Sunset" xml:space="preserve"><value>Coucher de soleil</value></data>
+  <data name="Accent_Blossom" xml:space="preserve"><value>Fleur</value></data>
+  <data name="Accent_Grape" xml:space="preserve"><value>Raisin</value></data>
+  <data name="Accent_Graphite" xml:space="preserve"><value>Graphite</value></data>
+  <data name="TextSize" xml:space="preserve"><value>Taille du texte</value></data>
+  <data name="TextSizeDescription" xml:space="preserve"><value>Le texte de Lumi suit aussi la taille de police de votre téléphone.</value></data>
+  <data name="TextSizeSmall" xml:space="preserve"><value>Petit</value></data>
+  <data name="TextSizeDefault" xml:space="preserve"><value>Par défaut</value></data>
+  <data name="TextSizeLarge" xml:space="preserve"><value>Grand</value></data>
+  <data name="TextSizeLarger" xml:space="preserve"><value>Plus grand</value></data>
+  <data name="TextSizeLargest" xml:space="preserve"><value>Très grand</value></data>
+  <data name="GlowTitle" xml:space="preserve"><value>La lueur de Lumi</value></data>
+  <data name="GlowSubtle" xml:space="preserve"><value>Discrète</value></data>
+  <data name="GlowBalanced" xml:space="preserve"><value>Équilibrée</value></data>
+  <data name="GlowVivid" xml:space="preserve"><value>Vive</value></data>
+  <data name="AnimateGlow" xml:space="preserve"><value>Animer pendant que Lumi travaille</value></data>
+  <data name="AnimateGlowDescription" xml:space="preserve"><value>La lueur ondule et respire pendant que Lumi réfléchit ou écrit. Consomme plus de batterie.</value></data>
+  <data name="LivePreview" xml:space="preserve"><value>Aperçu en direct</value></data>
+  <data name="PreviewUserMessage" xml:space="preserve"><value>Pouvez-vous rendre ce résumé plus chaleureux ?</value></data>
+  <data name="PreviewAssistantMessage" xml:space="preserve"><value>Bien sûr ! Voici une version plus chaleureuse qui garde tous les points essentiels.</value></data>
+  <data name="RestoreDefaultLook" xml:space="preserve"><value>Rétablir l’apparence par défaut</value></data>
+  <data name="VersionNamed" xml:space="preserve"><value>Version {0}</value></data>
   <data name="ThisConnection" xml:space="preserve"><value>Cette connexion</value></data>
-  <data name="Pc" xml:space="preserve"><value>Ordinateur</value></data>
-  <data name="Status" xml:space="preserve"><value>État</value></data>
   <data name="ThisDevice" xml:space="preserve"><value>Cet appareil</value></data>
   <data name="RefreshConnection" xml:space="preserve"><value>Actualiser la connexion</value></data>
   <data name="RefreshConnectionHelp" xml:space="preserve"><value>Mettre vos conversations et votre bibliothèque à jour.</value></data>
@@ -173,8 +197,6 @@
   <data name="ReloadWebApp" xml:space="preserve"><value>Recharger l’application web</value></data>
   <data name="DisconnectPc" xml:space="preserve"><value>Se déconnecter de cet ordinateur</value></data>
   <data name="ChatsStayOnPc" xml:space="preserve"><value>Vos conversations et fichiers restent sur votre ordinateur.</value></data>
-  <data name="AppVersion" xml:space="preserve"><value>Version de l’application</value></data>
-  <data name="YourAssistant" xml:space="preserve"><value>Votre assistant</value></data>
   <data name="AboutDescription" xml:space="preserve"><value>Lumi sur votre téléphone travaille avec Lumi sur votre ordinateur : conversations, fichiers et outils y restent.</value></data>
   <data name="DisconnectQuestion" xml:space="preserve"><value>Se déconnecter de cet ordinateur ?</value></data>
   <data name="DisconnectDescription" xml:space="preserve"><value>Ce téléphone perdra l’accès et reviendra à la configuration. Vos conversations et fichiers restent sur l’ordinateur.</value></data>

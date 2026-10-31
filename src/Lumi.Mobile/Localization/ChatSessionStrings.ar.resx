@@ -442,20 +442,92 @@
   <data name="Theme" xml:space="preserve">
     <value>السمة</value>
   </data>
-  <data name="LightOrDark" xml:space="preserve">
-    <value>فاتح أو داكن</value>
-  </data>
   <data name="ThemeDescription" xml:space="preserve">
     <value>اختر مظهرًا أو طابق هاتفك.</value>
   </data>
+  <data name="AccentColor" xml:space="preserve">
+    <value>لون التمييز</value>
+  </data>
+  <data name="Accent_Lumi" xml:space="preserve">
+    <value>Lumi</value>
+  </data>
+  <data name="Accent_Ocean" xml:space="preserve">
+    <value>المحيط</value>
+  </data>
+  <data name="Accent_Lagoon" xml:space="preserve">
+    <value>البحيرة</value>
+  </data>
+  <data name="Accent_Forest" xml:space="preserve">
+    <value>الغابة</value>
+  </data>
+  <data name="Accent_Sunset" xml:space="preserve">
+    <value>الغروب</value>
+  </data>
+  <data name="Accent_Blossom" xml:space="preserve">
+    <value>الزهر</value>
+  </data>
+  <data name="Accent_Grape" xml:space="preserve">
+    <value>العنب</value>
+  </data>
+  <data name="Accent_Graphite" xml:space="preserve">
+    <value>الغرافيت</value>
+  </data>
+  <data name="TextSize" xml:space="preserve">
+    <value>حجم النص</value>
+  </data>
+  <data name="TextSizeDescription" xml:space="preserve">
+    <value>يتبع نص Lumi أيضًا حجم الخط في هاتفك.</value>
+  </data>
+  <data name="TextSizeSmall" xml:space="preserve">
+    <value>صغير</value>
+  </data>
+  <data name="TextSizeDefault" xml:space="preserve">
+    <value>افتراضي</value>
+  </data>
+  <data name="TextSizeLarge" xml:space="preserve">
+    <value>كبير</value>
+  </data>
+  <data name="TextSizeLarger" xml:space="preserve">
+    <value>أكبر</value>
+  </data>
+  <data name="TextSizeLargest" xml:space="preserve">
+    <value>كبير جدًا</value>
+  </data>
+  <data name="GlowTitle" xml:space="preserve">
+    <value>توهج Lumi</value>
+  </data>
+  <data name="GlowSubtle" xml:space="preserve">
+    <value>خافت</value>
+  </data>
+  <data name="GlowBalanced" xml:space="preserve">
+    <value>متوازن</value>
+  </data>
+  <data name="GlowVivid" xml:space="preserve">
+    <value>ساطع</value>
+  </data>
+  <data name="AnimateGlow" xml:space="preserve">
+    <value>التحريك أثناء عمل Lumi</value>
+  </data>
+  <data name="AnimateGlowDescription" xml:space="preserve">
+    <value>يتحرك التوهج وينبض أثناء تفكير Lumi أو كتابته. يستهلك المزيد من البطارية.</value>
+  </data>
+  <data name="LivePreview" xml:space="preserve">
+    <value>معاينة مباشرة</value>
+  </data>
+  <data name="PreviewUserMessage" xml:space="preserve">
+    <value>هل تجعل هذا الملخص أكثر ودًا؟</value>
+  </data>
+  <data name="PreviewAssistantMessage" xml:space="preserve">
+    <value>بالتأكيد! إليك نسخة أدفأ تحافظ على كل النقاط المهمة.</value>
+  </data>
+  <data name="RestoreDefaultLook" xml:space="preserve">
+    <value>استعادة المظهر الافتراضي</value>
+  </data>
+  <data name="VersionNamed" xml:space="preserve">
+    <value>الإصدار {0}</value>
+  </data>
   <data name="ThisConnection" xml:space="preserve">
     <value>هذا الاتصال</value>
-  </data>
-  <data name="Pc" xml:space="preserve">
-    <value>الحاسوب</value>
-  </data>
-  <data name="Status" xml:space="preserve">
-    <value>الحالة</value>
   </data>
   <data name="ThisDevice" xml:space="preserve">
     <value>هذا الجهاز</value>
@@ -486,12 +558,6 @@
   </data>
   <data name="ChatsStayOnPc" xml:space="preserve">
     <value>تبقى محادثاتك وملفاتك على حاسوبك.</value>
-  </data>
-  <data name="AppVersion" xml:space="preserve">
-    <value>إصدار التطبيق</value>
-  </data>
-  <data name="YourAssistant" xml:space="preserve">
-    <value>مساعدك</value>
   </data>
   <data name="AboutDescription" xml:space="preserve">
     <value>يعمل Lumi على هاتفك مع Lumi على حاسوبك: تبقى محادثاتك وملفاتك وأدواتك هناك.</value>

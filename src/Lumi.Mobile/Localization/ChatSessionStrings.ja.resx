@@ -442,20 +442,92 @@
   <data name="Theme" xml:space="preserve">
     <value>テーマ</value>
   </data>
-  <data name="LightOrDark" xml:space="preserve">
-    <value>ライトとダーク</value>
-  </data>
   <data name="ThemeDescription" xml:space="preserve">
     <value>外観を選ぶか、スマートフォンに合わせます。</value>
   </data>
+  <data name="AccentColor" xml:space="preserve">
+    <value>アクセントカラー</value>
+  </data>
+  <data name="Accent_Lumi" xml:space="preserve">
+    <value>Lumi</value>
+  </data>
+  <data name="Accent_Ocean" xml:space="preserve">
+    <value>オーシャン</value>
+  </data>
+  <data name="Accent_Lagoon" xml:space="preserve">
+    <value>ラグーン</value>
+  </data>
+  <data name="Accent_Forest" xml:space="preserve">
+    <value>フォレスト</value>
+  </data>
+  <data name="Accent_Sunset" xml:space="preserve">
+    <value>サンセット</value>
+  </data>
+  <data name="Accent_Blossom" xml:space="preserve">
+    <value>ブロッサム</value>
+  </data>
+  <data name="Accent_Grape" xml:space="preserve">
+    <value>グレープ</value>
+  </data>
+  <data name="Accent_Graphite" xml:space="preserve">
+    <value>グラファイト</value>
+  </data>
+  <data name="TextSize" xml:space="preserve">
+    <value>文字サイズ</value>
+  </data>
+  <data name="TextSizeDescription" xml:space="preserve">
+    <value>Lumi の文字はスマートフォンのフォントサイズにも合わせて変わります。</value>
+  </data>
+  <data name="TextSizeSmall" xml:space="preserve">
+    <value>小</value>
+  </data>
+  <data name="TextSizeDefault" xml:space="preserve">
+    <value>標準</value>
+  </data>
+  <data name="TextSizeLarge" xml:space="preserve">
+    <value>大</value>
+  </data>
+  <data name="TextSizeLarger" xml:space="preserve">
+    <value>さらに大</value>
+  </data>
+  <data name="TextSizeLargest" xml:space="preserve">
+    <value>特大</value>
+  </data>
+  <data name="GlowTitle" xml:space="preserve">
+    <value>Lumi の光</value>
+  </data>
+  <data name="GlowSubtle" xml:space="preserve">
+    <value>控えめ</value>
+  </data>
+  <data name="GlowBalanced" xml:space="preserve">
+    <value>バランス</value>
+  </data>
+  <data name="GlowVivid" xml:space="preserve">
+    <value>鮮やか</value>
+  </data>
+  <data name="AnimateGlow" xml:space="preserve">
+    <value>Lumi の作業中に動かす</value>
+  </data>
+  <data name="AnimateGlowDescription" xml:space="preserve">
+    <value>Lumi が考えたり書いたりしている間、光がゆらめきます。バッテリーの消費が増えます。</value>
+  </data>
+  <data name="LivePreview" xml:space="preserve">
+    <value>ライブプレビュー</value>
+  </data>
+  <data name="PreviewUserMessage" xml:space="preserve">
+    <value>この要約をもう少し親しみやすくしてくれる？</value>
+  </data>
+  <data name="PreviewAssistantMessage" xml:space="preserve">
+    <value>もちろんです！大事な点はそのままに、温かい表現にしてみました。</value>
+  </data>
+  <data name="RestoreDefaultLook" xml:space="preserve">
+    <value>外観を既定に戻す</value>
+  </data>
+  <data name="VersionNamed" xml:space="preserve">
+    <value>バージョン {0}</value>
+  </data>
   <data name="ThisConnection" xml:space="preserve">
     <value>この接続</value>
-  </data>
-  <data name="Pc" xml:space="preserve">
-    <value>端末</value>
-  </data>
-  <data name="Status" xml:space="preserve">
-    <value>状態</value>
   </data>
   <data name="ThisDevice" xml:space="preserve">
     <value>このデバイス</value>
@@ -486,12 +558,6 @@
   </data>
   <data name="ChatsStayOnPc" xml:space="preserve">
     <value>チャットとファイルは端末に残ります。</value>
-  </data>
-  <data name="AppVersion" xml:space="preserve">
-    <value>アプリのバージョン</value>
-  </data>
-  <data name="YourAssistant" xml:space="preserve">
-    <value>あなたのアシスタント</value>
   </data>
   <data name="AboutDescription" xml:space="preserve">
     <value>スマートフォンの Lumi は端末の Lumi と連携します。チャット、ファイル、ツールは端末に残ります。</value>

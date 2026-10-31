@@ -586,13 +586,6 @@
                      FontSize="{DynamicResource Font.SizeSubtitle}" HorizontalAlignment="Center" />
           <TextBlock Text="{Binding DetailPlaceholder}" Classes="supporting" TextAlignment="Center" />
         </StackPanel>
-
-        <!-- The same quiet edge the chat keeps beside its list. -->
-        <Border x:Name="LibraryPaneSeparation" Grid.RowSpan="2"
-                Width="1" HorizontalAlignment="Left" IsHitTestVisible="False"
-                IsVisible="{Binding #LibraryPanes.IsTwoPane}"
-                Background="{DynamicResource Brush.ChatPaneSeparation}"
-                BoxShadow="{DynamicResource Shadow.ChatPaneSeparation}" />
       </Grid>
     </layout:ListDetailPanel>
 

@@ -158,11 +158,35 @@
   <data name="Working" xml:space="preserve"><value>Working</value></data>
   <data name="BackToSettings" xml:space="preserve"><value>Back to Settings</value></data>
   <data name="Theme" xml:space="preserve"><value>Theme</value></data>
-  <data name="LightOrDark" xml:space="preserve"><value>Light or dark</value></data>
   <data name="ThemeDescription" xml:space="preserve"><value>Choose a look, or match your phone.</value></data>
+  <data name="AccentColor" xml:space="preserve"><value>Accent color</value></data>
+  <data name="Accent_Lumi" xml:space="preserve"><value>Lumi</value></data>
+  <data name="Accent_Ocean" xml:space="preserve"><value>Ocean</value></data>
+  <data name="Accent_Lagoon" xml:space="preserve"><value>Lagoon</value></data>
+  <data name="Accent_Forest" xml:space="preserve"><value>Forest</value></data>
+  <data name="Accent_Sunset" xml:space="preserve"><value>Sunset</value></data>
+  <data name="Accent_Blossom" xml:space="preserve"><value>Blossom</value></data>
+  <data name="Accent_Grape" xml:space="preserve"><value>Grape</value></data>
+  <data name="Accent_Graphite" xml:space="preserve"><value>Graphite</value></data>
+  <data name="TextSize" xml:space="preserve"><value>Text size</value></data>
+  <data name="TextSizeDescription" xml:space="preserve"><value>Lumi's text also follows your phone's font size.</value></data>
+  <data name="TextSizeSmall" xml:space="preserve"><value>Small</value></data>
+  <data name="TextSizeDefault" xml:space="preserve"><value>Default</value></data>
+  <data name="TextSizeLarge" xml:space="preserve"><value>Large</value></data>
+  <data name="TextSizeLarger" xml:space="preserve"><value>Larger</value></data>
+  <data name="TextSizeLargest" xml:space="preserve"><value>Largest</value></data>
+  <data name="GlowTitle" xml:space="preserve"><value>Lumi's glow</value></data>
+  <data name="GlowSubtle" xml:space="preserve"><value>Subtle</value></data>
+  <data name="GlowBalanced" xml:space="preserve"><value>Balanced</value></data>
+  <data name="GlowVivid" xml:space="preserve"><value>Vivid</value></data>
+  <data name="AnimateGlow" xml:space="preserve"><value>Animate while Lumi works</value></data>
+  <data name="AnimateGlowDescription" xml:space="preserve"><value>The glow drifts and breathes while Lumi thinks or writes. Uses more battery.</value></data>
+  <data name="LivePreview" xml:space="preserve"><value>Live preview</value></data>
+  <data name="PreviewUserMessage" xml:space="preserve"><value>Can you make this summary friendlier?</value></data>
+  <data name="PreviewAssistantMessage" xml:space="preserve"><value>Of course! Here's a warmer version that keeps every key point.</value></data>
+  <data name="RestoreDefaultLook" xml:space="preserve"><value>Restore default look</value></data>
+  <data name="VersionNamed" xml:space="preserve"><value>Version {0}</value></data>
   <data name="ThisConnection" xml:space="preserve"><value>This connection</value></data>
-  <data name="Pc" xml:space="preserve"><value>Computer</value></data>
-  <data name="Status" xml:space="preserve"><value>Status</value></data>
   <data name="ThisDevice" xml:space="preserve"><value>This device</value></data>
   <data name="RefreshConnection" xml:space="preserve"><value>Refresh connection</value></data>
   <data name="RefreshConnectionHelp" xml:space="preserve"><value>Bring your chats and library up to date.</value></data>
@@ -173,8 +197,6 @@
   <data name="ReloadWebApp" xml:space="preserve"><value>Reload web app</value></data>
   <data name="DisconnectPc" xml:space="preserve"><value>Disconnect from this computer</value></data>
   <data name="ChatsStayOnPc" xml:space="preserve"><value>Your chats and files stay on your computer.</value></data>
-  <data name="AppVersion" xml:space="preserve"><value>App version</value></data>
-  <data name="YourAssistant" xml:space="preserve"><value>Your assistant</value></data>
   <data name="AboutDescription" xml:space="preserve"><value>Lumi on your phone works with Lumi on your computer: your chats, files and tools stay there.</value></data>
   <data name="DisconnectQuestion" xml:space="preserve"><value>Disconnect from this computer?</value></data>
   <data name="DisconnectDescription" xml:space="preserve"><value>This phone loses access and returns to setup. Your chats and files stay on the computer.</value></data>

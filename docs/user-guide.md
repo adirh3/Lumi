@@ -893,7 +893,8 @@ Roboto's, so its sizes are Android's own: body text is 16 dp (Android's 16sp), s
 and captions 13, which is also the floor for words anywhere in the app; icons are Android's 24 dp.
 Your messages are spaced as the desktop's bubbles are, at 1.33 of their size whatever that size is.
 On Android the whole scale follows the phone's own **Font size** setting, converted as Android
-converts its own text (large text grows less), which Avalonia does not do by itself. Its places are the desktop's:
+converts its own text (large text grows less), which Avalonia does not do by itself; **Settings →
+Appearance → Text size** makes Lumi's text smaller or larger on top of it, on every platform. Its places are the desktop's:
 **Chats**, **Jobs**, **Customize** (agents, skills, connectors and projects) and **Settings**
 (with **Memories**), on a glass pill centred in the thumb zone; the open place always wears its
 name. Moving to another place glides the highlight over to it while the names trade places, as the
@@ -923,13 +924,24 @@ Lumi's built-in agents and skills, connectors and jobs on a read-only page with 
 instructions or command from the PC. Connectors and jobs switch on and off right on their row,
 grouped on cards like settings (Jobs counts how many are on and paused), and a job's page opens
 the chat it runs in. From 700 dp wide (an unfolded Galaxy Z Fold, a tablet) every place keeps its
-list beside its content, as the desktop's sidebar does; a book-posture fold splits at the
+list beside its content, as the desktop's sidebar does, on one canvas with no line between them; a book-posture fold splits at the
 crease, and a phone held sideways keeps one pane with one-line chrome. Where the chat keeps
 480 dp beside it, the plan, sources and activity open as a panel on the right, with the chat
 and composer still live; below 1200 dp the chat list steps aside while the panel is open.
 With a keyboard, Ctrl+K searches, Ctrl+N starts a chat, Ctrl+B shows or hides the list,
 Ctrl+1–4 open the places and Ctrl+, opens Settings; a secondary click on a row opens the same
 actions as a long press.
+
+The phone's **Settings** open with you and the PC it belongs to (your initial on the accent, then
+the PC and whether it answers), and below them its pages, each saying what it holds: the look, how
+many memories, the version. **Appearance** makes Lumi yours on the phone, and a live preview, a small chat
+in the real bubble, text size and glow, shows every choice at once: the theme (**System**,
+**Light** or **Dark**, each drawn as a little chat in that look); the desktop's eight accent
+palettes, which recolor buttons, selection, your messages and Lumi's glow; Lumi's own **Text
+size**; and **Lumi's glow** behind the chat (off, subtle, balanced or vivid), with an opt-in to
+let it drift and breathe while Lumi works, which costs battery. **Restore default look** puts only
+the look back; the language stays. **Connection** opens on the PC and whether it answers, **About**
+on Lumi itself and its version.
 
 A conversation on the phone wears the desktop's transcript glass at touch size. Lumi's work
 shows as line-icon glass chips, with the desktop's icon for each tool, that say what it is doing
@@ -1059,8 +1071,10 @@ area. The chat list and every place's page veil their headers the same way.
 Mobile uses one continuous, theme-aware presence field, following the desktop choreography:
 it gathers at the welcome greeting, rises into the live answer while working, and settles
 back behind the glass composer when an existing chat is idle. There is no separate composer
-light. The resting field is steady rather than a continuous animation.
-Continuous presence drift and breathing are disabled on mobile, including while working;
+light. The resting field is steady rather than a continuous animation, as bright as Settings →
+Appearance → Lumi's glow sets it, and gone when the glow is off.
+Continuous presence drift and breathing are off on mobile by default, including while working,
+unless the user lets the glow animate while Lumi works;
 focus travel and event pulses remain finite. Typing and loading indicators animate only
 while active and visible. The cached chat is hidden on other pages without being unloaded,
 and application backgrounding pauses lifecycle-managed activity across the shell. The

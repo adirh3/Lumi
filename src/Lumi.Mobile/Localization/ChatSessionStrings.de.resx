@@ -158,11 +158,35 @@
   <data name="Working" xml:space="preserve"><value>Arbeitet</value></data>
   <data name="BackToSettings" xml:space="preserve"><value>Zurück zu Einstellungen</value></data>
   <data name="Theme" xml:space="preserve"><value>Design</value></data>
-  <data name="LightOrDark" xml:space="preserve"><value>Hell oder dunkel</value></data>
   <data name="ThemeDescription" xml:space="preserve"><value>Wähle ein Design oder folge deinem Smartphone.</value></data>
+  <data name="AccentColor" xml:space="preserve"><value>Akzentfarbe</value></data>
+  <data name="Accent_Lumi" xml:space="preserve"><value>Lumi</value></data>
+  <data name="Accent_Ocean" xml:space="preserve"><value>Ozean</value></data>
+  <data name="Accent_Lagoon" xml:space="preserve"><value>Lagune</value></data>
+  <data name="Accent_Forest" xml:space="preserve"><value>Wald</value></data>
+  <data name="Accent_Sunset" xml:space="preserve"><value>Sonnenuntergang</value></data>
+  <data name="Accent_Blossom" xml:space="preserve"><value>Blüte</value></data>
+  <data name="Accent_Grape" xml:space="preserve"><value>Traube</value></data>
+  <data name="Accent_Graphite" xml:space="preserve"><value>Graphit</value></data>
+  <data name="TextSize" xml:space="preserve"><value>Textgröße</value></data>
+  <data name="TextSizeDescription" xml:space="preserve"><value>Lumis Text folgt auch der Schriftgröße deines Smartphones.</value></data>
+  <data name="TextSizeSmall" xml:space="preserve"><value>Klein</value></data>
+  <data name="TextSizeDefault" xml:space="preserve"><value>Standard</value></data>
+  <data name="TextSizeLarge" xml:space="preserve"><value>Groß</value></data>
+  <data name="TextSizeLarger" xml:space="preserve"><value>Größer</value></data>
+  <data name="TextSizeLargest" xml:space="preserve"><value>Sehr groß</value></data>
+  <data name="GlowTitle" xml:space="preserve"><value>Lumis Leuchten</value></data>
+  <data name="GlowSubtle" xml:space="preserve"><value>Dezent</value></data>
+  <data name="GlowBalanced" xml:space="preserve"><value>Ausgewogen</value></data>
+  <data name="GlowVivid" xml:space="preserve"><value>Lebhaft</value></data>
+  <data name="AnimateGlow" xml:space="preserve"><value>Animieren, während Lumi arbeitet</value></data>
+  <data name="AnimateGlowDescription" xml:space="preserve"><value>Das Leuchten bewegt sich und atmet, während Lumi denkt oder schreibt. Braucht mehr Akku.</value></data>
+  <data name="LivePreview" xml:space="preserve"><value>Live-Vorschau</value></data>
+  <data name="PreviewUserMessage" xml:space="preserve"><value>Kannst du diese Zusammenfassung freundlicher machen?</value></data>
+  <data name="PreviewAssistantMessage" xml:space="preserve"><value>Natürlich! Hier ist eine herzlichere Version mit allen wichtigen Punkten.</value></data>
+  <data name="RestoreDefaultLook" xml:space="preserve"><value>Standarddarstellung wiederherstellen</value></data>
+  <data name="VersionNamed" xml:space="preserve"><value>Version {0}</value></data>
   <data name="ThisConnection" xml:space="preserve"><value>Diese Verbindung</value></data>
-  <data name="Pc" xml:space="preserve"><value>Computer</value></data>
-  <data name="Status" xml:space="preserve"><value>Status</value></data>
   <data name="ThisDevice" xml:space="preserve"><value>Dieses Gerät</value></data>
   <data name="RefreshConnection" xml:space="preserve"><value>Verbindung aktualisieren</value></data>
   <data name="RefreshConnectionHelp" xml:space="preserve"><value>Bringe deine Chats und Bibliothek auf den neuesten Stand.</value></data>
@@ -173,8 +197,6 @@
   <data name="ReloadWebApp" xml:space="preserve"><value>Web-App neu laden</value></data>
   <data name="DisconnectPc" xml:space="preserve"><value>Von diesem Computer trennen</value></data>
   <data name="ChatsStayOnPc" xml:space="preserve"><value>Deine Chats und Dateien bleiben auf deinem Computer.</value></data>
-  <data name="AppVersion" xml:space="preserve"><value>App-Version</value></data>
-  <data name="YourAssistant" xml:space="preserve"><value>Dein Assistent</value></data>
   <data name="AboutDescription" xml:space="preserve"><value>Lumi auf deinem Smartphone arbeitet mit Lumi auf deinem Computer: Chats, Dateien und Tools bleiben dort.</value></data>
   <data name="DisconnectQuestion" xml:space="preserve"><value>Von diesem Computer trennen?</value></data>
   <data name="DisconnectDescription" xml:space="preserve"><value>Dieses Smartphone verliert den Zugriff und kehrt zur Einrichtung zurück. Chats und Dateien bleiben auf dem Computer.</value></data>
