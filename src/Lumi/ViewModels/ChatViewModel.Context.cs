@@ -475,12 +475,7 @@ public partial class ChatViewModel
     }
 
     /// <summary>Returns the display name of the current project, or null.</summary>
-    public string? GetCurrentProjectName()
-    {
-        var pid = CurrentChat?.ProjectId ?? _pendingProjectId ?? ActiveProjectFilterId;
-        if (!pid.HasValue) return null;
-        return _dataStore.Data.Projects.FirstOrDefault(p => p.Id == pid.Value)?.Name;
-    }
+    public string? GetCurrentProjectName() => GetCurrentProject()?.Name;
 
     /// <summary>Selects an agent by name (called from composer autocomplete).</summary>
     public void SelectAgentByName(string name)
@@ -602,9 +597,8 @@ public partial class ChatViewModel
     /// </summary>
     private string GetEffectiveWorkingDirectory()
     {
-        var pid = CurrentChat?.ProjectId ?? _pendingProjectId ?? ActiveProjectFilterId;
         var worktreePath = IsWorktreeMode ? WorktreePath : null;
-        return ResolveEffectiveWorkingDirectory(pid, worktreePath);
+        return ResolveEffectiveWorkingDirectory(GetCurrentProject()?.Id, worktreePath);
     }
 
     private string GetEffectiveWorkingDirectory(Chat chat)
@@ -640,7 +634,10 @@ public partial class ChatViewModel
 
     private Project? GetCurrentProject()
     {
-        var pid = CurrentChat?.ProjectId ?? _pendingProjectId ?? ActiveProjectFilterId;
+        // An existing chat's null assignment means no project, not the sidebar's current filter.
+        var pid = CurrentChat is { } chat
+            ? chat.ProjectId
+            : _pendingProjectId ?? ActiveProjectFilterId;
         return pid.HasValue
             ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == pid.Value)
             : null;

@@ -384,13 +384,6 @@ public sealed partial class MobileShellViewModel :
         // The details sheet keeps the chat identity; the header binds to the live model directly.
         Chat.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(MobileChatViewModel.ChatId)
-                or nameof(MobileChatViewModel.CanChangeProjectSelection))
-            {
-                OnPropertyChanged(nameof(CanChangeProjectScope));
-                OpenProjectPickerCommand.NotifyCanExecuteChanged();
-            }
-
             if (e.PropertyName is nameof(MobileChatViewModel.HasChat)
                 or nameof(MobileChatViewModel.Title))
             {
@@ -846,10 +839,9 @@ public sealed partial class MobileShellViewModel :
     {
         if (project is null)
             return;
-        if (Chat.ChatId == Guid.Empty && !Chat.CanChangeProjectSelection)
-            return;
 
         ActiveProjectId = project.Id;
+        SyncBlankProjectSelection();
         IsProjectPickerOpen = false;
 
         // Stay in the drawer: the point of picking a project is to then choose one of ITS chats,
@@ -905,8 +897,7 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(ProjectSwitcherMark));
     }
 
-    public bool CanChangeProjectScope =>
-        IsPaired && (Chat.ChatId != Guid.Empty || Chat.CanChangeProjectSelection);
+    public bool CanChangeProjectScope => IsPaired;
 
     [RelayCommand(CanExecute = nameof(CanChangeProjectScope))]
     private void OpenProjectPicker() => IsProjectPickerOpen = true;
@@ -927,12 +918,15 @@ public sealed partial class MobileShellViewModel :
         NotifyProjectSwitcherChanged();
         SyncProjectSelection();
 
-        // A project chosen while composing a blank chat is both a history lens and the destination
-        // for that pending conversation. Keep the visible composer chip and first-send payload in
-        // sync immediately rather than waiting for another New Chat tap.
-        if (Chat.ChatId == Guid.Empty)
+        SyncBlankProjectSelection();
+    }
+
+    private void SyncBlankProjectSelection()
+    {
+        // Browsing history never changes an existing chat or a first send already on its way.
+        if (Chat.ChatId == Guid.Empty && Chat.CanChangeProjectSelection)
         {
-            Chat.ProjectValue = value?.ToString();
+            Chat.ProjectValue = ActiveProjectId?.ToString();
             Chat.ProjectName = ActiveProject;
         }
     }
@@ -940,10 +934,8 @@ public sealed partial class MobileShellViewModel :
     [RelayCommand]
     private void ClearProject()
     {
-        if (Chat.ChatId == Guid.Empty && !Chat.CanChangeProjectSelection)
-            return;
-
         ActiveProjectId = null;
+        SyncBlankProjectSelection();
         IsProjectPickerOpen = false;
     }
 

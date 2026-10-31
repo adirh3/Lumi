@@ -1097,6 +1097,36 @@ public sealed class RemoteCommandRouterSurfaceTests
     });
 
     [Fact]
+    public Task CreatingUnassignedChatIgnoresTheDesktopProjectFilter() => RunAsync(async () =>
+    {
+        var project = new Project { Name = "Lumi" };
+        var store = new DataStore(new AppData { Settings = TestSettings(), Projects = [project] });
+        using var main = new MainViewModel(
+            store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        main.SelectProjectFilterCommand.Execute(project);
+        string? projectAtSend = null;
+        var started = false;
+        var router = new RemoteCommandRouter(store, main, (owner, _, _, _, _, _) =>
+        {
+            started = true;
+            projectAtSend = owner.GetCurrentProjectName();
+            return Task.FromResult<string?>(null);
+        });
+
+        var result = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                .With("newChat", "true")
+                .With("message", "Start without a project"),
+            CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.True(started);
+        Assert.Null(Assert.Single(store.Data.Chats).ProjectId);
+        Assert.Null(projectAtSend);
+        Assert.Equal(project.Id, main.ChatVM.ActiveProjectFilterId);
+    });
+
+    [Fact]
     public Task CreatingSendCanCreateAWorktreeBeforeTheTurnStarts() => RunAsync(async () =>
     {
         var repo = CreateTempGitRepo();

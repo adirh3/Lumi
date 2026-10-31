@@ -2680,9 +2680,9 @@ public sealed class MobileShellViewTests
     }
 
     [Fact]
-    public async Task BlankProjectSelectionIsFrozenWhileTheFirstSendIsPending()
+    public async Task ProjectScopeCanChangeWhileTheFirstSendDestinationIsFrozen()
     {
-        await Run((shell, window) =>
+        await RunAsync(async (shell, window) =>
         {
             Pair(shell);
             Layout(window, shell, 412, 892);
@@ -2718,15 +2718,54 @@ public sealed class MobileShellViewTests
             shell.Chat.Reset(Guid.Empty, "New chat");
             shell.SelectProjectCommand.Execute(firstProject);
             shell.Chat.IsBusy = true;
-            Assert.False(shell.CanChangeProjectScope);
-            Assert.False(shell.OpenProjectPickerCommand.CanExecute(null));
+            shell.IsNavigationOpen = true;
+            await Task.Delay(260);
+            Pump(window);
+            Assert.False(shell.Chat.CanChangeProjectSelection);
+            Assert.True(shell.CanChangeProjectScope);
+            Assert.True(shell.OpenProjectPickerCommand.CanExecute(null));
+            Assert.True(Named(window, "DrawerProjectButton").IsEffectivelyEnabled);
+            Tap(window, Named(window, "DrawerProjectButton"));
+            Assert.True(shell.IsProjectPickerOpen);
 
             shell.SelectProjectCommand.Execute(secondProject);
+            Assert.Equal(secondProjectId, shell.ActiveProjectId);
+            Assert.Equal(secondProjectId, shell.ChatList.ProjectFilterId);
             shell.ClearProjectCommand.Execute(null);
 
-            Assert.Equal(firstProjectId, shell.ActiveProjectId);
+            Assert.Null(shell.ActiveProjectId);
+            Assert.Null(shell.ChatList.ProjectFilterId);
             Assert.Equal(firstProjectId.ToString(), shell.Chat.ProjectValue);
             Assert.Equal("First", shell.Chat.ProjectName);
+        });
+    }
+
+    [Fact]
+    public async Task SelectingAllProjectsClearsABlankChatEvenWhenTheListAlreadyShowsAllProjects()
+    {
+        await RunAsync(async (shell, window) =>
+        {
+            Pair(shell);
+            Layout(window, shell, 412, 892);
+            shell.Chat.Reset(Guid.Empty, "New chat");
+            shell.Chat.ProjectValue = Guid.NewGuid().ToString();
+            shell.Chat.ProjectName = "Lumi";
+            Assert.Null(shell.ActiveProjectId);
+            shell.IsNavigationOpen = true;
+            await Task.Delay(260);
+            Pump(window);
+            shell.OpenProjectPickerCommand.Execute(null);
+            await Task.Delay(260);
+            Pump(window);
+
+            var allProjects = Assert.IsType<Button>(Named(window, "AllProjectsButton"));
+            Tap(window, allProjects);
+
+            Assert.Null(shell.ActiveProjectId);
+            Assert.Null(shell.ChatList.ProjectFilterId);
+            Assert.Null(shell.Chat.ProjectValue);
+            Assert.Null(shell.Chat.ProjectName);
+            Assert.False(shell.Chat.HasProject);
         });
     }
 

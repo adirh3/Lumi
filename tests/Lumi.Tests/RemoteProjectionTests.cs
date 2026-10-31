@@ -251,6 +251,23 @@ public sealed class RemoteProjectionTests
     }
 
     [Fact]
+    public void ActiveChatStatusUsesTheSavedProjectEvenWhenTheComposerLabelIsStale()
+    {
+        var project = new Project { Name = "Lumi" };
+        var chat = new Chat { ProjectId = project.Id };
+        var dataStore = new DataStore(new AppData { Projects = [project], Chats = [chat] });
+        using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared) { CurrentChat = chat };
+        viewModel.SyncComposerProjectSelectionFromState();
+        Assert.Equal(project.Name, viewModel.SelectedProjectName);
+
+        chat.ProjectId = null;
+        var status = RemoteProjector.BuildStatus(dataStore, viewModel, chat);
+
+        Assert.Null(status.ProjectId);
+        Assert.Null(status.ProjectName);
+    }
+
+    [Fact]
     public void ActiveChatStatus_CarriesOwnerSpecificComposerCatalogs()
     {
         var chat = new Chat { Id = Guid.NewGuid(), Title = "Project chat" };

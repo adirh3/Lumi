@@ -179,6 +179,39 @@ public sealed class ChatViewModelProjectSkillComposerTests
     }
 
     [Fact]
+    public async Task ExistingUnassignedChatDoesNotInheritTheProjectFilterContext()
+    {
+        using var session = HeadlessTestSession.Start();
+        var tempRoot = CreateProjectRoot();
+
+        try
+        {
+            await session.Dispatch(async () =>
+            {
+                var project = new Project { Name = "Sherlock", WorkingDirectory = tempRoot };
+                var chat = new Chat { Title = "No project" };
+                var store = new DataStore(new AppData { Projects = [project], Chats = [chat] });
+                using var viewModel = CreateViewModel(store, tempRoot);
+
+                viewModel.ActiveProjectFilterId = project.Id;
+                Assert.Equal(project.Name, viewModel.GetCurrentProjectName());
+                Assert.Contains(viewModel.AvailableSkillChips, chip => chip.Name == ProjectSkillName);
+
+                await viewModel.LoadChatAsync(chat);
+
+                Assert.Null(chat.ProjectId);
+                Assert.Null(viewModel.GetCurrentProjectName());
+                Assert.Null(viewModel.SelectedProjectName);
+                Assert.DoesNotContain(viewModel.AvailableSkillChips, chip => chip.Name == ProjectSkillName);
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            Cleanup(tempRoot);
+        }
+    }
+
+    [Fact]
     public async Task ProjectSkill_AppearsInComposerWithSourceHintAndPersistsSelection()
     {
         using var session = HeadlessTestSession.Start();

@@ -171,6 +171,79 @@ public sealed class ChatCheckoutTests
     }
 
     [Fact]
+    public async Task UnassignedChatKeepsItsSavedCheckoutWithoutInheritingTheProjectFilter()
+    {
+        using var session = HeadlessTestSession.Start();
+        var root = Path.Combine(Path.GetTempPath(), $"lumi-unassigned-checkout-{Guid.NewGuid():N}");
+        var repo = Path.Combine(root, "repo");
+        var worktree = Path.Combine(root, "worktree");
+        const string branch = "projectless-checkout";
+        try
+        {
+            Directory.CreateDirectory(repo);
+            File.WriteAllText(Path.Combine(repo, "readme.md"), "before\n");
+            RunGit(repo, "init", "--quiet");
+            RunGit(repo, "add", "-A");
+            RunGit(repo, "-c", "user.name=Lumi Tests", "-c", "user.email=test@example.com",
+                "commit", "--quiet", "-m", "initial");
+            RunGit(repo, "worktree", "add", "--quiet", "-b", branch, worktree);
+            File.AppendAllText(Path.Combine(worktree, "readme.md"), "an edit\n");
+
+            await session.Dispatch(async () =>
+            {
+                var project = new Project { Name = "Lumi", WorkingDirectory = repo };
+                var chat = new Chat
+                {
+                    Title = "Unassigned workspace",
+                    WorktreePath = worktree,
+                    Messages = [new ChatMessage { Role = "user", Content = "Check this workspace." }]
+                };
+                var data = new AppData
+                {
+                    Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+                    Projects = [project],
+                    Chats = [chat]
+                };
+                using var vm = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+                vm.ActiveProjectFilterId = project.Id;
+                await vm.LoadChatAsync(chat);
+                await vm.RefreshCodingProjectState();
+
+                Assert.True(vm.IsCodingProject);
+                Assert.True(vm.IsWorktreeMode);
+                Assert.Equal(worktree, vm.WorktreePath);
+                Assert.Equal(branch, vm.GitBranch);
+                Assert.Equal("readme.md", Assert.Single(vm.GitChangedFiles).RelativePath);
+                Assert.Null(chat.ProjectId);
+                Assert.Null(vm.SelectedProjectName);
+
+                var view = new ChatView { DataContext = vm };
+                var window = new Window { Width = 1000, Height = 700, Content = view };
+                window.Show();
+                try
+                {
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.True(view.FindControl<Panel>("HeaderGitPill")!.IsEffectivelyVisible);
+                    Assert.False(ProjectChip(view.FindControl<StrataChatComposer>("Composer")!).IsVisible);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                    File.SetAttributes(file, FileAttributes.Normal);
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task AnotherFoldersChanges_LeaveTheMomentTheCheckoutMoves()
     {
         using var session = HeadlessTestSession.Start();

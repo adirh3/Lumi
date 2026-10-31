@@ -891,6 +891,11 @@ chat list no longer slides across the screen for it. The chat list is titled **L
 **New chat** buttons at its top right, then the project switcher, a glass pill built as a chat's
 title pill is: the project's mark, its name, how many projects there are and a chevron. The chat list
 is home: it opens first, a chat opens over it, and Back or a swipe from anywhere returns to it.
+The project switcher filters history without moving the open chat, and stays available while a
+message is sending. For a blank chat it also selects the destination until the first send starts;
+choosing **All projects** clears that destination. A chat with no project uses no project's
+instructions, even if the PC's sidebar is viewing one. Its own saved checkout is kept independently
+of the project.
 Each row is the desktop's: the chat's title, led by a dot that pulses while Lumi works and stays
 while a reply waits, with a ring while background work runs and a quiet pin on pinned chats; the
 date groups say when. The open chat wears the desktop's neutral wash and short accent pipe.

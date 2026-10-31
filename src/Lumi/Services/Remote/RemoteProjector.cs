@@ -288,7 +288,7 @@ internal static class RemoteProjector
             AgentGlyph = isActive
                 ? chatVm.SelectedAgentGlyph
                 : agent?.IconGlyph ?? (chat.SdkAgentName is null ? null : ExternalAgentGlyph),
-            ProjectName = isActive ? chatVm.SelectedProjectName : project?.Name,
+            ProjectName = project?.Name,
             ProjectId = chat.ProjectId,
             UsesWorktree = chat.WorktreePath is { Length: > 0 } worktreePath
                            && Directory.Exists(worktreePath),

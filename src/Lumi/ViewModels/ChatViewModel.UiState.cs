@@ -1769,16 +1769,16 @@ public partial class ChatViewModel
 
     // ── Git / Coding project helpers ──────────────────────
 
-    /// <summary>Gets the project's original working directory (ignoring worktree override).</summary>
+    /// <summary>Gets the project's original directory, or an unassigned chat's saved workspace.</summary>
     private string GetProjectWorkingDirectory()
     {
-        var pid = CurrentChat?.ProjectId ?? _pendingProjectId ?? ActiveProjectFilterId;
-        if (pid.HasValue)
-        {
-            var project = _dataStore.Data.Projects.FirstOrDefault(p => p.Id == pid.Value);
-            if (project is { WorkingDirectory: { Length: > 0 } dir } && Directory.Exists(dir))
-                return dir;
-        }
+        var project = GetCurrentProject();
+        if (project is { WorkingDirectory: { Length: > 0 } dir } && Directory.Exists(dir))
+            return dir;
+        if (project is null
+            && CurrentChat?.WorktreePath is { Length: > 0 } workspace
+            && Directory.Exists(workspace))
+            return workspace;
         return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     }
 
