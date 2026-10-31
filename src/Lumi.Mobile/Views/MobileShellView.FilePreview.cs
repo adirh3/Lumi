@@ -26,6 +26,7 @@ public partial class MobileShellView
 
     private MobileShellViewModel? _previewSource;
     private FilePreviewViewModel? _shownPreview;
+    private FilePreviewViewModel? _settlingPreview;
     private bool _previewBeside;
     private bool _previewClosing;
     private bool _previewWidthMoving;
@@ -120,6 +121,14 @@ public partial class MobileShellView
             return;
 
         _shownPreview = preview;
+        // A file that replaces one still settling waits for the pane to land as well.
+        if (_settlingPreview is not null && preview is not null)
+        {
+            _settlingPreview.IsSettling = false;
+            _settlingPreview = preview;
+            preview.IsSettling = true;
+        }
+
         preview?.AttachPresenter();
         PreviewPane.DataContext = preview;
         previous?.DetachPresenter();
@@ -162,10 +171,22 @@ public partial class MobileShellView
 
     private void PlayPreviewEntrance(bool beside)
     {
+        // A file that arrives while the pane opens waits for it to land before it is built.
+        _settlingPreview = _shownPreview;
+        if (_settlingPreview is not null)
+            _settlingPreview.IsSettling = true;
+
         if (beside)
-            AnimatePreviewWidth(opening: true, completed: null);
+            AnimatePreviewWidth(opening: true, completed: EndSettling);
         else
-            SlidePreview(opening: true, completed: null);
+            SlidePreview(opening: true, completed: EndSettling);
+    }
+
+    private void EndSettling()
+    {
+        if (_settlingPreview is { } preview)
+            preview.IsSettling = false;
+        _settlingPreview = null;
     }
 
     private void ClosePreviewPane(bool animate)
@@ -307,6 +328,7 @@ public partial class MobileShellView
         StopPreviewSlide();
         PreviewFrame.Opacity = 1;
         SetPreviewMoving(false);
+        EndSettling();
     }
 
     private void StopPreviewSlide()

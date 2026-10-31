@@ -111,27 +111,35 @@ public sealed partial class FilePreviewViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasActionMessage))]
     private string? _actionMessage;
 
+    /// <summary>
+    /// The pane is still opening. A file that has arrived waits behind the loading state until it has
+    /// landed, so building a long file never stalls the motion.
+    /// </summary>
+    [ObservableProperty] private bool _isSettling;
+
     public bool HasActionMessage => !string.IsNullOrWhiteSpace(ActionMessage);
 
     public bool HasError => !string.IsNullOrWhiteSpace(ErrorText);
 
-    public bool ShowLoading => IsLoading && !HasError;
+    public bool ShowLoading => !HasError && (IsLoading || (IsSettling && Kind != FilePreviewKind.Unsupported));
 
-    public bool ShowImage => !HasError && Kind == FilePreviewKind.Image && Image is not null;
+    private bool CanShowContent => !HasError && !IsSettling;
 
-    public bool ShowMarkdown => !HasError && Kind == FilePreviewKind.Markdown && !string.IsNullOrEmpty(Text);
+    public bool ShowImage => CanShowContent && Kind == FilePreviewKind.Image && Image is not null;
 
-    public bool ShowCode => !HasError && Kind == FilePreviewKind.Code && !string.IsNullOrEmpty(Text);
+    public bool ShowMarkdown => CanShowContent && Kind == FilePreviewKind.Markdown && !string.IsNullOrEmpty(Text);
 
-    public bool ShowText => !HasError && Kind == FilePreviewKind.Text && !string.IsNullOrEmpty(Text);
+    public bool ShowCode => CanShowContent && Kind == FilePreviewKind.Code && !string.IsNullOrEmpty(Text);
 
-    public bool ShowCsv => !HasError && Kind == FilePreviewKind.Csv && Table is not null;
+    public bool ShowText => CanShowContent && Kind == FilePreviewKind.Text && !string.IsNullOrEmpty(Text);
 
-    public bool ShowPdf => !HasError && Kind == FilePreviewKind.Pdf && Pdf is not null;
+    public bool ShowCsv => CanShowContent && Kind == FilePreviewKind.Csv && Table is not null;
+
+    public bool ShowPdf => CanShowContent && Kind == FilePreviewKind.Pdf && Pdf is not null;
 
     public bool ShowUnsupported => !HasError && !IsLoading && Kind == FilePreviewKind.Unsupported;
 
-    public bool ShowEmpty => !HasError && !IsLoading && IsTextual && Text is { Length: 0 };
+    public bool ShowEmpty => CanShowContent && !IsLoading && IsTextual && Text is { Length: 0 };
 
     /// <summary>The file is on screen, so its actions float over it rather than standing in a card.</summary>
     public bool ShowContentActions =>
@@ -139,7 +147,7 @@ public sealed partial class FilePreviewViewModel : ObservableObject
 
     private bool IsTextual => Kind is FilePreviewKind.Markdown or FilePreviewKind.Code or FilePreviewKind.Text;
 
-    public bool ShowLimitNotice => IsTruncated || Table?.IsLimited == true || Pdf?.IsLimited == true;
+    public bool ShowLimitNotice => CanShowContent && (IsTruncated || Table?.IsLimited == true || Pdf?.IsLimited == true);
 
     public string LimitNoticeText => Pdf?.IsLimited == true
         ? Strings.Get("FilePreviewPagesLimited", Pdf.Pages.Count)
@@ -180,6 +188,8 @@ public sealed partial class FilePreviewViewModel : ObservableObject
     partial void OnTableChanged(CsvPreviewTable? value) => NotifyState();
 
     partial void OnPdfChanged(PdfPreviewViewModel? value) => NotifyState();
+
+    partial void OnIsSettlingChanged(bool value) => NotifyState();
 
     private void NotifyState()
     {

@@ -306,6 +306,44 @@ public sealed class MobileFilePreviewTests
     }
 
     [Fact]
+    public async Task AFileWaitsBehindItsLoadingTileUntilItsPaneHasLanded()
+    {
+        using var files = new TempFiles();
+        var preview = Preview("huge.md", Serve(files.Write("huge.md",
+            Encoding.UTF8.GetBytes(new string('x', FilePreviewContent.MaxCharacters + 1)))));
+        preview.IsSettling = true;
+        await preview.LoadAsync();
+        Assert.False(preview.IsLoading);
+        Assert.True(preview.ShowLoading, "the tile keeps breathing while the pane still moves");
+        Assert.False(preview.ShowMarkdown);
+        Assert.False(preview.ShowContentActions);
+        Assert.False(preview.ShowLimitNotice);
+
+        var changed = new List<string?>();
+        preview.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        preview.IsSettling = false;
+        Assert.False(preview.ShowLoading);
+        Assert.True(preview.ShowMarkdown);
+        Assert.True(preview.ShowContentActions);
+        Assert.True(preview.ShowLimitNotice);
+        Assert.Contains(nameof(FilePreviewViewModel.ShowMarkdown), changed);
+        Assert.Contains(nameof(FilePreviewViewModel.ShowLoading), changed);
+
+        // What has nothing to build says so at once: a failure, or a file the phone cannot draw.
+        var failed = Preview("notes.txt", _ => Task.FromResult(new ProducedFileDownload(null, "The computer is asleep.")));
+        failed.IsSettling = true;
+        await failed.LoadAsync();
+        Assert.True(failed.HasError);
+        Assert.False(failed.ShowLoading);
+
+        var unsupported = Preview("release-notes.docx", Serve(files.Write("release-notes.docx", [0x50, 0x4B])));
+        unsupported.IsSettling = true;
+        await unsupported.LoadAsync();
+        Assert.True(unsupported.ShowUnsupported);
+        Assert.False(unsupported.ShowLoading);
+    }
+
+    [Fact]
     public async Task LongCodeIsShownPlainAndLongFilesSayTheyAreCut()
     {
         using var files = new TempFiles();
@@ -684,6 +722,68 @@ public sealed class MobileFilePreviewTests
             Assert.True(host.IsVisible);
             Assert.Same(second, pane.DataContext);
             Assert.Equal(conversation.Bounds, host.Bounds);
+            AssertNoBindingErrors(logs);
+        });
+
+    [Theory]
+    [InlineData(412, 892)]
+    [InlineData(984, 1092)]
+    public Task AFileIsBuiltOnlyOnceItsPaneHasLanded(double width, double height) =>
+        RunShellAsync(width, height, async (shell, view, window, logs) =>
+        {
+            using var files = new TempFiles();
+            var preview = Show(shell, files, "keyboard-gap-report.md", "# Keyboard gap\n\nFixed on **resume**."u8.ToArray());
+            await preview.LoadAsync();
+            Dispatcher.UIThread.RunJobs();
+            // The file is on the phone already, yet the opening pane carries only its loading tile.
+            Assert.True(shell.IsFilePreviewMoving);
+            Assert.True(preview.IsSettling);
+            var pane = Find<FilePreviewView>(view, "FilePreviewPane");
+            Assert.True(Find<Control>(pane, "PreviewLoadingState").IsEffectivelyVisible);
+            Assert.False(Find<Control>(pane, "PreviewMarkdownScroll").IsEffectivelyVisible);
+
+            await SettleAsync(window, () => !shell.IsFilePreviewMoving && !shell.IsDrawerMoving);
+            Assert.False(preview.IsSettling);
+            await SettleAsync(window);
+            AssertShows(pane, "PreviewMarkdownScroll");
+            AssertNoBindingErrors(logs);
+        });
+
+    [Fact]
+    public Task AnOpeningInterruptedByAFoldStillShowsTheFile() =>
+        RunShellAsync(984, 1092, async (shell, view, window, logs) =>
+        {
+            using var files = new TempFiles();
+            var preview = Show(shell, files, "report.md", "# Report"u8.ToArray());
+            await preview.LoadAsync();
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(preview.IsSettling);
+
+            // Folding shut while the pane grows lands it over the chat at once.
+            window.Width = 412;
+            window.Height = 960;
+            await SettleAsync(window, () => shell.IsFilePreviewCoveringChat && !shell.IsFilePreviewMoving);
+            Assert.False(preview.IsSettling);
+            await SettleAsync(window);
+            AssertShows(Find<FilePreviewView>(view, "FilePreviewPane"), "PreviewMarkdownScroll");
+
+            // Another file replacing one that is still settling waits for the pane too.
+            shell.Chat.CloseFilePreviewCommand.Execute(null);
+            await SettleAsync(window, () => !Find<Panel>(view, "FilePreviewHost").IsVisible);
+            var first = Show(shell, files, "first.md", "# First"u8.ToArray());
+            await first.LoadAsync();
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(shell.IsFilePreviewMoving);
+            Assert.True(first.IsSettling);
+            var second = Show(shell, files, "second.md", "# Second"u8.ToArray());
+            await second.LoadAsync();
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(second.IsSettling);
+            Assert.False(first.IsSettling);
+            await SettleAsync(window, () => !shell.IsFilePreviewMoving);
+            Assert.False(second.IsSettling);
+            await SettleAsync(window);
+            AssertShows(Find<FilePreviewView>(view, "FilePreviewPane"), "PreviewMarkdownScroll");
             AssertNoBindingErrors(logs);
         });
 

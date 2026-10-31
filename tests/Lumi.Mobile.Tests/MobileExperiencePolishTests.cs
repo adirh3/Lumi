@@ -357,7 +357,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             await Task.Delay(200);
             Pump(window);
             Assert.Equal(0, drawer.Progress);
-            Assert.False(panel.IsEffectivelyEnabled);
+            // A closed list rests hidden in place, keeping what it built for the next open.
+            Assert.False(panel.IsEffectivelyVisible);
             Assert.True(menu.IsEffectivelyVisible);
             // With the chats hidden the glyph's list column has emptied out.
             Assert.InRange(column.Opacity, 0, 0.1);
@@ -384,6 +385,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             await AssertDockedCanvasGeometry(view, drawer, "reversal");
             await Task.Delay(220);
             Pump(window);
+            Assert.True(panel.IsEffectivelyVisible);
             Assert.True(panel.IsEffectivelyEnabled);
             Assert.Equal(1, drawer.Progress, precision: 2);
             Assert.Same(transform, panel.RenderTransform);
@@ -463,7 +465,10 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         var panel = Required<Avalonia.Controls.Presenters.ContentPresenter>(drawer, "PART_Panel");
         var canvas = Required<Border>(view, "ConversationFrame");
         var chat = Required<ChatDetailView>(view, "ChatSurface");
-        var panelRight = panel.TranslatePoint(new Point(panel.Bounds.Width, 0), drawer)!.Value.X;
+        // A closed panel rests hidden where it opens and takes no room.
+        var panelRight = panel.IsVisible
+            ? panel.TranslatePoint(new Point(panel.Bounds.Width, 0), drawer)!.Value.X
+            : 0;
         var left = canvas.TranslatePoint(default, drawer)!.Value.X;
         var right = canvas.TranslatePoint(new Point(canvas.Bounds.Width, 0), drawer)!.Value.X;
         output.WriteLine($"{stage}: progress={drawer.Progress:F4}, sidebarRight={panelRight:F2}, "
