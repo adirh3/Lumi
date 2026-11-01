@@ -168,6 +168,15 @@ application and services through `PerTest` isolation; dispose the test wrapper,
 not the shared dispatcher. UI objects, including geometry bounds, must be
 accessed inside `HeadlessTestSession.Dispatch`.
 
+Inactive management UI, including Library, is permanently discarded by
+`ManagementPage.Release`; its ViewModel, drafts, selections and matching scroll
+snapshots survive. Release clears discarded Grids' row and column definitions
+to disconnect their parent and inheritance links even when Avalonia's shared
+layout scratch buffer retains a definition. Released controls must not be reused;
+Library's app-lived artifact/index cache is not UI cleanup. The populated Library
+regression in `ManagementPageLifetimeTests` exercises 2,192 chats / 6,278 artifacts,
+the actual shared buffer, collection after GC, and selection/filter/scroll state.
+
 Nightly or manually requested full Windows CI runs
 `tools\Test-LumiTestsInBatches.ps1` after the Release build. Ordinary PRs use
 the deterministic CoreQA gate; see [Automated QA](testing.md) for the exact

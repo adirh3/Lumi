@@ -236,6 +236,53 @@ public sealed class ManagementPageLifetimeTests
     }
 
     [Fact]
+    public async Task PopulatedLibraryReleasesPooledGridOwnershipWhileKeepingItsState()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            using var main = CreateMain(showAnimations: true);
+            AddLibraryArtifacts(main);
+            await main.LibraryVM.RefreshCommand.ExecuteAsync(null);
+            Assert.Equal(2192, main.LibraryVM.ScannedChats);
+            Assert.Equal(6278, main.LibraryVM.Items.Count);
+            Assert.Equal(7, main.LibraryVM.Highlights.Count);
+            var window = Show(main);
+            window.Width = 1000;
+            try
+            {
+                var ownership = VisitAndLeavePopulatedLibrary(window, main);
+                var released = ownership.Released.ToList();
+                for (var visit = 0; visit < 2; visit++)
+                {
+                    main.SelectedNavIndex = MainViewModel.LibraryNavIndex;
+                    Pump(window);
+                    AssertPopulatedLibraryState(window, main, ownership.Selected, ownership.Offset);
+                    released.AddRange(LeavePage(window, main, "PageLibraryHost"));
+                }
+
+                await CollectAsync();
+                Assert.Null(typeof(ColumnDefinition).BaseType!
+                    .GetProperty("Parent", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .GetValue(ownership.Column));
+                Assert.Null(typeof(AvaloniaObject)
+                    .GetProperty("InheritanceParent", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .GetValue(ownership.Column));
+                Assert.All(released, reference => Assert.False(reference.IsAlive));
+                Assert.Equal(6271, main.LibraryVM.Items.Count);
+                Assert.Same(ownership.Selected, main.LibraryVM.SelectedItem);
+                Assert.True(main.DataStore.Data.Settings.ShowAnimations);
+                // An active Grid can reuse this real layout buffer without overwriting its upper half.
+                GC.KeepAlive(ownership.Buffer);
+                GC.KeepAlive(ownership.Column);
+                GC.KeepAlive(main);
+                GC.KeepAlive(window);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task InactiveSidebarLetsGoOfRowsWithoutClearingTheSelection()
     {
         using var session = HeadlessTestSession.Start();
@@ -330,7 +377,7 @@ public sealed class ManagementPageLifetimeTests
         }, CancellationToken.None);
     }
 
-    private static MainViewModel CreateMain()
+    private static MainViewModel CreateMain(bool showAnimations = false)
     {
         Loc.Load("en");
         var instructions = string.Join('\n', Enumerable.Repeat("Keep the project instructions and the current draft.", 100));
@@ -339,7 +386,7 @@ public sealed class ManagementPageLifetimeTests
             Settings = new UserSettings
             {
                 IsOnboarded = true, AutoSaveChats = false, EnableMemoryAutoSave = false,
-                EnableDailyBriefs = false, AllowAppSetupSuggestions = false, ShowAnimations = false,
+                EnableDailyBriefs = false, AllowAppSetupSuggestions = false, ShowAnimations = showAnimations,
             },
             Projects = [new Project { Name = "Project one", Instructions = instructions }, new Project { Name = "Project two", Instructions = instructions }],
             Skills = [new Skill { Name = "Skill", Content = "# Instructions" }],
@@ -361,6 +408,98 @@ public sealed class ManagementPageLifetimeTests
 
     private static ContentControl Host(MainWindow window, string name) => window.FindControl<ContentControl>(name)!;
     private static Control Page(MainWindow window, string hostName) => (Control)Host(window, hostName).Content!;
+
+    private static void AddLibraryArtifacts(MainViewModel main)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var nextArtifact = 0;
+        for (var chatIndex = 0; chatIndex < 2192; chatIndex++)
+        {
+            var sources = new List<SearchSource>();
+            for (var item = 0; item < (chatIndex < 1887 ? 3 : 2); item++)
+            {
+                var artifact = nextArtifact++;
+                sources.Add(new SearchSource
+                {
+                    Url = $"https://example.com/library/{artifact}",
+                    Title = $"Library artifact {artifact:D4}",
+                    Snippet = "A bounded synthetic Library source."
+                });
+            }
+            main.DataStore.Data.Chats.Add(new Chat
+            {
+                Title = $"Library source chat {chatIndex}",
+                UpdatedAt = now,
+                Messages = [new ChatMessage { Role = "assistant", Timestamp = now, Sources = sources }]
+            });
+        }
+        main.DataStore.Data.Chats[0].Messages.Add(new ChatMessage
+        {
+            Role = "user",
+            Timestamp = now,
+            Attachments = Enumerable.Range(0, 7)
+                .Select(index => Path.Combine(Path.GetTempPath(), "lumi-library-missing-fixture", $"image-{index}.png"))
+                .ToList()
+        });
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (WeakReference[] Released, Array Buffer, ColumnDefinition Column, LibraryItemViewModel Selected, Vector Offset)
+        VisitAndLeavePopulatedLibrary(MainWindow window, MainViewModel main)
+    {
+        main.SelectedNavIndex = MainViewModel.LibraryNavIndex;
+        Pump(window);
+        var page = Page(window, "PageLibraryHost");
+        var list = page.FindControl<ListBox>("LibraryList")!;
+        Assert.True(list.IsEffectivelyVisible);
+        Assert.Equal(6278, list.Items.Count);
+        Assert.InRange(list.GetVisualDescendants().OfType<ListBoxItem>().Count(), 1, 200);
+        var search = page.FindControl<TextBox>("LibrarySearchBox")!;
+        var header = search.GetVisualAncestors().OfType<Grid>().First();
+        var column = header.ColumnDefinitions[0];
+        Assert.Equal(420, column.MaxWidth);
+        var slot = (LocalDataStoreSlot)typeof(Grid)
+            .GetField("s_tempDefinitionsDataSlot", BindingFlags.Static | BindingFlags.NonPublic)!
+            .GetValue(null)!;
+        var buffer = Assert.IsAssignableFrom<Array>(Assert.IsType<WeakReference>(Thread.GetData(slot)).Target);
+        Assert.Same(column, buffer.GetValue(4));
+
+        search.Text = "Library artifact";
+        main.LibraryVM.Kinds.Single(option => option.Id == nameof(LibraryArtifactKind.Link)).SelectCommand.Execute(null);
+        page.FindControl<ComboBox>("LibrarySortBox")!.SelectedIndex = 1;
+        var selected = main.LibraryVM.Items[8];
+        list.SelectedItem = selected;
+        Pump(window);
+        Assert.Equal(6271, list.Items.Count);
+        Assert.Equal(2, main.LibraryVM.ActiveFilters.Count);
+        Assert.Same(selected, main.LibraryVM.SelectedItem);
+        Assert.True(page.FindControl<ScrollViewer>("LibraryDetailScroll")!.IsEffectivelyVisible);
+        var scroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
+        scroll.Offset = new Vector(0, 400);
+        Pump(window);
+        var offset = scroll.Offset;
+        Assert.True(offset.Y > 100);
+        var released = LeavePage(window, main, "PageLibraryHost");
+        Assert.Null(Host(window, "PageLibraryHost").Content);
+        return (released, buffer, column, selected, offset);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AssertPopulatedLibraryState(MainWindow window, MainViewModel main, LibraryItemViewModel selected, Vector offset)
+    {
+        var page = Page(window, "PageLibraryHost");
+        Assert.Same(main.LibraryVM, page.DataContext);
+        var list = page.FindControl<ListBox>("LibraryList")!;
+        Assert.Equal(6271, list.Items.Count);
+        Assert.Same(selected, list.SelectedItem);
+        Assert.Equal("Library artifact", page.FindControl<TextBox>("LibrarySearchBox")!.Text);
+        Assert.Equal(1, page.FindControl<ComboBox>("LibrarySortBox")!.SelectedIndex);
+        Assert.True(page.FindControl<ScrollViewer>("LibraryDetailScroll")!.IsEffectivelyVisible);
+        Assert.Equal(2, main.LibraryVM.ActiveFilters.Count);
+        var scroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
+        Assert.InRange(scroll.Offset.Y, offset.Y - 1, offset.Y + 1);
+        Assert.InRange(list.GetVisualDescendants().OfType<ListBoxItem>().Count(), 1, 200);
+    }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static object? PageModel(MainWindow window, string hostName) => Page(window, hostName).DataContext;

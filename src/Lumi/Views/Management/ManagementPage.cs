@@ -117,7 +117,16 @@ internal static class ManagementPage
         view.DataContext = null;
         // Hidden templates may never have attached, so their theme animations receive no detach.
         for (var index = controls.Count - 1; index >= 0; index--)
-            controls[index].Theme = ReleasedTheme;
+        {
+            var control = controls[index];
+            control.Theme = ReleasedTheme;
+            // Avalonia's shared layout buffer can outlive the page; definitions must let go of its grids.
+            if (control is Grid grid)
+            {
+                grid.ColumnDefinitions.Clear();
+                grid.RowDefinitions.Clear();
+            }
+        }
         if (view is ContentControl content)
             content.Content = null;
     }
