@@ -2175,7 +2175,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         settings.BackgroundModel = automatic;
         Assert.False(string.IsNullOrWhiteSpace(
             await _service.GenerateTitleAsync("Find cozy anime for a rainy evening.")));
-        var suggestions = await _service.GenerateSuggestionsAsync(
+        var suggestions = await SuggestAsync(
             "Try a cozy slice-of-life anime with short episodes.", "Find a cozy anime.");
         Assert.NotEmpty(suggestions!);
         var sessionField = typeof(CopilotService).GetField("_suggestionSession", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -2184,7 +2184,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var secondModel = CopilotService.SelectCheapestModelId(catalog.Where(model => model.Id != automatic));
         Assert.NotNull(secondModel);
         settings.BackgroundModel = secondModel!;
-        suggestions = await _service.GenerateSuggestionsAsync(
+        suggestions = await SuggestAsync(
             "You can watch one short episode this evening.", "What can I watch tonight?");
         Assert.NotEmpty(suggestions!);
         var second = Assert.IsType<CopilotSession>(sessionField.GetValue(_service));
@@ -2197,7 +2197,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
                 queryCompleted.TrySetResult();
         });
 #pragma warning restore GHCP001
-        await _service.GenerateSuggestionsAsync("It is available with subtitles.", "Does it have subtitles?");
+        await SuggestAsync("It is available with subtitles.", "Does it have subtitles?");
         Assert.Same(second, sessionField.GetValue(_service));
         await queryCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(secondModel, (await second.Rpc.Model.GetCurrentAsync()).ModelId);
@@ -2205,7 +2205,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         settings.UseBYOKOnly = true;
         Assert.Null(await _service.GenerateTitleAsync("This must not reach Copilot."));
-        Assert.Null(await _service.GenerateSuggestionsAsync("Private exchange.", "Private message."));
+        Assert.Null(await SuggestAsync("Private exchange.", "Private message."));
         await Assert.ThrowsAsync<ByokOnlyRequestBlockedException>(() =>
             _service.BuildLightweightSessionConfigAsync(
                 new LightweightSessionOptions { SystemPrompt = "Blocked helper." }));
@@ -2395,7 +2395,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
     {
         SkipIfDisabled();
 
-        var suggestions = await _service.GenerateSuggestionsAsync(
+        var suggestions = await SuggestAsync(
             "Sourdough requires flour, water, and naturally occurring yeast.",
             "How do I make sourdough?");
 
@@ -2411,10 +2411,10 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var sessionField = typeof(CopilotService).GetField(
             "_suggestionSession", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
-        Assert.NotEmpty((await _service.GenerateSuggestionsAsync(
+        Assert.NotEmpty((await SuggestAsync(
             "The OLED television has better contrast.", "Compare these televisions."))!);
         var first = Assert.IsType<CopilotSession>(sessionField.GetValue(_service));
-        Assert.NotEmpty((await _service.GenerateSuggestionsAsync(
+        Assert.NotEmpty((await SuggestAsync(
             "The soup needs another ten minutes.", "When is dinner ready?"))!);
         Assert.Same(first, sessionField.GetValue(_service));
         Assert.DoesNotContain(await first.GetEventsAsync(),
@@ -2422,7 +2422,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         // Closing the server-side session reproduces the stale handle left by the idle sweeper.
         await _service.Client!.Rpc.Sessions.CloseAsync(first.SessionId);
-        Assert.NotEmpty((await _service.GenerateSuggestionsAsync(
+        Assert.NotEmpty((await SuggestAsync(
             "The trip takes two hours.", "When should we leave?"))!);
         var replacement = Assert.IsType<CopilotSession>(sessionField.GetValue(_service));
         Assert.NotEqual(first.SessionId, replacement.SessionId);
@@ -2447,7 +2447,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         }
         await _service.ReleaseIdleSuggestionSessionAsync(lastUse + CopilotService.IdleSessionTimeout);
         Assert.Null(sessionField.GetValue(_service));
-        Assert.NotEmpty((await _service.GenerateSuggestionsAsync(
+        Assert.NotEmpty((await SuggestAsync(
             "The garden needs watering.", "How should I care for these plants?"))!);
         var afterIdleRelease = Assert.IsType<CopilotSession>(sessionField.GetValue(_service));
         Assert.NotEqual(replacement.SessionId, afterIdleRelease.SessionId);
@@ -2456,40 +2456,81 @@ public class CopilotIntegrationTests : IAsyncLifetime
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 16b. Context-aware suggestions — a frequently-typed prompt must NOT leak
-    //      into unrelated conversations, but SHOULD remain available when the
-    //      current conversation is actually about that topic. Drives the real
-    //      ranker + real model end-to-end across several distinct topics.
+    // 16b. Follow-up suggestions answer the reply's ending and reuse the
+    //      user's own usual replies where they fit — never where they don't.
+    //      Drives the real ranker + real model end-to-end.
     // ═══════════════════════════════════════════════════════════════════════
 
+    private Task<List<string>?> SuggestAsync(
+        string assistant,
+        string? user,
+        IReadOnlyList<SuggestionHistoryRanker.UsualReply>? usual = null)
+        => _service.GenerateSuggestionsAsync(new FollowUpSuggestionContext
+        {
+            AssistantMessage = assistant,
+            UserMessage = user,
+            UsualReplies = usual ?? [],
+        });
+
     [SkippableFact]
-    public async Task SuggestionGeneration_RespectsConversationContextAcrossTopics()
+    public async Task SuggestionGeneration_AnswersTheOfferAtTheEndOfALongReply()
     {
         SkipIfDisabled();
 
-        // The user types coding prompts constantly, but also has other recurring requests. The ranker
-        // hands the model ONE global, conversation-agnostic list; the model must decide what fits.
+        var reply = "I traced the crash to the tab strip. " + string.Join(' ', Enumerable.Repeat(
+            "The measure pass reads the cached width before the template applies, so the first layout uses a stale value.", 30))
+            + " Four unrelated tests are still failing on main. Want me to fix those 4 failing tests separately so CI goes green?";
+
+        var suggestions = await SuggestAsync(reply, "Why does the tab strip crash on startup?");
+
+        Assert.NotNull(suggestions);
+        _output.WriteLine($"[Offer] {string.Join(" | ", suggestions!)}");
+        Assert.Contains("test", suggestions![0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [SkippableFact]
+    public async Task SuggestionGeneration_OffersContinueWhenTheReplyStopsMidWork()
+    {
+        SkipIfDisabled();
+
+        var suggestions = await SuggestAsync(
+            "Found the cause: the tab strip measures before its template applies. Now let me run the focused tests:",
+            "Why does the tab strip crash on startup?");
+
+        Assert.NotNull(suggestions);
+        _output.WriteLine($"[Mid-work] {string.Join(" | ", suggestions!)}");
+        Assert.StartsWith("Continue", suggestions![0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [SkippableFact]
+    public async Task SuggestionGeneration_UsesUsualRepliesOnlyWhereTheyFit()
+    {
+        SkipIfDisabled();
+
+        var origin = DateTimeOffset.Now.AddDays(-3);
+        var project = Guid.NewGuid();
+        var projectChat = Guid.NewGuid();
+        var otherChat = Guid.NewGuid();
         var history = new List<UserPromptHistoryItem>();
-        var origin = new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero);
-        void Add(string content, int times, TimeSpan offset)
+        void Add(string content, int times, Guid chat)
         {
             for (var i = 0; i < times; i++)
-                history.Add(new UserPromptHistoryItem(Guid.NewGuid(), Guid.NewGuid(), content, origin.Add(offset).AddMinutes(i)));
+                history.Add(new UserPromptHistoryItem(chat, Guid.NewGuid(), content, origin.AddMinutes(history.Count)));
         }
-        Add("commit and push to main", 14, TimeSpan.Zero);
-        Add("run code review", 9, TimeSpan.FromHours(1));
-        Add("plan my day", 5, TimeSpan.FromHours(2));
-        Add("write me a story", 4, TimeSpan.FromHours(3));
+        Add("commit and push to main", 14, projectChat);
+        Add("run code review", 9, projectChat);
+        Add("find a cheaper alternative", 3, otherChat);
+        Guid? ProjectOf(Guid chat) => chat == projectChat ? project : null;
 
-        // The SAME global block is sent for every conversation — exactly as production does it.
-        var block = SuggestionHistoryRanker.BuildFrequentRequestsBlock(history, 8);
-        Assert.NotNull(block);
-        Assert.Contains("commit and push to main", block!, StringComparison.OrdinalIgnoreCase);
-        _output.WriteLine($"[Global block]\n{block}\n");
+        // A chat outside projects never gets them, and inside the project the model must still skip them when the
+        // conversation turns to something else.
+        Assert.Empty(SuggestionHistoryRanker.RankUsualReplies(
+            history, new SuggestionHistoryRanker.Scope(Guid.NewGuid(), null, ProjectOf, DateTimeOffset.Now), 5));
+        var inProject = SuggestionHistoryRanker.RankUsualReplies(
+            history, new SuggestionHistoryRanker.Scope(Guid.NewGuid(), project, ProjectOf, DateTimeOffset.Now), 5);
+        Assert.Equal("Commit and push to main", inProject[0].Text);
 
-        // Words that would only appear if the coding history leaked into an unrelated chat.
-        string[] codingLeakTerms = ["commit", "push", "git", "code review", "pull request", "repository"];
-
+        string[] codingTerms = ["commit", "push", "git", "code review", "pull request", "repository"];
         var unrelated = new[]
         {
             (Topic: "TV shopping",
@@ -2498,47 +2539,29 @@ public class CopilotIntegrationTests : IAsyncLifetime
             (Topic: "Cooking",
              User: "How do I make a good sourdough starter from scratch?",
              Assistant: "Mix equal parts flour and water, leave it loosely covered at room temperature, and feed it daily. After about a week it should be bubbly and double in size, ready to leaven bread."),
-            (Topic: "Travel",
-             User: "What are the best neighborhoods to stay in when visiting Lisbon?",
-             Assistant: "Alfama is historic and atmospheric, Baixa is central and walkable, and Príncipe Real is trendy with great restaurants. Each offers a different vibe for exploring the city."),
             (Topic: "TV shopping (Hebrew)",
              User: "איזו טלוויזיית OLED בגודל 65 אינץ' הכי משתלמת לסלון מואר?",
              Assistant: "לסלון מואר ה-LG G4 וה-Samsung S95D בולטים בבהירות שיא גבוהה, בעוד שה-Sony Bravia 8 מציעה עיבוד תמונה מצוין במחיר נמוך יותר. טווח המחירים הוא בערך 6,000 עד 9,000 שקלים."),
         };
-
         foreach (var (topic, user, assistant) in unrelated)
         {
-            // Same global block every time — the model must ignore it as irrelevant here.
-            var suggestions = await _service.GenerateSuggestionsAsync(assistant, user, block);
+            var suggestions = await SuggestAsync(assistant, user, inProject);
             Assert.NotNull(suggestions);
-            Assert.NotEmpty(suggestions!);
-
-            _output.WriteLine($"[{topic}] suggestions: {string.Join(" | ", suggestions!)}");
-
+            _output.WriteLine($"[{topic}] {string.Join(" | ", suggestions!)}");
             var joined = string.Join("\n", suggestions!).ToLowerInvariant();
-            foreach (var term in codingLeakTerms)
-            {
-                Assert.False(
-                    joined.Contains(term, StringComparison.Ordinal),
-                    $"[{topic}] coding term '{term}' leaked into suggestions: {string.Join(" | ", suggestions!)}");
-            }
+            Assert.DoesNotContain(codingTerms, term => joined.Contains(term, StringComparison.Ordinal));
         }
 
-        // ── Coding conversation: now the recurring coding prompt IS a natural next step ──
-        var codeUser = "I finished the feature on my branch. What's the git workflow to ship it?";
-        var codeAssistant = "Your local commits look good. Next, commit any remaining changes, push the branch to the remote, open a pull request against main, and merge once review passes.";
-
-        var codeSuggestions = await _service.GenerateSuggestionsAsync(codeAssistant, codeUser, block);
-        Assert.NotNull(codeSuggestions);
-        Assert.NotEmpty(codeSuggestions!);
-        _output.WriteLine($"[Coding] suggestions: {string.Join(" | ", codeSuggestions!)}");
-
-        // For a git-workflow conversation the model should produce a shipping-related suggestion.
-        string[] shipTerms = ["commit", "push", "pr", "pull request", "merge", "review", "main", "branch", "remote", "ship"];
-        var codeJoined = string.Join("\n", codeSuggestions!).ToLowerInvariant();
-        Assert.True(
-            shipTerms.Any(term => codeJoined.Contains(term, StringComparison.Ordinal)),
-            $"[Coding] expected a git/ship-related suggestion, got: {string.Join(" | ", codeSuggestions!)}");
+        // In the project, right after finished work, the user's own wording comes back.
+        var code = await SuggestAsync(
+            "Done. The settings page now saves the new theme, all 42 tests pass and the build is clean. Nothing is committed yet.",
+            "Make the theme setting persist across restarts.",
+            inProject);
+        Assert.NotNull(code);
+        _output.WriteLine($"[Coding] {string.Join(" | ", code!)}");
+        Assert.Contains(code!, suggestion =>
+            suggestion.Equals("Commit and push to main", StringComparison.OrdinalIgnoreCase)
+            || suggestion.Equals("Run code review", StringComparison.OrdinalIgnoreCase));
     }
 
     // ═══════════════════════════════════════════════════════════════════════

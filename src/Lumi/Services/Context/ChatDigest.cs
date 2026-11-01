@@ -27,8 +27,11 @@ internal static class ChatDigest
 
     /// <summary>Messages a background job or a managing chat sent, rather than the user. Their authors are set by
     /// <c>ChatViewModel</c> ("Lumi Job - name") and <c>ChatOrchestrationService</c> ("Lumi Manager").</summary>
-    public static bool IsAutomated(ChatMessage message)
-        => message.Author is { } author
+    public static bool IsAutomated(ChatMessage message) => IsAutomatedAuthor(message.Author);
+
+    /// <summary>The author rule of <see cref="IsAutomated"/>; <c>ChatStore.ReadUserPromptsAsync</c> applies it in SQL.</summary>
+    public static bool IsAutomatedAuthor(string? author)
+        => author is not null
            && (author.StartsWith("Lumi Job", StringComparison.Ordinal) || author.StartsWith("Lumi Manager", StringComparison.Ordinal));
 
     public static bool IsOwnerMessage(ChatMessage message)

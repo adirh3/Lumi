@@ -2849,7 +2849,7 @@
   "AiFeature_FollowUps": "Anschlussvorschläge",
   "AiFeature_FollowUpsDesc": "Schlägt drei Dinge vor, die du als Nächstes fragen könntest.",
   "AiFeature_FollowUpsWhen": "Nach jeder Antwort",
-  "AiFeature_FollowUpsReads": "Den letzten Austausch und häufige Anfragen von dir",
+  "AiFeature_FollowUpsReads": "Die letzten Nachrichten und häufige Anfragen von dir",
   "AiFeature_FollowUpsKeywords": "Anschlussfragen vorschlagen, nächste Schritte, Vorschläge",
   "AiFeature_Memories": "Automatische Erinnerungen",
   "AiFeature_MemoriesDesc": "Erkennt dauerhafte Fakten über dich und deine Projekte und speichert sie als Erinnerungen.",

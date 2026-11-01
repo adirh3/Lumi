@@ -2849,7 +2849,7 @@
   "AiFeature_FollowUps": "Suggestions de suite",
   "AiFeature_FollowUpsDesc": "Propose trois demandes possibles pour la suite.",
   "AiFeature_FollowUpsWhen": "Après chaque réponse",
-  "AiFeature_FollowUpsReads": "Le dernier échange et vos demandes fréquentes",
+  "AiFeature_FollowUpsReads": "La conversation récente et vos demandes fréquentes",
   "AiFeature_FollowUpsKeywords": "Suggérer la suite, prochaines étapes, suggestions",
   "AiFeature_Memories": "Souvenirs automatiques",
   "AiFeature_MemoriesDesc": "Repère les faits durables sur vous et vos projets et les mémorise.",

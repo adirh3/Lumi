@@ -617,7 +617,7 @@ and tool selections are updated on startup; older tool calls keep their transcri
 | Feature | When it runs | What the model does |
 |---|---|---|
 | Chat titles | A new conversation starts, when automatic titles are enabled | Produces a short title from the first user message |
-| Follow-up suggestions | An eligible assistant reply completes | Proposes three concise next messages using the current exchange and frequently typed requests as low-priority context |
+| Follow-up suggestions | An eligible assistant reply completes | Proposes three short next messages in your own voice: first the answer to the reply's offer or question (it always reads the reply's ending, where those are), then the most likely next requests. When a reply stops mid-work ("Now let me check the logs:"), the first is usually **Continue**. In a project it also reads the requests you usually send there, ranked by this chat and recency, and reuses your wording when one fits ("Commit and push to main"); chats outside projects don't use them. |
 | Automatic memories | A completed exchange contains potential lasting facts, when auto-save is enabled | Saves, updates, or removes personal facts and durable project conventions using restricted memory tools |
 | Daily briefs | Once a night at 05:00 (or at the first chance after it), for each project with chats that day and then once across projects, when Daily Briefs is on; or on **Update now** | Reads the day's chats with read-only chat tools (for a project you've used in the last two weeks, also chats where you name it: one outside projects can start its review, one in another project only adds to a review that happens anyway), rewrites the project's brief as a few short paragraphs on where it stands and is heading, and repairs, merges or removes memories with evidence from the chats (only with automatic memories on). A missed night is caught up a day at a time, three days on the first run and at most a week |
 | Onboarding personalization | The first-run getting-to-know-you step, prefetched once the user allows a look around (or skips it) | Turns a short local summary of projects, known apps, top sites and recent-file counts — never paths or document contents — into Lumi's first words, three tailored questions and three first tasks in one tool-free call; built-in fallbacks apply when it is unavailable |
@@ -640,7 +640,8 @@ All helpers resolve through `CopilotService.BuildLightweightSessionConfigAsync` 
 (`LightweightSessionOptions.Feature`, saved in `UserSettings.AiFeatureModels`) or else the default
 model. One-shot sessions are disposed and deleted; suggestions
 keep one serialized, warm helper and use the SDK's transient no-tools query API. Each query carries
-its own instructions and bounded current-exchange context without adding a conversation turn, so
+its own instructions and bounded context (the reply's beginning and end, the request before it, the two
+exchanges before that, and in a project its name and your usual replies there) without adding a conversation turn, so
 unrelated requests do not accumulate in the helper's history. The helper is replaced if it expired
 or its resolved model, provider, or capabilities changed. Auto re-evaluates the shared catalog and uses its
 existing five-minute refresh policy; Settings shows the current automatic model. Changes apply to

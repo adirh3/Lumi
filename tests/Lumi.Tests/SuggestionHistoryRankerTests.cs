@@ -8,190 +8,176 @@ namespace Lumi.Tests;
 
 public class SuggestionHistoryRankerTests
 {
-    private static readonly DateTimeOffset Origin = new(2026, 4, 23, 8, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset Now = new(2026, 11, 1, 12, 0, 0, TimeSpan.Zero);
+    private static readonly Guid Chat = Guid.NewGuid();
+    private static readonly Guid OtherChat = Guid.NewGuid();
+    private static readonly Guid ChatOutsideProjects = Guid.NewGuid();
+    private static readonly Guid OtherProjectChat = Guid.NewGuid();
+    private static readonly Guid Project = Guid.NewGuid();
+    private static readonly Guid OtherProject = Guid.NewGuid();
 
-    private static UserPromptHistoryItem Item(string content, DateTimeOffset timestamp)
-        => new(Guid.NewGuid(), Guid.NewGuid(), content, timestamp);
+    private static readonly Dictionary<Guid, Guid?> Projects = new()
+    {
+        [Chat] = Project,
+        [OtherChat] = Project,
+        [ChatOutsideProjects] = null,
+        [OtherProjectChat] = OtherProject,
+    };
 
-    private static IEnumerable<UserPromptHistoryItem> Repeat(string content, int count, DateTimeOffset start)
-        => Enumerable.Range(0, count).Select(i => Item(content, start.AddSeconds(i)));
+    private static SuggestionHistoryRanker.Scope In(Guid chatId)
+        => new(chatId, Projects.GetValueOrDefault(chatId), id => Projects.GetValueOrDefault(id), Now);
 
-    // ── Frequency + dedup ─────────────────────────────────────────────────────
+    private static UserPromptHistoryItem Item(string content, DateTimeOffset timestamp, Guid? chatId = null)
+        => new(chatId ?? OtherChat, Guid.NewGuid(), content, timestamp);
+
+    private static IEnumerable<UserPromptHistoryItem> Repeat(string content, int count, DateTimeOffset start, Guid? chatId = null)
+        => Enumerable.Range(0, count).Select(i => Item(content, start.AddMinutes(i), chatId));
+
+    private static IReadOnlyList<SuggestionHistoryRanker.UsualReply> Rank(
+        IEnumerable<UserPromptHistoryItem> history, Guid? chatId = null, int maxItems = 8, int minOccurrences = 2)
+        => SuggestionHistoryRanker.RankUsualReplies(history, In(chatId ?? Chat), maxItems, minOccurrences);
+
+    // ── Where and when it was asked ───────────────────────────────────────────
 
     [Fact]
-    public void Rank_OrdersByFrequencyThenRecency()
+    public void Rank_LearnsOnlyFromTheSameProject()
     {
         var history = new List<UserPromptHistoryItem>();
-        history.AddRange(Repeat("commit and push to main", 5, Origin));
-        history.AddRange(Repeat("run code review", 3, Origin.AddHours(1)));
-        history.AddRange(Repeat("open google.com in the browser", 3, Origin.AddHours(2)));
+        history.AddRange(Repeat("open google.com in the browser", 6, Now.AddDays(-1), ChatOutsideProjects));
+        history.AddRange(Repeat("deploy the site to production", 6, Now.AddDays(-1), OtherProjectChat));
+        history.AddRange(Repeat("commit and push to main", 3, Now.AddDays(-1), OtherChat));
 
-        var ranked = SuggestionHistoryRanker.RankFrequentRequests(history, 8);
+        var commit = Assert.Single(Rank(history));
 
-        Assert.Equal("commit and push to main", ranked[0].Content);
-        Assert.Equal(5, ranked[0].Count);
-        // Tie on count (3 vs 3) is broken by recency: "open google" is newer than "run code review".
-        Assert.Equal("open google.com in the browser", ranked[1].Content);
-        Assert.Equal("run code review", ranked[2].Content);
+        Assert.Equal("Commit and push to main", commit.Text);
+        Assert.Equal(3, commit.Count);
     }
+
+    [Fact]
+    public void Rank_ForAChatOutsideProjects_ReturnsNothing()
+    {
+        var history = new List<UserPromptHistoryItem>();
+        history.AddRange(Repeat("commit and push to main", 30, Now.AddDays(-1), OtherChat));
+        history.AddRange(Repeat("open google.com in the browser", 20, Now.AddDays(-1), ChatOutsideProjects));
+
+        Assert.Empty(Rank(history, ChatOutsideProjects));
+    }
+
+    [Fact]
+    public void Rank_PrefersTheSameChatWithinAProject()
+    {
+        var history = new List<UserPromptHistoryItem>();
+        history.AddRange(Repeat("run the integration tests again", 3, Now.AddDays(-2), OtherChat));
+        history.AddRange(Repeat("show me the screenshot again", 3, Now.AddDays(-2), Chat));
+
+        Assert.Equal("Show me the screenshot again", Rank(history)[0].Text);
+    }
+
+    [Fact]
+    public void Rank_PrefersRecentRequests()
+    {
+        var history = new List<UserPromptHistoryItem>();
+        history.AddRange(Repeat("commit and push to version/1.4", 4, Now.AddDays(-60)));
+        history.AddRange(Repeat("commit and push to version/1.5", 4, Now.AddDays(-2)));
+
+        var ranked = Rank(history);
+
+        Assert.Equal("Commit and push to version/1.5", ranked[0].Text);
+        Assert.True(ranked[0].Weight > ranked[1].Weight * 4);
+    }
+
+    // ── One request, the user's words ─────────────────────────────────────────
 
     [Fact]
     public void Rank_MergesLeadingFillerVariants()
     {
         var history = new List<UserPromptHistoryItem>();
-        history.AddRange(Repeat("commit and push to main", 4, Origin));
-        history.AddRange(Repeat("ok commit and push to main", 3, Origin.AddMinutes(10)));
-        history.AddRange(Repeat("nice, commit and push to main", 2, Origin.AddMinutes(20)));
+        history.AddRange(Repeat("commit and push to main", 4, Now.AddHours(-5)));
+        history.AddRange(Repeat("ok commit and push to main", 3, Now.AddHours(-4)));
+        history.AddRange(Repeat("nice work, commit and push to main", 2, Now.AddHours(-3)));
+        history.AddRange(Repeat("Looks good! Commit and push to main.", 1, Now.AddHours(-2)));
 
-        var ranked = SuggestionHistoryRanker.RankFrequentRequests(history, 8);
+        var commit = Assert.Single(Rank(history));
 
-        var commit = Assert.Single(ranked, r => r.Content.Contains("commit and push to main", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(9, commit.Count); // 4 + 3 + 2 collapsed into one request
+        Assert.Equal(10, commit.Count);
+        Assert.Equal("Commit and push to main", commit.Text);
     }
 
     [Fact]
-    public void Rank_DisplaysMostRecentOriginalCasing()
+    public void Rank_ShowsTheMostRecentWording()
     {
         var history = new List<UserPromptHistoryItem>
         {
-            Item("Run Code Review", Origin),
-            Item("run code review", Origin.AddMinutes(5)),
+            Item("Run Code Review", Now.AddHours(-2)),
+            Item("run code review", Now.AddHours(-1)),
         };
 
-        var ranked = SuggestionHistoryRanker.RankFrequentRequests(history, 8);
-
-        Assert.Equal("run code review", Assert.Single(ranked).Content); // latest wins
+        Assert.Equal("Run code review", Assert.Single(Rank(history)).Text);
     }
 
-    // ── Noise filtering ───────────────────────────────────────────────────────
+    // ── Noise ─────────────────────────────────────────────────────────────────
 
     [Fact]
     public void Rank_DropsBackgroundJobTriggers()
-    {
-        var history = Repeat("Background job triggered: Extra OLED TV deal monitor until Monday", 6, Origin).ToList();
-
-        var ranked = SuggestionHistoryRanker.RankFrequentRequests(history, 8);
-
-        Assert.Empty(ranked);
-    }
+        => Assert.Empty(Rank(Repeat("Background job triggered: Extra OLED TV deal monitor until Monday", 6, Now.AddHours(-1))));
 
     [Fact]
     public void Rank_DropsTrivialAndTooShortPrompts()
     {
         var history = new List<UserPromptHistoryItem>();
-        history.AddRange(Repeat("continue", 30, Origin));
-        history.AddRange(Repeat("ping", 20, Origin));
-        history.AddRange(Repeat("hey", 15, Origin));
-        history.AddRange(Repeat("did you check today?", 10, Origin));
-        history.AddRange(Repeat("commit and push to main", 4, Origin));
+        history.AddRange(Repeat("continue", 30, Now.AddHours(-1)));
+        history.AddRange(Repeat("ping", 20, Now.AddHours(-1)));
+        history.AddRange(Repeat("hey", 15, Now.AddHours(-1)));
+        history.AddRange(Repeat("ok, did you check today?", 10, Now.AddHours(-1)));
+        history.AddRange(Repeat("commit and push to main", 4, Now.AddHours(-1)));
 
-        var ranked = SuggestionHistoryRanker.RankFrequentRequests(history, 8);
-
-        Assert.Equal("commit and push to main", Assert.Single(ranked).Content);
+        Assert.Equal("Commit and push to main", Assert.Single(Rank(history)).Text);
     }
 
     [Fact]
     public void Rank_DropsOverlyLongPrompts()
-    {
-        var longPrompt = new string('x', 200);
-        var history = Repeat(longPrompt, 5, Origin).ToList();
-
-        var ranked = SuggestionHistoryRanker.RankFrequentRequests(history, 8);
-
-        Assert.Empty(ranked);
-    }
-
-    // ── Recurrence + limits ───────────────────────────────────────────────────
+        => Assert.Empty(Rank(Repeat(new string('x', 200), 5, Now.AddHours(-1))));
 
     [Fact]
     public void Rank_ExcludesOneOffRequests()
     {
         var history = new List<UserPromptHistoryItem>
         {
-            Item("write me a long unique essay about computing history", Origin),
-            Item("plan a road trip across northern italy next week", Origin.AddMinutes(1)),
+            Item("write me a long unique essay about computing history", Now.AddHours(-3), Chat),
+            Item("plan a road trip across northern italy next week", Now.AddHours(-3), Chat),
         };
-        history.AddRange(Repeat("commit and push to main", 2, Origin.AddMinutes(2)));
+        history.AddRange(Repeat("commit and push to main", 2, Now.AddHours(-2)));
 
-        var ranked = SuggestionHistoryRanker.RankFrequentRequests(history, 8);
-
-        Assert.Equal("commit and push to main", Assert.Single(ranked).Content);
+        Assert.Equal("Commit and push to main", Assert.Single(Rank(history)).Text);
     }
 
     [Fact]
-    public void Rank_RespectsMaxItems()
+    public void Rank_RespectsMaxItemsAndMinOccurrences()
     {
         var history = new List<UserPromptHistoryItem>();
         for (var i = 0; i < 12; i++)
-            history.AddRange(Repeat($"recurring request number {i:00}", 2 + i, Origin.AddMinutes(i)));
+            history.AddRange(Repeat($"recurring request number {i:00}", 2 + i, Now.AddHours(-i - 1)));
 
-        var ranked = SuggestionHistoryRanker.RankFrequentRequests(history, 5);
-
-        Assert.Equal(5, ranked.Count);
+        Assert.Equal(5, Rank(history, maxItems: 5).Count);
+        Assert.Equal(9, Rank(history, maxItems: 20, minOccurrences: 5).Count);
     }
 
     [Fact]
-    public void Rank_HonorsCustomMinOccurrences()
+    public void Rank_ThrowsForInvalidArguments()
     {
-        var history = new List<UserPromptHistoryItem>();
-        history.AddRange(Repeat("first recurring action item", 3, Origin));
-        history.AddRange(Repeat("second recurring action item", 4, Origin.AddMinutes(5)));
-
-        var atLeastFour = SuggestionHistoryRanker.RankFrequentRequests(history, 8, minOccurrences: 4);
-
-        Assert.Equal("second recurring action item", Assert.Single(atLeastFour).Content);
+        Assert.Throws<ArgumentOutOfRangeException>(() => Rank([], maxItems: 0));
+        Assert.Throws<ArgumentNullException>(() => SuggestionHistoryRanker.RankUsualReplies(null!, In(Chat), 8));
     }
 
-    // ── Rendering ─────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void Render_OmitsCountsAndBulletsEachRequest()
-    {
-        var history = new List<UserPromptHistoryItem>();
-        history.AddRange(Repeat("commit and push to main", 5, Origin));
-        history.AddRange(Repeat("run code review", 3, Origin.AddHours(1)));
-
-        var block = SuggestionHistoryRanker.BuildFrequentRequestsBlock(history, 8);
-
-        Assert.NotNull(block);
-        Assert.Equal("- commit and push to main\n- run code review", block!.Replace("\r\n", "\n"));
-        Assert.DoesNotContain("5x", block);
-        Assert.DoesNotContain("used", block);
-    }
-
-    [Fact]
-    public void Build_ReturnsNullWhenNothingQualifies()
-    {
-        var history = new List<UserPromptHistoryItem>
-        {
-            Item("continue", Origin),
-            Item("a one-off question asked exactly once here", Origin.AddMinutes(1)),
-        };
-
-        var block = SuggestionHistoryRanker.BuildFrequentRequestsBlock(history, 8);
-
-        Assert.Null(block);
-    }
-
-    [Fact]
-    public void Build_ReturnsNullForEmptyHistory()
-    {
-        Assert.Null(SuggestionHistoryRanker.BuildFrequentRequestsBlock(Array.Empty<UserPromptHistoryItem>(), 8));
-    }
-
-    // ── Guard rails ───────────────────────────────────────────────────────────
-
-    [Fact]
-    public void Rank_ThrowsForNonPositiveMaxItems()
-    {
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            SuggestionHistoryRanker.RankFrequentRequests(Array.Empty<UserPromptHistoryItem>(), 0));
-    }
-
-    [Fact]
-    public void Rank_ThrowsForNullHistory()
-    {
-        Assert.Throws<ArgumentNullException>(() =>
-            SuggestionHistoryRanker.RankFrequentRequests(null!, 8));
-    }
+    [Theory]
+    [InlineData("Commit and push to main", "commit and push to main")]
+    [InlineData("nice work, commit and push to main!", "commit and push to main")]
+    [InlineData("Ok. Run code review", "run code review")]
+    [InlineData("  Did   you push to main?  ", "did you push to main")]
+    [InlineData("let's work on the settings page", "work on the settings page")]
+    [InlineData("well-known issue with the tab strip", "well-known issue with the tab strip")]
+    [InlineData("nowhere to be found in the logs", "nowhere to be found in the logs")]
+    [InlineData("thanks!", "thanks")]
+    public void NormalizeRequest_KeepsOnlyWhatIsAskedFor(string message, string expected)
+        => Assert.Equal(expected, SuggestionHistoryRanker.NormalizeRequest(message));
 }

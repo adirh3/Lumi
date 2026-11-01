@@ -2162,17 +2162,6 @@ public class CopilotService : IAsyncDisposable
         return text[..end];
     }
 
-    private const string SuggestionSystemPrompt =
-        "You generate follow-up suggestions for a chat assistant. Propose exactly 3 short messages the user would naturally send next, grounded in the CURRENT conversation. " +
-        "QUALITY RULES (most important): " +
-        "1. Ground every suggestion in the specifics of THIS conversation — reference the actual topics, names, entities, files, or details discussed. Avoid vague filler like \"What should I do next?\", \"Run the app\", \"Show a summary\", \"Check for errors\", or \"Tell me more\". " +
-        "2. Advance the conversation — never re-ask something the assistant already answered; build on it instead. " +
-        "3. Follow the user's actual intent and task, not just the broad theme (e.g. in a lesson about learning kanji, suggest a sharper way to study kanji — not an unrelated ramen recipe that merely shares the 'Japanese' theme). " +
-        "4. Make the 3 meaningfully different from each other (e.g. go deeper, take the next concrete action, explore a related angle) — not three rephrasings of one idea. " +
-        "5. Each must be concise (under 60 characters), specific, and something the user would actually click. " +
-        "FREQUENT-REQUESTS LIST: you may also receive a list of the user's frequently-typed requests. Treat it as low-priority reference, NOT a menu: include one only if it is a genuinely natural next step for THIS conversation. Usually none fit — then ignore the list entirely. Never suggest something merely because it is frequent, and ignore any list item that looks like a test, debug, setup, or system command, or is unrelated to the current topic. " +
-        "Output ONLY a JSON array of exactly 3 strings, nothing else. Example: [\"Compare the LG G4 and Sony A95L\", \"Which handles glare better?\", \"Show cheaper alternatives under $1500\"]";
-
     private async Task<CopilotSession> GetOrCreateSuggestionSessionAsync(SessionConfig config, CancellationToken ct)
     {
         var signature = GetLightweightSessionModelSignature(config);
@@ -2215,18 +2204,15 @@ public class CopilotService : IAsyncDisposable
         => IsUseByokOnly && !ByokConfigHelper.IsByokModel(
             ResolveConfiguredBackgroundModel(_settingsProvider?.Invoke(), _isGitHubAuthenticated == true, feature));
 
-    public Task<List<string>?> GenerateSuggestionsAsync(
-        string assistantMessage,
-        string? userMessage,
-        CancellationToken ct = default)
-        => GenerateSuggestionsAsync(assistantMessage, userMessage, userHistorySummary: null, ct);
-
+    /// <summary>
+    /// Asks the follow-up model what the user will most likely send next (<see cref="FollowUpSuggestions"/>).
+    /// Returns null when it can't run or answers nothing usable.
+    /// </summary>
     public async Task<List<string>?> GenerateSuggestionsAsync(
-        string assistantMessage,
-        string? userMessage,
-        string? userHistorySummary,
+        FollowUpSuggestionContext context,
         CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(context);
         if (_client is null) return null;
 
         if (IsHelperBlocked(AiFeatureIds.FollowUps))
@@ -2235,7 +2221,7 @@ public class CopilotService : IAsyncDisposable
             return null;
         }
 
-        var question = BuildSuggestionQuestion(assistantMessage, userMessage, userHistorySummary);
+        var question = FollowUpSuggestions.BuildQuestion(context);
 
         await _suggestionGate.WaitAsync(ct).ConfigureAwait(false);
         CopilotSession? session = null;
@@ -2243,7 +2229,7 @@ public class CopilotService : IAsyncDisposable
         {
             var config = await BuildLightweightSessionConfigAsync(new LightweightSessionOptions
             {
-                SystemPrompt = SuggestionSystemPrompt,
+                SystemPrompt = FollowUpSuggestions.SystemPrompt,
                 Feature = AiFeatureIds.FollowUps,
                 Streaming = false
             }, ct).ConfigureAwait(false);
@@ -2271,7 +2257,7 @@ public class CopilotService : IAsyncDisposable
                 raw = result.Answer;
             }
 
-            return ParseSuggestions(raw);
+            return FollowUpSuggestions.Parse(raw);
         }
         catch
         {
@@ -2287,83 +2273,6 @@ public class CopilotService : IAsyncDisposable
         {
             _suggestionSessionLastUsedUtc = DateTimeOffset.UtcNow;
             _suggestionGate.Release();
-        }
-    }
-
-    internal static string BuildSuggestionQuestion(
-        string assistantMessage, string? userMessage, string? userHistorySummary)
-    {
-        var contextBuilder = new StringBuilder();
-        if (!string.IsNullOrWhiteSpace(userMessage))
-        {
-            contextBuilder.AppendLine("Latest user message:");
-            contextBuilder.AppendLine(Truncate(userMessage.Trim(), 800));
-            contextBuilder.AppendLine();
-        }
-
-        contextBuilder.AppendLine("Latest assistant message:");
-        contextBuilder.AppendLine(Truncate(assistantMessage.Trim(), 1400));
-
-        if (!string.IsNullOrWhiteSpace(userHistorySummary))
-        {
-            contextBuilder.AppendLine();
-            contextBuilder.AppendLine("The user's frequently-typed requests from other chats (reference only — include one ONLY if it is a natural next step for THIS conversation; otherwise ignore this list entirely):");
-            contextBuilder.AppendLine(Truncate(userHistorySummary.Trim(), 1400));
-        }
-
-        var context = Truncate(contextBuilder.ToString().Trim(), 3600);
-        return $"{SuggestionSystemPrompt}\n\n{context}";
-    }
-
-    private static List<string>? ParseSuggestions(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-            return null;
-
-        raw = raw.Trim();
-
-        // Strip markdown code fences if present (e.g., ```json ... ```)
-        if (raw.StartsWith("```", StringComparison.Ordinal))
-        {
-            var firstNewline = raw.IndexOf('\n');
-            if (firstNewline > 0)
-                raw = raw[(firstNewline + 1)..];
-            if (raw.EndsWith("```", StringComparison.Ordinal))
-                raw = raw[..^3];
-            raw = raw.Trim();
-        }
-
-        var suggestions = TryDeserializeSuggestions(raw);
-        if (suggestions is null)
-        {
-            var arrayStart = raw.IndexOf('[');
-            var arrayEnd = raw.LastIndexOf(']');
-            if (arrayStart >= 0 && arrayEnd > arrayStart)
-                suggestions = TryDeserializeSuggestions(raw[arrayStart..(arrayEnd + 1)]);
-        }
-
-        if (suggestions is null || suggestions.Count == 0)
-            return null;
-
-        var normalized = suggestions
-            .Where(static s => !string.IsNullOrWhiteSpace(s))
-            .Select(static s => s.Trim())
-            .Distinct(StringComparer.Ordinal)
-            .Take(3)
-            .ToList();
-
-        return normalized.Count > 0 ? normalized : null;
-    }
-
-    private static List<string>? TryDeserializeSuggestions(string raw)
-    {
-        try
-        {
-            return JsonSerializer.Deserialize(raw, Lumi.Models.AppDataJsonContext.Default.ListString);
-        }
-        catch (JsonException)
-        {
-            return null;
         }
     }
 

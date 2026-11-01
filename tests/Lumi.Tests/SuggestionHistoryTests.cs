@@ -59,13 +59,16 @@ public class SuggestionHistoryTests
         var cached = await store.GetSuggestionHistoryAsync(snapshots);
 
         Assert.Equal(4, cached.Count);
-        Assert.Equal(
-            SuggestionHistoryRanker.RankFrequentRequests(raw, 8),
-            SuggestionHistoryRanker.RankFrequentRequests(cached, 8));
+        var project = Guid.NewGuid();
+        IReadOnlyList<SuggestionHistoryRanker.UsualReply> Rank(IEnumerable<UserPromptHistoryItem> items)
+            => SuggestionHistoryRanker.RankUsualReplies(
+                items, new SuggestionHistoryRanker.Scope(Guid.NewGuid(), project, _ => project, timestamp), 8);
+        Assert.Equal(["Run code review on these changes", "Commit and push to main"], Rank(raw).Select(static reply => reply.Text));
+        Assert.Equal(Rank(raw), Rank(cached));
         var excludedId = chat.Messages[1].Id;
         Assert.Equal(
-            SuggestionHistoryRanker.RankFrequentRequests(raw.Where(item => item.MessageId != excludedId), 8),
-            SuggestionHistoryRanker.RankFrequentRequests(cached.Where(item => item.MessageId != excludedId), 8));
+            Rank(raw.Where(item => item.MessageId != excludedId)),
+            Rank(cached.Where(item => item.MessageId != excludedId)));
         Assert.All(cached, item => Assert.True(item.Content.Length < 100));
     }
 
@@ -247,5 +250,35 @@ public class SuggestionHistoryTests
 
         Assert.Equal(["Push to main", "Run code review"], history.Select(static item => item.Content));
         Assert.Equal([pushMessageId, codeReviewMessageId], history.Select(static item => item.MessageId));
+    }
+
+    [Fact]
+    public async Task GetUserPromptHistory_LeavesOutMessagesTheUserDidNotWrite()
+    {
+        var at = new DateTimeOffset(2026, 10, 30, 9, 0, 0, TimeSpan.Zero);
+        var chat = new Chat
+        {
+            Messages =
+            [
+                new ChatMessage { Role = "user", Content = "Commit and push to main", Author = "Adir", Timestamp = at },
+                new ChatMessage { Role = "user", Content = "Check the open pull requests", Author = "Lumi Job - PR watcher", Timestamp = at.AddMinutes(1) },
+                new ChatMessage { Role = "user", Content = "Summarize what the worker finished", Author = "Lumi Manager · Release", Timestamp = at.AddMinutes(2) },
+                new ChatMessage
+                {
+                    Role = "user",
+                    Content = "Use these selected results for the comparison",
+                    Timestamp = at.AddMinutes(3),
+                    InteractionReceipt = new InteractionReceipt { Title = "Results", Action = "use" }
+                },
+                new ChatMessage { Role = "user", Content = "Run code review from my phone", Author = "Lumi Mobile", Timestamp = at.AddMinutes(4) },
+            ]
+        };
+        var store = new DataStore(new AppData { Chats = [chat] });
+
+        var history = await store.GetUserPromptHistoryAsync(
+            maxMessages: 10,
+            new Dictionary<Guid, IReadOnlyList<ChatMessage>> { [chat.Id] = chat.Messages.ToList() });
+
+        Assert.Equal(["Run code review from my phone", "Commit and push to main"], history.Select(static item => item.Content));
     }
 }

@@ -2849,7 +2849,7 @@
   "AiFeature_FollowUps": "Sugerencias de seguimiento",
   "AiFeature_FollowUpsDesc": "Sugiere tres cosas que podrías preguntar después.",
   "AiFeature_FollowUpsWhen": "Después de cada respuesta",
-  "AiFeature_FollowUpsReads": "El último intercambio y las peticiones que haces a menudo",
+  "AiFeature_FollowUpsReads": "La conversación reciente y las peticiones que haces a menudo",
   "AiFeature_FollowUpsKeywords": "Sugerir seguimientos, próximos pasos, sugerencias",
   "AiFeature_Memories": "Recuerdos automáticos",
   "AiFeature_MemoriesDesc": "Detecta datos duraderos sobre ti y tus proyectos y los guarda como recuerdos.",

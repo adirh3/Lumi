@@ -754,7 +754,9 @@ internal sealed partial class ChatStore
             "SELECT COUNT(*) FROM messages WHERE chat_key = $chat AND seq < $before;",
             chatKey, ("$before", beforeSeq)) ?? 0), 0);
 
-    /// <summary>The newest user prompts across every chat, newest first.</summary>
+    /// <summary>The newest prompts the user typed across every chat, newest first. Messages a background job or a
+    /// managing chat sent (<see cref="Context.ChatDigest.IsAutomatedAuthor"/>, kept in step with the SQL below), and
+    /// the receipts of interactive answers, are not the user's own words.</summary>
     public Task<List<StoredUserPrompt>> ReadUserPromptsAsync(int limit)
         => Task.Run(async () =>
         {
@@ -765,6 +767,9 @@ internal sealed partial class ChatStore
                     SELECT c.id, m.id, json_extract(m.body, '$.content'), m.timestamp
                     FROM messages m INDEXED BY messages_prompts JOIN chats c ON c.chat_key = m.chat_key
                     WHERE m.role = 'user'
+                      AND json_extract(m.body, '$.interactionReceipt') IS NULL
+                      AND coalesce(json_extract(m.body, '$.author'), '') NOT LIKE 'Lumi Job%'
+                      AND coalesce(json_extract(m.body, '$.author'), '') NOT LIKE 'Lumi Manager%'
                     ORDER BY m.timestamp DESC LIMIT $limit;
                     """);
                 command.Parameters.AddWithValue("$limit", Math.Max(0, limit));

@@ -32,7 +32,8 @@ namespace Lumi.ViewModels;
 
 public partial class ChatViewModel : ObservableObject, IDisposable
 {
-    private const int SuggestionFrequentRequestMaxItems = 8;
+    // Agentic turns write many progress updates; 200 messages reach two earlier exchanges in 99% of real turns (40 did in 77%).
+    private const int SuggestionEarlierMessagesScanned = 200;
     private static readonly HttpClient McpDiagnosticsHttp = new()
     {
         Timeout = TimeSpan.FromSeconds(5)
@@ -6691,14 +6692,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     IsSuggestionsGenerating = true;
             });
 
-            var userHistorySummary = await BuildSuggestionHistorySummaryAsync(
-                context.LatestUserMessageId,
-                context.LoadedMessageSnapshots);
-
-            var suggestions = await _copilotService.GenerateSuggestionsAsync(
-                context.AssistantMessage,
-                context.LatestUserMessage,
-                userHistorySummary);
+            var request = new FollowUpSuggestionContext
+            {
+                AssistantMessage = context.AssistantMessage,
+                UserMessage = context.LatestUserMessage,
+                ProjectName = context.ProjectName,
+                EarlierTurns = await ReadEarlierSuggestionTurnsAsync(chat, context.LatestUserMessageId),
+                UsualReplies = await RankUsualRepliesAsync(chat, context)
+            };
+            var suggestions = await _copilotService.GenerateSuggestionsAsync(request);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -6755,33 +6757,87 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             .ToDictionary(
                 static item => item.Id,
                 static item => (IReadOnlyList<ChatMessage>)item.Messages.ToList());
+        var chatProjects = new Dictionary<Guid, Guid?>();
+        foreach (var item in _dataStore.Data.Chats)
+            chatProjects.TryAdd(item.Id, item.ProjectId);
+        var projectName = chat.ProjectId is { } projectId
+            ? _dataStore.Data.Projects.FirstOrDefault(project => project.Id == projectId)?.Name
+            : null;
 
         return new SuggestionGenerationContext(
             assistantMessage.Content,
             lastUser?.Content,
             lastUser?.Id,
+            chat.ProjectId,
+            projectName,
+            chatProjects,
             loadedMessageSnapshots);
     }
 
-    private async Task<string?> BuildSuggestionHistorySummaryAsync(
-        Guid? latestUserMessageId,
-        IReadOnlyDictionary<Guid, IReadOnlyList<ChatMessage>> loadedMessageSnapshots)
+    /// <summary>The exchanges before the one the suggestions follow, oldest first: each request and its last reply.</summary>
+    private async Task<IReadOnlyList<FollowUpTurn>> ReadEarlierSuggestionTurnsAsync(Chat chat, Guid? latestUserMessageId)
     {
-        var userPromptHistory = await _dataStore.GetSuggestionHistoryAsync(loadedMessageSnapshots);
+        try
+        {
+            var recent = await _dataStore.ReadRecentChatMessagesAsync(chat, SuggestionEarlierMessagesScanned, conversationOnly: true);
+            var turns = new List<FollowUpTurn>();
+            string? user = null;
+            string? reply = null;
+            foreach (var message in recent)
+            {
+                if (message.Role == "user" && !string.IsNullOrWhiteSpace(message.Content))
+                {
+                    if (message.Id == latestUserMessageId)
+                        break;
+                    if (user is not null)
+                        turns.Add(new FollowUpTurn(user, reply ?? ""));
+                    user = message.Content;
+                    reply = null;
+                }
+                else if (user is not null && message.Role == "assistant" && !string.IsNullOrWhiteSpace(message.Content))
+                {
+                    reply = message.Content;
+                }
+            }
 
-        var historyItems = userPromptHistory
-            .Where(item => item.MessageId != latestUserMessageId);
+            if (user is not null)
+                turns.Add(new FollowUpTurn(user, reply ?? ""));
+            return turns.TakeLast(FollowUpSuggestions.EarlierTurnsShown).ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Trace.TraceWarning("[Chat] Could not read earlier messages for suggestions: {0}", ex.Message);
+            return [];
+        }
+    }
 
-        // Deterministic, conversation-agnostic prep only: the model decides what (if anything) fits.
-        return SuggestionHistoryRanker.BuildFrequentRequestsBlock(
-            historyItems,
-            SuggestionFrequentRequestMaxItems);
+    /// <summary>What the user usually sends at moments like this, ranked for this chat and its project (none
+    /// outside projects, see <see cref="SuggestionHistoryRanker"/>).</summary>
+    private async Task<IReadOnlyList<SuggestionHistoryRanker.UsualReply>> RankUsualRepliesAsync(
+        Chat chat,
+        SuggestionGenerationContext context)
+    {
+        if (context.ProjectId is null)
+            return [];
+
+        var history = await _dataStore.GetSuggestionHistoryAsync(context.LoadedMessageSnapshots);
+        return SuggestionHistoryRanker.RankUsualReplies(
+            history.Where(item => item.MessageId != context.LatestUserMessageId),
+            new SuggestionHistoryRanker.Scope(
+                chat.Id,
+                context.ProjectId,
+                chatId => context.ChatProjects.GetValueOrDefault(chatId),
+                DateTimeOffset.Now),
+            FollowUpSuggestions.UsualRepliesShown);
     }
 
     private sealed record SuggestionGenerationContext(
         string AssistantMessage,
         string? LatestUserMessage,
         Guid? LatestUserMessageId,
+        Guid? ProjectId,
+        string? ProjectName,
+        IReadOnlyDictionary<Guid, Guid?> ChatProjects,
         IReadOnlyDictionary<Guid, IReadOnlyList<ChatMessage>> LoadedMessageSnapshots);
 
     private static ChatMessage? GetLatestSuggestionEligibleAssistantMessage(Chat chat)

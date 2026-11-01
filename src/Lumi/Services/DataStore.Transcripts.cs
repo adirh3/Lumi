@@ -1523,7 +1523,8 @@ public partial class DataStore
                 continue;
             foreach (var message in messages)
             {
-                if (!string.Equals(message.Role, "user", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(message.Content))
+                if (!string.Equals(message.Role, "user", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(message.Content)
+                    || message.InteractionReceipt is not null || Context.ChatDigest.IsAutomated(message))
                     continue;
                 prompts[(chatId, message.Id)] = new UserPromptHistoryItem(chatId, message.Id, message.Content, message.Timestamp);
             }

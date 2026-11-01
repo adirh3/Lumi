@@ -2849,7 +2849,7 @@
   "AiFeature_FollowUps": "اقتراحات المتابعة",
   "AiFeature_FollowUpsDesc": "يقترح ثلاثة أمور قد تسأل عنها تاليًا.",
   "AiFeature_FollowUpsWhen": "بعد كل رد",
-  "AiFeature_FollowUpsReads": "أحدث تبادل والطلبات التي تكررها",
+  "AiFeature_FollowUpsReads": "المحادثة الأخيرة والطلبات التي تكررها",
   "AiFeature_FollowUpsKeywords": "اقتراح متابعات، خطوات تالية، اقتراحات",
   "AiFeature_Memories": "ذكريات تلقائية",
   "AiFeature_MemoriesDesc": "يلاحظ الحقائق الدائمة عنك وعن مشاريعك ويحفظها كذكريات.",

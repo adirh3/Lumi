@@ -2849,7 +2849,7 @@
   "AiFeature_FollowUps": "次の質問の提案",
   "AiFeature_FollowUpsDesc": "次に聞けることを 3 つ提案します。",
   "AiFeature_FollowUpsWhen": "返信のたび",
-  "AiFeature_FollowUpsReads": "最新のやり取りと、よくある依頼",
+  "AiFeature_FollowUpsReads": "最近のやり取りと、よくある依頼",
   "AiFeature_FollowUpsKeywords": "次の質問 次のステップ 提案",
   "AiFeature_Memories": "自動メモリー",
   "AiFeature_MemoriesDesc": "あなたやプロジェクトについての長く役立つ情報を見つけ、メモリーに保存します。",

@@ -233,6 +233,31 @@ public sealed class ChatStorageTests : IDisposable
         Assert.True(prompts[0].Timestamp >= prompts[1].Timestamp);
     }
 
+    [Fact]
+    public async Task Store_UserPromptsLeaveOutJobsManagersAndReceipts()
+    {
+        var dataStore = OpenDataStore(out var store);
+        var chat = new Chat { Title = "prompts" };
+        dataStore.Data.Chats.Add(chat);
+        var at = DateTimeOffset.Now.AddMinutes(-10);
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Commit and push to main", Author = "Adir", Timestamp = at });
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Background job triggered: PR watcher", Author = "Lumi Job - PR watcher", Timestamp = at.AddMinutes(1) });
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Report your progress", Author = "Lumi Manager · Release", Timestamp = at.AddMinutes(2) });
+        chat.Messages.Add(new ChatMessage
+        {
+            Role = "user",
+            Content = "Use these selected results",
+            Timestamp = at.AddMinutes(3),
+            InteractionReceipt = new InteractionReceipt { Title = "Results", Action = "use" }
+        });
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Run code review", Author = "Lumi Mobile", Timestamp = at.AddMinutes(4) });
+        await dataStore.SaveChatAsync(chat);
+
+        var prompts = await store.ReadUserPromptsAsync(10);
+
+        Assert.Equal(["Run code review", "Commit and push to main"], prompts.Select(static prompt => prompt.Content));
+    }
+
     // ── Incremental saves and tails ─────────────────────────────────────────
 
     [Fact]

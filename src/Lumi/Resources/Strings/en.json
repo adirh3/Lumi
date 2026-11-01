@@ -2904,7 +2904,7 @@
   "AiFeature_FollowUps": "Follow-up Suggestions",
   "AiFeature_FollowUpsDesc": "Suggests three things you might ask next.",
   "AiFeature_FollowUpsWhen": "After each reply",
-  "AiFeature_FollowUpsReads": "The latest exchange and requests you often make",
+  "AiFeature_FollowUpsReads": "The recent conversation and requests you often make",
   "AiFeature_FollowUpsKeywords": "Suggest follow-ups, next steps, suggestions",
   "AiFeature_Memories": "Automatic Memories",
   "AiFeature_MemoriesDesc": "Notices lasting facts about you and your projects and saves them as memories.",

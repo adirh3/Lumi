@@ -27,7 +27,7 @@ namespace Lumi.Tests;
 ///
 /// <para><b>When NOT to use this.</b> Tests that own connection state — connecting, forcing a reconnect,
 /// or exercising authentication — must keep creating their own instance and dispose it
-/// (<c>CopilotIntegrationTests</c>, <c>SuggestionAuditHarness</c>).</para>
+/// (<c>CopilotIntegrationTests</c>, <c>SuggestionEvalHarness</c>).</para>
 /// </summary>
 public static class TestCopilot
 {
