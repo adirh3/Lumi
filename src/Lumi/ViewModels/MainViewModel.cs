@@ -40,9 +40,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// Read by <see cref="ChatViewModel.FormatModelDisplay"/> which has no access to <c>UserSettings</c>.
     /// </summary>
     private static readonly ConcurrentDictionary<string, string> _byokDisplayCache = new(StringComparer.Ordinal);
-#if MEMORY_CHECK
-    private static byte[]? _temporaryCiRegressionCache;
-#endif
 
     /// <summary>Snapshot of the display cache for read-only consumers (e.g. ChatViewModel).</summary>
     internal static IReadOnlyDictionary<string, string> ByokDisplayCache => _byokDisplayCache;
@@ -497,12 +494,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         , ContextCuratorService? contextCuratorService = null
         )
     {
-#if MEMORY_CHECK
-        _temporaryCiRegressionCache = new byte[256 * 1024 * 1024];
-        for (var offset = 0; offset < _temporaryCiRegressionCache.Length; offset += 4096)
-            _temporaryCiRegressionCache[offset] = 1;
-        Console.WriteLine("[memory-regression-proof] Temporary MainViewModel cache retains 256 MiB.");
-#endif
         _dataStore = dataStore;
         _copilotService = copilotService;
         _contextCuratorService = contextCuratorService;
