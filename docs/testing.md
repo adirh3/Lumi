@@ -30,6 +30,35 @@ pwsh tools\Test-LumiQa.ps1 -Suite Core
 pwsh tools\Test-LumiQa.ps1 -Suite Headed
 ```
 
+For the on-demand Windows desktop memory budget and retention workload:
+
+```powershell
+pwsh tools\memory\Test-LumiMemory.ps1
+```
+
+It defaults to Fast: one fully populated chat/history/page pass and a post-GC owner/bloat
+checkpoint. It uses isolated SQLite data, optimized code with explicitly opted-in diagnostics, natural-use
+main/child private residency and a separate forced-GC retention pass. The
+[memory diagnostics guide](../tools/memory/README.md#one-command-desktop-memory-check) documents
+the exact workload, budgets, copied-profile mode, strict completion requirements and limitations.
+This headed/host-sensitive budget check is not part of deterministic CoreQA.
+
+For a calibrated same-snapshot regression comparison, record once with
+`pwsh tools\memory\Test-LumiMemoryRegression.ps1 -Mode Record`, then run
+`pwsh tools\memory\Test-LumiMemoryRegression.ps1 -Mode Compare`. It archives a reference build and compares
+interleaved fresh reference/candidate processes; regression and absolute-budget verdicts are
+separate. See the [baseline workflow](../tools/memory/README.md#repeatable-regression-baseline).
+Without an explicit mode that command also runs the fast health screen, reusing its saved
+snapshot when present; it does not issue a statistical baseline verdict.
+
+The standalone `memory-qa.yml` workflow adds scheduled/manual synthetic Fast coverage and
+memory-contract tests on Windows. It reports failures directly but is advisory: it is not a
+dependency of PR validation or release publication. Initial hosted results must establish
+runner-specific behavior before considering a required RAM gate.
+Its explicit `-Policy CI` fails only coarse large-memory guardrails (1,024 MiB resident,
+2,048 MiB private commitment, 200 MiB post-GC managed). Smaller owner/cache-count/500 MiB goal
+findings remain advisory; missing work always fails. Strict local defaults are unchanged.
+
 Both commands build what they need. `-NoBuild` reuses an existing build: Release
 for Core by default (`-Configuration Debug` selects Debug), always Debug for
 Headed. `-ResultsDirectory <path>` changes the output parent; every invocation

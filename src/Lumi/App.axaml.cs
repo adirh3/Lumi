@@ -330,7 +330,7 @@ public partial class App : Application
             _contextCuratorService = new Lumi.Services.Context.ContextCuratorService(dataStore, copilotService, _globalSearchService);
             var vm = CreateMainViewModel(
                 forceOnboarding: Program.ForceOnboarding,
-                startBackgroundJobs:
+                startBackgroundJobs: !Program.IsMemoryCheck &&
 #if DEBUG
                     Program.QaSmokeOptions is not { Enabled: true }
 #else
@@ -531,6 +531,13 @@ public partial class App : Application
 
             window.Opened += (_, _) =>
             {
+#if DEBUG || MEMORY_CHECK
+                if (Program.MemoryHarnessOptions is { Check.Enabled: true } checkOptions)
+                {
+                    StartMemoryStressHarness(desktop, vm, dataStore, checkOptions);
+                    return;
+                }
+#endif
 #if DEBUG
                 if (Program.QaSmokeOptions is { Enabled: true } qaOptions)
                 {
@@ -663,6 +670,8 @@ public partial class App : Application
         Show(null);
     }
 
+#endif
+#if DEBUG || MEMORY_CHECK
     private void StartMemoryStressHarness(
         IClassicDesktopStyleApplicationLifetime desktop,
         MainViewModel vm,
@@ -680,6 +689,7 @@ public partial class App : Application
                     vm,
                     dataStore,
                     sessionStore,
+                    _copilotService ?? throw new InvalidOperationException("The Copilot service is not initialized."),
                     options,
                     snapshotDetachedWindows: () => _openChatWindows.ToArray(),
                     isDetachedWindowTracked: window =>
@@ -704,6 +714,8 @@ public partial class App : Application
         });
     }
 
+#endif
+#if DEBUG
     private void StartHistoryScaleHarness(
         IClassicDesktopStyleApplicationLifetime desktop,
         MainViewModel vm,
@@ -807,7 +819,7 @@ public partial class App : Application
             , openAgentDebugHarness,
             skipOnboarding
 #endif
-            , initializeCopilotOnStartup:
+            , initializeCopilotOnStartup: !Program.IsMemoryCheck &&
 #if DEBUG
                 Program.QaSmokeOptions is not { Enabled: true }
 #else

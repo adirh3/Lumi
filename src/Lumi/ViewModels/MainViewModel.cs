@@ -545,7 +545,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_contextCuratorService is not null)
             _contextCuratorService.Changed += OnContextCuratorChanged;
         McpServersVM = new McpServersViewModel(dataStore);
-        var pluginCatalog = new PluginCatalogService(copilotService);
+        var pluginCatalog = Program.IsMemoryCheck
+            ? new PluginCatalogService(() => null, copilotService.NotifyPluginsChanged)
+            : new PluginCatalogService(copilotService);
         SetupsVM = new SetupSuggestionsViewModel(dataStore, copilotService, pluginCatalog, GetCustomizeCapabilities)
         {
             IsWelcome = !_isOnboarded,

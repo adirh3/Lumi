@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || MEMORY_CHECK
 using System;
 using System.Collections.Generic;
 using System.Linq;

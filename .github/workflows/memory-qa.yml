@@ -1,0 +1,88 @@
+name: Memory QA (advisory)
+
+on:
+  push:
+    branches:
+      - validation/memory-tools-fast
+  workflow_dispatch:
+  schedule:
+    - cron: '45 3 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: memory-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  memory-fast:
+    name: Fast large-memory guardrails (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Test memory contracts and isolation
+        shell: pwsh
+        run: >
+          dotnet test tests\Lumi.Tests\Lumi.Tests.csproj
+          -c Release -p:LumiMemoryCheck=true
+          --artifacts-path .mcp-run\memory-qa-tests
+          --filter
+          "FullyQualifiedName~MemoryCheckTests|FullyQualifiedName~MemoryCheckProfileTests|FullyQualifiedName~MemoryRegressionTests|FullyQualifiedName~MemoryWorkflowTests|FullyQualifiedName~TestProfileIsolationTests"
+          --logger "trx;LogFileName=memory-contracts.trx"
+          --results-directory MemoryResults\Contracts
+
+      # This standalone workflow is not a dependency of PR validation or release publication.
+      # CI has explicit coarse guardrails; developer goals and smaller lifetime findings remain visible.
+      # Missing coverage and exceeded guardrails fail directly, without continue-on-error.
+      - name: Run headed synthetic fast memory screen
+        timeout-minutes: 5
+        shell: pwsh
+        run: >
+          pwsh tools\memory\Test-LumiMemory.ps1
+          -Mode Fast
+          -Policy CI
+          -OutputRoot MemoryResults\Headed
+
+      - name: Summarize memory evidence
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          "## Advisory memory QA" >> $env:GITHUB_STEP_SUMMARY
+          "This is synthetic Windows runner coverage, not a comparison with a developer's machine or a required release gate." >> $env:GITHUB_STEP_SUMMARY
+          $reports = @(Get-ChildItem MemoryResults\Headed -Filter report.txt -Recurse -File -ErrorAction SilentlyContinue)
+          if ($reports.Count -ne 1) {
+            "INCOMPLETE: no single headed memory report. See job failures and artifacts." >> $env:GITHUB_STEP_SUMMARY
+            throw 'No complete headed memory evidence.'
+          }
+          '```text' >> $env:GITHUB_STEP_SUMMARY
+          Get-Content -LiteralPath $reports[0].FullName >> $env:GITHUB_STEP_SUMMARY
+          '```' >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload memory evidence (no profile databases)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-qa-${{ github.sha }}
+          path: |
+            MemoryResults/Contracts/*.trx
+            MemoryResults/Headed/**/summary.json
+            MemoryResults/Headed/**/results.json
+            MemoryResults/Headed/**/report.txt
+            MemoryResults/Headed/**/stdout.log
+            MemoryResults/Headed/**/stderr.log
+            MemoryResults/Headed/**/preparation.log
+            MemoryResults/Headed/**/build.log
+          if-no-files-found: error
+          retention-days: 7

@@ -24,6 +24,11 @@
     <NoWarn>$(NoWarn);GHCP001</NoWarn>
   </PropertyGroup>
 
+  <!-- Only the on-demand memory runner opts optimized builds into headed diagnostics. -->
+  <PropertyGroup Condition="'$(LumiMemoryCheck)' == 'true'">
+    <DefineConstants>$(DefineConstants);MEMORY_CHECK</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Lumi.Tests" />
   </ItemGroup>
@@ -109,10 +114,10 @@
     <Compile Remove="Services\LumiDebugBridge.cs" />
     <Compile Remove="ViewModels\ChatViewModel.Debug.cs" />
     <Compile Remove="UiPerf\UiResponsivenessProbe.cs" />
-    <Compile Remove="UiPerf\UiWorkloadScenarios.cs" />
+    <Compile Remove="UiPerf\UiWorkloadScenarios.cs" Condition="'$(LumiMemoryCheck)' != 'true'" />
     <Compile Remove="UiPerf\UiResponsivenessHarness.cs" />
     <Compile Remove="UiPerf\UiStreamingLoad.cs" />
-    <Compile Remove="MemoryDiagnostics\MemoryStressHarness.cs" />
+    <Compile Remove="MemoryDiagnostics\MemoryStressHarness*.cs" Condition="'$(LumiMemoryCheck)' != 'true'" />
     <Compile Remove="MemoryDiagnostics\HistoryScaleHarness.cs" />
     <Compile Remove="Services\AppIconAssets.cs" />
     <!-- UiHarnessOptions/UiResponsivenessMetrics/UiResponsivenessReport are intentionally NOT removed:

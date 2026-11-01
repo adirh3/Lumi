@@ -16,6 +16,7 @@ public sealed class MemoryHarnessOptions
     };
 
     public bool Enabled { get; private set; }
+    public MemoryCheckOptions Check { get; private set; } = new();
     public int Cycles { get; private set; } = 6;
     public int WarmupCycles { get; private set; } = 2;
     public int ActionsPerCycle { get; private set; } = 12;
@@ -80,6 +81,9 @@ public sealed class MemoryHarnessOptions
         var options = new MemoryHarnessOptions();
         if (args is null || args.Count == 0)
             return options;
+        options.Check = MemoryCheckOptions.Parse(args);
+        if (options.Check.Enabled)
+            options.Enabled = true;
 
         for (var i = 0; i < args.Count; i++)
         {
