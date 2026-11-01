@@ -2093,6 +2093,8 @@ public sealed partial class MobileShellViewModel :
     /// <summary>Bottom inset only — the gesture bar, or the keyboard when it is open.</summary>
     public Thickness SafeAreaBottom => new(0, 0, 0, SafeArea.Bottom);
 
+    [ObservableProperty] private Thickness _composerSafeAreaBottom;
+
     /// <summary>Left/right insets, which a folded or rotated device can have.</summary>
     public Thickness SafeAreaSides => new(SafeArea.Left, 0, SafeArea.Right, 0);
 

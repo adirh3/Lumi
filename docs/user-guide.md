@@ -984,6 +984,9 @@ chat's own settings (plan, Git changes, workspace, pin, rename and delete) open 
 The iPhone PWA fills the Home Screen app's full viewport; Safari tabs instead follow
 the dynamic browser toolbar height. Backgrounds run edge to edge, while controls
 respect the notch and home indicator, including after rotation and resume.
+The browser composer keeps the same small bottom gap as Android instead of sitting
+above a blank home-indicator strip. Its inner padding keeps its controls clear of the
+indicator; other surfaces retain the full safe area, and keyboard spacing is unchanged.
 The browser's measured safe areas remain authoritative instead of being overwritten
 by native resize notifications. Keyboard overlap is measured against the actual
 canvas only while an editable field is focused, so browser resizing, zoom, or a

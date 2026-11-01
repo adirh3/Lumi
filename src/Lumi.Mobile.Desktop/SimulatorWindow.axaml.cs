@@ -100,6 +100,9 @@ public partial class SimulatorWindow : Window
         _shell.Posture = device.Posture;
         _shell.HingeSize = device.HingeSize;
         _shell.HingePosition = device.HingePosition;
+        _shell.ApplyPlatformInsets(device.Name == "iPhone 15 Pro"
+            ? new Thickness(0, 59, 0, 34)
+            : default);
 
         // Fit the WHOLE device into the working area. Clamping only the host window while leaving the
         // emulated screen at 1:1 clipped 96-108dp from the bottom on a scaled laptop display, so QA

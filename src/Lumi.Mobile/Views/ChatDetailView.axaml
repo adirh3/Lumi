@@ -1317,8 +1317,8 @@
             <Border Padding="{Binding SafeAreaBottom}" IsVisible="{Binding !IsKeyboardOpen}" />
           </StackPanel>
         </Panel>
-        <!-- Bottom inset lives here: the gesture bar normally, the keyboard while it is open. -->
-        <Border x:Name="ComposerInset" Padding="{Binding SafeAreaBottom}">
+        <!-- The browser composer keeps its normal floating gap; native bars and the IME add clearance. -->
+        <Border x:Name="ComposerInset" Padding="{Binding ComposerSafeAreaBottom}">
           <Border x:Name="ComposerSideInset" Padding="{Binding SafeAreaSides}">
           <StackPanel MaxWidth="{DynamicResource Chat.ReadingColumnWidth}">
           <sc:StrataTypingIndicator x:Name="ChatTyping" Classes="mobile-working" Margin="8,0,8,8"

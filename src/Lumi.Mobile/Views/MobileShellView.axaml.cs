@@ -530,9 +530,11 @@ public partial class MobileShellView : UserControl
         // under the status bar and the composer sat under the keyboard. Apply the values as given.
         var safe = _safeArea;
 
-        var fullHeight = _topLevel?.ClientSize.Height
-                         ?? (DataContext as MobileShellViewModel)?.Layout.Height
-                         ?? Bounds.Height;
+        // A hosted viewport can be smaller than its enclosing desktop simulator window.
+        var fullHeight = _hasHostInsets ? Bounds.Height
+            : _topLevel?.ClientSize.Height
+              ?? (DataContext as MobileShellViewModel)?.Layout.Height
+              ?? Bounds.Height;
         var activeHeight = DataContext is MobileShellViewModel shellWithLayout
             ? shellWithLayout.UsableContentHeight
             : fullHeight;
@@ -557,6 +559,10 @@ public partial class MobileShellView : UserControl
         {
             shell.SafeArea = target;
             shell.IsKeyboardOpen = keyboardOverlap > 1;
+            // The browser composer's own gap and inner padding clear the home indicator.
+            // Keep native bar clearance and the existing gap above an overlapping IME.
+            var composerBottom = _hasHostInsets && !shell.IsKeyboardOpen ? 0 : bottom;
+            shell.ComposerSafeAreaBottom = new Thickness(0, 0, 0, composerBottom);
         }
 
         if (_lastInsets == target)

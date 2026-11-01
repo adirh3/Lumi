@@ -40,6 +40,7 @@ public sealed class PlatformLayoutReviewFixTests
                 view.ApplyPlatformKeyboardInset(300);
                 Assert.True(shell.IsKeyboardOpen);
                 Assert.Equal(300, shell.SafeAreaBottom.Bottom);
+                Assert.Equal(300, shell.ComposerSafeAreaBottom.Bottom);
 
                 var updated = new Thickness(44, 18, 20, 21);
                 view.ApplyNativeInsets(updated);
@@ -52,6 +53,7 @@ public sealed class PlatformLayoutReviewFixTests
                 Pump(window);
                 Assert.False(shell.IsKeyboardOpen);
                 Assert.Equal(updated, shell.SafeArea);
+                Assert.Equal(updated.Bottom, shell.ComposerSafeAreaBottom.Bottom);
 
                 view.NotifyApplicationDeactivated();
                 view.ApplyPlatformKeyboardInset(300);
@@ -74,10 +76,13 @@ public sealed class PlatformLayoutReviewFixTests
     }
 
     [Theory]
-    [InlineData(0, 59, 0, 34)]
-    [InlineData(59, 0, 59, 21)]
+    [InlineData(0, 24, 0, 0, false)]
+    [InlineData(0, 24, 0, 8, false)]
+    [InlineData(0, 59, 0, 34, false)]
+    [InlineData(59, 0, 59, 21, false)]
+    [InlineData(0, 59, 0, 34, true)]
     public async Task BrowserHostInsetsRemainAuthoritativeAfterNativeSafeAreaRefresh(
-        double left, double top, double right, double bottom)
+        double left, double top, double right, double bottom, bool hosted)
     {
         using var session = HeadlessMobileSession.Start();
         ExceptionDispatchInfo? failure = null;
@@ -103,6 +108,13 @@ public sealed class PlatformLayoutReviewFixTests
                 view.ApplyNativeInsets(swapped);
                 Assert.Equal(swapped, shell.SafeArea);
 
+                if (hosted)
+                {
+                    view.Height = 844;
+                    window.Height = 1000;
+                    Pump(window);
+                }
+
                 view.ApplyPlatformInsets(correct, viewportHeight: 844);
                 view.ApplyNativeInsets(swapped);
                 Pump(window);
@@ -112,18 +124,45 @@ public sealed class PlatformLayoutReviewFixTests
                 Assert.Equal(bottom, shell.SafeAreaBottom.Bottom);
                 Assert.False(shell.IsKeyboardOpen);
                 Assert.Equal(844, shell.UsableContentHeight);
-                AssertEdgeToEdge(Required<ChatDetailView>(view, "ChatSurface"), window);
+                var chat = Required<ChatDetailView>(view, "ChatSurface");
+                var composer = Required<StrataChatComposer>(chat, "Composer");
+                var composerInset = Required<Border>(chat, "ComposerInset");
+                Assert.Equal(view.Bounds.Size, chat.Bounds.Size);
+                Assert.Equal(shell.ComposerSafeAreaBottom, composerInset.Padding);
+                Assert.Equal(12, ComposerGap(), 1);
+                foreach (var name in new[] { "ComposerAttachButton", "PART_SendButton" })
+                {
+                    var button = composer.GetVisualDescendants().OfType<Button>()
+                        .Single(button => button.Name == name);
+                    Assert.True(button.IsEffectivelyVisible);
+                    Assert.True(button.Bounds.Width >= 48 && button.Bounds.Height >= 48);
+                    var buttonBottom = button.TranslatePoint(
+                        new Point(0, button.Bounds.Height), chat)!.Value.Y;
+                    Assert.True(buttonBottom <= chat.Bounds.Height - 12);
+                    var surface = button.GetVisualDescendants().OfType<Border>()
+                        .Single(border => border.Name == "PART_Surface");
+                    var surfaceBottom = surface.TranslatePoint(
+                        new Point(0, surface.Bounds.Height), chat)!.Value.Y;
+                    Assert.True(surfaceBottom <= chat.Bounds.Height - 16);
+                }
 
                 view.ApplyPlatformInsets(correct, keyboardInset: 300, viewportHeight: 844);
                 view.ApplyNativeInsets(swapped);
+                Pump(window);
                 Assert.True(shell.IsKeyboardOpen);
                 Assert.Equal(300, shell.SafeAreaBottom.Bottom);
                 Assert.Equal(right, shell.SafeAreaSides.Right);
+                Assert.Equal(312, ComposerGap(), 1);
 
                 view.ApplyPlatformInsets(correct, viewportHeight: 844);
                 view.ApplyNativeInsets(swapped);
+                Pump(window);
                 Assert.False(shell.IsKeyboardOpen);
                 Assert.Equal(correct, shell.SafeArea);
+                Assert.Equal(12, ComposerGap(), 1);
+
+                double ComposerGap() => chat.Bounds.Height - composer.TranslatePoint(
+                    new Point(0, composer.Bounds.Height), chat)!.Value.Y;
             }
             catch (Exception ex)
             {
@@ -212,14 +251,14 @@ public sealed class PlatformLayoutReviewFixTests
                 shellView.ApplyPlatformInsets(safeArea, viewportHeight: viewportHeight);
                 Pump(window);
                 Assert.False(shell.IsKeyboardOpen);
-                Assert.Equal(safeArea.Bottom, composerInset.Padding.Bottom, 1);
+                Assert.Equal(0, composerInset.Padding.Bottom, 1);
                 AssertEdgeToEdge(chat, window);
 
                 shellView.ApplyPlatformInsets(safeArea, keyboardInset, viewportHeight);
                 shellView.NotifyApplicationDeactivated();
                 Pump(window);
                 Assert.False(shell.IsKeyboardOpen);
-                Assert.Equal(safeArea.Bottom, composerInset.Padding.Bottom, 1);
+                Assert.Equal(0, composerInset.Padding.Bottom, 1);
             }
             catch (Exception ex)
             {
@@ -392,7 +431,7 @@ public sealed class PlatformLayoutReviewFixTests
                 AssertRenderedSideInset(Required<Border>(chat, "WelcomeSideInset"), sideInsets);
                 Assert.Equal(new Thickness(0, safeArea.Top, 0, 0),
                     Required<Border>(chat, "TopBarInset").Padding);
-                Assert.Equal(new Thickness(0, 0, 0, safeArea.Bottom),
+                Assert.Equal(default,
                     Required<Border>(chat, "ComposerInset").Padding);
 
                 var runSettings = Required<StrataBottomSheet>(shellView, "RunSettingsSheet");
