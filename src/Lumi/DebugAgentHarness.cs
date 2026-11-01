@@ -106,6 +106,18 @@ public static class DebugAgentHarness
                 - **Copy as** lets you choose Plain text, Markdown or Rich text explicitly.
                 - **Select message** selects this answer; the footer copy button copies it whole.
 
+                ## בחירת טקסט בעברית
+
+                אחד שני שלישי רביעי חמישי שישי שביעי שמיני תשיעי עשירי. בחרו מילה או גררו
+                לאורך כמה שורות: ההדגשה צריכה לעקוב אחרי העכבר, בלי לבחור בטעות את הפסקה הבאה.
+
+                זהו משפט עם **מילים מודגשות**, קישור [לאתר](https://example.com) וקוד `Call(value)` בתוך הטקסט.
+
+                - שורה ראשונה לבחירת טקסט בעברית.
+                - שורה שנייה לבדיקת בחירה בין שורות.
+
+                English text and `inline code` still select normally.
+
                 ```csharp
                 var words = new[] { "Select", "across", "elements" };
                 Console.WriteLine(string.Join(" ", words));
