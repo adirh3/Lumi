@@ -267,7 +267,7 @@ public class CopilotService : IAsyncDisposable
            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".copilot");
 
     /// <summary>
-    /// Debug runs with an isolated data folder (<c>LUMI_APPDATA_DIR</c>) also get their own runtime
+    /// Debug and opted-in memory-check runs with an isolated data folder (<c>LUMI_APPDATA_DIR</c>) also get their own runtime
     /// home, so testing plugins never touches the real Copilot profile. Kept separate from the
     /// sessions' config folder, exactly like a normal install.
     /// </summary>
@@ -275,7 +275,7 @@ public class CopilotService : IAsyncDisposable
     {
         get
         {
-#if DEBUG
+#if DEBUG || MEMORY_CHECK
             return string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR"))
                 ? null
                 : Path.Combine(DataStore.AppDirectory, "copilot-home");
@@ -1474,6 +1474,8 @@ public class CopilotService : IAsyncDisposable
 
         return new GitHub.Copilot.Rpc.AuthInfoUser { Host = status.Host, Login = status.Login };
     }
+
+    internal static string? BundledCliPath => FindCliPath();
 
     private static string? FindCliPath()
     {

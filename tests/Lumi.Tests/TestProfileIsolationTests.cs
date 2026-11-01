@@ -25,10 +25,9 @@ public sealed class TestProfileIsolationTests
             new DataStore(new AppData()).SkillsDirectory,
             InstalledAppWorkingDirectory.GetSafeWorkingDirectory(),
             Environment.GetEnvironmentVariable("LUMI_MOBILE_DATA_DIR")!,
-#if DEBUG
-            CopilotService.RuntimeHomeDirectory,
-#endif
         ];
+        if (typeof(CopilotService).Assembly.GetType("Lumi.MemoryDiagnostics.MemoryStressHarness") is not null)
+            folders = [.. folders, CopilotService.RuntimeHomeDirectory];
 
         Assert.All(folders, folder =>
         {

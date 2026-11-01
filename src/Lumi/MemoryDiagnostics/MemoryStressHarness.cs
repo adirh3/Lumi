@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || MEMORY_CHECK
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -29,7 +29,7 @@ namespace Lumi.MemoryDiagnostics;
 /// Drives deterministic real-app workloads, forces full collections between cycles, and fails on
 /// expected-dead objects or sustained post-GC managed growth.
 /// </summary>
-internal sealed class MemoryStressHarness
+internal sealed partial class MemoryStressHarness
 {
     private const int GateFailureExitCode = 3;
     private const int MinimumSurfaceChurnActions = 10;
@@ -42,6 +42,7 @@ internal sealed class MemoryStressHarness
     private readonly MainViewModel _mainVm;
     private readonly DataStore _dataStore;
     private readonly ChatSessionStore _sessionStore;
+    private readonly CopilotService _copilotService;
     private readonly MemoryHarnessOptions _options;
     private readonly Func<IReadOnlyList<ChatWindow>> _snapshotDetachedWindows;
     private readonly Func<ChatWindow, bool> _isDetachedWindowTracked;
@@ -76,6 +77,7 @@ internal sealed class MemoryStressHarness
         MainViewModel mainVm,
         DataStore dataStore,
         ChatSessionStore sessionStore,
+        CopilotService copilotService,
         MemoryHarnessOptions options,
         Func<IReadOnlyList<ChatWindow>> snapshotDetachedWindows,
         Func<ChatWindow, bool> isDetachedWindowTracked,
@@ -84,6 +86,7 @@ internal sealed class MemoryStressHarness
         _mainVm = mainVm;
         _dataStore = dataStore;
         _sessionStore = sessionStore;
+        _copilotService = copilotService;
         _options = options;
         _snapshotDetachedWindows = snapshotDetachedWindows;
         _isDetachedWindowTracked = isDetachedWindowTracked;
@@ -96,6 +99,11 @@ internal sealed class MemoryStressHarness
 
     public async Task RunAsync()
     {
+        if (_options.Check.Enabled)
+        {
+            await RunCheckAsync();
+            return;
+        }
         var reportWriteAttempted = false;
 
         try
@@ -260,6 +268,7 @@ internal sealed class MemoryStressHarness
             PrepareAsync: () => OpenChatAsync(workloads.CodeHeavyChatId),
             Note: "Production-managed closed window graphs must stay bounded; Avalonia may transiently retain up to two recent TopLevels."));
 
+#if DEBUG
         scenarios.Add(new MemoryScenario(
             "glass-frost",
             "Glass frost repaint churn",
@@ -268,6 +277,7 @@ internal sealed class MemoryStressHarness
             // The debug transcript fixture shows every kind of glass, over animated content.
             PrepareAsync: () => OnUiAsync(() => _mainVm.OpenAgentDebugHarnessCommand.Execute(null)),
             Note: "Every repaint replaces each glass's draw operation; the replaced frost's GPU textures must be freed, not orphaned in the driver."));
+#endif
 
         return scenarios;
     }
@@ -536,6 +546,7 @@ internal sealed class MemoryStressHarness
             throw new InvalidOperationException(
                 $"{description} was not rendered within {GlassRepaintRenderTimeout.TotalSeconds:0} s.");
         }
+        await rendered;
     }
 
     /// <summary>
@@ -841,6 +852,8 @@ internal sealed class MemoryStressHarness
         IReadOnlyList<TrackedReference> references)
     {
         await CollectGarbageAsync();
+        if (_options.Check.Enabled)
+            await WaitCheckRenderAsync();
 
         var retainedByKind = references
             .Where(static reference => reference.Reference.IsAlive)

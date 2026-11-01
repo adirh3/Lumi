@@ -32,6 +32,21 @@ class Program
     public static bool ForceOnboarding { get; private set; }
     internal static CrashReportData? PendingCrashReport { get; private set; }
     internal static SingleInstanceCoordinator? SingleInstance { get; private set; }
+    internal static bool IsMemoryCheck
+    {
+        get
+        {
+#if DEBUG || MEMORY_CHECK
+            return MemoryHarnessOptions?.Check.Enabled == true;
+#else
+            return false;
+#endif
+        }
+    }
+#if DEBUG || MEMORY_CHECK
+    public static MemoryDiagnostics.MemoryHarnessOptions? MemoryHarnessOptions { get; private set; }
+    internal static MemoryDiagnostics.MemoryProfileManifest? MemoryProfile { get; private set; }
+#endif
 #if DEBUG
     /// <summary>When true, opens Lumi directly into the agent debug transcript fixture.</summary>
     public static bool OpenAgentDebugHarness { get; private set; }
@@ -42,9 +57,6 @@ class Program
 
     /// <summary>Parsed options for the UI responsiveness harness (enabled via CLI flag, debug only).</summary>
     public static UiPerf.UiHarnessOptions? UiHarnessOptions { get; private set; }
-
-    /// <summary>Parsed options for the automated memory stress harness (debug only).</summary>
-    public static MemoryDiagnostics.MemoryHarnessOptions? MemoryHarnessOptions { get; private set; }
 
     /// <summary>Parsed options for the history-scale harness, which measures large real-shaped profiles (debug only).</summary>
     public static MemoryDiagnostics.HistoryHarnessOptions? HistoryHarnessOptions { get; private set; }
@@ -77,6 +89,35 @@ class Program
 
         ForceOnboarding = args.Contains("--onboarding", StringComparer.OrdinalIgnoreCase);
 
+#if DEBUG || MEMORY_CHECK
+        try
+        {
+            MemoryHarnessOptions = MemoryDiagnostics.MemoryHarnessOptions.Parse(args);
+            if (MemoryHarnessOptions.Check.Enabled)
+            {
+                AttachParentConsole();
+                if (MemoryHarnessOptions.Check.EvaluationFile is { } evaluation)
+                {
+                    Environment.ExitCode = MemoryDiagnostics.MemoryRegression.RunEvaluation(evaluation);
+                    return;
+                }
+                if (MemoryHarnessOptions.Check.PrepareOnly)
+                {
+                    MemoryDiagnostics.MemoryCheckProfile.Prepare(MemoryHarnessOptions.Check);
+                    return;
+                }
+                MemoryProfile = MemoryDiagnostics.MemoryCheckProfile.ValidatePrepared(MemoryHarnessOptions.Check);
+            }
+        }
+        catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException
+                                      or InvalidOperationException or System.Text.Json.JsonException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            AttachParentConsole();
+            Console.Error.WriteLine("[memory-check] Profile/options failed: " + error);
+            Environment.ExitCode = 1;
+            return;
+        }
+#endif
 #if DEBUG
         try { QaSmokeOptions = Qa.QaSmokeOptions.Parse(args); }
         catch (ArgumentException error)
@@ -126,7 +167,6 @@ class Program
             SkipOnboarding = true;
         }
 
-        MemoryHarnessOptions = MemoryDiagnostics.MemoryHarnessOptions.Parse(args);
         if (MemoryHarnessOptions.Enabled)
         {
             AttachParentConsole();
@@ -550,6 +590,8 @@ class Program
         Environment.ExitCode = exitCode;
     }
 
+#endif
+#if DEBUG || MEMORY_CHECK
     private const uint AttachParentProcess = 0xFFFFFFFF;
 
     [DllImport("kernel32.dll", SetLastError = true)]

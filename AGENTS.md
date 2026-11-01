@@ -192,6 +192,28 @@ cd src/Lumi && dotnet run
 
 Automated tests live in `tests/Lumi.Tests`. StrataTheme is referenced via the `Strata/` git submodule.
 
+For an on-demand Windows desktop memory budget/retention check, run
+`pwsh tools\memory\Test-LumiMemory.ps1` (or add `-ProfilePath "$env:APPDATA\Lumi"` to use an online
+SQLite copy of the working profile). It builds optimized code with explicitly opted-in diagnostics,
+uses isolated data, verifies rendered workload/cache bounds, samples main/child private residency
+without forced GC, then runs separate retention checks. `report.txt` is readable; `summary.json`
+and `results.json` retain strict completion and raw evidence. Exit 0 is a complete pass, 3 a
+completed budget failure, and 1 incomplete/invalid evidence. Never weaken budgets/content to
+manufacture a pass or call post-GC/dump residency normal usage. See `tools\memory\README.md`.
+The default memory commands now screen one fully populated pass quickly; they retain all
+chat/page/history/lifetime/cache/absolute-bloat coverage, not repeated-growth or statistical
+claims. Fast must wait for the Library scan and render its item controls before leaving.
+For deep memory regressions, use `Test-LumiMemoryRegression.ps1 -Mode Record` once, then explicit
+`-Mode Compare`: five fresh calibration processes, archived reference binaries, and interleaved
+reference/candidate checks on one hash-verified snapshot. Keep regression and absolute-budget
+status separate. Never regenerate the corpus, prepare it in the measured process, silently
+reset the baseline, or dismiss GC/residency variance without inspecting the recorded counters.
+The separate scheduled/manual `memory-qa.yml` is advisory synthetic Fast coverage, not a new
+release/PR dependency or a portable calibration of a developer's private RAM numbers.
+Its explicit CI policy uses coarse 1,024 MiB RAM / 2,048 MiB commitment / 200 MiB managed
+guardrails; smaller lifetime/cache-count/500 MiB goal findings stay advisory. Incomplete evidence
+never passes. Do not silently apply this policy to strict local checks or private profiles.
+
 Two things that used to make agent runs slow or flaky are now handled for you — do not reintroduce the old workarounds:
 
 - **Do not stop `Lumi.Mcp.exe` to unblock a build.** `lumi-mcp` builds and runs from `.mcp-run/` (via `--artifacts-path` in `.vscode/mcp.json`), which is outside `src/Lumi.Mcp/bin`, so a running MCP server can never lock `dotnet build`/`dotnet test` output. Previously the server ran straight out of `bin/`, and Windows locks a running `.exe` exclusively, so any build that refreshed `Lumi.Mcp` failed with `MSB3027`/`MSB3021`. If you still hit a lock, it is a *different* process — check `Get-Process Lumi.Mcp | Select Id, Path` before killing anything, and never kill another worktree's server.

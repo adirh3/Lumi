@@ -246,6 +246,7 @@ public sealed class ChatSessionStore : IDisposable
     }
 
     public IReadOnlyList<ChatViewModel> SnapshotSurfaces() => _surfaces.ToArray();
+    internal int MaxIdleCachedSurfaces => _maxIdleCachedSurfaces;
 
     internal async Task ReleaseIdleSessionsAsync(DateTimeOffset utcNow)
     {
