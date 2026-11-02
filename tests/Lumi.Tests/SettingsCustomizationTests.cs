@@ -442,8 +442,8 @@ public sealed class SettingsCustomizationTests
                 var row = view.FindSettingsControl<StrataSetting>("ResponseDetailSetting")!;
                 var picker = view.FindSettingsControl<ComboBox>("ResponseDetailPicker")!;
                 Assert.Equal(header, row.Header);
-                Assert.Equal(4, picker.Items.Count);
-                Assert.Equal(ResponseDetailLevel.ModelDefault,
+                Assert.Equal(3, picker.Items.Count);
+                Assert.Equal(ResponseDetailLevel.Balanced,
                     Assert.IsType<ResponseDetailOption>(picker.SelectedItem).Value);
 
                 picker.SelectedItem = viewModel.ResponseDetailOptions.Single(
@@ -456,7 +456,7 @@ public sealed class SettingsCustomizationTests
 
                 row.RaiseEvent(new RoutedEventArgs(StrataSetting.RevertedEvent));
                 Dispatcher.UIThread.RunJobs();
-                Assert.Equal(ResponseDetailLevel.ModelDefault,
+                Assert.Equal(ResponseDetailLevel.Balanced,
                     Assert.IsType<ResponseDetailOption>(picker.SelectedItem).Value);
                 Assert.False(row.IsModified);
 

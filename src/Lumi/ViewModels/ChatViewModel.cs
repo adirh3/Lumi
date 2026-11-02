@@ -2780,9 +2780,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         try
         {
             var verbosity = SessionConfigBuilder.CreateResponseVerbosity(_dataStore.Data.Settings.ResponseDetail);
-            if (verbosity is null)
-                return;
-
             var result = await session.Rpc.Options.UpdateAsync(verbosity: verbosity, cancellationToken: ct);
             if (!result.Success)
                 throw new InvalidOperationException(Loc.Get("ResponseDetail_ApplyFailed"));
@@ -3284,8 +3281,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// </summary>
     public void InvalidateSystemPromptSession() => InvalidateSessionConfiguration();
 
-    // The native verbosity patch is session-local. A clean resume also restores Model default,
-    // whereas omitting the patch on an already configured session would keep its old level.
+    // Apply the new level on a clean resume after any current work finishes.
     public void InvalidateResponseDetailSession() => InvalidateSessionConfiguration();
 
     private void InvalidateSessionConfiguration()

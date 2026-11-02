@@ -1862,7 +1862,6 @@
   "SettingDesc_PreferredModel": "اختر النموذج وجهد الاستدلال ونافذة السياق الافتراضية للمحادثات الجديدة",
   "Setting_ResponseDetail": "تفصيل الردود",
   "SettingDesc_ResponseDetail": "يضبط طول ردود المحادثة في نماذج GPT المدعومة. قد تتجاهله النماذج الأخرى. لا يتغير الاستدلال ولا ميزات الذكاء الاصطناعي التلقائية.",
-  "Settings_ResponseDetail_Default": "الإعداد الافتراضي للنموذج",
   "Settings_ResponseDetail_Concise": "موجز",
   "Settings_ResponseDetail_Balanced": "متوازن",
   "Settings_ResponseDetail_Detailed": "مفصل",

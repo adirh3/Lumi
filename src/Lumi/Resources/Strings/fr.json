@@ -1862,7 +1862,6 @@
   "SettingDesc_PreferredModel": "Choisissez le modèle, l’effort de raisonnement et la fenêtre de contexte des nouvelles conversations",
   "Setting_ResponseDetail": "Détail des réponses",
   "SettingDesc_ResponseDetail": "Ajuste la longueur des réponses des modèles GPT compatibles. Les autres modèles peuvent l’ignorer. Le raisonnement et les fonctions d’IA automatiques restent inchangés.",
-  "Settings_ResponseDetail_Default": "Valeur par défaut du modèle",
   "Settings_ResponseDetail_Concise": "Concis",
   "Settings_ResponseDetail_Balanced": "Équilibré",
   "Settings_ResponseDetail_Detailed": "Détaillé",

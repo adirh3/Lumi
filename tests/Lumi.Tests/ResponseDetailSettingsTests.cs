@@ -14,21 +14,23 @@ public sealed class ResponseDetailSettingsTests
         new DataStore(data), TestCopilot.Shared, new BrowserService(), new UpdateService());
 
     [Theory]
-    [InlineData(ResponseDetailLevel.ModelDefault, null)]
     [InlineData(ResponseDetailLevel.Concise, "low")]
     [InlineData(ResponseDetailLevel.Balanced, "medium")]
     [InlineData(ResponseDetailLevel.Detailed, "high")]
     public void Choices_MapToNativeVerbosityWithoutRewritingThePrompt(
-        ResponseDetailLevel detail, string? expected)
-        => Assert.Equal(expected, SessionConfigBuilder.CreateResponseVerbosity(detail)?.Value);
+        ResponseDetailLevel detail, string expected)
+        => Assert.Equal(expected, SessionConfigBuilder.CreateResponseVerbosity(detail).Value);
 
     [Fact]
     public void DefaultAndEditedDetail_SaveAndRevertWithoutChangingReasoning()
     {
         var data = new AppData { Settings = new UserSettings { ReasoningEffort = "high" } };
         using var vm = CreateVm(data);
-        Assert.Equal(ResponseDetailLevel.ModelDefault, vm.ResponseDetail);
-        Assert.Equal(ResponseDetailLevel.ModelDefault, vm.SelectedResponseDetailOption!.Value);
+        Assert.Equal(ResponseDetailLevel.Balanced, vm.ResponseDetail);
+        Assert.Equal(ResponseDetailLevel.Balanced, vm.SelectedResponseDetailOption!.Value);
+        Assert.Equal(
+            [ResponseDetailLevel.Concise, ResponseDetailLevel.Balanced, ResponseDetailLevel.Detailed],
+            vm.ResponseDetailOptions.Select(option => option.Value));
         Assert.False(vm.IsResponseDetailModified);
 
         vm.SelectedResponseDetailOption = vm.ResponseDetailOptions.Single(
@@ -44,8 +46,8 @@ public sealed class ResponseDetailSettingsTests
 
         vm.RevertResponseDetailCommand.Execute(null);
 
-        Assert.Equal(ResponseDetailLevel.ModelDefault, vm.ResponseDetail);
-        Assert.Equal(ResponseDetailLevel.ModelDefault, data.Settings.ResponseDetail);
+        Assert.Equal(ResponseDetailLevel.Balanced, vm.ResponseDetail);
+        Assert.Equal(ResponseDetailLevel.Balanced, data.Settings.ResponseDetail);
         Assert.False(vm.IsResponseDetailModified);
         Assert.Equal("high", data.Settings.ReasoningEffort);
     }
@@ -55,37 +57,47 @@ public sealed class ResponseDetailSettingsTests
     {
         var data = new AppData
         {
-            Settings = new UserSettings { ResponseDetail = ResponseDetailLevel.Balanced }
+            Settings = new UserSettings { ResponseDetail = ResponseDetailLevel.Detailed }
         };
         using var vm = CreateVm(data);
-        Assert.Equal(ResponseDetailLevel.Balanced, vm.SelectedResponseDetailOption!.Value);
+        Assert.Equal(ResponseDetailLevel.Detailed, vm.SelectedResponseDetailOption!.Value);
         Assert.True(vm.IsResponseDetailModified);
 
         vm.ResetSettingsCommand.Execute(null);
 
-        Assert.Equal(ResponseDetailLevel.ModelDefault, vm.ResponseDetail);
-        Assert.Equal(ResponseDetailLevel.ModelDefault, data.Settings.ResponseDetail);
+        Assert.Equal(ResponseDetailLevel.Balanced, vm.ResponseDetail);
+        Assert.Equal(ResponseDetailLevel.Balanced, data.Settings.ResponseDetail);
         Assert.False(vm.IsResponseDetailModified);
     }
 
     [Fact]
-    public void Detail_SurvivesSnapshotAndJsonWhileExistingProfilesKeepModelDefault()
+    public void ProfilesWithoutTheSetting_DefaultToBalancedWithoutChangingReasoning()
     {
-        var legacy = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!;
-        Assert.Equal(ResponseDetailLevel.ModelDefault, legacy.ResponseDetail);
+        const string savedSettings = """{"reasoningEffort":"high","backgroundModel":"gpt-6-luna"}""";
+        var legacy = JsonSerializer.Deserialize(savedSettings, AppDataJsonContext.Default.UserSettings)!;
+        Assert.Equal(ResponseDetailLevel.Balanced, legacy.ResponseDetail);
+        Assert.Equal("medium", SessionConfigBuilder.CreateResponseVerbosity(legacy.ResponseDetail).Value);
+        Assert.Equal("high", legacy.ReasoningEffort);
+        Assert.Equal("gpt-6-luna", legacy.BackgroundModel);
+    }
 
-        var data = new AppData
-        {
-            Settings = new UserSettings { ResponseDetail = ResponseDetailLevel.Detailed }
-        };
+    [Theory]
+    [InlineData(ResponseDetailLevel.Concise)]
+    [InlineData(ResponseDetailLevel.Balanced)]
+    [InlineData(ResponseDetailLevel.Detailed)]
+    public void SavedChoice_SurvivesSnapshotsAndReload(ResponseDetailLevel choice)
+    {
+        var data = new AppData();
+        using (var vm = CreateVm(data))
+            vm.ResponseDetail = choice;
         var snapshot = AppDataSnapshotFactory.CreateIndexSnapshot(data);
-        data.Settings.ResponseDetail = ResponseDetailLevel.ModelDefault;
+        data.Settings.ResponseDetail = ResponseDetailLevel.Balanced;
         var restored = JsonSerializer.Deserialize(
             JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData),
             AppDataJsonContext.Default.AppData)!;
 
-        Assert.Equal(ResponseDetailLevel.Detailed, snapshot.Settings.ResponseDetail);
-        Assert.Equal(ResponseDetailLevel.Detailed, restored.Settings.ResponseDetail);
+        Assert.Equal(choice, snapshot.Settings.ResponseDetail);
+        Assert.Equal(choice, restored.Settings.ResponseDetail);
     }
 
     [Theory]
@@ -102,7 +114,7 @@ public sealed class ResponseDetailSettingsTests
                 option => option.Value == ResponseDetailLevel.Detailed);
 
             Assert.Equal(label, vm.SelectedResponseDetailOption!.DisplayName);
-            Assert.Equal("high", SessionConfigBuilder.CreateResponseVerbosity(data.Settings.ResponseDetail)?.Value);
+            Assert.Equal("high", SessionConfigBuilder.CreateResponseVerbosity(data.Settings.ResponseDetail).Value);
             var json = JsonSerializer.Serialize(data.Settings, AppDataJsonContext.Default.UserSettings);
             using var document = JsonDocument.Parse(json);
             Assert.Equal((int)ResponseDetailLevel.Detailed,
@@ -115,16 +127,18 @@ public sealed class ResponseDetailSettingsTests
         }
     }
 
-    [Fact]
-    public void UnknownDetail_IsRejectedInsteadOfSilentlySelectingAnotherLevel()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(999)]
+    public void RemovedOrUnknownDetail_IsRejectedInsteadOfSilentlySelectingAnotherLevel(int value)
     {
         var data = new AppData();
         using var vm = CreateVm(data);
-        var unknown = (ResponseDetailLevel)999;
+        var unknown = (ResponseDetailLevel)value;
 
         Assert.Throws<ArgumentOutOfRangeException>(() => vm.ResponseDetail = unknown);
         Assert.Throws<ArgumentOutOfRangeException>(() => SessionConfigBuilder.CreateResponseVerbosity(unknown));
-        Assert.Equal(ResponseDetailLevel.ModelDefault, vm.ResponseDetail);
-        Assert.Equal(ResponseDetailLevel.ModelDefault, data.Settings.ResponseDetail);
+        Assert.Equal(ResponseDetailLevel.Balanced, vm.ResponseDetail);
+        Assert.Equal(ResponseDetailLevel.Balanced, data.Settings.ResponseDetail);
     }
 }

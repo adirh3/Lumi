@@ -348,9 +348,8 @@ public sealed class LightweightSessionOptions
         config.PluginDirectories = pluginDirectories.ToList();
     }
 
-    internal static Verbosity? CreateResponseVerbosity(ResponseDetailLevel detail) => detail switch
+    internal static Verbosity CreateResponseVerbosity(ResponseDetailLevel detail) => detail switch
     {
-        ResponseDetailLevel.ModelDefault => null,
         ResponseDetailLevel.Concise => Verbosity.Low,
         ResponseDetailLevel.Balanced => Verbosity.Medium,
         ResponseDetailLevel.Detailed => Verbosity.High,

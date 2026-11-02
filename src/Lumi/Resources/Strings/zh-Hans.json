@@ -1862,7 +1862,6 @@
   "SettingDesc_PreferredModel": "选择新对话的默认模型、推理强度和上下文窗口",
   "Setting_ResponseDetail": "回复详细程度",
   "SettingDesc_ResponseDetail": "调整受支持的 GPT 模型的聊天回复长度。其他模型可能会忽略此设置。推理和自动 AI 功能保持不变。",
-  "Settings_ResponseDetail_Default": "模型默认",
   "Settings_ResponseDetail_Concise": "精简",
   "Settings_ResponseDetail_Balanced": "均衡",
   "Settings_ResponseDetail_Detailed": "详细",

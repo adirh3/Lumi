@@ -1900,7 +1900,6 @@
   "SettingDesc_PreferredModel": "Choose the default model, reasoning effort, and context window for new conversations",
   "Setting_ResponseDetail": "Response detail",
   "SettingDesc_ResponseDetail": "Adjusts chat reply length on supported GPT models. Other models may ignore it. Reasoning and automatic AI features are unchanged.",
-  "Settings_ResponseDetail_Default": "Model default",
   "Settings_ResponseDetail_Concise": "Concise",
   "Settings_ResponseDetail_Balanced": "Balanced",
   "Settings_ResponseDetail_Detailed": "Detailed",

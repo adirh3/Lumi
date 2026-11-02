@@ -1862,7 +1862,6 @@
   "SettingDesc_PreferredModel": "Wähle Standardmodell, Denktiefe und Kontextfenster für neue Gespräche",
   "Setting_ResponseDetail": "Antwortdetail",
   "SettingDesc_ResponseDetail": "Passt die Antwortlänge bei unterstützten GPT-Modellen an. Andere Modelle ignorieren dies möglicherweise. Denktiefe und automatische KI-Funktionen bleiben unverändert.",
-  "Settings_ResponseDetail_Default": "Modellstandard",
   "Settings_ResponseDetail_Concise": "Knapp",
   "Settings_ResponseDetail_Balanced": "Ausgewogen",
   "Settings_ResponseDetail_Detailed": "Ausführlich",

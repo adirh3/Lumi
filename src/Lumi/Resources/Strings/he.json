@@ -1889,7 +1889,6 @@
   "SettingDesc_PreferredModel": "בחירת מודל ברירת המחדל, מאמץ החשיבה וחלון ההקשר לשיחות חדשות",
   "Setting_ResponseDetail": "רמת פירוט התשובות",
   "SettingDesc_ResponseDetail": "התאמת אורך התשובות בצ׳אט במודלי GPT תומכים. מודלים אחרים עשויים להתעלם מהבחירה. החשיבה ותכונות הבינה המלאכותית האוטומטיות לא משתנות.",
-  "Settings_ResponseDetail_Default": "ברירת המחדל של המודל",
   "Settings_ResponseDetail_Concise": "תמציתי",
   "Settings_ResponseDetail_Balanced": "מאוזן",
   "Settings_ResponseDetail_Detailed": "מפורט",

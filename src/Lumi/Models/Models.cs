@@ -832,7 +832,6 @@ public class ChatTag : INotifyPropertyChanged
 
 public enum ResponseDetailLevel
 {
-    ModelDefault = 0,
     Concise = 1,
     Balanced = 2,
     Detailed = 3
@@ -1859,7 +1858,7 @@ public class UserSettings
     /// </summary>
     public List<string> FavoriteModelIds { get; set; } = [];
     public string ReasoningEffort { get; set; } = ""; // CLI-defined value, e.g. low, medium, high, xhigh, max
-    public ResponseDetailLevel ResponseDetail { get; set; } = ResponseDetailLevel.ModelDefault;
+    public ResponseDetailLevel ResponseDetail { get; set; } = ResponseDetailLevel.Balanced;
     public string ContextWindowTier { get; set; } = ModelContextWindowTiers.Default;
     public string GlobalCustomInstructions { get; set; } = "";
 

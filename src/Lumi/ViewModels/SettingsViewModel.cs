@@ -684,7 +684,6 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _responseDetail = s.ResponseDetail;
         ResponseDetailOptions =
         [
-            new(ResponseDetailLevel.ModelDefault, Loc.Get("Settings_ResponseDetail_Default")),
             new(ResponseDetailLevel.Concise, Loc.Get("Settings_ResponseDetail_Concise")),
             new(ResponseDetailLevel.Balanced, Loc.Get("Settings_ResponseDetail_Balanced")),
             new(ResponseDetailLevel.Detailed, Loc.Get("Settings_ResponseDetail_Detailed"))
