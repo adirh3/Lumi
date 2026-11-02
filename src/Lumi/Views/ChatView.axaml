@@ -1929,22 +1929,18 @@
     </Style>
 
     <!-- ── Glass composer ──
-         The transcript runs beneath the composer (ExtendsTranscriptBehindChrome). Like the header, it
-         frosts only while history is behind it; at rest its translucent card lets the presence glow
-         through without spending GPU on a blur of nothing. -->
+         The card and the pane of glass beneath the stack (ComposerEdgeMaterial) frost only while history is
+         behind them; at rest they let the presence glow through without spending GPU on a blur of nothing.
+         Neither frost adds a tint (the card's glass fill stays as it is), and frost over the empty canvas
+         looks like the canvas, so turning them on changes only the history that has slid beneath. -->
     <Style Selector="sc|StrataChatComposer#Composer.glass:not(.frosted) /template/ sc|StrataBackdropBlur#PART_Backdrop">
       <Setter Property="BlurRadius" Value="0" />
     </Style>
-    <Style Selector="Panel#ComposerEdgeMaterial">
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.22" Easing="CubicEaseOut" />
-        </Transitions>
-      </Setter>
+    <Style Selector="sc|StrataBackdropBlur#ComposerEdgeMaterial">
+      <Setter Property="BlurRadius" Value="0" />
     </Style>
-    <Style Selector="sc|StrataChatShell:content-under-composer Panel#ComposerEdgeMaterial">
-      <Setter Property="Opacity" Value="1" />
+    <Style Selector="sc|StrataChatShell:content-under-composer sc|StrataBackdropBlur#ComposerEdgeMaterial">
+      <Setter Property="BlurRadius" Value="24" />
     </Style>
 
     <!-- ── Follow-up suggestions ──
@@ -4517,26 +4513,18 @@
         </sc:StrataChatShell.Transcript>
 
         <sc:StrataChatShell.Composer>
-          <!-- Transparent spacer the size of the floating composer: the transcript rests clear of it
-               and scrolls beneath it. While history is behind it, full frost runs from the follow-ups
-               down with a short fade above them, so history dissolves before the dock rather than
-               smearing behind the rows above the composer. -->
+          <!-- The floating stack sits on a pane of glass that only changes what passes beneath it. It is the
+               conversation column widened by its soft edge, so the edge falls on empty space and nothing slides
+               out beside the composer, and it reaches from the island's bottom up to the line where the newest
+               message rests: 20 above the stack, the host's top padding (8) plus the transcript's bottom
+               padding (12). It has no tint, so scrolling never switches the area on: history blurs into it
+               progressively, by position, as it slides under the stack. -->
           <Panel x:Name="ComposerSpacer">
-            <Panel x:Name="ComposerEdgeMaterial"
-                   Margin="-12,-28,-12,-10"
-                   IsHitTestVisible="False">
-              <sc:StrataBackdropBlur BlurRadius="16" Saturation="1.15" Fade="Top" FadeLength="28" />
-              <Grid RowDefinitions="28,*">
-                <Border Background="{StaticResource ChatHeader.EdgeVeil}">
-                  <Border.OpacityMask>
-                    <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                      <GradientStop Offset="0" Color="#00000000" />
-                      <GradientStop Offset="1" Color="#CC000000" />
-                    </LinearGradientBrush>
-                  </Border.OpacityMask>
-                </Border>
-                <Border Grid.Row="1" Background="{StaticResource ChatHeader.EdgeVeil}" Opacity="0.8" />
-              </Grid>
+            <Panel Width="{Binding #Transcript.Bounds.Width}" HorizontalAlignment="Center">
+              <sc:StrataBackdropBlur x:Name="ComposerEdgeMaterial"
+                                     Margin="-48,-20,-48,-10"
+                                     Fade="Top" FadeLength="48" HorizontalFadeLength="48"
+                                     SamplesBeyondEdges="True" />
             </Panel>
           </Panel>
         </sc:StrataChatShell.Composer>

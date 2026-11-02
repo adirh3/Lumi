@@ -27,6 +27,128 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ChatViewScrollBehaviorTests
 {
+    [Theory]
+    [InlineData(1400)]
+    [InlineData(600)]
+    public async Task ComposerFrost_IsAPaneThatOnlyFrostsHistoryBeneathTheStack(double width)
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await DispatchAsync(session, async () =>
+        {
+            var chat = CreateLongChat();
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false,
+                    ShowAnimations = false
+                }
+            };
+            data.Chats.Add(chat);
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            var view = new ChatView { DataContext = viewModel };
+            var window = new Window { Width = width, Height = 820, Content = view };
+
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                await PumpAsync();
+                await viewModel.LoadChatAsync(chat);
+                await WaitUntilAsync(() =>
+                {
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    return !viewModel.IsChatSurfaceLoading
+                        && view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null;
+                }, 10_000);
+                var shell = view.FindControl<StrataChatShell>("ChatShell")!;
+                var scroll = shell.TranscriptScrollViewer!;
+                var transcript = view.FindControl<TranscriptItemsControl>("Transcript")!;
+                var composer = view.FindControl<StrataChatComposer>("Composer")!;
+                var container = view.FindControl<StackPanel>("ComposerContainer")!;
+                var pane = view.FindControl<StrataBackdropBlur>("ComposerEdgeMaterial")!;
+                var host = shell.GetVisualDescendants().OfType<Border>().Single(part => part.Name == "PART_ComposerHost");
+                var scrollContent = shell.GetVisualDescendants().OfType<Border>()
+                    .Single(part => part.Name == "PART_ScrollContent");
+                var cardFrost = composer.GetVisualDescendants().OfType<StrataBackdropBlur>()
+                    .Single(control => control.Name == "PART_Backdrop");
+                container.Transitions = null;
+                // Measure only after the chat-open reveal has finished moving the transcript.
+                await WaitUntilAsync(() =>
+                {
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    return transcript.Opacity == 1
+                        && (transcript.RenderTransform?.Value ?? Matrix.Identity).IsIdentity;
+                }, 10_000);
+
+                double Top(Visual visual) => visual.TranslatePoint(default, view)!.Value.Y;
+
+                void AssertPane()
+                {
+                    // The conversation column widened by its soft edge, so no content sits in the feather and
+                    // nothing passes beside the composer unfrosted.
+                    Assert.Equal(48, pane.HorizontalFadeLength);
+                    Assert.Equal(transcript.Bounds.Width + 2 * pane.HorizontalFadeLength, pane.Bounds.Width, 1);
+                    Assert.Equal(transcript.TranslatePoint(default, view)!.Value.X - pane.HorizontalFadeLength,
+                        pane.TranslatePoint(default, view)!.Value.X, 1);
+                    // From the line where the newest message rests down to the island's bottom edge.
+                    Assert.Equal(Top(host) - scrollContent.Padding.Bottom, Top(pane), 1);
+                    Assert.Equal(Top(shell) + shell.Bounds.Height, Top(pane) + pane.Bounds.Height, 1);
+                    // No tint and no colour shift: frost over the empty canvas is the canvas itself.
+                    Assert.Equal(1, pane.Saturation);
+                    Assert.Equal(StrataBackdropFade.Top, pane.Fade);
+                    Assert.True(pane.SamplesBeyondEdges);
+                    Assert.False(pane.IsHitTestVisible);
+                }
+
+                void AssertAtRest()
+                {
+                    // The newest message rests above the pane, and neither glass spends a blur.
+                    var restingBottom = Top(transcript) + transcript.Bounds.Height;
+                    Assert.True(restingBottom <= Top(pane) + 0.5,
+                        $"The newest message rests at {restingBottom:0.##}, below the pane's top at {Top(pane):0.##}.");
+                    Assert.Equal(0, pane.BlurRadius);
+                    Assert.Equal(0, cardFrost.BlurRadius);
+                }
+
+                shell.JumpToLatest();
+                await PumpAsync();
+                AssertPane();
+                AssertAtRest();
+
+                scroll.Offset = scroll.Offset.WithY(scroll.Offset.Y - 220);
+                await WaitUntilAsync(() => shell.IsContentUnderComposer);
+                Assert.Equal(24, pane.BlurRadius);
+                Assert.Equal(14, cardFrost.BlurRadius);
+                AssertPane();
+
+                window.Width = width == 1400 ? 600 : 1400;
+                window.UpdateLayout();
+                await PumpAsync();
+                AssertPane();
+
+                var previousHeight = container.Bounds.Height;
+                viewModel.PromptText = string.Join("\n", Enumerable.Repeat("A taller composer draft", 6));
+                await PumpAsync();
+                Assert.True(container.Bounds.Height > previousHeight);
+                AssertPane();
+
+                viewModel.PromptText = string.Empty;
+                shell.JumpToLatest();
+                await PumpAsync();
+                await PumpAsync();
+                AssertPane();
+                AssertAtRest();
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task CurrentChatMetadataRefresh_DoesNotReenterFollowMode()
     {
