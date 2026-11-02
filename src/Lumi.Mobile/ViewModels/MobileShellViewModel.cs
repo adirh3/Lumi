@@ -49,6 +49,7 @@ public enum SettingsSection
     None,
     Appearance,
     Connection,
+    Notifications,
     About
 }
 
@@ -541,6 +542,8 @@ public sealed partial class MobileShellViewModel :
             HostName = _settings.HostName;
             IsPaired = true;
         }
+
+        InitializeNotifications();
     }
 
     public LumiRemoteClient Client { get; }
@@ -1599,10 +1602,13 @@ public sealed partial class MobileShellViewModel :
 
     public bool IsAboutSectionVisible => VisibleSettingsSection == SettingsSection.About;
 
+    public bool IsNotificationsSectionVisible => VisibleSettingsSection == SettingsSection.Notifications;
+
     public string SettingsDetailTitle => VisibleSettingsSection switch
     {
         SettingsSection.Appearance => Strings.Get("Appearance"),
         SettingsSection.Connection => Strings.Get("Connection"),
+        SettingsSection.Notifications => Strings.Get("Notifications"),
         SettingsSection.About => Strings.Get("About"),
         _ => Strings.Get("Settings")
     };
@@ -1615,8 +1621,11 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(ShowSettingsDetail));
         OnPropertyChanged(nameof(IsAppearanceSectionVisible));
         OnPropertyChanged(nameof(IsConnectionSectionVisible));
+        OnPropertyChanged(nameof(IsNotificationsSectionVisible));
         OnPropertyChanged(nameof(IsAboutSectionVisible));
         OnPropertyChanged(nameof(SettingsDetailTitle));
+        if (IsNotificationsSectionVisible)
+            RefreshNotificationState();
     }
 
     // ── The supporting panel ──────────────────────────────────────────────────────────────────
@@ -2311,6 +2320,10 @@ public sealed partial class MobileShellViewModel :
         // A newly paired phone opens on the PC's chats, the app's home.
         ShowLaunchHome();
 
+        // Notifications follow the phone to its new PC.
+        if (NotificationsEnabled)
+            ApplyNotificationConnection();
+
         await StartAsync();
     }
 
@@ -2356,6 +2369,13 @@ public sealed partial class MobileShellViewModel :
         var generation = Interlocked.Increment(ref _lifecycleGeneration);
         _isApplicationActive = true;
         NotifyWebAppUpdateSafetyChanged();
+        // The user may have allowed or blocked notifications in the system's settings meanwhile.
+        if (NotificationsEnabled)
+        {
+            ApplyNotificationConnection();
+            RefreshNotificationState();
+            OfferNotificationsIfUseful();
+        }
         var hadGrace = _connection.IsInBackgroundGrace;
         var resumedInGrace = _connection.EndBackgroundGrace();
         await _lifecycleGate.WaitAsync();
@@ -2530,7 +2550,9 @@ public sealed partial class MobileShellViewModel :
         IsForeground = _isApplicationActive,
         StreamIntervalMs = RemoteProtocol.MobileStreamIntervalMs,
         CompactStatus = true,
-        ChatRowPatches = true
+        ChatRowPatches = true,
+        // On a phone the chat list slides over the open chat, which stays current underneath.
+        IsChatCovered = IsDrawerOverlay
     };
 
     private void QueueSubscriptionUpdate()
@@ -2663,6 +2685,10 @@ public sealed partial class MobileShellViewModel :
         IsConnected = false;
         IsHostReady = false;
         HostName = "";
+        _pcNotificationsEnabled = null;
+        _pcAwayMinutes = null;
+        _pcWebPushKey = null;
+        ApplyNotificationConnection();
         Connect.Reset();
         ResetHostScopedState();
     }
@@ -2847,6 +2873,7 @@ public sealed partial class MobileShellViewModel :
             ConnectionMessage = snapshot.ConnectionStatus;
 
         UserName = settings.UserName;
+        ApplyPcNotificationSettings(settings);
         Chat.ApplyRemoteProtocolVersion(snapshot.ProtocolVersion);
 
         if (!snapshot.IsPartial)
@@ -2885,7 +2912,11 @@ public sealed partial class MobileShellViewModel :
         }
 
         if (source == SnapshotSource.Bootstrap)
+        {
             BootstrapSnapshotCount++;
+            RefreshNotificationState();
+            OfferNotificationsIfUseful();
+        }
 
         if (!snapshot.IsPartial)
             UpdateSendReconciliationCandidates(chats ?? new RemoteChatPage(), snapshot.ActiveChatId);
@@ -2982,6 +3013,9 @@ public sealed partial class MobileShellViewModel :
     {
         ChatList.SelectedChatId = chatId;
         SearchChatList.SelectedChatId = chatId;
+        // What the phone shows about this chat is read now.
+        if (chatId != Guid.Empty && IsNotificationsAvailable)
+            NotificationPlatform.ClearChat(chatId);
         _ = ActivateChatAsync(chatId, title, model);
     }
 
@@ -4076,6 +4110,7 @@ public sealed partial class MobileShellViewModel :
 
         ChatList.Dispose();
         SearchChatList.Dispose();
+        DisposeNotifications();
         _connection.Dispose();
         await Client.DisposeAsync();
         await _connectionLifetime.CancelAsync();

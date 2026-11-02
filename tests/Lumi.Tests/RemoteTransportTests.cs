@@ -460,6 +460,39 @@ public sealed class RemoteTransportTests
     }
 
     [Fact]
+    public void AChatBehindThePhonesChatListIsKeptCurrentButNotShown()
+    {
+        var chatId = Guid.NewGuid();
+        var covered = new RemoteEventSubscription
+        {
+            Generation = 1,
+            ChatId = chatId,
+            IncludeChatList = true,
+            IsForeground = true,
+            IsChatCovered = true
+        };
+        using var client = new RemoteEventClient(Stream.Null, "device", covered);
+
+        Assert.True(client.WantsChat(chatId));
+        Assert.False(client.IsShowingChat(chatId));
+
+        // A phone sliding its list away sends the change, even with nothing else in it changing.
+        var shown = covered.Copy();
+        shown.Generation = 2;
+        shown.IsChatCovered = false;
+        Assert.False(covered.HasSameScope(shown));
+        Assert.True(client.TryUpdateSubscription(shown, out _, out _));
+        Assert.True(client.IsShowingChat(chatId));
+
+        // Older phones never send it, and their open chat counts as shown, as before.
+        var json = JsonSerializer.Serialize(shown, RemoteJsonContext.Default.RemoteEventSubscription);
+        Assert.DoesNotContain("isChatCovered", json, StringComparison.Ordinal);
+        Assert.True(JsonSerializer.Deserialize(
+            JsonSerializer.Serialize(covered, RemoteJsonContext.Default.RemoteEventSubscription),
+            RemoteJsonContext.Default.RemoteEventSubscription)!.IsChatCovered);
+    }
+
+    [Fact]
     public void MobileUploadCleanupDeletesOnlyStaleFiles()
     {
         var folder = Path.Combine(Path.GetTempPath(), "lumi-remote-cleanup-tests", Guid.NewGuid().ToString("n"));

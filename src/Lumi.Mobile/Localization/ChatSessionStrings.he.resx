@@ -700,4 +700,54 @@
   <data name="FilePreviewShareFailed" xml:space="preserve"><value>לא ניתן לשתף את הקובץ.</value></data>
   <data name="FilePreviewSaveFailed" xml:space="preserve"><value>לא ניתן לשמור את הקובץ.</value></data>
   <data name="FilePreviewClose" xml:space="preserve"><value>סגירת התצוגה המקדימה</value></data>
+  <data name="Notifications" xml:space="preserve"><value>התראות</value></data>
+  <data name="NotifyMe" xml:space="preserve"><value>קבלת התראות בטלפון הזה</value></data>
+  <data name="NotificationsSummary" xml:space="preserve"><value>תשובות ושאלות מ־{0} כשאתה לא לידו</value></data>
+  <data name="NotificationsAwayRule" xml:space="preserve"><value>{0} מחשיב אותך כמי שלא לידו כשהוא נעול או אחרי {1} דק׳ בלי מקלדת ועכבר. אפשר לשנות זאת במחשב, בהגדרות → נייד.</value></data>
+  <data name="NotificationsOffOnPc" xml:space="preserve"><value>התראות לטלפון כבויות ב־{0}. אפשר להפעיל אותן ב־Lumi במחשב, בהגדרות → נייד.</value></data>
+  <data name="NotificationsPcUpdateNeeded" xml:space="preserve"><value>כדי לקבל התראות, יש לעדכן את Lumi ב־{0}.</value></data>
+  <data name="NotificationsBlocked" xml:space="preserve"><value>Android חוסם התראות מ־Lumi.</value></data>
+  <data name="OpenSystemSettings" xml:space="preserve"><value>פתיחת ההגדרות</value></data>
+  <data name="NotificationsKinds" xml:space="preserve"><value>על מה תקבל התראה</value></data>
+  <data name="NotificationChannelQuestions" xml:space="preserve"><value>שאלות ואישורים</value></data>
+  <data name="NotificationChannelQuestionsDescription" xml:space="preserve"><value>כש־Lumi צריך אותך כדי להמשיך לעבוד</value></data>
+  <data name="NotificationChannelReplies" xml:space="preserve"><value>תשובות שהסתיימו</value></data>
+  <data name="NotificationChannelRepliesDescription" xml:space="preserve"><value>כש־Lumi מסיים לענות</value></data>
+  <data name="NotificationChannelConnection" xml:space="preserve"><value>חיבור</value></data>
+  <data name="NotificationChannelConnectionDescription" xml:space="preserve"><value>הודעה שקטה בזמן ש־Lumi נשאר מחובר למחשב שלך</value></data>
+  <data name="SendTestNotification" xml:space="preserve"><value>שליחת התראת בדיקה</value></data>
+  <data name="TestNotificationSent" xml:space="preserve"><value>נשלח. ההתראה תגיע בעוד רגע.</value></data>
+  <data name="TestNotificationFailed" xml:space="preserve"><value>לא ניתן לשלוח בדיקה: {0}</value></data>
+  <data name="NotificationTestTitle" xml:space="preserve"><value>ההתראות עובדות</value></data>
+  <data name="NotificationTestText" xml:space="preserve"><value>כך {0} יגיע אליך כשאתה לא לידו.</value></data>
+  <data name="NotificationReplyFallback" xml:space="preserve"><value>סיים לענות.</value></data>
+  <data name="NotificationInputText" xml:space="preserve"><value>צריך את הקלט שלך: {0}</value></data>
+  <data name="NotificationApprovalText" xml:space="preserve"><value>צריך את האישור שלך ב־{0}: {1}</value></data>
+  <data name="NotificationConnected" xml:space="preserve"><value>מחובר אל {0}</value></data>
+  <data name="NotificationConnecting" xml:space="preserve"><value>מתחבר אל {0}…</value></data>
+  <data name="NotificationWaiting" xml:space="preserve"><value>ממתין ל־{0}</value></data>
+  <data name="NotificationPublicReply" xml:space="preserve"><value>Lumi סיים תשובה</value></data>
+  <data name="NotificationPublicRequest" xml:space="preserve"><value>Lumi צריך אותך</value></data>
+  <data name="NotificationsPromptTitle" xml:space="preserve"><value>קבלת התראות כש־Lumi צריך אותך</value></data>
+  <data name="NotificationsPromptText" xml:space="preserve"><value>כשאתה לא ליד {0}, הטלפון הזה יודע ברגע שתשובה מוכנה או של־Lumi יש שאלה. כשאתה ליד המחשב, לא נשלח כלום.</value></data>
+  <data name="NotificationsPromptExample" xml:space="preserve"><value>הכול מוכן — הדוח מחכה בשולחן העבודה שלך.</value></data>
+  <data name="TurnOnNotifications" xml:space="preserve"><value>הפעלת התראות</value></data>
+  <data name="NotNow" xml:space="preserve"><value>לא עכשיו</value></data>
+  <data name="NotificationsBackgroundNote" xml:space="preserve"><value>כדי להגיע אליך מיד, Lumi שומר על חיבור שקט למחשב שלך. Android מציג אותו כהתראה שקטה „מחובר”, שאפשר להסתיר.</value></data>
+  <data name="NotificationsNeedHttps" xml:space="preserve"><value>דפדפנים מאפשרים התראות רק בכתובות מאובטחות (https). כדי לקבל אותן כאן, יש לבחור ב־Microsoft Dev Tunnel בהגדרות → נייד ב־{0}, ואז לפתוח את Lumi מהקוד שמוצג שם.</value></data>
+  <data name="NotificationsNeedHomeScreen" xml:space="preserve"><value>ב־iPhone וב־iPad התראות פועלות כש־Lumi נמצא במסך הבית: יש להקיש על „שיתוף”, ואז על „הוספה למסך הבית”, ולפתוח את Lumi משם.</value></data>
+  <data name="NotificationsBrowserUnsupported" xml:space="preserve"><value>הדפדפן הזה לא יכול לקבל התראות. אפשר לנסות Chrome, Edge, Firefox או Safari.</value></data>
+  <data name="NotificationsBlockedWeb" xml:space="preserve"><value>הדפדפן חוסם התראות מ־Lumi. יש לאשר אותן בהגדרות האתר, ואז לחזור ל־Lumi.</value></data>
+  <data name="NotificationsWebReady" xml:space="preserve"><value>מוכן. {0} שולח התראות לדפדפן הזה.</value></data>
+  <data name="NotificationsWebRegistering" xml:space="preserve"><value>מגדיר התראות…</value></data>
+  <data name="NotificationsWebFailed" xml:space="preserve"><value>לא ניתן להגדיר התראות: {0}</value></data>
+  <data name="NotificationsBrowserFailed" xml:space="preserve"><value>שירות ההתראות של הדפדפן הזה לא זמין.</value></data>
+  <data name="NotificationsWebNote" xml:space="preserve"><value>ההתראות עוברות דרך שירות ההתראות של הדפדפן, מוצפנות כך שרק הדפדפן הזה יכול לקרוא אותן. הן מגיעות גם כש־Lumi סגור.</value></data>
+  <data name="AllowNotifications" xml:space="preserve"><value>אישור התראות</value></data>
+  <data name="NotificationsPermissionNeeded" xml:space="preserve"><value>ההתראות מופעלות, אבל Lumi עדיין לא מורשה להציג אותן כאן.</value></data>
+  <data name="NotificationsAllowTitle" xml:space="preserve"><value>קבלת התראות מ־Lumi כאן</value></data>
+  <data name="NotificationsBlockedTitle" xml:space="preserve"><value>ההתראות חסומות</value></data>
+  <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>הטלפון חוסם התראות מ־Lumi. יש לאשר אותן ל־Lumi בהגדרות הטלפון, ואז לחזור ל־Lumi.</value></data>
+  <data name="TestNotificationDelivered" xml:space="preserve"><value>ההתראה הגיעה. אפשר לבדוק בהתראות.</value></data>
+  <data name="TestNotificationNotReceived" xml:space="preserve"><value>{0} שלח אותה, אבל הדפדפן הזה עוד לא קיבל אותה. אם שום דבר לא מגיע, ייתכן שהדפדפן הזה לא מעביר התראות מאתרים; כדאי לנסות דפדפן אחר.</value></data>
 </root>

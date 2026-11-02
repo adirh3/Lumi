@@ -41,6 +41,7 @@ Quick links: [AI accounts](#ai-accounts), [voice input](#voice-input),
 - **Make it yours** — Settings → Appearance: a Light, Dark or System theme that spreads across the window from where you pick it, eight accent palettes that recolor buttons, selection, your messages, Lumi's glow and Lumi's icon in the app and the tray, the window material, text size, density and how brightly the presence glows — each shown at once in a live preview, with **Restore default look** one click away
 - **Voice input** — Local, multilingual dictation on Windows, Linux and macOS: asks once before its one-time download, listens instantly with a live waveform, and shows your words as you speak
 - **Desktop notifications** — Toast notifications when responses complete in the background
+- **Phone notifications** — The Android app and the mobile web app hear about finished replies and questions only while you're away from the PC; tapping one opens the chat ([details](#phone-notifications))
 - **Welcome & setup** — A guided first run shows what Lumi can do, connects your AI, looks at what you work on (only the sources you allow) and sets up projects from your repositories and document folders, turns a few quick answers into memories, and ends with first tasks tailored to you. Replay it anytime from Settings → Profile → Welcome Tour
 - **Visible startup** — A localized loading window appears before the main UI is built: Lumi's mark puts itself together in your accent over a slowly turning glow and keeps moving while Lumi starts (it stands still with animations off). On Windows, when Lumi opens on its welcome screen or the welcome tour, the loading window grows into Lumi's window and the mark glides into the welcome logo; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
 
@@ -1188,6 +1189,60 @@ typeface can differ from the simulator's), for example on an emulator; add
 adb shell am start -n com.lumi.mobile/crc6470d511f2159c9bd9.MainActivity --ez lumi.design_preview true --es lumi.theme Dark
 ```
 
+### Phone notifications
+
+The Android app and the mobile web app tell you about the same moments the desktop notifies
+about — a finished reply, a question, a form or an approval — but only while you're away from
+the PC, the way Teams and Slack hold mobile notifications while you're active at your desk.
+
+- **Turning them on.** After pairing, Lumi offers once to turn them on; they also live in the
+  phone's **Settings → Notifications**, which can send a test (in the web app the test also says
+  whether the browser received it). Android, or the browser, asks for permission once. While
+  they're on but not allowed — as for a web app installed from the browser, which the browser
+  may treat as a new app — Lumi asks again with one tap each time it opens, or, when they're
+  blocked, says where to allow them. The phone's Settings also says when the PC can't send them:
+  its own switch is off, or its Lumi is too old. On the PC, **Settings → Mobile → Phone
+  notifications** turns them off for every phone, sets **Away after** (1, 2, 5 or 10 minutes
+  without keyboard or mouse; 2 by default) and sends a test; a paired phone that can hear them
+  shows **Notifications on** in the device list.
+- **Several phones and browsers.** Each phone, and each browser on it, pairs on its own, and the
+  PC notifies every one that has notifications on. A web app is listed on the PC by its browser,
+  such as **Samsung Internet (Android)**.
+- **When the phone hears.** Locking the PC, or disconnecting its remote session, counts as away
+  at once; otherwise **Away after** decides. What happens while you're at the PC waits: if you
+  step away without having dealt with it, the phone hears about it then. A reply you saw on the
+  PC never goes out, while a question waits until it's answered anywhere. Something that
+  happened more than 10 minutes before you left stays quiet. With Lumi open on the phone, 30
+  seconds without input on the PC is enough. A chat open on the phone's screen doesn't notify;
+  one behind the phone's chat list still does.
+- **In the notification.** Each chat shows one notification, from Lumi or the chat's agent; a
+  newer one replaces it. Tapping it opens the chat, where you answer. In the Android app, reading
+  or answering on any device takes it down everywhere; in a browser it stays until it's replaced,
+  dismissed or you open the chat in the web app. Android's lock screen shows a notification's
+  words only if Android is set to show sensitive content there; otherwise it shows "Lumi finished
+  a reply" or "Lumi needs you".
+- **In the Android app.** There is no cloud service: while notifications are on, the app keeps
+  one quiet connection to the PC over the same private link (Tailscale or local Wi-Fi), as
+  Android's remote-messaging foreground service with a silent **Connected to** notice you can
+  hide in Android's settings. It checks in every 15 minutes, reconnects at once when the network
+  returns, backs off while the PC is out of reach, and comes back after the phone restarts or
+  Lumi updates. **Questions and approvals**, **Finished replies** and the connection notice are
+  separate Android channels.
+- **In the web app.** The PC sends each notification through the browser's own push service —
+  Google's for Chrome, Edge and Samsung Internet, Apple's for Safari, Mozilla's for Firefox — as
+  standard Web Push: encrypted so only that browser can read it, signed with a key the PC keeps,
+  and delivered even with Lumi closed. Nothing runs on the phone meanwhile, and Lumi runs no
+  server or account of its own. Browsers allow this only on secure (https) addresses, so it needs
+  the **Microsoft Dev Tunnel** connection (Tailscale and Wi-Fi addresses are plain http); on
+  iPhone and iPad, Lumi must first be added to the Home Screen. **Settings → Notifications** says
+  which applies. Turning notifications off forgets the browser on the PC. Some browsers accept a
+  subscription but never deliver to it (Edge for Android currently does this); the test then
+  says the notification hasn't arrived, and another browser on the same phone works.
+
+The desktop simulator takes `--notifications` (or `--notifications-denied`) to show these
+settings and run the real stream, writing what a phone would show to
+`simulated-notifications.log` in its data folder; Debug desktop builds take
+`LUMI_DEBUG_PRESENCE=away|locked|present` to stand in for leaving the desk.
 ### Lumi tool availability
 
 Lumi preloads its own tool definitions for new, resumed, and helper sessions,

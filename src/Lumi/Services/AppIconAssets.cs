@@ -16,6 +16,7 @@ internal static class AppIconAssets
     private static readonly int[] IcoSizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256];
     private static readonly (string Density, int Size)[] AndroidSizes =
         [("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)];
+    private const int LauncherIconDp = 48, AdaptiveLayerDp = 108;
 
     // The installer splash keeps its words; only the icon above them is redrawn.
     private static readonly SKRectI SplashIconArea = new(250, 32, 350, 130);
@@ -49,6 +50,13 @@ internal static class AppIconAssets
             var folder = Path.Combine(android, "mipmap-" + density);
             WriteFile(Path.Combine(folder, "ic_launcher.png"), Png(AppIconArt.Render(colors, size)));
             WriteFile(Path.Combine(folder, "ic_launcher_round.png"), Png(AppIconArt.Render(colors, size, AppIconArt.Shape.Circle)));
+
+            // The adaptive icon (mipmap-anydpi-v26) that Android 8 and later show, in each launcher's own shape.
+            var layer = size * AdaptiveLayerDp / LauncherIconDp;
+            WriteFile(Path.Combine(folder, "ic_launcher_background.png"),
+                Png(AppIconArt.RenderAdaptiveLayer(colors, layer, foreground: false)));
+            WriteFile(Path.Combine(folder, "ic_launcher_foreground.png"),
+                Png(AppIconArt.RenderAdaptiveLayer(colors, layer, foreground: true)));
         }
 
         // The web app shows the phone's launcher artwork, byte for byte, plus a full-bleed maskable icon.

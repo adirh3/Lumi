@@ -471,6 +471,25 @@
                               Data="{DynamicResource Mobile.Icon.ChevronRight}" />
                   </Grid>
                 </Button>
+                <Panel IsVisible="{Binding IsNotificationsAvailable}">
+                  <Border Classes="row-divider inset" />
+                  <Button x:Name="SettingsNotificationsRow" Classes="list-row"
+                          Classes.selected="{Binding IsNotificationsSectionVisible}"
+                          AutomationProperties.Name="{loc:Str Notifications}"
+                          Command="{Binding OpenSettingsSectionCommand}" CommandParameter="Notifications">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                      <Border Classes="row-tile">
+                        <PathIcon Data="{DynamicResource Mobile.Icon.Bell}" Foreground="{DynamicResource Brush.Hue.Notification}" />
+                      </Border>
+                      <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="{loc:Str Notifications}" Classes="row-title" />
+                        <TextBlock x:Name="SettingsNotificationsSummary" Text="{Binding NotificationsSummary}" Classes="row-meta" />
+                      </StackPanel>
+                      <PathIcon Grid.Column="2" Classes="row-chevron" IsVisible="{Binding IsSinglePane}"
+                                Data="{DynamicResource Mobile.Icon.ChevronRight}" />
+                    </Grid>
+                  </Button>
+                </Panel>
                 <Panel>
                   <Border Classes="row-divider inset" />
                   <Button x:Name="SettingsMemoriesRow" Classes="list-row"
@@ -923,6 +942,129 @@
                 </Button>
                 <TextBlock Text="{loc:Str ChatsStayOnPc}" Classes="muted"
                            HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+              </StackPanel>
+            </StackPanel>
+
+            <!-- ═══ Notifications: replies and questions while you are away from the PC ═══ -->
+            <StackPanel x:Name="NotificationSettings" IsVisible="{Binding IsNotificationsSectionVisible}">
+              <!-- The switch, with what it brings and from where. -->
+              <Border x:Name="NotificationsHero" Classes="group-card hero-card" Margin="0,4,0,0">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                  <Border Classes="row-tile hero-tile">
+                    <PathIcon Data="{DynamicResource Mobile.Icon.Bell}" Foreground="{DynamicResource Brush.Hue.Notification}" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                    <TextBlock Text="{loc:Str NotifyMe}" Classes="hero-title" TextWrapping="Wrap" TextTrimming="None" />
+                    <TextBlock x:Name="NotificationsHeroText" Text="{Binding NotificationsHeroText}" Classes="row-meta"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+                  <ToggleSwitch x:Name="NotificationsSwitch" Grid.Column="2" VerticalAlignment="Center"
+                                IsChecked="{Binding NotificationsEnabled}"
+                                IsEnabled="{Binding CanToggleNotifications}"
+                                AutomationProperties.Name="{loc:Str NotifyMe}" />
+                </Grid>
+              </Border>
+
+              <!-- A browser that cannot get notifications yet says what it needs. -->
+              <Border x:Name="NotificationsSupportCard" Classes="group-card appearance-card" Margin="0,12,0,0"
+                      IsVisible="{Binding !IsNotificationsSupported}">
+                <TextBlock x:Name="NotificationsSupportText" Text="{Binding NotificationsSupportText}" Classes="supporting"
+                           TextWrapping="Wrap" Margin="4,2,4,2" />
+              </Border>
+
+              <!-- What stands in the way, said plainly, with the way out: one tap where the platform can
+                   still ask, its settings where it refused. -->
+              <Border x:Name="NotificationsPermissionCard" Classes="group-card appearance-card" Margin="0,12,0,0"
+                      IsVisible="{Binding IsNotificationsPermissionNeeded}">
+                <StackPanel Spacing="12">
+                  <TextBlock Text="{loc:Str NotificationsPermissionNeeded}" Classes="supporting" TextWrapping="Wrap"
+                             Margin="4,2,4,0" />
+                  <Button x:Name="AllowNotificationsButton" Classes="touch open-action"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                          Command="{Binding AllowNotificationsCommand}">
+                    <TextBlock Text="{loc:Str AllowNotifications}" Foreground="{Binding $parent[Button].Foreground}" />
+                  </Button>
+                </StackPanel>
+              </Border>
+              <Border x:Name="NotificationsBlockedCard" Classes="group-card appearance-card" Margin="0,12,0,0"
+                      IsVisible="{Binding IsNotificationsBlocked}">
+                <StackPanel Spacing="12">
+                  <TextBlock x:Name="NotificationsBlockedText" Text="{Binding NotificationsBlockedText}" Classes="supporting"
+                             TextWrapping="Wrap" Margin="4,2,4,0" />
+                  <Button x:Name="OpenNotificationSystemSettingsButton" Classes="touch open-action"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                          IsVisible="{Binding CanOpenNotificationSettings}"
+                          Command="{Binding OpenNotificationSettingsCommand}">
+                    <TextBlock Text="{loc:Str OpenSystemSettings}" Foreground="{Binding $parent[Button].Foreground}" />
+                  </Button>
+                </StackPanel>
+              </Border>
+              <TextBlock x:Name="NotificationsPcNotice" Classes="supporting" Margin="6,12,6,0" TextWrapping="Wrap"
+                         IsVisible="{Binding IsNotificationsPcNoticeVisible}" Text="{Binding NotificationsPcNoticeText}" />
+
+              <StackPanel x:Name="NotificationDetails" IsVisible="{Binding IsNotificationDetailsVisible}">
+                <!-- Each kind can be silenced on its own, where Android keeps that choice. -->
+                <StackPanel x:Name="NotificationKinds" IsVisible="{Binding HasNotificationChannelSettings}">
+                  <TextBlock Classes="section-label" Text="{loc:Str NotificationsKinds}" />
+                  <Border Classes="group-card">
+                    <StackPanel>
+                      <Button x:Name="NotificationQuestionsRow" Classes="list-row"
+                              AutomationProperties.Name="{loc:Str NotificationChannelQuestions}"
+                              IsEnabled="{Binding HasNotificationChannelSettings}"
+                              Command="{Binding OpenNotificationSettingsCommand}" CommandParameter="Questions">
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                          <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="{loc:Str NotificationChannelQuestions}" Classes="row-title" />
+                            <TextBlock Text="{loc:Str NotificationChannelQuestionsDescription}" Classes="row-meta"
+                                       TextWrapping="Wrap" />
+                          </StackPanel>
+                          <TextBlock Grid.Column="1" Text="{Binding QuestionsChannelState}" Classes="row-meta"
+                                     VerticalAlignment="Center" />
+                          <PathIcon Grid.Column="2" Classes="row-chevron" Data="{DynamicResource Mobile.Icon.ChevronRight}" />
+                        </Grid>
+                      </Button>
+                      <Border Classes="row-divider" />
+                      <Button x:Name="NotificationRepliesRow" Classes="list-row"
+                              AutomationProperties.Name="{loc:Str NotificationChannelReplies}"
+                              IsEnabled="{Binding HasNotificationChannelSettings}"
+                              Command="{Binding OpenNotificationSettingsCommand}" CommandParameter="Replies">
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                          <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="{loc:Str NotificationChannelReplies}" Classes="row-title" />
+                            <TextBlock Text="{loc:Str NotificationChannelRepliesDescription}" Classes="row-meta"
+                                       TextWrapping="Wrap" />
+                          </StackPanel>
+                          <TextBlock Grid.Column="1" Text="{Binding RepliesChannelState}" Classes="row-meta"
+                                     VerticalAlignment="Center" />
+                          <PathIcon Grid.Column="2" Classes="row-chevron" Data="{DynamicResource Mobile.Icon.ChevronRight}" />
+                        </Grid>
+                      </Button>
+                    </StackPanel>
+                  </Border>
+                </StackPanel>
+
+                <!-- How they arrive, and a way to prove it end to end. -->
+                <TextBlock Classes="section-label" Text="{loc:Str Connection}" />
+                <Border Classes="group-card appearance-card">
+                  <StackPanel Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="4,2,0,0">
+                      <Border x:Name="NotificationsStatusDot" Classes="status-dot" Classes.live="{Binding IsNotificationLinkLive}"
+                              VerticalAlignment="Center" />
+                      <TextBlock x:Name="NotificationsStatus" Text="{Binding NotificationsStatusText}" Classes="row-meta"
+                                 VerticalAlignment="Center" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button x:Name="SendTestNotificationButton" Classes="touch open-action"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                            Command="{Binding SendTestNotificationCommand}">
+                      <TextBlock Text="{loc:Str SendTestNotification}" Foreground="{Binding $parent[Button].Foreground}" />
+                    </Button>
+                    <TextBlock x:Name="NotificationTestResult" Text="{Binding NotificationTestMessage}" Classes="supporting"
+                               TextWrapping="Wrap" Margin="4,0"
+                               IsVisible="{Binding NotificationTestMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  </StackPanel>
+                </Border>
+                <TextBlock x:Name="NotificationsAwayRule" Classes="section-footnote" Text="{Binding NotificationsAwayRule}" />
+                <TextBlock x:Name="NotificationsDeliveryNote" Classes="section-footnote" Text="{Binding NotificationsDeliveryNote}" />
               </StackPanel>
             </StackPanel>
 

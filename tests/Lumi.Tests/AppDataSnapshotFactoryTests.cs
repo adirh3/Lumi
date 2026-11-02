@@ -179,6 +179,7 @@ public class AppDataSnapshotFactoryTests
                 RemoteAllowInsecureLan = true,
                 RemoteAccessPort = 47653,
                 RemoteDevTunnelId = "lumi-11111111111111111111111111111111",
+                RemoteWebPushKey = "stale-key",
                 RemotePairedDevices =
                 [
                     new RemotePairedDevice { DeviceId = "stale", Token = "stale-token" }
@@ -191,9 +192,15 @@ public class AppDataSnapshotFactoryTests
             RemoteAllowInsecureLan = false,
             RemoteAccessPort = 49000,
             RemoteDevTunnelId = "lumi-22222222222222222222222222222222",
+            RemoteWebPushKey = "current-key",
             RemotePairedDevices =
             [
-                new RemotePairedDevice { DeviceId = "current", Token = "current-token" }
+                new RemotePairedDevice
+                {
+                    DeviceId = "current",
+                    Token = "current-token",
+                    WebPush = new RemoteWebPushSubscription { Endpoint = "https://fcm.googleapis.com/fcm/send/a", P256dh = "p", Auth = "a" }
+                }
             ]
         };
 
@@ -203,7 +210,10 @@ public class AppDataSnapshotFactoryTests
         Assert.False(store.Data.Settings.RemoteAllowInsecureLan);
         Assert.Equal(49000, store.Data.Settings.RemoteAccessPort);
         Assert.Equal(persisted.RemoteDevTunnelId, store.Data.Settings.RemoteDevTunnelId);
-        Assert.Equal("current", Assert.Single(store.Data.Settings.RemotePairedDevices).DeviceId);
+        Assert.Equal("current-key", store.Data.Settings.RemoteWebPushKey);
+        var device = Assert.Single(store.Data.Settings.RemotePairedDevices);
+        Assert.Equal("current", device.DeviceId);
+        Assert.Equal(persisted.RemotePairedDevices[0].WebPush, device.WebPush);
     }
 
     [Fact]
@@ -1258,6 +1268,7 @@ public class AppDataSnapshotFactoryTests
                 RemoteAccessEnabled = true,
                 RemoteAccessPort = 47653,
                 RemoteDevTunnelId = "lumi-0123456789abcdef0123456789abcdef",
+                RemoteWebPushKey = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg",
                 RemotePairedDevices =
                 [
                     new RemotePairedDevice
@@ -1266,7 +1277,13 @@ public class AppDataSnapshotFactoryTests
                         DeviceName = "Pixel 8 Pro",
                         Token = "abc123",
                         PairedAt = new DateTimeOffset(2026, 8, 1, 20, 0, 0, TimeSpan.Zero),
-                        LastSeenAt = new DateTimeOffset(2026, 8, 1, 21, 0, 0, TimeSpan.Zero)
+                        LastSeenAt = new DateTimeOffset(2026, 8, 1, 21, 0, 0, TimeSpan.Zero),
+                        WebPush = new RemoteWebPushSubscription
+                        {
+                            Endpoint = "https://fcm.googleapis.com/fcm/send/abc:def",
+                            P256dh = "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
+                            Auth = "BTBZMqHH6r4Tts7J_aSIgg"
+                        }
                     }
                 ]
             }
@@ -1277,6 +1294,7 @@ public class AppDataSnapshotFactoryTests
         Assert.True(snapshot.Settings.RemoteAccessEnabled);
         Assert.Equal(47653, snapshot.Settings.RemoteAccessPort);
         Assert.Equal(source.Settings.RemoteDevTunnelId, snapshot.Settings.RemoteDevTunnelId);
+        Assert.Equal(source.Settings.RemoteWebPushKey, snapshot.Settings.RemoteWebPushKey);
 
         var device = Assert.Single(snapshot.Settings.RemotePairedDevices);
         Assert.Equal("device-1", device.DeviceId);
@@ -1284,6 +1302,14 @@ public class AppDataSnapshotFactoryTests
         Assert.Equal("abc123", device.Token);
         Assert.Equal(source.Settings.RemotePairedDevices[0].PairedAt, device.PairedAt);
         Assert.Equal(source.Settings.RemotePairedDevices[0].LastSeenAt, device.LastSeenAt);
+        Assert.Equal(source.Settings.RemotePairedDevices[0].WebPush, device.WebPush);
+
+        // And it survives the trip through data.json.
+        var reloaded = JsonSerializer.Deserialize(
+            JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData),
+            AppDataJsonContext.Default.AppData)!;
+        Assert.Equal(source.Settings.RemoteWebPushKey, reloaded.Settings.RemoteWebPushKey);
+        Assert.Equal(source.Settings.RemotePairedDevices[0].WebPush, reloaded.Settings.RemotePairedDevices[0].WebPush);
     }
 
     [Fact]
@@ -1316,6 +1342,7 @@ public class AppDataSnapshotFactoryTests
                 RemoteAccessEnabled = true,
                 RemoteAccessPort = 50000,
                 RemoteAllowInsecureLan = true,
+                RemoteWebPushKey = "stale-key",
                 RemotePairedDevices = [new RemotePairedDevice { DeviceId = "stale", Token = "old" }]
             }
         };
@@ -1326,6 +1353,7 @@ public class AppDataSnapshotFactoryTests
                 RemoteAccessEnabled = false,
                 RemoteAccessPort = 47653,
                 RemoteAllowInsecureLan = false,
+                RemoteWebPushKey = "persisted-key",
                 RemotePairedDevices = [new RemotePairedDevice { DeviceId = "current", Token = "new" }]
             }
         };
@@ -1341,11 +1369,16 @@ public class AppDataSnapshotFactoryTests
         Assert.False(merged.Settings.RemoteAccessEnabled);
         Assert.Equal(47653, merged.Settings.RemoteAccessPort);
         Assert.False(merged.Settings.RemoteAllowInsecureLan);
+        Assert.Equal("persisted-key", merged.Settings.RemoteWebPushKey);
     }
 
     [Fact]
     public void MergeChatIndexChanges_PersistsExplicitPairedDeviceMutation()
     {
+        var subscription = new RemoteWebPushSubscription
+        {
+            Endpoint = "https://web.push.apple.com/abc", P256dh = "key", Auth = "secret"
+        };
         var current = new AppData
         {
             Settings = new UserSettings
@@ -1353,7 +1386,8 @@ public class AppDataSnapshotFactoryTests
                 RemoteAccessEnabled = true,
                 RemoteAccessPort = 50000,
                 RemoteAllowInsecureLan = true,
-                RemotePairedDevices = [new RemotePairedDevice { DeviceId = "new", Token = "new" }]
+                RemoteWebPushKey = "new-key",
+                RemotePairedDevices = [new RemotePairedDevice { DeviceId = "new", Token = "new", WebPush = subscription }]
             }
         };
         var persisted = new AppData
@@ -1371,7 +1405,10 @@ public class AppDataSnapshotFactoryTests
             [],
             remotePairedDevicesDirty: true);
 
-        Assert.Equal("new", Assert.Single(merged.Settings.RemotePairedDevices).DeviceId);
+        var device = Assert.Single(merged.Settings.RemotePairedDevices);
+        Assert.Equal("new", device.DeviceId);
+        Assert.Equal(subscription, device.WebPush);
+        Assert.Equal("new-key", merged.Settings.RemoteWebPushKey);
         Assert.True(merged.Settings.RemoteAccessEnabled);
         Assert.Equal(50000, merged.Settings.RemoteAccessPort);
         Assert.True(merged.Settings.RemoteAllowInsecureLan);

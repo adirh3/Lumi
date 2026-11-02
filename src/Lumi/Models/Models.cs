@@ -1954,6 +1954,21 @@ public class UserSettings
     /// <summary>Devices that completed pairing and hold a long-lived token.</summary>
     public List<RemotePairedDevice> RemotePairedDevices { get; set; } = [];
 
+    /// <summary>
+    /// This profile's Web Push signing key (P-256, PKCS#8 in base64). Browsers subscribe to its public
+    /// half, so it stays the same for as long as the profile does.
+    /// </summary>
+    public string RemoteWebPushKey { get; set; } = "";
+
+    /// <summary>
+    /// Sends replies and questions to paired phones that turned notifications on, while the user is
+    /// away from this PC.
+    /// </summary>
+    public bool PhoneNotificationsEnabled { get; set; } = true;
+
+    /// <summary>Minutes without input after which the user counts as away from this PC.</summary>
+    public int PhoneNotificationAwayMinutes { get; set; } = 2;
+
     // ── Quota (cached, refreshed periodically) ──
     [JsonIgnore] public double? QuotaRemainingPercentage { get; set; }
     [JsonIgnore] public double? QuotaUsedRequests { get; set; }
@@ -1969,6 +1984,21 @@ public class RemotePairedDevice
     public string Token { get; set; } = "";
     public DateTimeOffset PairedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? LastSeenAt { get; set; }
+
+    /// <summary>Where to push notifications when the device is a browser that turned them on.</summary>
+    public RemoteWebPushSubscription? WebPush { get; set; }
+}
+
+/// <summary>A browser's Web Push subscription: its push service address and the keys to encrypt for.</summary>
+public sealed record RemoteWebPushSubscription
+{
+    public string Endpoint { get; init; } = "";
+
+    /// <summary>The browser's P-256 public key, base64url.</summary>
+    public string P256dh { get; init; } = "";
+
+    /// <summary>The browser's 16-byte authentication secret, base64url.</summary>
+    public string Auth { get; init; } = "";
 }
 
 public class AppData

@@ -72,8 +72,14 @@ internal sealed class BrowserMobileSettingsStore(string origin) : IMobileSetting
         settings.BaseUrl = origin;
         if (settings.DeviceId.Length == 0)
             settings.DeviceId = Guid.NewGuid().ToString("n");
-        if (settings.DeviceName.Length == 0)
-            settings.DeviceName = Strings.Get("LumiWebApp");
+        // The PC lists each browser by what it is; the generic name only stands in where the browser
+        // can't be recognized. It reaches the PC when this browser pairs.
+        if (settings.DeviceName.Length == 0 || settings.DeviceName == Strings.Get("LumiWebApp"))
+        {
+            settings.DeviceName = BrowserInterop.GetDeviceName() is { Length: > 0 } browserName
+                ? browserName
+                : Strings.Get("LumiWebApp");
+        }
         return settings;
     }
 
@@ -459,11 +465,50 @@ internal static partial class BrowserInterop
     [JSImport("checkAppUpdate", "./pwaHost.js")]
     internal static partial void CheckAppUpdate();
 
+    [JSImport("getNotificationSupport", "./pwaHost.js")]
+    internal static partial string GetNotificationSupport();
+
+    [JSImport("getNotificationPermission", "./pwaHost.js")]
+    internal static partial string GetNotificationPermission();
+
+    [JSImport("isInstalledApp", "./pwaHost.js")]
+    internal static partial bool IsInstalledApp();
+
+    [JSImport("expectTestPush", "./pwaHost.js")]
+    [return: JSMarshalAs<JSType.Promise<JSType.Boolean>>]
+    internal static partial Task<bool> ExpectTestPush(int timeoutMs);
+
+    [JSImport("requestNotificationPermission", "./pwaHost.js")]
+    [return: JSMarshalAs<JSType.Promise<JSType.String>>]
+    internal static partial Task<string> RequestNotificationPermission();
+
+    [JSImport("subscribeToPush", "./pwaHost.js")]
+    [return: JSMarshalAs<JSType.Promise<JSType.String>>]
+    internal static partial Task<string> SubscribeToPush(string serverKey, string notificationText);
+
+    [JSImport("unsubscribeFromPush", "./pwaHost.js")]
+    [return: JSMarshalAs<JSType.Promise<JSType.Void>>]
+    internal static partial Task UnsubscribeFromPush();
+
+    [JSImport("clearChatNotifications", "./pwaHost.js")]
+    internal static partial void ClearChatNotifications(string tag);
+
+    /// <summary>A notification was tapped: open the chat it was about.</summary>
+    [JSExport]
+    internal static void OpenChatFromNotification(string chatId, string title)
+    {
+        if (Guid.TryParse(chatId, out var id) && (Application.Current as App)?.Shell is { } shell)
+            shell.OpenChatFromNotification(id, title.Length > 0 ? title : null);
+    }
+
     [JSImport("getOrigin", "./browserHost.js")]
     internal static partial string GetOrigin();
 
     [JSImport("getLanguage", "./browserHost.js")]
     internal static partial string GetLanguage();
+
+    [JSImport("getDeviceName", "./browserHost.js")]
+    internal static partial string GetDeviceName();
 
     [JSImport("getStorageItem", "./browserHost.js")]
     internal static partial string? GetStorageItem(string key);

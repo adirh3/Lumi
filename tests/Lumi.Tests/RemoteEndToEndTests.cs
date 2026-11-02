@@ -66,7 +66,9 @@ public sealed class RemoteEndToEndTests
     private static async Task RunAsync(
         Func<Rig, Task> body,
         Action<AppData>? seed = null,
-        Func<IReadOnlySet<IPAddress>>? tailscaleAddressProvider = null)
+        Func<IReadOnlySet<IPAddress>>? tailscaleAddressProvider = null,
+        IDesktopPresenceProbe? presence = null,
+        WebPushSender? webPush = null)
     {
         using var session = HeadlessTestSession.Start();
         ExceptionDispatchInfo? failure = null;
@@ -93,7 +95,7 @@ public sealed class RemoteEndToEndTests
             Rig? rig = null;
             try
             {
-                rig = CreateRig(seed, tailscaleAddressProvider);
+                rig = CreateRig(seed, tailscaleAddressProvider, presence, webPush);
                 await body(rig);
             }
             finally
@@ -130,7 +132,9 @@ public sealed class RemoteEndToEndTests
 
     private static Rig CreateRig(
         Action<AppData>? seed,
-        Func<IReadOnlySet<IPAddress>>? tailscaleAddressProvider)
+        Func<IReadOnlySet<IPAddress>>? tailscaleAddressProvider,
+        IDesktopPresenceProbe? presence = null,
+        WebPushSender? webPush = null)
     {
         var data = new AppData
         {
@@ -159,9 +163,14 @@ public sealed class RemoteEndToEndTests
             TestCopilot.Shared,
             new UpdateService(),
             initializeCopilotOnStartup: false);
-        var server = tailscaleAddressProvider is null
+        var server = tailscaleAddressProvider is null && presence is null && webPush is null
             ? new LumiRemoteServer(dataStore, main)
-            : new LumiRemoteServer(dataStore, main, tailscaleAddressProvider);
+            : new LumiRemoteServer(
+                dataStore,
+                main,
+                tailscaleAddressProvider ?? LumiRemoteServer.GetVerifiedTailscaleAddresses,
+                presence,
+                webPush);
         main.SettingsVM.AttachRemoteServer(server);
         Assert.False(server.IsRunning);
         server.Start();
@@ -2645,4 +2654,506 @@ public sealed class RemoteEndToEndTests
     private static T GetPrivateField<T>(object target, string name) where T : class =>
         Assert.IsType<T>(
             target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target));
+
+    // ── Phone notifications ─────────────────────────────────────────────────────────────────
+    //
+    // The desktop's own notification moments travel to a phone's notification stream only while the
+    // user is away from the PC, and come down again once dealt with anywhere.
+
+    private static readonly Guid NotifiedChatId = Guid.Parse("8a0f6c4e-5d0a-4c55-9c93-1f0b2a7d4e61");
+
+    private static void SeedNotifiedChat(AppData data) =>
+        data.Chats.Add(new Chat
+        {
+            Id = NotifiedChatId,
+            Title = "Trip plan",
+            UpdatedAt = DateTimeOffset.Now
+        });
+
+    private sealed class FakePresence : IDesktopPresenceProbe
+    {
+        public DesktopPresenceState State { get; set; } = new(TimeSpan.Zero, false);
+
+        public DesktopPresenceState Read() => State;
+
+        public void Away() => State = new DesktopPresenceState(TimeSpan.FromHours(1), false);
+    }
+
+    private sealed class RecordingPresenter : IPhoneNotificationPresenter
+    {
+        private readonly object _gate = new();
+        private readonly List<(RemoteNotification Notification, bool Alert)> _shown = [];
+        private readonly List<string> _dismissed = [];
+
+        public IReadOnlyList<(RemoteNotification Notification, bool Alert)> Shown
+        {
+            get { lock (_gate) return [.. _shown]; }
+        }
+
+        public IReadOnlyList<string> Dismissed
+        {
+            get { lock (_gate) return [.. _dismissed]; }
+        }
+
+        public void Show(RemoteNotification notification, bool alert)
+        {
+            lock (_gate)
+                _shown.Add((notification, alert));
+        }
+
+        public void Dismiss(IReadOnlyCollection<string> ids)
+        {
+            lock (_gate)
+                _dismissed.AddRange(ids);
+        }
+
+        public void LinkStateChanged(PhoneNotificationLinkState state)
+        {
+        }
+    }
+
+    private sealed class PhoneListener(PhoneNotificationListener listener, LumiRemoteClient client) : IAsyncDisposable
+    {
+        public PhoneNotificationListener Listener => listener;
+
+        public async ValueTask DisposeAsync()
+        {
+            await listener.StopAsync();
+            await client.DisposeAsync();
+        }
+    }
+
+    /// <summary>The phone's notification stream, on its own client, as the Android service holds it.</summary>
+    private static async Task<PhoneListener> ListenForNotificationsAsync(
+        Rig rig,
+        RecordingPresenter presenter,
+        PhoneNotificationLedger? ledger = null)
+    {
+        var client = new LumiRemoteClient(rig.Client.DeviceId, "Test Phone");
+        client.Configure(rig.BaseUrl, rig.Client.Token);
+        var listener = new PhoneNotificationListener(client, presenter, ledger ?? new PhoneNotificationLedger(null));
+        listener.Start();
+        await WaitAsync(
+            () => listener.State == PhoneNotificationLinkState.Connected
+                  && rig.Server.NotificationDeviceIds.Contains(rig.Client.DeviceId),
+            "the phone's notification stream to open");
+        return new PhoneListener(listener, client);
+    }
+
+    [Fact]
+    public Task AReplyReachesThePhoneOnlyOnceTheUserIsAwayAndComesDownWhenRead()
+    {
+        var presence = new FakePresence();
+        return RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+            var presenter = new RecordingPresenter();
+            await using var phone = await ListenForNotificationsAsync(rig, presenter);
+            var chat = rig.DataStore.Data.Chats.Single(candidate => candidate.Id == NotifiedChatId);
+
+            // The reply finishes while the user is at the PC: the phone stays quiet.
+            chat.HasUnreadMessages = true;
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Reply, "**Done.** Three hotels fit the budget."));
+            await Task.Delay(300);
+            Assert.Empty(presenter.Shown);
+            Assert.Equal(1, rig.Server.PhoneNotifications.WaitingCount);
+
+            // The user walks away without having read it: the phone hears about it then.
+            presence.Away();
+            rig.Server.PhoneNotifications.Evaluate();
+            await WaitAsync(() => presenter.Shown.Count == 1, "the reply to reach the phone");
+            var (notification, alert) = presenter.Shown[0];
+            Assert.True(alert);
+            Assert.Equal(RemoteProtocol.NotificationKinds.Reply, notification.Kind);
+            Assert.Equal(NotifiedChatId, notification.ChatId);
+            Assert.Equal("Trip plan", notification.ChatTitle);
+            Assert.Equal("Done. Three hotels fit the budget.", notification.Text);
+
+            // Reading the chat anywhere takes it down on the phone.
+            chat.HasUnreadMessages = false;
+            await WaitAsync(() => presenter.Dismissed.Contains(notification.Id), "the read reply to come down");
+            Assert.Empty(rig.Server.PhoneNotifications.Delivered);
+        }, seed: SeedNotifiedChat, presence: presence);
+    }
+
+    [Fact]
+    public Task AQuestionAnsweredOnThePcComesDownOnThePhone()
+    {
+        var presence = new FakePresence();
+        presence.Away();
+        return RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+            var presenter = new RecordingPresenter();
+            await using var phone = await ListenForNotificationsAsync(rig, presenter);
+
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId,
+                ChatAttentionKind.Question,
+                "Which city first?",
+                "question-1"));
+            await WaitAsync(() => presenter.Shown.Count == 1, "the question to reach the phone");
+            var question = presenter.Shown[0].Notification;
+            Assert.Equal(RemoteProtocol.NotificationKinds.Question, question.Kind);
+            Assert.Equal("Which city first?", question.Text);
+
+            rig.Main.ChatEvents.ResolveAttention(NotifiedChatId, "question-1");
+            await WaitAsync(() => presenter.Dismissed.Contains(question.Id), "the answered question to come down");
+        }, seed: SeedNotifiedChat, presence: presence);
+    }
+
+    [Fact]
+    public Task AChatBehindThePhonesChatListStillNotifiesButOneOnItsScreenDoesNot()
+    {
+        var presence = new FakePresence();
+        presence.Away();
+        return RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+            await WaitAsync(() => rig.Shell.IsConnected, "the event stream to attach");
+            var presenter = new RecordingPresenter();
+            await using var phone = await ListenForNotificationsAsync(rig, presenter);
+            await WaitAsync(
+                () => rig.Shell.ChatList.Groups.SelectMany(group => group.Chats).Any(chat => chat.Id == NotifiedChatId),
+                "the chat to reach the phone");
+
+            // On the phone's screen, what happens in the chat is already in front of the user.
+            rig.Shell.ChatList.OpenChatCommand.Execute(
+                rig.Shell.ChatList.Groups.SelectMany(group => group.Chats).First(chat => chat.Id == NotifiedChatId));
+            await WaitAsync(
+                () => rig.Server.EventHub?.IsChatOnPhoneScreen(NotifiedChatId) == true,
+                "the open chat to reach the desktop");
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Reply, "Read on the phone"));
+            await Task.Delay(300);
+            Assert.Empty(presenter.Shown);
+
+            // The phone's chat list slides over it, as the phone's home does: the chat stays current
+            // underneath, but nobody is reading it.
+            rig.Shell.IsDrawerOpen = true;
+            await WaitAsync(
+                () => rig.Server.EventHub is { } hub
+                      && hub.HasChatSubscriber(NotifiedChatId)
+                      && !hub.IsChatOnPhoneScreen(NotifiedChatId),
+                "the covered chat to reach the desktop");
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Question, "Which city first?", "question-1"));
+            await WaitAsync(() => presenter.Shown.Count == 1, "the question behind the chat list to reach the phone");
+            Assert.Equal(RemoteProtocol.NotificationKinds.Question, presenter.Shown[0].Notification.Kind);
+        }, seed: SeedNotifiedChat, presence: presence);
+    }
+
+    [Fact]
+    public Task APhoneThatReconnectsShowsWhatIsStillWaitingWithoutRingingTwice()
+    {
+        var presence = new FakePresence();
+        presence.Away();
+        return RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+            var ledger = new PhoneNotificationLedger(null);
+            var first = new RecordingPresenter();
+            await using (var phone = await ListenForNotificationsAsync(rig, first, ledger))
+            {
+                rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                    NotifiedChatId, ChatAttentionKind.Reply, "First reply"));
+                await WaitAsync(() => first.Shown.Count == 1, "the first reply to reach the phone");
+            }
+
+            // The PC notices at once that the phone stopped listening.
+            await WaitAsync(
+                () => !rig.Server.NotificationDeviceIds.Contains(rig.Client.DeviceId),
+                "the closed stream to leave the PC");
+
+            // Something new arrives while the phone is out of reach.
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Input, "Trip details", "form-1"));
+            Assert.Equal(2, rig.Server.PhoneNotifications.Delivered.Count);
+
+            var second = new RecordingPresenter();
+            await using var reconnected = await ListenForNotificationsAsync(rig, second, ledger);
+            await WaitAsync(() => second.Shown.Count == 1, "the waiting form to reach the phone on reconnect");
+            Assert.Equal(RemoteProtocol.NotificationKinds.Input, second.Shown[0].Notification.Kind);
+            Assert.True(second.Shown[0].Alert);
+            await Task.Delay(300);
+            Assert.Single(second.Shown);
+        }, seed: SeedNotifiedChat, presence: presence);
+    }
+
+    [Fact]
+    public Task ATestNotificationReachesOnlyAListeningPhone()
+    {
+        var presence = new FakePresence();
+        return RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+
+            var refused = await rig.Client.SendCommandAsync(
+                new RemoteCommand(RemoteProtocol.Actions.TestNotification),
+                CancellationToken.None);
+            Assert.False(refused.Ok);
+
+            var presenter = new RecordingPresenter();
+            await using var phone = await ListenForNotificationsAsync(rig, presenter);
+            var sent = await rig.Client.SendCommandAsync(
+                new RemoteCommand(RemoteProtocol.Actions.TestNotification),
+                CancellationToken.None);
+
+            Assert.True(sent.Ok, sent.Error);
+            await WaitAsync(() => presenter.Shown.Count == 1, "the test notification to arrive");
+            Assert.Equal(RemoteProtocol.NotificationKinds.Test, presenter.Shown[0].Notification.Kind);
+            // The user is at the PC, and a test still arrives: the user asked for it.
+            Assert.Empty(rig.Server.PhoneNotifications.Delivered);
+        }, presence: presence);
+    }
+
+    [Fact]
+    public Task AServerStartedOffTheUiThreadStillNotifies()
+    {
+        var presence = new FakePresence();
+        presence.Away();
+        return RunAsync(async rig =>
+        {
+            // Startup starts the server from InitializeAsync's background continuation.
+            rig.Server.Stop();
+            Assert.False(rig.Server.PhoneNotifications.IsAttached);
+            await Task.Run(rig.Server.Start);
+            await WaitAsync(() => rig.Server.PhoneNotifications.IsAttached, "the center to follow the chats");
+
+            await PairAsync(rig);
+            var presenter = new RecordingPresenter();
+            await using var phone = await ListenForNotificationsAsync(rig, presenter);
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Question, "Ship it?", "question-1"));
+            await WaitAsync(() => presenter.Shown.Count == 1, "the question to reach the phone");
+        }, seed: SeedNotifiedChat, presence: presence);
+    }
+
+    [Fact]
+    public Task TurningPhoneNotificationsOffOnThePcTakesThemDown()
+    {
+        var presence = new FakePresence();
+        presence.Away();
+        return RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+            var presenter = new RecordingPresenter();
+            await using var phone = await ListenForNotificationsAsync(rig, presenter);
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Reply, "Ready"));
+            await WaitAsync(() => presenter.Shown.Count == 1, "the reply to reach the phone");
+
+            rig.Main.SettingsVM.PhoneNotificationsEnabled = false;
+
+            await WaitAsync(() => presenter.Dismissed.Count == 1, "turning notifications off to take them down");
+            Assert.False(rig.DataStore.Data.Settings.PhoneNotificationsEnabled);
+
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Reply, "Another"));
+            await Task.Delay(300);
+            Assert.Single(presenter.Shown);
+        }, seed: SeedNotifiedChat, presence: presence);
+    }
+
+    [Fact]
+    public Task ARevokedPhoneStopsListening()
+    {
+        var presence = new FakePresence();
+        return RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+            var presenter = new RecordingPresenter();
+            await using var phone = await ListenForNotificationsAsync(rig, presenter);
+
+            var device = Assert.Single(rig.DataStore.SnapshotRemotePairedDevices());
+            Assert.True(await rig.Server.RevokeDeviceAsync(device.DeviceId));
+
+            await WaitAsync(
+                () => phone.Listener.State == PhoneNotificationLinkState.Unpaired,
+                "the revoked phone to learn it is no longer paired");
+            Assert.Empty(rig.Server.NotificationDeviceIds);
+        }, presence: presence);
+    }
+
+    private const string BrowserEndpoint = "https://fcm.googleapis.com/fcm/send/e2e-browser:APA91bToken";
+
+    private static Task<RemoteCommandResult> RegisterBrowserAsync(Rig rig, TestPushBrowser browser, string endpoint = BrowserEndpoint) =>
+        rig.Client.SendCommandAsync(
+            new RemoteCommand(RemoteProtocol.Actions.RegisterWebPush)
+                .With("endpoint", endpoint)
+                .With("p256dh", browser.P256dh)
+                .With("auth", browser.Auth),
+            CancellationToken.None);
+
+    private static JsonElement ReadPush(TestPushBrowser browser, FakePushService.PushRequest request) =>
+        JsonDocument.Parse(browser.Decrypt(request.Body)).RootElement.Clone();
+
+    [Fact]
+    public async Task ABrowserThatSubscribedHearsThroughItsPushServiceOnlyWhileTheUserIsAway()
+    {
+        var presence = new FakePresence();
+        var pushService = new FakePushService();
+        using var browser = new TestPushBrowser();
+        await RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+            var snapshot = await rig.Client.GetSnapshotAsync(CancellationToken.None);
+            Assert.Equal(WebPush.PublicKeyOf(rig.DataStore.Data.Settings.RemoteWebPushKey), snapshot!.Settings.WebPushKey);
+            Assert.NotNull(snapshot.Settings.WebPushKey);
+
+            var registered = await RegisterBrowserAsync(rig, browser);
+
+            Assert.True(registered.Ok, registered.Error);
+            var device = Assert.Single(rig.DataStore.SnapshotRemotePairedDevices());
+            Assert.Equal(browser.Subscription(BrowserEndpoint), device.WebPush);
+            Assert.Contains(device.DeviceId, rig.Server.NotificationDeviceIds);
+            await WaitAsync(
+                () => rig.Main.SettingsVM.RemoteDevices.Any(row => row.DeviceId == device.DeviceId && row.IsReceivingNotifications),
+                "Settings to show the browser receives notifications");
+
+            // At the PC, nothing is pushed.
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Question, "Which city first?", "question-1"));
+            await Task.Delay(300);
+            Assert.Empty(pushService.Requests);
+
+            presence.Away();
+            rig.Server.PhoneNotifications.Evaluate();
+            await WaitAsync(() => pushService.Requests.Count == 1, "the question to reach the push service");
+            var question = pushService.Requests[0];
+            Assert.Equal(new Uri(BrowserEndpoint), question.Uri);
+            Assert.Equal("high", question.Headers["Urgency"]);
+            var payload = ReadPush(browser, question);
+            Assert.Equal(RemoteProtocol.NotificationKinds.Question, payload.GetProperty("kind").GetString());
+            Assert.Equal(NotifiedChatId.ToString("D"), payload.GetProperty("chatId").GetString());
+            Assert.Equal("Trip plan", payload.GetProperty("title").GetString());
+            Assert.Equal("Which city first?", payload.GetProperty("text").GetString());
+            Assert.Equal(Environment.MachineName, payload.GetProperty("host").GetString());
+
+            // A finished reply is awaited too: it reaches a sleeping phone at once, as in the app.
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Reply, "**Done.** Three hotels fit the budget."));
+            await WaitAsync(() => pushService.Requests.Count == 2, "the reply to reach the push service");
+            Assert.Equal("high", pushService.Requests[1].Headers["Urgency"]);
+            var reply = ReadPush(browser, pushService.Requests[1]);
+            Assert.Equal("Done. Three hotels fit the budget.", reply.GetProperty("text").GetString());
+            // The browser keeps whichever arrives last only if it happened last.
+            Assert.True(reply.GetProperty("at").GetInt64() >= payload.GetProperty("at").GetInt64());
+        }, seed: SeedNotifiedChat, presence: presence, webPush: new WebPushSender(pushService));
+    }
+
+    [Fact]
+    public async Task ASubscriptionThePushServiceNoLongerKnowsIsForgotten()
+    {
+        var presence = new FakePresence();
+        presence.Away();
+        var pushService = new FakePushService { Status = HttpStatusCode.Gone };
+        using var browser = new TestPushBrowser();
+        await RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+            Assert.True((await RegisterBrowserAsync(rig, browser)).Ok);
+
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Reply, "Ready"));
+
+            await WaitAsync(
+                () => rig.DataStore.SnapshotRemotePairedDevices().Single().WebPush is null,
+                "the expired subscription to be forgotten");
+            Assert.Single(pushService.Requests);
+            Assert.Empty(rig.Server.NotificationDeviceIds);
+        }, seed: SeedNotifiedChat, presence: presence, webPush: new WebPushSender(pushService));
+    }
+
+    [Fact]
+    public async Task ABrowsersTestNotificationTravelsThroughItsPushService()
+    {
+        var presence = new FakePresence();
+        var pushService = new FakePushService();
+        using var browser = new TestPushBrowser();
+        await RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+            Assert.True((await RegisterBrowserAsync(rig, browser)).Ok);
+
+            var sent = await rig.Client.SendCommandAsync(
+                new RemoteCommand(RemoteProtocol.Actions.TestNotification), CancellationToken.None);
+
+            Assert.True(sent.Ok, sent.Error);
+            var test = Assert.Single(pushService.Requests);
+            Assert.Equal(RemoteProtocol.NotificationKinds.Test, ReadPush(browser, test).GetProperty("kind").GetString());
+            Assert.Equal("high", test.Headers["Urgency"]);
+            Assert.Equal("600", test.Headers["TTL"]);
+
+            // A push service that refuses says so, rather than the phone seeming not to listen.
+            pushService.Status = HttpStatusCode.Forbidden;
+            var refused = await rig.Client.SendCommandAsync(
+                new RemoteCommand(RemoteProtocol.Actions.TestNotification), CancellationToken.None);
+            Assert.False(refused.Ok);
+            Assert.Contains("HTTP 403", refused.Error, StringComparison.Ordinal);
+            Assert.NotNull(rig.DataStore.SnapshotRemotePairedDevices().Single().WebPush);
+
+            // The PC's own test says so too, rather than that no phone is listening.
+            await rig.Main.SettingsVM.SendTestPhoneNotificationCommand.ExecuteAsync(null);
+            Assert.Contains("HTTP 403", rig.Main.SettingsVM.PhoneNotificationTestResult, StringComparison.Ordinal);
+        }, presence: presence, webPush: new WebPushSender(pushService));
+    }
+
+    [Fact]
+    public async Task ABrowserCanOnlyRegisterARealSubscriptionAtAKnownPushService()
+    {
+        var pushService = new FakePushService();
+        using var browser = new TestPushBrowser();
+        await RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+
+            var elsewhere = await RegisterBrowserAsync(rig, browser, "https://push.example.com/send/abc");
+            var insecure = await RegisterBrowserAsync(rig, browser, "http://fcm.googleapis.com/fcm/send/abc");
+            var removed = await RegisterBrowserAsync(rig, browser, "https://permanently-removed.invalid/fcm/send/abc");
+
+            Assert.False(elsewhere.Ok);
+            Assert.Equal(Loc.Remote_WebPushUnsupported, elsewhere.Error);
+            Assert.False(insecure.Ok);
+            Assert.False(removed.Ok);
+            Assert.Null(rig.DataStore.SnapshotRemotePairedDevices().Single().WebPush);
+            Assert.Empty(rig.Server.NotificationDeviceIds);
+        }, webPush: new WebPushSender(pushService));
+    }
+
+    [Fact]
+    public async Task TurningNotificationsOffOrRevokingTheBrowserForgetsItsSubscription()
+    {
+        var presence = new FakePresence();
+        presence.Away();
+        var pushService = new FakePushService();
+        using var browser = new TestPushBrowser();
+        await RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+            Assert.True((await RegisterBrowserAsync(rig, browser)).Ok);
+            // Registering again on the next launch changes nothing.
+            Assert.True((await RegisterBrowserAsync(rig, browser)).Ok);
+
+            var unregistered = await rig.Client.SendCommandAsync(
+                new RemoteCommand(RemoteProtocol.Actions.UnregisterWebPush), CancellationToken.None);
+
+            Assert.True(unregistered.Ok, unregistered.Error);
+            Assert.Null(rig.DataStore.SnapshotRemotePairedDevices().Single().WebPush);
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Reply, "Nobody should hear this"));
+            await Task.Delay(300);
+            Assert.Empty(pushService.Requests);
+
+            Assert.True((await RegisterBrowserAsync(rig, browser)).Ok);
+            var device = Assert.Single(rig.DataStore.SnapshotRemotePairedDevices());
+            Assert.True(await rig.Server.RevokeDeviceAsync(device.DeviceId));
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Question, "Still there?", "question-2"));
+            await Task.Delay(300);
+            Assert.Empty(pushService.Requests);
+            Assert.Empty(rig.Server.NotificationDeviceIds);
+        }, seed: SeedNotifiedChat, presence: presence, webPush: new WebPushSender(pushService));
+    }
 }

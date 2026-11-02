@@ -2279,6 +2279,21 @@ public sealed class DeferredSendQueueTests
         Assert.Contains("answer me now", host.QueuedPrompts());
     }
 
+    /// <summary>A question the user stopped is gone, so it must not reach, or stay on, a phone.</summary>
+    [Fact]
+    public async Task SendNow_WithPendingQuestion_TakesTheQuestionDownOnPhones()
+    {
+        using var host = DeferredSendHost.Create();
+        var resolved = new List<(Guid ChatId, string RequestId)>();
+        host.ChatEvents.AttentionResolved += (chatId, requestId) => resolved.Add((chatId, requestId));
+        host.TrackPendingQuestion();
+        var message = host.AddTranscriptMessage("answer me now", MessageSteerState.Steering);
+
+        await host.SendNowAsync(message);
+
+        Assert.Contains((host.Chat.Id, "q-send-now"), resolved);
+    }
+
     [Fact]
     public async Task QuestionRequestTimeout_ReleasesTheIdleChat_ForTheNextSend()
     {
@@ -2554,6 +2569,8 @@ public sealed class DeferredSendQueueTests
         public ChatViewModel ViewModel { get; }
 
         public DataStore DataStore => GetField<DataStore>("_dataStore");
+
+        public ChatEventHub ChatEvents => GetField<ChatEventHub>("_chatEvents");
 
         public Chat Chat { get; }
 

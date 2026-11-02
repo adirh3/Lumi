@@ -575,8 +575,9 @@ dotnet run --project src\Lumi\Lumi.csproj -- --write-app-icons
 ```
 
 It writes `src\Lumi\Assets\lumi-icon.png` and `lumi-icon.ico`, the icon on `installer-splash.png`
-(keeping its words), the Android launcher icons and the web app's icons. The output is deterministic,
-so running it again changes nothing.
+(keeping its words), the Android launcher icons with the layers of the adaptive icon that Android 8 and
+later mask in each launcher's own shape (`mipmap-anydpi-v26`), and the web app's icons. The output is
+deterministic, so running it again changes nothing.
 
 ### Theme reveal
 
@@ -768,6 +769,11 @@ dotnet publish src\Lumi.Mobile.Browser\Lumi.Mobile.Browser.csproj --configuratio
 On macOS/Linux use `/` in those paths. Android Debug packages use development
 signing. Production signing is release-maintainer work; contributors do not need
 release keys or a production keystore for Debug development.
+
+Add `-p:LumiPreview=true` to build **Lumi Preview** (`com.lumi.mobile.preview`):
+the same app under its own package, label, data and pairing, so a build under
+test installs beside the everyday Lumi app and pairs with a Debug desktop
+without replacing or reconnecting it.
 
 For a source-built desktop serving the PWA, set `LUMI_REMOTE_WEB_ROOT` to the
 published `wwwroot` directory in the terminal that launches the isolated desktop:

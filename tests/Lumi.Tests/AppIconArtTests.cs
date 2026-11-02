@@ -63,6 +63,43 @@ public sealed class AppIconArtTests
     }
 
     [Fact]
+    public void AndroidAdaptiveIcon_ShowsTheIconInEveryLaunchersShapeWithoutCuttingTheMark()
+    {
+        const int layer = 432, shown = 288, offset = (layer - shown) / 2;
+        using var background = AppIconArt.RenderAdaptiveLayer(AppIconArt.Lumi, layer, foreground: false);
+        using var foreground = AppIconArt.RenderAdaptiveLayer(AppIconArt.Lumi, layer, foreground: true);
+        using var square = AppIconArt.Render(AppIconArt.Lumi, shown, AppIconArt.Shape.Square);
+        using var icon = new SKBitmap(new SKImageInfo(layer, layer, SKColorType.Bgra8888, SKAlphaType.Premul));
+        using (var canvas = new SKCanvas(icon))
+        {
+            canvas.DrawBitmap(background, 0, 0);
+            canvas.DrawBitmap(foreground, 0, 0);
+        }
+
+        // Whatever a launcher's shape, the mark lies inside the middle 66 dp it keeps, on a tile that reaches
+        // every edge; and the middle 72 dp it shows is the icon itself.
+        var safe = layer * AppIconArt.AdaptiveSafeFraction / 2;
+        for (var y = 0; y < layer; y++)
+        for (var x = 0; x < layer; x++)
+        {
+            Assert.Equal(255, background.GetPixel(x, y).Alpha);
+            if (foreground.GetPixel(x, y).Alpha > 0)
+            {
+                var (dx, dy) = (x + 0.5 - layer / 2.0, y + 0.5 - layer / 2.0);
+                Assert.True(dx * dx + dy * dy <= safe * safe, $"The mark reaches ({x}, {y}), outside what every mask keeps.");
+            }
+        }
+
+        for (var y = 0; y < shown; y++)
+        for (var x = 0; x < shown; x++)
+        {
+            var (a, b) = (square.GetPixel(x, y), icon.GetPixel(x + offset, y + offset));
+            var difference = new[] { Math.Abs(a.Red - b.Red), Math.Abs(a.Green - b.Green), Math.Abs(a.Blue - b.Blue) }.Max();
+            Assert.True(difference <= 3, $"The adaptive icon differs from the icon by {difference} at ({x}, {y}).");
+        }
+    }
+
+    [Fact]
     public async Task TrayIcon_HasAFrameDrawnForEachDisplayScale()
     {
         int[] sizes = [16, 20, 24, 32, 40, 48];

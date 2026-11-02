@@ -527,5 +527,39 @@
         </ScrollViewer>
       </Border>
     </sc:StrataBottomSheet>
+
+    <!-- ═══ Notifications: the one offer to turn them on, or the way to allow them where they are on but not allowed ═══ -->
+    <sc:StrataBottomSheet x:Name="NotificationsPromptSheet"
+                          Classes="safe-area"
+                          IsOpen="{Binding IsNotificationsPromptOpen, Mode=TwoWay}"
+                          Title="{Binding NotificationsPromptTitle}">
+      <Border>
+        <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Margin="16,0,16,8" Spacing="12">
+            <!-- What one looks like: a reply from the PC, the way the phone will show it. -->
+            <Border x:Name="NotificationsPromptPreview" Classes="sheet-card"
+                    IsVisible="{Binding IsNotificationsPromptPreviewVisible}">
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                <Image Source="{x:Static views:LumiAppIcon.Image}" Width="36" Height="36" VerticalAlignment="Top" />
+                <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                  <TextBlock Text="{Binding HostName, StringFormat='Lumi · {0}'}" FontWeight="SemiBold"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{loc:Str NotificationsPromptExample}" Classes="sheet-body" TextWrapping="Wrap" />
+                </StackPanel>
+              </Grid>
+            </Border>
+            <TextBlock x:Name="NotificationsPromptText" Text="{Binding NotificationsPromptText}"
+                       Classes="sheet-body" Margin="8,0" TextWrapping="Wrap" />
+            <Button x:Name="TurnOnNotificationsButton" Classes="sheet-action primary"
+                    Content="{Binding NotificationsPromptAction}"
+                    IsVisible="{Binding HasNotificationsPromptAction}"
+                    Command="{Binding TurnOnNotificationsCommand}" />
+            <Button x:Name="NotificationsNotNowButton" Classes="sheet-action"
+                    Content="{loc:Str NotNow}"
+                    Command="{Binding DismissNotificationsPromptCommand}" />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </sc:StrataBottomSheet>
   </Panel>
 </UserControl>

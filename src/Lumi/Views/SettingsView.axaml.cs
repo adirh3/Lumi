@@ -454,6 +454,8 @@ public partial class SettingsView : UserControl, IDisposable
         [Loc.Setting_McpToolTimeout] = vm => vm.RevertMcpToolTimeoutCommand.Execute(null),
         [Loc.Setting_AutoMaintainMemories] = vm => vm.RevertEnableMemoryAutoMaintenanceCommand.Execute(null),
         [Loc.Setting_AutoSaveChats] = vm => vm.RevertAutoSaveChatsCommand.Execute(null),
+        ["PhoneNotificationsSetting"] = vm => vm.RevertPhoneNotificationsEnabledCommand.Execute(null),
+        ["PhoneNotificationAwaySetting"] = vm => vm.RevertPhoneNotificationAwayCommand.Execute(null),
     };
 
     protected override void OnDataContextChanged(EventArgs e)

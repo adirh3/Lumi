@@ -30,6 +30,9 @@ public sealed class RemoteGatewaySignInException(string message) : HttpRequestEx
 /// <summary>The desktop answered with a protocol this phone cannot use; retrying cannot help.</summary>
 public sealed class RemoteProtocolMismatchException(string message) : Exception(message);
 
+/// <summary>The PC's Lumi predates phone notifications.</summary>
+public sealed class RemoteNotificationsUnsupportedException() : Exception("The PC does not offer notifications.");
+
 /// <summary>
 /// The phone's half of the Lumi remote protocol: request/response over HTTP plus a resilient
 /// Server-Sent Events subscription for live push. Everything is funnelled through
@@ -166,6 +169,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         _capabilities.Contains(RemoteProtocol.Capabilities.ModelPinsV1);
     public bool SupportsMessageEditing =>
         _capabilities.Contains(RemoteProtocol.Capabilities.MessageEditingV1);
+    public bool SupportsPhoneNotifications =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.PhoneNotificationsV1);
 
     /// <summary>True once this host has proven a compatible protocol; a resume can skip the handshake.</summary>
     public bool HasCompatibleBootstrap => _hasCompatibleBootstrap;
@@ -1675,7 +1680,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     private async Task ReadEventLinesAsync(
         Stream stream,
         Action<string> consumeLine,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? fixedSilenceDeadline = null)
     {
         using var reader = new StreamReader(
             stream,
@@ -1689,13 +1695,17 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         // and timer for every chunk of a busy stream.
         using var silence = new CancellationTokenSource(Timeout.InfiniteTimeSpan, _time);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, silence.Token);
-        lock (_subscriptionRequestGate)
-            _silenceDeadline = silence;
+        // A fixed deadline belongs to a stream of its own; only the live stream follows the subscription.
+        if (fixedSilenceDeadline is null)
+        {
+            lock (_subscriptionRequestGate)
+                _silenceDeadline = silence;
+        }
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                silence.CancelAfter(SilenceDeadline);
+                silence.CancelAfter(fixedSilenceDeadline ?? SilenceDeadline);
                 int read;
                 try
                 {
@@ -1752,6 +1762,53 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     /// </summary>
     private TimeSpan SilenceDeadline =>
         Volatile.Read(ref _eventSubscription).IsForeground ? EventSilenceDeadline : Timeout.InfiniteTimeSpan;
+
+    /// <summary>
+    /// Opens the notification stream (<see cref="RemoteProtocol.Routes.Notifications"/>) and reads it
+    /// until it ends. <paramref name="opened"/> runs once the desktop accepted it; frames arrive off the
+    /// UI thread. A stream silent past <see cref="RemoteProtocol.NotificationSilenceDeadline"/> is
+    /// treated as dead.
+    /// </summary>
+    /// <exception cref="UnauthorizedAccessException">This phone is no longer paired.</exception>
+    /// <exception cref="RemoteNotificationsUnsupportedException">The PC's Lumi has no notification stream.</exception>
+    public async Task ReadNotificationStreamAsync(
+        Action<RemoteEventFrame> onFrame,
+        Action? opened,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(onFrame);
+        if (BaseUrl is not { Length: > 0 } baseUrl || Token is not { Length: > 0 })
+            throw new UnauthorizedAccessException();
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, baseUrl + RemoteProtocol.Routes.Notifications);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        ApplyAuth(request);
+
+        using var connectionDeadline = CreateDeadline(cancellationToken, _requestDeadline);
+        using var response = await _http
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, connectionDeadline.Token)
+            .ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+            throw new UnauthorizedAccessException();
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            throw new RemoteNotificationsUnsupportedException();
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(connectionDeadline.Token).ConfigureAwait(false);
+        connectionDeadline.CancelAfter(Timeout.InfiniteTimeSpan);
+        opened?.Invoke();
+        var frames = new RemoteEventFrame.Reader();
+        await ReadEventLinesAsync(
+                stream,
+                line =>
+                {
+                    if (frames.Push(line) is { } frame)
+                        onFrame(frame);
+                },
+                cancellationToken,
+                RemoteProtocol.NotificationSilenceDeadline)
+            .ConfigureAwait(false);
+    }
 
     private void RearmSilenceDeadline()
     {

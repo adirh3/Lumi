@@ -1622,6 +1622,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
             if (chat is not null)
                 RefreshInputWaitingState(chat);
+            _chatEvents.ResolveAttention(chatId, questionId);
 
             if (_isDisposed)
                 return;
@@ -1641,16 +1642,19 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void ClearPendingQuestionTracking()
     {
-        List<Guid> waitingChatIds;
+        List<KeyValuePair<string, Guid>> waiting;
         lock (_pendingQuestionsSync)
         {
-            waitingChatIds = _pendingQuestionChatIds.Values.Distinct().ToList();
+            waiting = _pendingQuestionChatIds.ToList();
             _pendingQuestions.Clear();
             _pendingQuestionChatIds.Clear();
         }
 
+        var waitingChatIds = waiting.Select(static pair => pair.Value).Distinct().ToList();
         foreach (var chat in _dataStore.Data.Chats.Where(chat => waitingChatIds.Contains(chat.Id)))
             chat.IsAwaitingInput = false;
+        foreach (var (questionId, chatId) in waiting)
+            _chatEvents.ResolveAttention(chatId, questionId);
     }
 
     /// <summary>Raised when the view should rebuild DataTemplates (e.g. settings changed).</summary>

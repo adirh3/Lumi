@@ -194,6 +194,13 @@ public static class RemoteProtocol
 
         /// <summary>Authenticated Server-Sent Events stream of live updates.</summary>
         public const string Events = "/lumi/events";
+
+        /// <summary>
+        /// Authenticated Server-Sent Events stream carrying only phone notifications. It sends no
+        /// snapshot and stays quiet between notifications, so a phone can keep it open in the
+        /// background for as long as notifications are on.
+        /// </summary>
+        public const string Notifications = "/lumi/notifications";
         /// <summary>Updates which live entities the current device wants pushed over SSE.</summary>
         public const string Subscription = "/lumi/subscription";
 
@@ -266,6 +273,14 @@ public static class RemoteProtocol
         /// </summary>
         public const string ModelPinsV1 = "model-pins-v1";
 
+        /// <summary>
+        /// Replies and questions reach the phone while the user is away from the PC: the desktop serves
+        /// <see cref="Routes.Notifications"/> to the app, pushes to a browser that handed it a push
+        /// subscription (<see cref="Actions.RegisterWebPush"/>), and <see cref="Actions.TestNotification"/>
+        /// sends one now.
+        /// </summary>
+        public const string PhoneNotificationsV1 = "phone-notifications-v1";
+
         public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
         public static IReadOnlyList<string> Server { get; } =
         [
@@ -277,7 +292,8 @@ public static class RemoteProtocol
             ConditionalTranscriptV1,
             ResumePingV1,
             ModelPinsV1,
-            MessageEditingV1
+            MessageEditingV1,
+            PhoneNotificationsV1
         ];
     }
 
@@ -379,7 +395,61 @@ public static class RemoteProtocol
         /// desktop's app-wide favorites, listed first in every picker on the PC and the phone.
         /// </summary>
         public const string PinModel = "pin_model";
+
+        /// <summary>
+        /// Sends a test notification to the requesting phone at once, whether or not the user is at the
+        /// PC, so the phone can prove the whole path works.
+        /// </summary>
+        public const string TestNotification = "test_notification";
+
+        /// <summary>
+        /// Hands the PC this browser's Web Push subscription (<c>endpoint</c>, <c>p256dh</c>, <c>auth</c>),
+        /// made with <see cref="RemoteSettings.WebPushKey"/>. The PC then pushes notifications to it
+        /// through the browser's own push service; registering again replaces it.
+        /// </summary>
+        public const string RegisterWebPush = "register_web_push";
+
+        /// <summary>Forgets the requesting browser's Web Push subscription.</summary>
+        public const string UnregisterWebPush = "unregister_web_push";
     }
+
+    /// <summary>Discriminators for <see cref="RemoteNotification.Kind"/>.</summary>
+    public static class NotificationKinds
+    {
+        /// <summary>Lumi finished a reply.</summary>
+        public const string Reply = "reply";
+
+        /// <summary>Lumi asked a question.</summary>
+        public const string Question = "question";
+
+        /// <summary>Lumi waits for a form or a pick from a shortlist.</summary>
+        public const string Input = "input";
+
+        /// <summary>Lumi waits for an approval, which is given on the PC.</summary>
+        public const string Approval = "approval";
+
+        /// <summary>A test the user asked for.</summary>
+        public const string Test = "test";
+    }
+
+    /// <summary>
+    /// How often the desktop writes a ping to a quiet notification stream. A phone holds this stream
+    /// in the background and every ping wakes its radio, so pings are rare: they only prove the stream
+    /// is alive. A network change on the phone reconnects at once without waiting for one.
+    /// </summary>
+    public static readonly TimeSpan NotificationPingInterval = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// A notification stream silent for this long is treated as dead and reopened: two missed pings,
+    /// with room for a phone that Android let sleep through one.
+    /// </summary>
+    public static readonly TimeSpan NotificationSilenceDeadline = TimeSpan.FromMinutes(35);
+
+    public const int MobileNotificationTextLimit = 1024;
+    public const int MobileNotificationTitleLimit = 256;
+
+    /// <summary>Most notifications a phone is sent at once; older ones give way to newer.</summary>
+    public const int MobileNotificationCountLimit = 24;
 
     /// <summary>Event names emitted on the SSE stream.</summary>
     public static class Events
@@ -407,6 +477,18 @@ public static class RemoteProtocol
 
         /// <summary>Keep-alive comment ping.</summary>
         public const string Ping = "ping";
+
+        /// <summary>
+        /// Every notification still waiting: <see cref="RemoteNotificationSync"/>. First on a
+        /// notification stream; the phone takes down any it shows that are not listed.
+        /// </summary>
+        public const string NotificationSync = "notification-sync";
+
+        /// <summary>A new or changed notification: <see cref="RemoteNotification"/>.</summary>
+        public const string Notification = "notification";
+
+        /// <summary>Notifications dealt with elsewhere: <see cref="RemoteNotificationDismissal"/>.</summary>
+        public const string NotificationsDismissed = "notifications-dismissed";
     }
 
     /// <summary>Library resource names accepted by <see cref="Actions.ConfigureFeature"/>.</summary>

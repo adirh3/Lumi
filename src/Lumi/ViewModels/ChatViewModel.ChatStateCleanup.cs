@@ -760,6 +760,7 @@ public partial class ChatViewModel
     private bool CancelPendingQuestions(Chat chat)
     {
         List<TaskCompletionSource<string>> pendingQuestions;
+        List<(Guid ChatId, string QuestionId)> settled;
         lock (_pendingQuestionsSync)
         {
             var pendingQuestionIds = chat.Messages
@@ -772,13 +773,15 @@ public partial class ChatViewModel
                 .ToList();
 
             pendingQuestions = [];
+            settled = [];
             foreach (var questionId in pendingQuestionIds)
             {
                 if (_pendingQuestions.TryGetValue(questionId, out var completion))
                     pendingQuestions.Add(completion);
 
                 _pendingQuestions.Remove(questionId);
-                _pendingQuestionChatIds.Remove(questionId);
+                if (_pendingQuestionChatIds.Remove(questionId, out var chatId))
+                    settled.Add((chatId, questionId));
             }
         }
 
@@ -786,6 +789,9 @@ public partial class ChatViewModel
             pendingQuestion.TrySetCanceled();
 
         RefreshInputWaitingState(chat);
+        // The question tool's own cleanup finds nothing left to settle, so phones hear it here.
+        foreach (var (chatId, questionId) in settled)
+            _chatEvents.ResolveAttention(chatId, questionId);
         return ExpireUnansweredQuestions(chat);
     }
 

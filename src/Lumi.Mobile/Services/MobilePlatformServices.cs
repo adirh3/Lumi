@@ -81,6 +81,107 @@ public interface ITextShareService
     bool TryShare(string text, string? subject);
 }
 
+/// <summary>A kind of notification the user can turn off on its own in the platform's settings.</summary>
+public enum PhoneNotificationChannel
+{
+    Questions,
+    Replies,
+    Connection
+}
+
+/// <summary>Whether notifications can work on this host now, and what stands in the way when they cannot.</summary>
+public enum PhoneNotificationSupport
+{
+    Supported,
+
+    /// <summary>Browsers allow notifications only on a secure (https) address.</summary>
+    NeedsSecureAddress,
+
+    /// <summary>iPhone and iPad allow them only for a web app opened from the Home Screen.</summary>
+    NeedsHomeScreen,
+
+    /// <summary>This browser cannot receive pushes at all.</summary>
+    Unsupported
+}
+
+/// <summary>A browser's Web Push subscription, as it hands it to the PC.</summary>
+public sealed record WebPushSubscriptionKeys(string Endpoint, string P256dh, string Auth);
+
+/// <summary>
+/// The phone's side of notifications: whether the platform may show them, and how they arrive — a
+/// background connection to the PC in the app, a push subscription in a browser. Hosts without
+/// notifications leave the feature hidden.
+/// </summary>
+public interface IPhoneNotificationPlatform
+{
+    bool IsAvailable { get; }
+
+    /// <summary>The platform lets Lumi show notifications now.</summary>
+    bool AreNotificationsAllowed { get; }
+
+    /// <summary>
+    /// Asking would show the platform's prompt: notifications are not allowed yet, but nothing has
+    /// refused them. A browser grants this per site, and an installed web app may start out asking
+    /// again. Where false and not allowed, only the platform's settings can allow them.
+    /// </summary>
+    bool CanRequestPermission => false;
+
+    /// <summary>A web app opened from the Home Screen rather than in a browser tab.</summary>
+    bool IsInstalledApp => false;
+
+    /// <summary>Asks for permission where the platform needs it. True when notifications are allowed after.</summary>
+    Task<bool> RequestPermissionAsync();
+
+    /// <summary>Starts or stops the background connection for the paired PC in the saved settings.</summary>
+    void Apply(bool enabled);
+
+    /// <summary>The background connection's state now.</summary>
+    PhoneNotificationLinkState LinkState { get; }
+
+    /// <summary>Raised when <see cref="LinkState"/> changes, off the UI thread.</summary>
+    event Action? LinkStateChanged;
+
+    /// <summary>The user can turn single kinds of notifications off in the platform's settings.</summary>
+    bool HasChannelSettings { get; }
+
+    bool IsChannelEnabled(PhoneNotificationChannel channel);
+
+    /// <summary>Lumi can open the platform's notification settings for the user.</summary>
+    bool CanOpenSettings => true;
+
+    /// <summary>Opens the platform's settings for one kind of notification, or for all of Lumi's when null.</summary>
+    void OpenSettings(PhoneNotificationChannel? channel);
+
+    /// <summary>Takes down what is shown for a chat the user just opened.</summary>
+    void ClearChat(Guid chatId);
+
+    /// <summary>Whether notifications can work here now. The app always can.</summary>
+    PhoneNotificationSupport Support => PhoneNotificationSupport.Supported;
+
+    /// <summary>
+    /// A browser: instead of a background connection, the PC pushes notifications through the
+    /// browser's own push service to a subscription made here (<see cref="SubscribeAsync"/>).
+    /// </summary>
+    bool UsesWebPush => false;
+
+    /// <summary>
+    /// Subscribes to pushes signed with the PC's key, keeping an existing subscription made with the
+    /// same key. Throws when the browser refuses.
+    /// </summary>
+    Task<WebPushSubscriptionKeys> SubscribeAsync(string serverKey) =>
+        throw new NotSupportedException("This host has no push subscriptions.");
+
+    /// <summary>Ends this browser's push subscription, if it has one.</summary>
+    Task UnsubscribeAsync() => Task.CompletedTask;
+
+    /// <summary>
+    /// Starts watching for the next test notification to reach this phone, before it is sent. True
+    /// once it arrives, false when nothing arrived within <paramref name="timeout"/>, null where the
+    /// platform cannot tell.
+    /// </summary>
+    Task<bool?> ExpectTestNotificationAsync(TimeSpan timeout) => Task.FromResult<bool?>(null);
+}
+
 internal readonly record struct NativeTextInputOverlayOptions(
     bool IsMultiline,
     int MaxLength,
@@ -204,6 +305,8 @@ public static class MobilePlatformServices
         new DefaultTextSelectionPresenter();
 
     public static ITextShareService TextShare { get; set; } = new DefaultTextShareService();
+
+    public static IPhoneNotificationPlatform Notifications { get; set; } = new DefaultPhoneNotificationPlatform();
 
     internal static INativeTextInputOverlayPresenter TextInputOverlayPresenter { get; set; } =
         new DefaultNativeTextInputOverlayPresenter();
@@ -404,6 +507,39 @@ internal sealed class DefaultTextShareService : ITextShareService
     public bool IsAvailable => false;
 
     public bool TryShare(string text, string? subject) => false;
+}
+
+internal sealed class DefaultPhoneNotificationPlatform : IPhoneNotificationPlatform
+{
+    public bool IsAvailable => false;
+
+    public bool AreNotificationsAllowed => false;
+
+    public Task<bool> RequestPermissionAsync() => Task.FromResult(false);
+
+    public void Apply(bool enabled)
+    {
+    }
+
+    public PhoneNotificationLinkState LinkState => PhoneNotificationLinkState.Stopped;
+
+    public event Action? LinkStateChanged
+    {
+        add { }
+        remove { }
+    }
+
+    public bool HasChannelSettings => false;
+
+    public bool IsChannelEnabled(PhoneNotificationChannel channel) => false;
+
+    public void OpenSettings(PhoneNotificationChannel? channel)
+    {
+    }
+
+    public void ClearChat(Guid chatId)
+    {
+    }
 }
 
 internal sealed class DefaultNativeTextInputOverlayPresenter : INativeTextInputOverlayPresenter

@@ -59,7 +59,7 @@ public partial class ChatViewModel
                     RefreshInputWaitingState(chat);
                     ScrollToEndRequested?.Invoke();
                 }
-                NotifyQuestionAsked(chatId, definition.Title);
+                NotifyQuestionAsked(new ChatAttention(chatId, ChatAttentionKind.Input, definition.Title, questionId));
                 _dataStore.MarkChatChanged(chat);
                 return SaveChatAsync(chat, saveIndex: false, cancellationToken: cancellationToken);
             }, DispatcherPriority.Normal, cancellationToken);

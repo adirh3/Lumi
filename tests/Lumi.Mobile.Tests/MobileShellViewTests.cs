@@ -2562,6 +2562,32 @@ public sealed class MobileShellViewTests
     }
 
     /// <summary>
+    /// A sheet's primary action reads white on the accent in both themes. Strata colours every
+    /// TextBlock itself, so the label never inherits the button's foreground: in the light theme
+    /// "Turn on notifications" (and the rename sheet's Save) were dark text on dark purple.
+    /// </summary>
+    [Fact]
+    public async Task SheetPrimaryActionLabel_IsWhiteOnTheAccentInBothThemes()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            Layout(window, shell, 412, 892);
+            shell.IsNotificationsPromptOpen = true;
+            Pump(window);
+            var label = Named(window, "TurnOnNotificationsButton")
+                .GetVisualDescendants().OfType<TextBlock>().Single();
+
+            foreach (var theme in new[] { ThemeVariant.Light, ThemeVariant.Dark })
+            {
+                window.RequestedThemeVariant = theme;
+                Pump(window);
+                Assert.Equal(Colors.White, Assert.IsAssignableFrom<ISolidColorBrush>(label.Foreground).Color);
+            }
+        });
+    }
+
+    /// <summary>
     /// The model sits beside send, as on the desktop, and opens one picker holding the model, its
     /// effort and its context window. The chat's own settings stay behind its title.
     /// </summary>

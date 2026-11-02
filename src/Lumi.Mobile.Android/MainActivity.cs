@@ -29,7 +29,7 @@ namespace Lumi.Mobile.Android;
 /// keyboard so the composer stays above the IME instead of being covered by it.
 /// </summary>
 [Activity(
-    Label = "Lumi",
+    Label = LumiAppLabel.Text,
     Icon = "@mipmap/ic_launcher",
     RoundIcon = "@mipmap/ic_launcher_round",
     Theme = "@style/MyTheme.NoActionBar",
@@ -52,9 +52,17 @@ namespace Lumi.Mobile.Android;
     DataHost = "connect")]
 public class MainActivity : AvaloniaMainActivity, IConsumer
 {
+    /// <summary>A notification's tap: open the chat it is about.</summary>
+    internal const string OpenChatAction = "com.lumi.mobile.OPEN_CHAT";
+    internal const string ChatIdExtra = "lumi.notification.chatId";
+    internal const string ChatTitleExtra = "lumi.notification.chatTitle";
+
     private const string FoldableTag = "LumiFoldable";
     private const string LocalNetworkPermission = "android.permission.ACCESS_LOCAL_NETWORK";
     private const int LocalNetworkPermissionRequestCode = 47653;
+
+    /// <summary>The activity on screen, for requests that need one (the notification permission).</summary>
+    internal static MainActivity? Current { get; private set; }
 
     private WindowInfoTrackerCallbackAdapter? _windowInfoTracker;
     private IExecutor? _windowLayoutExecutor;
@@ -87,8 +95,12 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
             Window?.SetDecorFitsSystemWindows(false);
 
         base.OnCreate(savedInstanceState);
+        Current = this;
         if (launchRequest is not null)
             DispatchConnectionRequest(launchRequest);
+        // A recreated activity keeps its launching intent; only a fresh launch opens the chat.
+        if (savedInstanceState is null)
+            DispatchNotificationIntent(Intent);
 #if DEBUG
         // Debug builds open the design preview on request (adb shell am start ... --ez lumi.design_preview
         // true [--es lumi.theme Light] [--es lumi.open_file report.pdf] [--ez lumi.preview_conversation true]),
@@ -153,10 +165,30 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
     protected override void OnNewIntent(Intent? intent)
     {
         base.OnNewIntent(intent);
+        if (DispatchNotificationIntent(intent))
+            return;
         if (!TryGetConnectionRequest(intent, out var request))
             return;
 
         DispatchConnectionRequest(request!);
+    }
+
+    /// <summary>Opens the chat a tapped notification was about. False for any other intent.</summary>
+    private static bool DispatchNotificationIntent(Intent? intent)
+    {
+        if (intent?.Action != OpenChatAction
+            || !Guid.TryParse(intent.GetStringExtra(ChatIdExtra), out var chatId))
+        {
+            return false;
+        }
+
+        var title = intent.GetStringExtra(ChatTitleExtra);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (Avalonia.Application.Current is App { Shell: { } shell })
+                shell.OpenChatFromNotification(chatId, title);
+        });
+        return true;
     }
 
     protected override void OnStart()
@@ -245,6 +277,13 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
         Permission[] grantResults)
     {
         base.OnRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == Notifications.AndroidPhoneNotificationPlatform.PermissionRequestCode
+            && MobilePlatformServices.Notifications is Notifications.AndroidPhoneNotificationPlatform notifications)
+        {
+            notifications.OnPermissionResult();
+            return;
+        }
+
         if (requestCode == LocalNetworkPermissionRequestCode
             && (grantResults.Length == 0 || grantResults[0] != Permission.Granted))
         {
@@ -292,6 +331,8 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
 
     protected override void OnDestroy()
     {
+        if (ReferenceEquals(Current, this))
+            Current = null;
         MobilePlatformServices.ClearTextSelectionGesture();
         _textSelectionGestureDetector?.Dispose();
         _textSelectionGestureDetector = null;

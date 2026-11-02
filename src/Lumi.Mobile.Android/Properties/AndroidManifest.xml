@@ -15,6 +15,16 @@
   <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
   <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
+  <!--
+    Notifications from the PC while the user is away from it. They travel over the same private link
+    as everything else, held open by a remote-messaging foreground service (no push relay), which is
+    restarted after a reboot or an update when notifications are on.
+  -->
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
   <!-- Android 11+ filters ResolveActivity unless the app declares the intent shape it queries. -->
   <queries>
     <intent>

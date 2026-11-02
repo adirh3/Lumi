@@ -121,6 +121,15 @@ internal sealed class RemoteEventClient : IDisposable
                && subscription.ChatId == chatId;
     }
 
+    /// <summary>The phone shows this chat now: in the foreground, and not behind its chat list.</summary>
+    internal bool IsShowingChat(Guid chatId)
+    {
+        var subscription = Volatile.Read(ref _subscription);
+        return subscription.IsForeground
+               && subscription.ChatId == chatId
+               && !subscription.IsChatCovered;
+    }
+
     internal bool TryUpdateSubscription(
         RemoteEventSubscription subscription,
         out RemoteEventSubscription previous,

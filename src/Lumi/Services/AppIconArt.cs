@@ -33,6 +33,12 @@ internal static class AppIconArt
     /// <summary>Sizes up to this drop the shadows on the tile and enlarge the mark, so it still reads in a tray.</summary>
     private const int SmallCutMaxSize = 32;
 
+    /// <summary>
+    /// Android's adaptive icon is two 108 dp layers: launchers and the launch screen show the middle 72 dp in
+    /// their own shape, and every shape keeps the middle 66 dp.
+    /// </summary>
+    internal const float AdaptiveShownFraction = 72f / 108f, AdaptiveSafeFraction = 66f / 108f;
+
     private const float Unit = 1024f;
     private const float SmallCutScale = 1.1f;
 
@@ -80,6 +86,27 @@ internal static class AppIconArt
         canvas.Clear(SKColors.Transparent);
         canvas.Scale(size / Unit);
         Draw(canvas, colors, shape, small ? markScale * SmallCutScale : markScale, shadow: !small);
+        return bitmap;
+    }
+
+    /// <summary>
+    /// One layer of Android's adaptive icon: the tile, filling the shown middle as it fills the icon and carried
+    /// out to the layer's edges, or the mark alone at the same size, well inside what every mask keeps. Masked
+    /// in any launcher's shape, the two show the icon as <see cref="Shape.Square"/> draws it.
+    /// </summary>
+    internal static SKBitmap RenderAdaptiveLayer(IconColors colors, int size, bool foreground)
+    {
+        var bitmap = new SKBitmap(new SKImageInfo(size, size, SKColorType.Bgra8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(bitmap);
+        canvas.Clear(SKColors.Transparent);
+        canvas.Scale(size / Unit);
+        canvas.Translate(Unit / 2, Unit / 2);
+        canvas.Scale(AdaptiveShownFraction);
+        canvas.Translate(-Unit / 2, -Unit / 2);
+        if (foreground)
+            DrawMark(canvas, colors, shadow: true);
+        else
+            FillTile(canvas, colors, bleed: (1 / AdaptiveShownFraction - 1) * Unit / 2);
         return bitmap;
     }
 
@@ -223,7 +250,8 @@ internal static class AppIconArt
             DrawEdge(canvas, outline);
     }
 
-    private static void FillTile(SKCanvas canvas, IconColors colors)
+    /// <param name="bleed">How far past the tile's edges, in icon units, its colours carry on.</param>
+    private static void FillTile(SKCanvas canvas, IconColors colors, float bleed = 0)
     {
         using var tile = TileShader(colors);
         using var sheen = Fade(SheenCentre, SheenRadius, SKColors.White, SheenOpacity);
@@ -232,7 +260,7 @@ internal static class AppIconArt
         foreach (var shader in new[] { tile, sheen, depth })
         {
             paint.Shader = shader;
-            canvas.DrawRect(0, 0, Unit, Unit, paint);
+            canvas.DrawRect(-bleed, -bleed, Unit + 2 * bleed, Unit + 2 * bleed, paint);
         }
     }
 

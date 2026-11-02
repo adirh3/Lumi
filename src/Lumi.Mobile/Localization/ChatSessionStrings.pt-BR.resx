@@ -700,4 +700,54 @@
   <data name="FilePreviewShareFailed" xml:space="preserve"><value>Não foi possível compartilhar esse arquivo.</value></data>
   <data name="FilePreviewSaveFailed" xml:space="preserve"><value>Não foi possível salvar esse arquivo.</value></data>
   <data name="FilePreviewClose" xml:space="preserve"><value>Fechar prévia</value></data>
+  <data name="Notifications" xml:space="preserve"><value>Notificações</value></data>
+  <data name="NotifyMe" xml:space="preserve"><value>Avisar neste celular</value></data>
+  <data name="NotificationsSummary" xml:space="preserve"><value>Respostas e perguntas de {0} enquanto você está longe dele</value></data>
+  <data name="NotificationsAwayRule" xml:space="preserve"><value>{0} considera você ausente quando está bloqueado ou após {1} min sem teclado nem mouse. Mude isso no computador, em Configurações → Celular.</value></data>
+  <data name="NotificationsOffOnPc" xml:space="preserve"><value>As notificações no celular estão desativadas em {0}. Ative-as no Lumi do computador, em Configurações → Celular.</value></data>
+  <data name="NotificationsPcUpdateNeeded" xml:space="preserve"><value>Atualize o Lumi em {0} para receber notificações.</value></data>
+  <data name="NotificationsBlocked" xml:space="preserve"><value>O Android está bloqueando as notificações do Lumi.</value></data>
+  <data name="OpenSystemSettings" xml:space="preserve"><value>Abrir configurações</value></data>
+  <data name="NotificationsKinds" xml:space="preserve"><value>Sobre o que você é avisado</value></data>
+  <data name="NotificationChannelQuestions" xml:space="preserve"><value>Perguntas e aprovações</value></data>
+  <data name="NotificationChannelQuestionsDescription" xml:space="preserve"><value>Quando o Lumi precisa de você para continuar</value></data>
+  <data name="NotificationChannelReplies" xml:space="preserve"><value>Respostas concluídas</value></data>
+  <data name="NotificationChannelRepliesDescription" xml:space="preserve"><value>Quando o Lumi termina de responder</value></data>
+  <data name="NotificationChannelConnection" xml:space="preserve"><value>Conexão</value></data>
+  <data name="NotificationChannelConnectionDescription" xml:space="preserve"><value>Um aviso silencioso enquanto o Lumi fica conectado ao computador</value></data>
+  <data name="SendTestNotification" xml:space="preserve"><value>Enviar notificação de teste</value></data>
+  <data name="TestNotificationSent" xml:space="preserve"><value>Enviada. Deve chegar em instantes.</value></data>
+  <data name="TestNotificationFailed" xml:space="preserve"><value>Não foi possível enviar o teste: {0}</value></data>
+  <data name="NotificationTestTitle" xml:space="preserve"><value>As notificações funcionam</value></data>
+  <data name="NotificationTestText" xml:space="preserve"><value>É assim que {0} vai avisar você quando estiver longe.</value></data>
+  <data name="NotificationReplyFallback" xml:space="preserve"><value>Terminou de responder.</value></data>
+  <data name="NotificationInputText" xml:space="preserve"><value>Precisa da sua resposta: {0}</value></data>
+  <data name="NotificationApprovalText" xml:space="preserve"><value>Precisa da sua aprovação em {0}: {1}</value></data>
+  <data name="NotificationConnected" xml:space="preserve"><value>Conectado a {0}</value></data>
+  <data name="NotificationConnecting" xml:space="preserve"><value>Conectando a {0}…</value></data>
+  <data name="NotificationWaiting" xml:space="preserve"><value>Aguardando {0}</value></data>
+  <data name="NotificationPublicReply" xml:space="preserve"><value>O Lumi terminou uma resposta</value></data>
+  <data name="NotificationPublicRequest" xml:space="preserve"><value>O Lumi precisa de você</value></data>
+  <data name="NotificationsPromptTitle" xml:space="preserve"><value>Receba avisos quando o Lumi precisar de você</value></data>
+  <data name="NotificationsPromptText" xml:space="preserve"><value>Quando você estiver longe de {0}, este celular fica sabendo assim que uma resposta estiver pronta ou o Lumi tiver uma pergunta. Nada chega enquanto você está no computador.</value></data>
+  <data name="NotificationsPromptExample" xml:space="preserve"><value>Tudo pronto: o relatório está na sua área de trabalho.</value></data>
+  <data name="TurnOnNotifications" xml:space="preserve"><value>Ativar notificações</value></data>
+  <data name="NotNow" xml:space="preserve"><value>Agora não</value></data>
+  <data name="NotificationsBackgroundNote" xml:space="preserve"><value>Para avisar na hora, o Lumi mantém uma conexão discreta com o computador. O Android a mostra como uma notificação silenciosa “Conectado” que você pode ocultar.</value></data>
+  <data name="NotificationsNeedHttps" xml:space="preserve"><value>Os navegadores só permitem notificações em endereços seguros (https). Para recebê-las aqui, escolha Microsoft Dev Tunnel em Configurações → Celular em {0} e abra o Lumi pelo código exibido.</value></data>
+  <data name="NotificationsNeedHomeScreen" xml:space="preserve"><value>No iPhone e no iPad, as notificações funcionam quando o Lumi está na Tela de Início: toque em Compartilhar, depois em Adicionar à Tela de Início, e abra o Lumi por lá.</value></data>
+  <data name="NotificationsBrowserUnsupported" xml:space="preserve"><value>Este navegador não consegue receber notificações. Experimente o Chrome, o Edge, o Firefox ou o Safari.</value></data>
+  <data name="NotificationsBlockedWeb" xml:space="preserve"><value>Seu navegador está bloqueando as notificações do Lumi. Permita-as nas configurações do site e volte ao Lumi.</value></data>
+  <data name="NotificationsWebReady" xml:space="preserve"><value>Pronto. {0} envia notificações para este navegador.</value></data>
+  <data name="NotificationsWebRegistering" xml:space="preserve"><value>Configurando as notificações…</value></data>
+  <data name="NotificationsWebFailed" xml:space="preserve"><value>Não foi possível configurar as notificações: {0}</value></data>
+  <data name="NotificationsBrowserFailed" xml:space="preserve"><value>O serviço de push deste navegador não está disponível.</value></data>
+  <data name="NotificationsWebNote" xml:space="preserve"><value>As notificações passam pelo serviço de push do seu navegador, criptografadas para que só este navegador possa lê-las. Elas chegam mesmo com o Lumi fechado.</value></data>
+  <data name="AllowNotifications" xml:space="preserve"><value>Permitir notificações</value></data>
+  <data name="NotificationsPermissionNeeded" xml:space="preserve"><value>As notificações estão ativadas, mas o Lumi ainda não tem permissão para mostrá-las aqui.</value></data>
+  <data name="NotificationsAllowTitle" xml:space="preserve"><value>Deixe o Lumi avisar você aqui</value></data>
+  <data name="NotificationsBlockedTitle" xml:space="preserve"><value>As notificações estão bloqueadas</value></data>
+  <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>Seu celular está bloqueando as notificações do Lumi. Permita-as para o Lumi nas configurações do celular e volte ao Lumi.</value></data>
+  <data name="TestNotificationDelivered" xml:space="preserve"><value>Chegou. Confira suas notificações.</value></data>
+  <data name="TestNotificationNotReceived" xml:space="preserve"><value>{0} enviou, mas este navegador ainda não recebeu. Se nada chegar, este navegador talvez não entregue notificações da web; tente outro navegador.</value></data>
 </root>

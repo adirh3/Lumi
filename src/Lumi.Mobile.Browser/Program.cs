@@ -26,6 +26,7 @@ internal static class Program
         MobilePlatformServices.ProducedFileOpener = new BrowserProducedFileOpener();
         MobilePlatformServices.TextSelectionPresenter = new BrowserTextSelectionPresenter();
         MobilePlatformServices.TextInputOverlayPresenter = nativeTextInputOverlayPresenter;
+        MobilePlatformServices.Notifications = new BrowserPhoneNotificationPlatform();
         BrowserInterop.NativeTextInputOverlayPresenter = nativeTextInputOverlayPresenter;
         RemotePlatformServices.RouteVerifier = new BrowserSameOriginRouteVerifier();
         App.ShellFactory = () =>

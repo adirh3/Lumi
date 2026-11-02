@@ -1073,7 +1073,8 @@ public partial class ChatViewModel
 
         void CompleteAssistantResponse(bool updateDisplayed)
         {
-            SetInteractionReceiptStatus(runtime, runtime.ManualStopRequested ? "Stopped" : "ReplyReady");
+            var stoppedByUser = runtime.ManualStopRequested;
+            SetInteractionReceiptStatus(runtime, stoppedByUser ? "Stopped" : "ReplyReady");
             var wasBusy = runtime.IsBusy;
             FinalizeCompletedTurnStreams(updateDisplayed);
             AttachPendingSourcesToFinalAssistantMessage();
@@ -1101,6 +1102,14 @@ public partial class ChatViewModel
                     ? Loc.Notification_ResponseReady
                     : $"{chat.Title} — {Loc.Notification_ResponseReady}";
                 NotificationService.ShowIfInactive(agentName, body, chat.Id);
+            }
+            // Whoever stopped the turn is already looking at it.
+            if (!stoppedByUser)
+            {
+                _chatEvents.PublishAttention(new ChatAttention(
+                    chat.Id,
+                    ChatAttentionKind.Reply,
+                    LatestAnswerText(chat) ?? ""));
             }
             QueueChatCompletionFollowUps(chat);
         }

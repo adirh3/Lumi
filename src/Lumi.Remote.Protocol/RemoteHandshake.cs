@@ -47,7 +47,14 @@ public sealed class RemoteEventSubscription
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool ChatRowPatches { get; set; }
 
-    /// <summary>True when every scope that decides what the desktop pushes matches.</summary>
+    /// <summary>
+    /// The phone's chat list covers <see cref="ChatId"/>: the chat stays current underneath, but the
+    /// user is not reading it, so the desktop still notifies the phone about it.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsChatCovered { get; set; }
+
+    /// <summary>True when every scope that decides what the desktop pushes, or notifies about, matches.</summary>
     public bool HasSameScope(RemoteEventSubscription other) =>
         ChatId == other.ChatId
         && IncludeChatList == other.IncludeChatList
@@ -56,7 +63,8 @@ public sealed class RemoteEventSubscription
         && IsForeground == other.IsForeground
         && StreamIntervalMs == other.StreamIntervalMs
         && CompactStatus == other.CompactStatus
-        && ChatRowPatches == other.ChatRowPatches;
+        && ChatRowPatches == other.ChatRowPatches
+        && IsChatCovered == other.IsChatCovered;
 
     public RemoteEventSubscription Copy() => new()
     {
@@ -68,7 +76,8 @@ public sealed class RemoteEventSubscription
         IsForeground = IsForeground,
         StreamIntervalMs = StreamIntervalMs,
         CompactStatus = CompactStatus,
-        ChatRowPatches = ChatRowPatches
+        ChatRowPatches = ChatRowPatches,
+        IsChatCovered = IsChatCovered
     };
 }
 

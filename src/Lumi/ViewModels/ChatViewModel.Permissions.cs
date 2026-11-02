@@ -369,7 +369,11 @@ public partial class ChatViewModel
         _permissionRequests.Add(key, card);
         RefreshInputWaitingState(chat);
         RefreshPermissionRequests();
-        NotifyQuestionAsked(chat.Id, info.Title + (info.Subject is { Length: > 0 } subject ? " · " + subject : ""));
+        NotifyQuestionAsked(new ChatAttention(
+            chat.Id,
+            ChatAttentionKind.Approval,
+            info.Title + (info.Subject is { Length: > 0 } subject ? " · " + subject : ""),
+            requestId));
         ChatUpdated?.Invoke();
         return card;
     }
@@ -445,6 +449,7 @@ public partial class ChatViewModel
     {
         var key = (chatId, sessionId, requestId);
         _retiredPermissionRequests.Add(key);
+        _chatEvents.ResolveAttention(chatId, requestId);
         if (_permissionRequests.Remove(key, out var request))
             request.Settle(outcome);
         if ((_dataStore.Data.Chats.Find(chat => chat.Id == chatId)

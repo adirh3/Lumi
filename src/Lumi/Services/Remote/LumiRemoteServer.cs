@@ -53,6 +53,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     private readonly RemoteHttpListener _listener;
     private readonly RemoteWebAppHandler _webApp;
     private readonly RemoteDevTunnelHost _devTunnel = new();
+    private readonly PhoneNotificationCenter _phoneNotifications;
     private readonly FileSearchService _fileSearchService = new();
     private readonly Func<IReadOnlySet<IPAddress>> _tailscaleAddressProvider;
     private readonly ConcurrentDictionary<Guid, RemoteEventClient> _streams = new();
@@ -118,7 +119,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     internal LumiRemoteServer(
         DataStore dataStore,
         MainViewModel main,
-        Func<IReadOnlySet<IPAddress>> tailscaleAddressProvider)
+        Func<IReadOnlySet<IPAddress>> tailscaleAddressProvider,
+        IDesktopPresenceProbe? presence = null,
+        WebPushSender? webPush = null)
     {
         _dataStore = dataStore;
         _main = main;
@@ -126,6 +129,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         _router = new RemoteCommandRouter(dataStore, main);
         _listener = new RemoteHttpListener(HandleAsync, PreflightRequest);
         _webApp = new RemoteWebAppHandler(RemoteWebAssetProvider.TryCreate());
+        _phoneNotifications = new PhoneNotificationCenter(dataStore, main, () => _hub, presence, webPush: webPush);
+        _phoneNotifications.ListenersChanged += OnPhoneNotificationListenersChanged;
         _devTunnel.StateChanged += OnDevTunnelStateChanged;
         _ownsPersistentSecurityState = !dataStore.UsesPersistentStorage || TryAcquireServerOwnership();
         _securityStateReady = !dataStore.UsesPersistentStorage;
@@ -133,6 +138,19 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
     public int Port { get; private set; }
     internal RemoteEventHub? EventHub => _hub;
+    internal PhoneNotificationCenter PhoneNotifications => _phoneNotifications;
+
+    /// <summary>Paired devices that can hear notifications now: a stream is open, or the browser subscribed.</summary>
+    public IReadOnlySet<string> NotificationDeviceIds => _phoneNotifications.ListeningDeviceIds;
+
+    /// <summary>Sends a test notification to every phone that can hear one.</summary>
+    internal Task<PhoneNotificationTestResult> SendTestNotificationAsync() =>
+        _phoneNotifications.SendTestAsync(deviceId: null);
+
+    /// <summary>The PC's phone-notification settings changed.</summary>
+    public void PhoneNotificationSettingsChanged() => _phoneNotifications.OnSettingsChanged();
+
+    private void OnPhoneNotificationListenersChanged() => StateChanged?.Invoke();
 
     public bool IsRunning { get; private set; }
     public string? StartError { get; private set; }
@@ -280,6 +298,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
         Port = _listener.Port;
         RefreshSelectedLocalNetworkAddress();
+        EnsureWebPushKey();
         _hub = new RemoteEventHub(
             _dataStore,
             _main,
@@ -287,11 +306,32 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             _instanceId);
         RefreshDiscovery();
         IsRunning = true;
+        AttachPhoneNotifications(_instanceId);
         if (_dataStore.Data.Settings.RemoteUseDevTunnel)
             RestartDevTunnel();
         WatchNetworkChanges();
         StateChanged?.Invoke();
         _ = InitializeRuntimeStateAsync();
+    }
+
+    /// <summary>
+    /// The notification center follows the chats on the UI thread. Startup starts the server from a
+    /// background continuation, so that start hands the center over to the UI thread.
+    /// </summary>
+    private void AttachPhoneNotifications(string epoch)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            _phoneNotifications.Attach(epoch);
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            // A Stop (or a later Start) that ran meanwhile owns the center now.
+            if (IsRunning && _instanceId == epoch)
+                _phoneNotifications.Attach(epoch);
+        });
     }
 
     internal string EnsureDevTunnelId()
@@ -302,6 +342,19 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         _dataStore.Data.Settings.RemoteDevTunnelId = RemoteDevTunnelHost.CreateProfileTunnelId();
         _dataStore.MarkRemoteSecurityChanged();
         return _dataStore.Data.Settings.RemoteDevTunnelId;
+    }
+
+    /// <summary>
+    /// Gives the profile its Web Push key the first time phone access starts. Browsers subscribe with
+    /// its public half, and registering a subscription saves both.
+    /// </summary>
+    internal void EnsureWebPushKey()
+    {
+        if (WebPush.PublicKeyOf(_dataStore.Data.Settings.RemoteWebPushKey) is not null)
+            return;
+
+        _dataStore.Data.Settings.RemoteWebPushKey = WebPush.CreateKey();
+        _dataStore.MarkRemoteSecurityChanged();
     }
 
     internal async Task PersistDevTunnelRouteAsync(
@@ -347,6 +400,15 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         foreach (var stream in _streams.Values)
             stream.Dispose();
         _streams.Clear();
+
+        if (Dispatcher.UIThread.CheckAccess())
+            _phoneNotifications.Detach();
+        else
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!IsRunning)
+                    _phoneNotifications.Detach();
+            });
 
         _hub?.Dispose();
         _hub = null;
@@ -758,6 +820,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                     return;
                 case RemoteProtocol.Routes.Events:
                     await HandleEventsAsync(context, device, cancellationToken).ConfigureAwait(false);
+                    return;
+                case RemoteProtocol.Routes.Notifications:
+                    await HandleNotificationsAsync(context, device, cancellationToken).ConfigureAwait(false);
                     return;
                 default:
                     await WriteErrorAsync(context, 404, Loc.Get("Remote_UnknownRoute", path), cancellationToken)
@@ -1908,9 +1973,18 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             return;
         }
 
-        var result = command.Action == RemoteProtocol.Actions.RevokeDevice
-            ? await RevokeRequestingDeviceAsync(device, cancellationToken).ConfigureAwait(false)
-            : await ExecuteCommandDeduplicatedAsync(device, command).ConfigureAwait(false);
+        var result = command.Action switch
+        {
+            RemoteProtocol.Actions.RevokeDevice =>
+                await RevokeRequestingDeviceAsync(device, cancellationToken).ConfigureAwait(false),
+            RemoteProtocol.Actions.TestNotification =>
+                await SendTestNotificationToAsync(device, command.RequestId).ConfigureAwait(false),
+            RemoteProtocol.Actions.RegisterWebPush =>
+                await RegisterWebPushAsync(device, command, cancellationToken).ConfigureAwait(false),
+            RemoteProtocol.Actions.UnregisterWebPush =>
+                await SetWebPushAsync(device, null, command.RequestId, cancellationToken).ConfigureAwait(false),
+            _ => await ExecuteCommandDeduplicatedAsync(device, command).ConfigureAwait(false)
+        };
 
         await context.WriteJsonAsync(
             JsonSerializer.Serialize(result, RemoteJsonContext.Default.RemoteCommandResult),
@@ -2365,6 +2439,208 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
             await context.CompleteEventStreamAsync(stream).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// The phone's notification stream: no snapshot, only what is waiting on the phone first, then
+    /// notifications and their dismissals as they happen, and a rare ping in between.
+    /// </summary>
+    private async Task HandleNotificationsAsync(
+        RemoteHttpContext context,
+        RemotePairedDevice device,
+        CancellationToken cancellationToken)
+    {
+        if (_hub is null)
+        {
+            await WriteErrorAsync(context, 500, Loc.Remote_ServerNotRunning, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var stream = await context.BeginEventStreamAsync(cancellationToken).ConfigureAwait(false);
+        RemoteEventClient? client = null;
+        try
+        {
+            client = await TryRegisterNotificationClientAsync(
+                    stream,
+                    device,
+                    context.RemoteEndPoint,
+                    context.LocalEndPoint,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (client is null)
+                return;
+
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
+            _ = CloseWhenPhoneLeavesAsync(context.Stream, client, linked.Token);
+            await client.RunAsync(linked.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (client is not null)
+            {
+                _streams.TryRemove(client.Id, out _);
+                _phoneNotifications.RemoveListener(client);
+                client.Dispose();
+            }
+
+            await context.CompleteEventStreamAsync(stream).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// The phone sends nothing on this connection after its request, so the end of what it sends is
+    /// the phone leaving: the stream stops at once rather than at the next ping, minutes later.
+    /// </summary>
+    private static async Task CloseWhenPhoneLeavesAsync(
+        Stream connection,
+        RemoteEventClient client,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new byte[64];
+        try
+        {
+            while (await connection.ReadAsync(buffer, cancellationToken).ConfigureAwait(false) > 0)
+            {
+            }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException
+                                       or SocketException)
+        {
+        }
+
+        client.Dispose();
+    }
+
+    /// <summary>
+    /// Registers a notification stream under the same checks as the live event stream, and with the
+    /// same <see cref="_streams"/> registry, so revoking the device or changing the network closes it.
+    /// The stream then learns what is waiting and joins the listeners in one step on the UI thread,
+    /// where notifications are delivered and taken down, so nothing in between passes it by.
+    /// </summary>
+    private async Task<RemoteEventClient?> TryRegisterNotificationClientAsync(
+        Stream stream,
+        RemotePairedDevice device,
+        EndPoint? remoteEndPoint,
+        EndPoint? localEndPoint,
+        CancellationToken cancellationToken)
+    {
+        RemoteEventClient client;
+        await _networkPolicyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!IsAllowedCaller(
+                    remoteEndPoint,
+                    localEndPoint,
+                    _dataStore.Data.Settings.RemoteAllowInsecureLan,
+                    _tailscaleAddresses,
+                    SelectedLocalNetworkAddress,
+                    _dataStore.Data.Settings.RemoteUseDevTunnel)
+                || (_dataStore.Data.Settings.RemoteUseDevTunnel && DevTunnelOrigin is null))
+            {
+                return null;
+            }
+
+            lock (_deviceAuthorizationGate)
+            {
+                if (!IsDeviceAuthorizedLocked(device))
+                    return null;
+
+                client = new RemoteEventClient(stream, device.DeviceId);
+                _streams[client.Id] = client;
+            }
+        }
+        finally
+        {
+            _networkPolicyGate.Release();
+        }
+
+        // A stream closed meanwhile (the device was revoked, the network changed) takes nothing.
+        var joined = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (!client.Enqueue(_phoneNotifications.BuildSyncFrame()))
+                return false;
+
+            _phoneNotifications.AddListener(client);
+            return true;
+        });
+        if (joined)
+            return client;
+
+        _streams.TryRemove(client.Id, out _);
+        client.Dispose();
+        return null;
+    }
+
+    private async Task<RemoteCommandResult> SendTestNotificationToAsync(RemotePairedDevice device, string? requestId)
+    {
+        var test = await _phoneNotifications.SendTestAsync(device.DeviceId).ConfigureAwait(false);
+        return test switch
+        {
+            { Heard: > 0 } => new RemoteCommandResult
+            {
+                Ok = true, Message = Loc.Remote_TestNotificationSent, RequestId = requestId
+            },
+            { PushError: { } error } => new RemoteCommandResult
+            {
+                Ok = false, Error = Loc.Get("Remote_TestNotificationPushFailed", error), RequestId = requestId
+            },
+            _ => new RemoteCommandResult
+            {
+                Ok = false, Error = Loc.Remote_TestNotificationNoListener, RequestId = requestId
+            }
+        };
+    }
+
+    private Task<RemoteCommandResult> RegisterWebPushAsync(
+        RemotePairedDevice device,
+        RemoteCommand command,
+        CancellationToken cancellationToken)
+    {
+        var subscription = WebPush.ReadSubscription(command.Get("endpoint"), command.Get("p256dh"), command.Get("auth"));
+        return subscription is null
+            ? Task.FromResult(new RemoteCommandResult
+            {
+                Ok = false, Error = Loc.Remote_WebPushUnsupported, RequestId = command.RequestId
+            })
+            : SetWebPushAsync(device, subscription, command.RequestId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sets or forgets where the requesting browser takes notifications. A browser registers each
+    /// time it opens, so an unchanged subscription is not saved again.
+    /// </summary>
+    private async Task<RemoteCommandResult> SetWebPushAsync(
+        RemotePairedDevice device,
+        RemoteWebPushSubscription? subscription,
+        string? requestId,
+        CancellationToken cancellationToken)
+    {
+        lock (_deviceAuthorizationGate)
+        {
+            // Revoking the device meanwhile also took its subscription.
+            if (!IsDeviceAuthorizedLocked(device))
+                return new RemoteCommandResult { Ok = false, Error = Loc.Remote_DeviceRevoked, RequestId = requestId };
+
+            var current = _dataStore.SnapshotRemotePairedDevices()
+                .FirstOrDefault(candidate => string.Equals(candidate.DeviceId, device.DeviceId, StringComparison.Ordinal));
+            if (current is null || Equals(current.WebPush, subscription))
+                return new RemoteCommandResult { Ok = current is not null, RequestId = requestId };
+
+            _dataStore.SetRemoteWebPush(device.DeviceId, subscription);
+        }
+
+        _phoneNotifications.OnSubscriptionsChanged();
+        try
+        {
+            await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The subscription works from memory and goes out with the next save.
+            Trace.TraceWarning($"[Remote] Could not save a browser's push subscription: {ex.Message}");
+        }
+
+        return new RemoteCommandResult { Ok = true, RequestId = requestId };
     }
 
     private async Task HandleSubscriptionAsync(
@@ -3047,6 +3323,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         _disposed = true;
         _cts.Cancel();
         Stop();
+        _phoneNotifications.ListenersChanged -= OnPhoneNotificationListenersChanged;
+        _phoneNotifications.Dispose();
         _listener.Dispose();
         _devTunnel.StateChanged -= OnDevTunnelStateChanged;
         await _devTunnel.DisposeAsync().ConfigureAwait(false);

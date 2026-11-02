@@ -932,7 +932,7 @@ public partial class ChatViewModel
         toolMessage.QuestionAllowFreeText = allowFreeText;
         toolMessage.QuestionAllowMultiSelect = allowMultiSelect;
 
-        NotifyQuestionAsked(chatId, question);
+        NotifyQuestionAsked(new ChatAttention(chatId, ChatAttentionKind.Question, question, questionId));
         if (CurrentChat?.Id != chatId)
             return;
 
@@ -961,15 +961,6 @@ public partial class ChatViewModel
                          .OfType<QuestionItem>().Where(card => card.QuestionId == questionId))
                 card.ApplyAnswer(answer);
         }
-    }
-
-    private void NotifyQuestionAsked(Guid chatId, string question)
-    {
-        if (!_dataStore.Data.Settings.NotificationsEnabled)
-            return;
-
-        var chatTitle = _dataStore.Data.Chats.FirstOrDefault(c => c.Id == chatId)?.Title;
-        NotificationService.ShowQuestion(question, chatTitle, chatId);
     }
 
     private List<AIFunction> BuildLumiManagementTools(Guid chatId, LumiSkillProvider? skillProvider)

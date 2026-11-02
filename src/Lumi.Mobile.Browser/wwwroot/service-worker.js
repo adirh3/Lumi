@@ -122,3 +122,121 @@ self.addEventListener('fetch', event => {
         return await cache.match(isAppNavigation ? shellUrl : url.href) ?? fetch(request);
     })());
 });
+
+// ── Notifications ────────────────────────────────────────────────────────────────────────
+// The PC pushes each notification through the browser's push service, encrypted for this browser.
+// The page leaves the words they use, in the app's language, in their own cache.
+
+const notificationTextUrl = new URL('notification-text.json', appUrl).href;
+const englishNotificationText = {
+    lang: 'en',
+    testTitle: 'Notifications work',
+    testText: 'This is how {0} will reach you while you\'re away.',
+    inputText: 'Needs your input: {0}',
+    approvalText: 'Needs your approval on {0}: {1}',
+    replyFallback: 'Finished replying.'
+};
+
+const fill = (template, ...values) =>
+    String(template).replace(/\{(\d+)\}/g, (match, index) => String(values[Number(index)] ?? match));
+
+async function notificationText() {
+    try {
+        const saved = await (await caches.open('lumi-notifications')).match(notificationTextUrl);
+        if (saved)
+            return { ...englishNotificationText, ...await saved.json() };
+    } catch (error) {
+        console.warn('[Lumi PWA] The notification wording is unavailable; using English.', error);
+    }
+    return englishNotificationText;
+}
+
+async function showPush(data) {
+    let message = {};
+    try {
+        message = data?.json() ?? {};
+    } catch (error) {
+        console.warn('[Lumi PWA] A notification could not be read.', error);
+    }
+
+    const text = await notificationText();
+    const host = message.host ?? '';
+    const isTest = message.kind === 'test';
+    const words = isTest ? fill(text.testText, host)
+        : message.kind === 'input' ? fill(text.inputText, message.text ?? '')
+        : message.kind === 'approval' ? fill(text.approvalText, host, message.text ?? '')
+        : message.kind === 'reply' ? message.text || text.replyFallback
+        : message.text ?? '';
+    const chatId = typeof message.chatId === 'string' ? message.chatId : null;
+    const tag = chatId ?? (isTest ? 'lumi-test' : 'lumi');
+    const at = typeof message.at === 'number' ? message.at : Date.now();
+
+    // Push services keep no order, so a reply can arrive after a question that came later. What
+    // the chat shows about something newer stays: it is shown again unchanged, because every push
+    // must show a notification.
+    const newer = (await self.registration.getNotifications({ tag }))
+        .find(shown => typeof shown.data?.at === 'number' && shown.data.at > at);
+    if (newer) {
+        await self.registration.showNotification(newer.title, {
+            body: newer.body, tag, renotify: false, timestamp: newer.data.at, lang: newer.lang,
+            icon: newer.icon, badge: newer.badge, data: newer.data
+        });
+        return message.kind;
+    }
+
+    // A chat shows one notification: a newer one replaces it and rings again.
+    await self.registration.showNotification(isTest ? text.testTitle : message.title || 'Lumi', {
+        body: !isTest && message.agent ? `${message.agent}: ${words}` : words,
+        tag,
+        renotify: true,
+        timestamp: at,
+        lang: text.lang,
+        icon: new URL('icons/lumi-192.png', appUrl).href,
+        badge: new URL('icons/lumi-badge-96.png', appUrl).href,
+        data: { chatId, title: typeof message.title === 'string' ? message.title : '', at }
+    });
+    return message.kind;
+}
+
+// The open app hears that a push arrived, so its test can tell a browser that delivers from one that
+// accepted a subscription and never does.
+async function reportPush(kind) {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of windows) {
+        if (!client.url.startsWith(appUrl.href))
+            continue;
+        try {
+            client.postMessage({ type: 'lumi-push-received', kind });
+        } catch (error) {
+            console.warn('[Lumi PWA] The app could not be told a notification arrived.', error);
+        }
+    }
+}
+
+self.addEventListener('push', event => {
+    event.waitUntil(showPush(event.data).then(reportPush));
+});
+
+self.addEventListener('notificationclick', event => {
+    event.notification.close();
+    const { chatId, title } = event.notification.data ?? {};
+    event.waitUntil((async () => {
+        const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        const app = windows.find(client => client.url.startsWith(appUrl.href));
+        if (app) {
+            try {
+                await app.focus();
+            } catch (error) {
+                console.warn('[Lumi PWA] The app could not be brought forward.', error);
+            }
+            if (chatId)
+                app.postMessage({ type: 'lumi-open-chat', chatId, title });
+            return;
+        }
+
+        const url = new URL('./', appUrl);
+        if (chatId)
+            url.searchParams.set('lumi-chat', chatId);
+        await self.clients.openWindow(url.href);
+    })());
+});

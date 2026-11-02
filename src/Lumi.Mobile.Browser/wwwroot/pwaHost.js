@@ -279,3 +279,159 @@ function onAppControllerChanged() {
 function onAppOnline() {
     void checkAppUpdate();
 }
+
+// ── Notifications (Web Push) ─────────────────────────────────────────────────────────────
+// The PC pushes notifications through this browser's own push service; the service worker shows
+// them. The page asks for permission, subscribes with the PC's key and leaves the words
+// notifications use, in the app's language, where the service worker finds them.
+
+const notificationCache = 'lumi-notifications';
+const workerReadyTimeout = 120000;
+
+export function getNotificationSupport() {
+    if (!window.isSecureContext)
+        return 'insecure';
+    const appleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent ?? '')
+        || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    if (appleMobile && !isInstalledApp())
+        return 'home-screen';
+    return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+        ? 'supported'
+        : 'unsupported';
+}
+
+export function getNotificationPermission() {
+    return 'Notification' in window ? window.Notification.permission : 'denied';
+}
+
+/** Opened from the Home Screen (or as an installed app) rather than in a browser tab. */
+export function isInstalledApp() {
+    return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+}
+
+/**
+ * Resolves true when the service worker reports that a test notification arrived and was shown,
+ * false when none arrives in time. Watching starts at once, before the test is sent.
+ */
+export function expectTestPush(timeoutMs) {
+    return new Promise(resolve => {
+        const worker = navigator.serviceWorker;
+        if (!worker) {
+            resolve(false);
+            return;
+        }
+        const finish = arrived => {
+            clearTimeout(timer);
+            worker.removeEventListener('message', received);
+            resolve(arrived);
+        };
+        const received = event => {
+            if (event.data?.type === 'lumi-push-received' && event.data.kind === 'test')
+                finish(true);
+        };
+        const timer = setTimeout(() => finish(false), timeoutMs);
+        worker.addEventListener('message', received);
+        worker.startMessages?.();
+    });
+}
+
+export async function requestNotificationPermission() {
+    if (!('Notification' in window))
+        return 'denied';
+    return await window.Notification.requestPermission();
+}
+
+async function pushRegistration() {
+    const registration = await registerAppCache();
+    if (!registration)
+        throw new Error('The app service worker is unavailable.');
+    // Subscribing needs an active worker; a first visit may still be installing the app.
+    let timeout;
+    try {
+        await Promise.race([
+            navigator.serviceWorker.ready,
+            new Promise((_, reject) => {
+                timeout = setTimeout(
+                    () => reject(new Error('The app service worker did not start.')),
+                    workerReadyTimeout);
+            })
+        ]);
+    } finally {
+        clearTimeout(timeout);
+    }
+    return registration;
+}
+
+function base64UrlBytes(value) {
+    const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+    const binary = atob(base64 + '='.repeat((4 - base64.length % 4) % 4));
+    return Uint8Array.from(binary, character => character.charCodeAt(0));
+}
+
+function sameKey(current, expected) {
+    if (!current)
+        return false;
+    const bytes = new Uint8Array(current);
+    return bytes.length === expected.length && bytes.every((value, index) => value === expected[index]);
+}
+
+export async function subscribeToPush(serverKey, notificationText) {
+    const registration = await pushRegistration();
+    const cache = await caches.open(notificationCache);
+    await cache.put(
+        new URL('notification-text.json', registration.scope).href,
+        new Response(notificationText, { headers: { 'Content-Type': 'application/json' } }));
+
+    const applicationServerKey = base64UrlBytes(serverKey);
+    let subscription = await registration.pushManager.getSubscription();
+    if (subscription && !sameKey(subscription.options?.applicationServerKey, applicationServerKey)) {
+        // Made for another key, so the PC's pushes would be refused.
+        await subscription.unsubscribe();
+        subscription = null;
+    }
+    subscription ??= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+
+    const { endpoint, keys } = subscription.toJSON();
+    // A browser without a working push service can still hand out an address nothing reaches.
+    if (!endpoint || new URL(endpoint).hostname.endsWith('.invalid')) {
+        await subscription.unsubscribe().catch(() => {});
+        throw new Error('This browser has no working push service.');
+    }
+    return JSON.stringify({ endpoint, p256dh: keys?.p256dh ?? '', auth: keys?.auth ?? '' });
+}
+
+export async function unsubscribeFromPush() {
+    const registration = await navigator.serviceWorker?.getRegistration('./');
+    const subscription = await registration?.pushManager?.getSubscription();
+    await subscription?.unsubscribe();
+}
+
+export function clearChatNotifications(tag) {
+    void (async () => {
+        const registration = await navigator.serviceWorker?.getRegistration('./');
+        for (const notification of await registration?.getNotifications?.({ tag }) ?? [])
+            notification.close();
+    })().catch(error => console.warn('[Lumi PWA] Could not take down notifications.', error));
+}
+
+export function configureNotificationClicks(openChat) {
+    const open = (chatId, title) => {
+        if (typeof chatId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(chatId))
+            openChat(chatId, typeof title === 'string' ? title : '');
+    };
+    // A tap on a notification while the app is open arrives from the service worker.
+    navigator.serviceWorker?.addEventListener('message', event => {
+        if (event.data?.type === 'lumi-open-chat')
+            open(event.data.chatId, event.data.title);
+    });
+    navigator.serviceWorker?.startMessages?.();
+
+    // A tap that had to open the app names the chat in the address.
+    const url = new URL(window.location.href);
+    const chatId = url.searchParams.get('lumi-chat');
+    if (chatId !== null) {
+        url.searchParams.delete('lumi-chat');
+        window.history.replaceState(window.history.state, '', url.href);
+        open(chatId, '');
+    }
+}

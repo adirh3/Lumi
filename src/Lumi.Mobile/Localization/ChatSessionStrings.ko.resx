@@ -696,4 +696,54 @@
   <data name="FilePreviewShareFailed" xml:space="preserve"><value>파일을 공유하지 못했어요.</value></data>
   <data name="FilePreviewSaveFailed" xml:space="preserve"><value>파일을 저장하지 못했어요.</value></data>
   <data name="FilePreviewClose" xml:space="preserve"><value>미리 보기 닫기</value></data>
+  <data name="Notifications" xml:space="preserve"><value>알림</value></data>
+  <data name="NotifyMe" xml:space="preserve"><value>이 휴대폰으로 알림 받기</value></data>
+  <data name="NotificationsSummary" xml:space="preserve"><value>{0}을(를) 떠나 있는 동안의 답변과 질문</value></data>
+  <data name="NotificationsAwayRule" xml:space="preserve"><value>{0}이(가) 잠겨 있거나 {1}분 동안 키보드와 마우스 입력이 없으면 자리 비움으로 봐요. 컴퓨터의 설정 → 모바일에서 바꿀 수 있어요.</value></data>
+  <data name="NotificationsOffOnPc" xml:space="preserve"><value>{0}에서 휴대폰 알림이 꺼져 있어요. 컴퓨터의 Lumi에서 설정 → 모바일로 켜 주세요.</value></data>
+  <data name="NotificationsPcUpdateNeeded" xml:space="preserve"><value>알림을 받으려면 {0}의 Lumi를 업데이트하세요.</value></data>
+  <data name="NotificationsBlocked" xml:space="preserve"><value>Android가 Lumi의 알림을 차단하고 있어요.</value></data>
+  <data name="OpenSystemSettings" xml:space="preserve"><value>설정 열기</value></data>
+  <data name="NotificationsKinds" xml:space="preserve"><value>알림을 받는 내용</value></data>
+  <data name="NotificationChannelQuestions" xml:space="preserve"><value>질문과 승인</value></data>
+  <data name="NotificationChannelQuestionsDescription" xml:space="preserve"><value>Lumi가 작업을 계속하려면 내가 필요할 때</value></data>
+  <data name="NotificationChannelReplies" xml:space="preserve"><value>완료된 답변</value></data>
+  <data name="NotificationChannelRepliesDescription" xml:space="preserve"><value>Lumi가 답변을 마쳤을 때</value></data>
+  <data name="NotificationChannelConnection" xml:space="preserve"><value>연결</value></data>
+  <data name="NotificationChannelConnectionDescription" xml:space="preserve"><value>Lumi가 컴퓨터에 연결되어 있는 동안 표시되는 무음 알림</value></data>
+  <data name="SendTestNotification" xml:space="preserve"><value>테스트 알림 보내기</value></data>
+  <data name="TestNotificationSent" xml:space="preserve"><value>보냈어요. 곧 도착할 거예요.</value></data>
+  <data name="TestNotificationFailed" xml:space="preserve"><value>테스트를 보내지 못했어요: {0}</value></data>
+  <data name="NotificationTestTitle" xml:space="preserve"><value>알림이 작동해요</value></data>
+  <data name="NotificationTestText" xml:space="preserve"><value>자리를 비웠을 때 {0}에서 이렇게 알려 드려요.</value></data>
+  <data name="NotificationReplyFallback" xml:space="preserve"><value>답변을 마쳤어요.</value></data>
+  <data name="NotificationInputText" xml:space="preserve"><value>입력이 필요해요: {0}</value></data>
+  <data name="NotificationApprovalText" xml:space="preserve"><value>{0}에서 승인이 필요해요: {1}</value></data>
+  <data name="NotificationConnected" xml:space="preserve"><value>{0}에 연결됨</value></data>
+  <data name="NotificationConnecting" xml:space="preserve"><value>{0}에 연결하는 중…</value></data>
+  <data name="NotificationWaiting" xml:space="preserve"><value>{0} 기다리는 중</value></data>
+  <data name="NotificationPublicReply" xml:space="preserve"><value>Lumi가 답변을 마쳤어요</value></data>
+  <data name="NotificationPublicRequest" xml:space="preserve"><value>Lumi가 도움이 필요해요</value></data>
+  <data name="NotificationsPromptTitle" xml:space="preserve"><value>Lumi가 필요할 때 알림 받기</value></data>
+  <data name="NotificationsPromptText" xml:space="preserve"><value>{0}을(를) 떠나 있을 때 답변이 준비되거나 Lumi에게 질문이 생기면 바로 이 휴대폰으로 알려요. 컴퓨터 앞에 있을 때는 오지 않아요.</value></data>
+  <data name="NotificationsPromptExample" xml:space="preserve"><value>모두 끝났어요. 보고서가 바탕 화면에 있어요.</value></data>
+  <data name="TurnOnNotifications" xml:space="preserve"><value>알림 켜기</value></data>
+  <data name="NotNow" xml:space="preserve"><value>나중에</value></data>
+  <data name="NotificationsBackgroundNote" xml:space="preserve"><value>바로 알려 드리기 위해 Lumi는 컴퓨터와 조용한 연결을 유지해요. Android에는 숨길 수 있는 무음 '연결됨' 알림으로 표시돼요.</value></data>
+  <data name="NotificationsNeedHttps" xml:space="preserve"><value>브라우저는 보안 주소(https)에서만 알림을 허용해요. 여기서 알림을 받으려면 {0}의 설정 → 모바일에서 Microsoft Dev Tunnel을 선택한 다음, 표시되는 코드로 Lumi를 여세요.</value></data>
+  <data name="NotificationsNeedHomeScreen" xml:space="preserve"><value>iPhone과 iPad에서는 Lumi를 홈 화면에 추가하면 알림을 받을 수 있어요. 공유를 탭하고 홈 화면에 추가를 선택한 다음, 거기서 Lumi를 여세요.</value></data>
+  <data name="NotificationsBrowserUnsupported" xml:space="preserve"><value>이 브라우저는 알림을 받을 수 없어요. Chrome, Edge, Firefox 또는 Safari를 사용해 보세요.</value></data>
+  <data name="NotificationsBlockedWeb" xml:space="preserve"><value>브라우저가 Lumi의 알림을 차단하고 있어요. 사이트 설정에서 허용한 다음 Lumi로 돌아오세요.</value></data>
+  <data name="NotificationsWebReady" xml:space="preserve"><value>준비됐어요. {0}이(가) 이 브라우저로 알림을 보내요.</value></data>
+  <data name="NotificationsWebRegistering" xml:space="preserve"><value>알림을 설정하는 중…</value></data>
+  <data name="NotificationsWebFailed" xml:space="preserve"><value>알림을 설정하지 못했어요: {0}</value></data>
+  <data name="NotificationsBrowserFailed" xml:space="preserve"><value>이 브라우저의 푸시 서비스를 사용할 수 없어요.</value></data>
+  <data name="NotificationsWebNote" xml:space="preserve"><value>알림은 브라우저의 푸시 서비스를 거쳐, 이 브라우저만 읽을 수 있게 암호화되어 전달돼요. Lumi가 닫혀 있어도 도착해요.</value></data>
+  <data name="AllowNotifications" xml:space="preserve"><value>알림 허용</value></data>
+  <data name="NotificationsPermissionNeeded" xml:space="preserve"><value>알림은 켜져 있지만, Lumi가 아직 여기에서 알림을 표시하도록 허용되지 않았어요.</value></data>
+  <data name="NotificationsAllowTitle" xml:space="preserve"><value>여기서 Lumi 알림 받기</value></data>
+  <data name="NotificationsBlockedTitle" xml:space="preserve"><value>알림이 차단되어 있어요</value></data>
+  <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>휴대폰이 Lumi의 알림을 차단하고 있어요. 휴대폰 설정에서 Lumi의 알림을 허용한 다음 Lumi로 돌아오세요.</value></data>
+  <data name="TestNotificationDelivered" xml:space="preserve"><value>도착했어요. 알림을 확인해 보세요.</value></data>
+  <data name="TestNotificationNotReceived" xml:space="preserve"><value>{0}이(가) 보냈지만 이 브라우저가 아직 받지 못했어요. 아무것도 오지 않으면 이 브라우저가 웹 알림을 전달하지 못하는 것일 수 있어요. 다른 브라우저를 사용해 보세요.</value></data>
 </root>

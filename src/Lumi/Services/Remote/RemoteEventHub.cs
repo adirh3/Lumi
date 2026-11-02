@@ -367,6 +367,14 @@ internal sealed class RemoteEventHub : IDisposable
     internal bool HasChatSubscriber(Guid chatId) =>
         _clients.Values.Any(client => client.WantsChat(chatId));
 
+    /// <summary>A phone has the chat on screen, rather than only keeping it current behind its list.</summary>
+    internal bool IsChatOnPhoneScreen(Guid chatId) =>
+        _clients.Values.Any(client => client.IsShowingChat(chatId));
+
+    /// <summary>Lumi is open on a phone: one of its streams is in the foreground.</summary>
+    internal bool HasForegroundClient() =>
+        _clients.Values.Any(static client => client.IsForeground);
+
     internal bool HasChatListSubscriber() =>
         _clients.Values.Any(static client => client.WantsChatList);
 

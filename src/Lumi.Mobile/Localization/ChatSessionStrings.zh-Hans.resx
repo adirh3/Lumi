@@ -700,4 +700,54 @@
   <data name="FilePreviewShareFailed" xml:space="preserve"><value>无法分享该文件。</value></data>
   <data name="FilePreviewSaveFailed" xml:space="preserve"><value>无法保存该文件。</value></data>
   <data name="FilePreviewClose" xml:space="preserve"><value>关闭预览</value></data>
+  <data name="Notifications" xml:space="preserve"><value>通知</value></data>
+  <data name="NotifyMe" xml:space="preserve"><value>在这部手机上通知我</value></data>
+  <data name="NotificationsSummary" xml:space="preserve"><value>离开 {0} 时收到的回复和问题</value></data>
+  <data name="NotificationsAwayRule" xml:space="preserve"><value>{0} 锁定时，或 {1} 分钟没有键盘和鼠标操作后，会视为你已离开。可以在电脑上的 设置 → 移动端 中更改。</value></data>
+  <data name="NotificationsOffOnPc" xml:space="preserve"><value>{0} 上的手机通知已关闭。请在电脑上的 Lumi 中通过 设置 → 移动端 开启。</value></data>
+  <data name="NotificationsPcUpdateNeeded" xml:space="preserve"><value>请更新 {0} 上的 Lumi 以接收通知。</value></data>
+  <data name="NotificationsBlocked" xml:space="preserve"><value>Android 正在阻止 Lumi 的通知。</value></data>
+  <data name="OpenSystemSettings" xml:space="preserve"><value>打开设置</value></data>
+  <data name="NotificationsKinds" xml:space="preserve"><value>通知内容</value></data>
+  <data name="NotificationChannelQuestions" xml:space="preserve"><value>问题和审批</value></data>
+  <data name="NotificationChannelQuestionsDescription" xml:space="preserve"><value>当 Lumi 需要你才能继续工作时</value></data>
+  <data name="NotificationChannelReplies" xml:space="preserve"><value>已完成的回复</value></data>
+  <data name="NotificationChannelRepliesDescription" xml:space="preserve"><value>当 Lumi 完成回复时</value></data>
+  <data name="NotificationChannelConnection" xml:space="preserve"><value>连接</value></data>
+  <data name="NotificationChannelConnectionDescription" xml:space="preserve"><value>Lumi 与你的电脑保持连接时的静默通知</value></data>
+  <data name="SendTestNotification" xml:space="preserve"><value>发送测试通知</value></data>
+  <data name="TestNotificationSent" xml:space="preserve"><value>已发送，稍后就会收到。</value></data>
+  <data name="TestNotificationFailed" xml:space="preserve"><value>无法发送测试：{0}</value></data>
+  <data name="NotificationTestTitle" xml:space="preserve"><value>通知正常</value></data>
+  <data name="NotificationTestText" xml:space="preserve"><value>你离开时，{0} 会这样通知你。</value></data>
+  <data name="NotificationReplyFallback" xml:space="preserve"><value>已完成回复。</value></data>
+  <data name="NotificationInputText" xml:space="preserve"><value>需要你的输入：{0}</value></data>
+  <data name="NotificationApprovalText" xml:space="preserve"><value>需要你在 {0} 上审批：{1}</value></data>
+  <data name="NotificationConnected" xml:space="preserve"><value>已连接到 {0}</value></data>
+  <data name="NotificationConnecting" xml:space="preserve"><value>正在连接到 {0}…</value></data>
+  <data name="NotificationWaiting" xml:space="preserve"><value>正在等待 {0}</value></data>
+  <data name="NotificationPublicReply" xml:space="preserve"><value>Lumi 完成了一条回复</value></data>
+  <data name="NotificationPublicRequest" xml:space="preserve"><value>Lumi 需要你</value></data>
+  <data name="NotificationsPromptTitle" xml:space="preserve"><value>在 Lumi 需要你时收到通知</value></data>
+  <data name="NotificationsPromptText" xml:space="preserve"><value>当你离开 {0} 时，回复一完成或 Lumi 有问题，这部手机就会立即知道。你在电脑前时不会收到任何通知。</value></data>
+  <data name="NotificationsPromptExample" xml:space="preserve"><value>全部完成——报告已放在你的桌面上。</value></data>
+  <data name="TurnOnNotifications" xml:space="preserve"><value>开启通知</value></data>
+  <data name="NotNow" xml:space="preserve"><value>暂不</value></data>
+  <data name="NotificationsBackgroundNote" xml:space="preserve"><value>为了即时通知你，Lumi 会与你的电脑保持一个静默连接。Android 会将其显示为一条可隐藏的静默“已连接”通知。</value></data>
+  <data name="NotificationsNeedHttps" xml:space="preserve"><value>浏览器只允许在安全地址（https）上显示通知。要在这里接收通知，请在 {0} 的 设置 → 移动端 中选择 Microsoft Dev Tunnel，然后通过显示的二维码打开 Lumi。</value></data>
+  <data name="NotificationsNeedHomeScreen" xml:space="preserve"><value>在 iPhone 和 iPad 上，将 Lumi 添加到主屏幕后即可使用通知：轻点“分享”，再轻点“添加到主屏幕”，然后从主屏幕打开 Lumi。</value></data>
+  <data name="NotificationsBrowserUnsupported" xml:space="preserve"><value>此浏览器无法接收通知。请试试 Chrome、Edge、Firefox 或 Safari。</value></data>
+  <data name="NotificationsBlockedWeb" xml:space="preserve"><value>你的浏览器正在阻止 Lumi 的通知。请在网站设置中允许通知，然后返回 Lumi。</value></data>
+  <data name="NotificationsWebReady" xml:space="preserve"><value>已就绪。{0} 会向此浏览器发送通知。</value></data>
+  <data name="NotificationsWebRegistering" xml:space="preserve"><value>正在设置通知…</value></data>
+  <data name="NotificationsWebFailed" xml:space="preserve"><value>无法设置通知：{0}</value></data>
+  <data name="NotificationsBrowserFailed" xml:space="preserve"><value>此浏览器的推送服务不可用。</value></data>
+  <data name="NotificationsWebNote" xml:space="preserve"><value>通知通过你的浏览器推送服务传送，并经过加密，只有此浏览器能读取。即使 Lumi 已关闭也能收到。</value></data>
+  <data name="AllowNotifications" xml:space="preserve"><value>允许通知</value></data>
+  <data name="NotificationsPermissionNeeded" xml:space="preserve"><value>通知已开启，但 Lumi 还未获准在这里显示通知。</value></data>
+  <data name="NotificationsAllowTitle" xml:space="preserve"><value>允许 Lumi 在这里通知你</value></data>
+  <data name="NotificationsBlockedTitle" xml:space="preserve"><value>通知已被阻止</value></data>
+  <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>你的手机正在阻止 Lumi 的通知。请在手机设置中允许 Lumi 的通知，然后返回 Lumi。</value></data>
+  <data name="TestNotificationDelivered" xml:space="preserve"><value>已收到，请查看你的通知。</value></data>
+  <data name="TestNotificationNotReceived" xml:space="preserve"><value>{0} 已发送，但此浏览器尚未收到。如果一直没有收到，此浏览器可能无法传送网页通知；请尝试其他浏览器。</value></data>
 </root>

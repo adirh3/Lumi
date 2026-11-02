@@ -44,6 +44,12 @@ public sealed class MobileConnectionSettings
 
     /// <summary>Docked sidebar collapsed on a tablet or unfolded foldable.</summary>
     public bool IsSidebarCollapsed { get; set; }
+
+    /// <summary>The PC may notify this phone while the user is away from it. Off until the user turns it on.</summary>
+    public bool NotificationsEnabled { get; set; }
+
+    /// <summary>The user answered the offer to turn notifications on, either way; it is not offered again.</summary>
+    public bool NotificationsPromptAnswered { get; set; }
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]

@@ -117,6 +117,22 @@ public sealed class RemoteSettings
 
     /// <summary>Desktop-selected new-chat choices. Null on hosts without launchpad projection.</summary>
     public RemoteNewChatExperience? NewChat { get; set; }
+
+    /// <summary>
+    /// Whether the PC sends notifications to phones while the user is away. Null from a desktop
+    /// without <see cref="RemoteProtocol.Capabilities.PhoneNotificationsV1"/>.
+    /// </summary>
+    public bool? PhoneNotificationsEnabled { get; set; }
+
+    /// <summary>Minutes without activity after which the PC counts the user as away. Null when unknown.</summary>
+    public int? PhoneNotificationAwayMinutes { get; set; }
+
+    /// <summary>
+    /// The PC's public Web Push key (VAPID, base64url): a browser subscribes to pushes with it and
+    /// hands the PC the subscription (<see cref="RemoteProtocol.Actions.RegisterWebPush"/>). Null from
+    /// a PC that cannot push to browsers.
+    /// </summary>
+    public string? WebPushKey { get; set; }
 }
 
 public sealed class RemoteNewChatExperience

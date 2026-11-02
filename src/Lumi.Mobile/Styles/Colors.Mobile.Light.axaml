@@ -122,6 +122,7 @@
   <SolidColorBrush x:Key="Brush.Hue.Job" Color="#6B6455" />
   <SolidColorBrush x:Key="Brush.Hue.Appearance" Color="#7B4A9C" />
   <SolidColorBrush x:Key="Brush.Hue.About" Color="#8F6A22" />
+  <SolidColorBrush x:Key="Brush.Hue.Notification" Color="#A0553A" />
   <SolidColorBrush x:Key="Brush.Status.Ok" Color="#0F9F6E" />
 
   <!--

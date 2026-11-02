@@ -14,7 +14,8 @@ namespace Lumi.ViewModels;
 public sealed record RemotePairedDeviceItem(
     string DeviceId,
     string DeviceName,
-    string LastSeenText);
+    string LastSeenText,
+    bool IsReceivingNotifications = false);
 
 internal enum MobileSetupKind
 {
@@ -254,6 +255,7 @@ public partial class SettingsViewModel
         RemoteDevicesText = devices.Count == 0
             ? Loc.Get("Remote_NoDevices")
             : Loc.Get("Remote_DeviceCount", devices.Count.ToString());
+        var listening = server is { IsRunning: true } ? server.NotificationDeviceIds : new HashSet<string>();
         RemoteDevices.Clear();
         foreach (var device in devices.OrderBy(static device => device.DeviceName, StringComparer.CurrentCultureIgnoreCase))
         {
@@ -262,8 +264,10 @@ public partial class SettingsViewModel
                 string.IsNullOrWhiteSpace(device.DeviceName) ? Loc.Get("Remote_UnknownDevice") : device.DeviceName,
                 device.LastSeenAt is { } lastSeen
                     ? Loc.Get("Remote_LastSeen", lastSeen.ToLocalTime().ToString("g"))
-                    : Loc.Get("Remote_LastSeenNever")));
+                    : Loc.Get("Remote_LastSeenNever"),
+                listening.Contains(device.DeviceId)));
         }
+        RefreshPhoneNotificationStatus();
 
         RemotePairingCode = pairing.Code ?? "";
         IsRemotePairing = RemotePairingCode.Length > 0;

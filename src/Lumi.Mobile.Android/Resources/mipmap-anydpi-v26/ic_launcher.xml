@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lumi's icon as Android 8 and later show it: each launcher, and the launch screen, masks these layers in
+     its own shape. The layers are drawn from the app icon's art by the Debug desktop's write-app-icons flag. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+  <background android:drawable="@mipmap/ic_launcher_background" />
+  <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

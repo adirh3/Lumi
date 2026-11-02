@@ -36,6 +36,8 @@ public static class Program
         var popupPreview = args.Contains("--popup-preview");
         var designPreview = args.Contains("--design-preview");
         var designFile = ReadOption(args, "--open-file");
+        if (args.Contains("--notifications") || args.Contains("--notifications-denied"))
+            MobilePlatformServices.Notifications = new SimulatedNotificationPlatform(args.Contains("--notifications-denied"));
 #endif
 
         App.DesktopWindowFactory = () =>

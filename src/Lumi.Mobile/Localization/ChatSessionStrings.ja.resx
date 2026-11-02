@@ -1998,4 +1998,54 @@
   <data name="FilePreviewShareFailed" xml:space="preserve"><value>ファイルを共有できませんでした。</value></data>
   <data name="FilePreviewSaveFailed" xml:space="preserve"><value>ファイルを保存できませんでした。</value></data>
   <data name="FilePreviewClose" xml:space="preserve"><value>プレビューを閉じる</value></data>
+  <data name="Notifications" xml:space="preserve"><value>通知</value></data>
+  <data name="NotifyMe" xml:space="preserve"><value>このスマートフォンに通知</value></data>
+  <data name="NotificationsSummary" xml:space="preserve"><value>{0} から離れている間の返信と質問</value></data>
+  <data name="NotificationsAwayRule" xml:space="preserve"><value>{0} はロック中、またはキーボードとマウスの操作が {1} 分ないと離席とみなします。変更は PC の 設定 → モバイル で行えます。</value></data>
+  <data name="NotificationsOffOnPc" xml:space="preserve"><value>{0} ではスマートフォンへの通知がオフです。PC の Lumi で 設定 → モバイル からオンにしてください。</value></data>
+  <data name="NotificationsPcUpdateNeeded" xml:space="preserve"><value>通知を受け取るには {0} の Lumi を更新してください。</value></data>
+  <data name="NotificationsBlocked" xml:space="preserve"><value>Android が Lumi の通知をブロックしています。</value></data>
+  <data name="OpenSystemSettings" xml:space="preserve"><value>設定を開く</value></data>
+  <data name="NotificationsKinds" xml:space="preserve"><value>通知される内容</value></data>
+  <data name="NotificationChannelQuestions" xml:space="preserve"><value>質問と承認</value></data>
+  <data name="NotificationChannelQuestionsDescription" xml:space="preserve"><value>Lumi が作業を続けるのにあなたを必要とするとき</value></data>
+  <data name="NotificationChannelReplies" xml:space="preserve"><value>完了した返信</value></data>
+  <data name="NotificationChannelRepliesDescription" xml:space="preserve"><value>Lumi が返信を終えたとき</value></data>
+  <data name="NotificationChannelConnection" xml:space="preserve"><value>接続</value></data>
+  <data name="NotificationChannelConnectionDescription" xml:space="preserve"><value>Lumi が PC に接続している間の無音の通知</value></data>
+  <data name="SendTestNotification" xml:space="preserve"><value>テスト通知を送信</value></data>
+  <data name="TestNotificationSent" xml:space="preserve"><value>送信しました。まもなく届きます。</value></data>
+  <data name="TestNotificationFailed" xml:space="preserve"><value>テストを送信できませんでした: {0}</value></data>
+  <data name="NotificationTestTitle" xml:space="preserve"><value>通知は正常です</value></data>
+  <data name="NotificationTestText" xml:space="preserve"><value>離席中は {0} からこのように届きます。</value></data>
+  <data name="NotificationReplyFallback" xml:space="preserve"><value>返信が完了しました。</value></data>
+  <data name="NotificationInputText" xml:space="preserve"><value>入力が必要です: {0}</value></data>
+  <data name="NotificationApprovalText" xml:space="preserve"><value>{0} で承認が必要です: {1}</value></data>
+  <data name="NotificationConnected" xml:space="preserve"><value>{0} に接続中</value></data>
+  <data name="NotificationConnecting" xml:space="preserve"><value>{0} に接続しています…</value></data>
+  <data name="NotificationWaiting" xml:space="preserve"><value>{0} を待っています</value></data>
+  <data name="NotificationPublicReply" xml:space="preserve"><value>Lumi が返信を終えました</value></data>
+  <data name="NotificationPublicRequest" xml:space="preserve"><value>Lumi があなたを必要としています</value></data>
+  <data name="NotificationsPromptTitle" xml:space="preserve"><value>Lumi が必要なときに通知を受け取る</value></data>
+  <data name="NotificationsPromptText" xml:space="preserve"><value>{0} から離れているとき、返信が完了したり Lumi から質問があったりすると、すぐにこのスマートフォンに届きます。PC の前にいる間は届きません。</value></data>
+  <data name="NotificationsPromptExample" xml:space="preserve"><value>完了しました。レポートはデスクトップにあります。</value></data>
+  <data name="TurnOnNotifications" xml:space="preserve"><value>通知をオンにする</value></data>
+  <data name="NotNow" xml:space="preserve"><value>後で</value></data>
+  <data name="NotificationsBackgroundNote" xml:space="preserve"><value>すぐに届けるため、Lumi は PC との静かな接続を保ちます。Android では無音の「接続中」通知として表示され、非表示にできます。</value></data>
+  <data name="NotificationsNeedHttps" xml:space="preserve"><value>ブラウザーでは、通知は安全なアドレス (https) でのみ許可されます。ここで受け取るには、{0} の 設定 → モバイル で Microsoft Dev Tunnel を選び、表示されるコードから Lumi を開いてください。</value></data>
+  <data name="NotificationsNeedHomeScreen" xml:space="preserve"><value>iPhone と iPad では、Lumi をホーム画面に追加すると通知が使えます。共有 をタップし、ホーム画面に追加 を選んで、そこから Lumi を開いてください。</value></data>
+  <data name="NotificationsBrowserUnsupported" xml:space="preserve"><value>このブラウザーは通知を受け取れません。Chrome、Edge、Firefox、Safari をお試しください。</value></data>
+  <data name="NotificationsBlockedWeb" xml:space="preserve"><value>ブラウザーが Lumi の通知をブロックしています。サイトの設定で許可してから、Lumi に戻ってください。</value></data>
+  <data name="NotificationsWebReady" xml:space="preserve"><value>準備完了。{0} がこのブラウザーに通知を送ります。</value></data>
+  <data name="NotificationsWebRegistering" xml:space="preserve"><value>通知を設定しています…</value></data>
+  <data name="NotificationsWebFailed" xml:space="preserve"><value>通知を設定できませんでした: {0}</value></data>
+  <data name="NotificationsBrowserFailed" xml:space="preserve"><value>このブラウザーのプッシュサービスを利用できません。</value></data>
+  <data name="NotificationsWebNote" xml:space="preserve"><value>通知はブラウザーのプッシュサービスを経由し、このブラウザーだけが読めるよう暗号化されて届きます。Lumi を閉じていても届きます。</value></data>
+  <data name="AllowNotifications" xml:space="preserve"><value>通知を許可する</value></data>
+  <data name="NotificationsPermissionNeeded" xml:space="preserve"><value>通知はオンですが、Lumi はまだここで通知を表示する許可を得ていません。</value></data>
+  <data name="NotificationsAllowTitle" xml:space="preserve"><value>ここで Lumi から通知を受け取る</value></data>
+  <data name="NotificationsBlockedTitle" xml:space="preserve"><value>通知がブロックされています</value></data>
+  <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>スマートフォンが Lumi の通知をブロックしています。スマートフォンの設定で Lumi の通知を許可してから、Lumi に戻ってください。</value></data>
+  <data name="TestNotificationDelivered" xml:space="preserve"><value>届きました。通知を確認してください。</value></data>
+  <data name="TestNotificationNotReceived" xml:space="preserve"><value>{0} は送信しましたが、このブラウザーにはまだ届いていません。届かない場合、このブラウザーはウェブ通知を配信できない可能性があります。別のブラウザーをお試しください。</value></data>
 </root>

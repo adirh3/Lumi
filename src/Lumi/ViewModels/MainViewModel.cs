@@ -844,6 +844,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private ChatViewModel AcquireDraftChatSurface(Guid? projectId)
         => _chatSessionStore.AcquireDraft(projectId, PrepareChatSurface);
 
+    /// <summary>Lifecycle and attention events of every chat surface this window's store creates.</summary>
+    internal ChatEventHub ChatEvents => _chatSessionStore.ChatEvents;
+
     internal void ApplyAmbientPresenceSetting(bool enabled)
         => _chatSessionStore.ApplyToSurfaces(surface => surface.ShowAmbientPresence = enabled);
 

@@ -35,7 +35,7 @@ function eventTarget(properties = {}) {
 function host({
     hidden = false, secure = true, dark = false, registrationError,
     origin = 'https://lumi.test', storage = new Map(), storageError, registration,
-    controller = null, updateError, updateTask
+    controller = null, updateError, updateTask, notifications
 } = {}) {
     const meta = {};
     const media = eventTarget({ matches: dark });
@@ -63,9 +63,17 @@ function host({
             return this;
         }
     });
+    registration.scope ??= `${origin}/app/`;
+    if (notifications) {
+        registration.pushManager ??= notifications.pushManager ?? pushManager();
+        registration.getNotifications ??= async ({ tag } = {}) =>
+            (notifications.shown ?? []).filter(notification => tag === undefined || notification.tag === tag);
+    }
     const window = eventTarget({
         isSecureContext: secure,
-        matchMedia: () => media,
+        matchMedia: query => query.includes('display-mode')
+            ? { matches: notifications?.standalone === true }
+            : media,
         location: {
             origin,
             href: `${origin}/app/`,
@@ -95,6 +103,16 @@ function host({
         },
         launchQueue: { setConsumer(callback) { this.consume = callback; } }
     });
+    if (notifications && notifications.supported !== false) {
+        window.Notification = {
+            permission: notifications.permission ?? 'default',
+            async requestPermission() {
+                this.permission = notifications.answer ?? 'granted';
+                return this.permission;
+            }
+        };
+        window.PushManager = function PushManager() {};
+    }
     const serviceWorker = eventTarget({
         controller,
         async register(url, options) {
@@ -102,17 +120,26 @@ function host({
             if (registrationError)
                 throw registrationError;
             return registration;
-        }
+        },
+        ready: Promise.resolve(registration),
+        async getRegistration() { return registration; },
+        startMessages() { serviceWorker.messagesStarted = true; }
     });
     const context = vm.createContext({
-        document, window, URL, queueMicrotask,
+        document, window, URL, queueMicrotask, Response, atob,
         setTimeout(callback, ms) {
             const id = ++timerId;
             timers.set(id, { callback, ms });
             return id;
         },
         clearTimeout: id => timers.delete(id),
-        navigator: { serviceWorker },
+        navigator: {
+            serviceWorker,
+            userAgent: notifications?.userAgent ?? 'Mozilla/5.0 (Linux; Android 15) Chrome/143.0.0.0 Mobile',
+            platform: notifications?.platform ?? 'Linux armv8l',
+            maxTouchPoints: notifications?.maxTouchPoints ?? 5
+        },
+        caches: notifications?.caches,
         console: { warn: (...args) => warnings.push(args) }
     });
     vm.runInContext(source('pwaHost.js').replace(/^export /gm, ''), context);
@@ -128,6 +155,46 @@ const settle = async () => {
     for (let i = 0; i < 8; i++)
         await Promise.resolve();
 };
+
+const notifiedChat = '8a0f6c4e-5d0a-4c55-9c93-1f0b2a7d4e61';
+const pcKey = Buffer.from([4, ...Array.from({ length: 64 }, (_, index) => index)]).toString('base64url');
+// Objects made inside a test's VM come from its own realm; compare their plain JSON.
+const plain = value => JSON.parse(JSON.stringify(value));
+
+/** A browser's push manager: the subscription it holds, and what was asked of it. */
+function pushManager({ existing = null, endpoint = 'https://fcm.googleapis.com/fcm/send/browser' } = {}) {
+    const calls = { subscribed: [], unsubscribed: 0 };
+    const subscription = (key, url) => ({
+        options: { applicationServerKey: key },
+        toJSON: () => ({ endpoint: url, expirationTime: null, keys: { p256dh: 'BBrowserKey', auth: 'Secret' } }),
+        async unsubscribe() {
+            calls.unsubscribed++;
+            manager.current = null;
+            return true;
+        }
+    });
+    const manager = {
+        calls,
+        current: existing ? subscription(existing.key, existing.endpoint ?? endpoint) : null,
+        async getSubscription() { return manager.current; },
+        async subscribe(options) {
+            calls.subscribed.push(options);
+            manager.current = subscription(options.applicationServerKey, endpoint);
+            return manager.current;
+        }
+    };
+    return manager;
+}
+
+function notificationCaches() {
+    const saved = new Map();
+    return {
+        saved,
+        async open(name) {
+            return { async put(url, response) { saved.set(`${name} ${url}`, await response.text()); } };
+        }
+    };
+}
 
 function viewportHost({
     height = 844, visibleHeight = height, offsetTop = 0, scale = 1,
@@ -382,8 +449,10 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', la
     });
     const interop = {
         SetNativeTextInputText() {}, HandleNativeTextInputKey() {}, SetNativeTextInputFocus() {},
-        SetApplicationActive() {}, CanApplyAppUpdate() {}, SetAppUpdateState() {}, SetNetworkAvailable() {}
+        SetApplicationActive() {}, CanApplyAppUpdate() {}, SetAppUpdateState() {}, SetNetworkAvailable() {},
+        OpenChatFromNotification() {}
     };
+    const notificationClicks = [];
     const runtime = {
         getConfig: () => ({ mainAssemblyName: 'Lumi.Mobile.Browser' }),
         getAssemblyExports: async () => ({ Lumi: { Mobile: { Browser: { BrowserInterop: interop } } } }),
@@ -425,7 +494,11 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', la
             if (name === './pwaHost.js')
                 return {
                     checkAppUpdate() {}, reloadWebApp: () => recoveries++,
-                    configureAppLifecycle() {}, configureAppUpdates() {}
+                    configureAppLifecycle() {}, configureAppUpdates() {},
+                    configureNotificationClicks(open) {
+                        lifecycle.push('notification-clicks');
+                        notificationClicks.push(open);
+                    }
                 };
             if (name === './_framework/dotnet.js')
                 return { dotnet };
@@ -441,7 +514,7 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', la
     const ready = vm.runInContext(`(async () => { ${main} })()`, context)
         .catch(error => errors.push(error));
     return {
-        retry, label, errors, modules, ready, installed, warnings, lifecycle,
+        retry, label, errors, modules, ready, installed, warnings, lifecycle, interop, notificationClicks,
         get started() { return started; },
         get reloads() { return reloads; },
         get recoveries() { return recoveries; },
@@ -474,7 +547,7 @@ test('a runtime import failure retains explicit PWA recovery once the host modul
 test('picker preparation requires the runtime, precedes app startup, and fails without preventing chatting', async () => {
     const ready = startup(null);
     await ready.ready;
-    assert.deepEqual(ready.lifecycle, ['runtime-created', 'storage-loaded', 'picker-prepared', 'app-start']);
+    assert.deepEqual(ready.lifecycle, ['runtime-created', 'storage-loaded', 'picker-prepared', 'app-start', 'notification-clicks']);
     assert.equal(ready.errors.length, 0);
     assert.equal(ready.warnings.length, 0);
     const failed = startup('./_framework/storage.js');
@@ -524,6 +597,14 @@ test('a worker module download failure still starts the normal app and reports t
     assert.equal(app.warnings.length, 1);
     assert.equal(app.errors.length, 0);
     assert.equal(app.retry.hidden, true);
+});
+
+test('notification taps reach the app only once it runs', async () => {
+    const app = startup(null);
+    await app.ready;
+    assert.equal(app.notificationClicks.length, 1);
+    assert.equal(app.notificationClicks[0], app.interop.OpenChatFromNotification);
+    assert.ok(app.lifecycle.indexOf('notification-clicks') > app.lifecycle.indexOf('app-start'));
 });
 
 function waitingWorker() {
@@ -1070,7 +1151,7 @@ test('exact worker-renderer overrides survive cache recovery and app reload with
 function worker({
     installError, missingCache = false,
     scope = 'https://lumi.test/app/', networkError, networkStatus = 200, networkType = 'basic',
-    appClients = [], legacyFramework, assets, cacheAsset
+    appClients = [], legacyFramework, assets, cacheAsset, notificationText
 } = {}) {
     const handlers = new Map();
     const requests = [];
@@ -1078,6 +1159,9 @@ function worker({
     const deleted = [];
     const networkOptions = [];
     const warnings = [];
+    const notifications = [];
+    const displayed = new Map();
+    const openedWindows = [];
     let claims = 0;
     let skips = 0;
     const cache = {
@@ -1091,8 +1175,25 @@ function worker({
             return missingCache ? undefined : { cached: url };
         }
     };
+    const notificationCache = {
+        async match(url) {
+            return notificationText && url === new URL('notification-text.json', scope).href
+                ? { async json() { return notificationText; } }
+                : undefined;
+        }
+    };
     const self = {
-        registration: { scope },
+        registration: {
+            scope,
+            async showNotification(title, options) {
+                notifications.push({ title, options });
+                // As browsers do, a notification with the same tag replaces the one showing.
+                displayed.set(options.tag, { title, ...options });
+            },
+            async getNotifications({ tag } = {}) {
+                return [...displayed.values()].filter(shown => tag === undefined || shown.tag === tag);
+            }
+        },
         lumiAssetVersion: 'build2',
         lumiAssets: assets ?? [
             { url: 'index.html', hash: 'sha256-shell' },
@@ -1100,7 +1201,11 @@ function worker({
             { url: '_framework/runtime.wasm', hash: 'sha256-wasm' }
         ],
         addEventListener: (name, callback) => handlers.set(name, callback),
-        clients: { async claim() { claims++; }, async matchAll() { return appClients; } },
+        clients: {
+            async claim() { claims++; },
+            async matchAll() { return appClients; },
+            async openWindow(url) { openedWindows.push(url); }
+        },
         skipWaiting() { skips++; }
     };
     vm.runInNewContext(source('service-worker.js'), {
@@ -1108,12 +1213,14 @@ function worker({
         importScripts: url => assert.equal(url, './service-worker-assets.js'),
         caches: {
             async open(name) {
+                if (name === 'lumi-notifications')
+                    return notificationCache;
                 if (name === 'lumi-pwa-build1')
                     return { async match(url) { return url === legacyFramework ? { legacy: url } : undefined; } };
                 assert.equal(name, 'lumi-pwa-build2');
                 return cache;
             },
-            async keys() { return ['lumi-pwa-build1', 'lumi-pwa-build2', 'unrelated-cache']; },
+            async keys() { return ['lumi-pwa-build1', 'lumi-pwa-build2', 'lumi-notifications', 'unrelated-cache']; },
             async delete(name) { deleted.push(name); }
         },
         async fetch(request, options) {
@@ -1126,7 +1233,7 @@ function worker({
         console: { warn: (...args) => warnings.push(args) }
     });
     return {
-        requests, network, deleted, networkOptions, warnings,
+        requests, network, deleted, networkOptions, warnings, notifications, openedWindows,
         get claims() { return claims; },
         get skips() { return skips; },
         async lifecycle(name) {
@@ -1141,6 +1248,30 @@ function worker({
                 waitUntil(value) { pending = value; }
             });
             await pending;
+        },
+        async push(message) {
+            let pending;
+            handlers.get('push')({
+                data: message === undefined ? null : {
+                    json() {
+                        if (message instanceof Error)
+                            throw message;
+                        return message;
+                    }
+                },
+                waitUntil(value) { pending = value; }
+            });
+            await pending;
+        },
+        async click(data) {
+            let pending;
+            let closed = 0;
+            handlers.get('notificationclick')({
+                notification: { data, close() { closed++; } },
+                waitUntil(value) { pending = value; }
+            });
+            await pending;
+            return closed;
         },
         async fetch(url, { method = 'GET', mode = 'cors' } = {}) {
             let pending;
@@ -1238,6 +1369,324 @@ test('activation removes only obsolete Lumi app caches', async () => {
     await app.lifecycle('activate');
     assert.deepEqual(app.deleted, ['lumi-pwa-build1']);
     assert.equal(app.claims, 1);
+});
+
+test('a pushed reply shows in the app\'s language, one notification per chat that rings again', async () => {
+    const app = worker({ notificationText: { lang: 'he', replyFallback: 'סיים לענות.' } });
+
+    await app.push({
+        id: `reply:${notifiedChat}`, kind: 'reply', chatId: notifiedChat, title: 'Trip plan',
+        agent: 'Travel Lumi', text: 'Three hotels fit.', host: 'LIGHTO', at: 1793000000000
+    });
+    await app.push({
+        id: `reply:${notifiedChat}`, kind: 'reply', chatId: notifiedChat, title: 'Trip plan', text: '', at: 1793000060000
+    });
+
+    const [first, second] = app.notifications.map(plain);
+    assert.equal(first.title, 'Trip plan');
+    assert.deepEqual(first.options, {
+        body: 'Travel Lumi: Three hotels fit.',
+        tag: notifiedChat,
+        renotify: true,
+        timestamp: 1793000000000,
+        lang: 'he',
+        icon: 'https://lumi.test/app/icons/lumi-192.png',
+        badge: 'https://lumi.test/app/icons/lumi-badge-96.png',
+        data: { chatId: notifiedChat, title: 'Trip plan', at: 1793000000000 }
+    });
+    assert.equal(second.options.body, 'סיים לענות.');
+    assert.equal(second.options.tag, notifiedChat);
+    assert.equal(second.options.renotify, true);
+    assert.equal(second.options.timestamp, 1793000060000);
+});
+
+test('a push that arrives late never replaces what a chat shows about something newer', async () => {
+    const otherChat = '0d6f2c3a-1b2c-4d5e-8f90-a1b2c3d4e5f6';
+    const app = worker();
+
+    await app.push({ kind: 'approval', chatId: notifiedChat, title: 'Trip plan', text: 'Run setup.ps1', host: 'LIGHTO', at: 2000 });
+    // A reply the push service held while the phone slept arrives after the approval that followed it.
+    await app.push({ kind: 'reply', chatId: notifiedChat, title: 'Trip plan', text: 'Done.', host: 'LIGHTO', at: 1000 });
+    await app.push({ kind: 'reply', chatId: otherChat, title: 'Groceries', text: 'List ready.', host: 'LIGHTO', at: 500 });
+    await app.push({ kind: 'reply', chatId: notifiedChat, title: 'Trip plan', text: 'All set.', host: 'LIGHTO', at: 3000 });
+
+    const [approval, late, other, newest] = app.notifications.map(plain);
+    assert.equal(approval.options.body, 'Needs your approval on LIGHTO: Run setup.ps1');
+    // Every push must show a notification, so the late one shows the approval again, quietly.
+    assert.equal(late.title, 'Trip plan');
+    assert.equal(late.options.body, approval.options.body);
+    assert.equal(late.options.tag, notifiedChat);
+    assert.equal(late.options.renotify, false);
+    assert.equal(late.options.timestamp, 2000);
+    assert.deepEqual(late.options.data, approval.options.data);
+    // Other chats keep their own notifications.
+    assert.equal(other.options.body, 'List ready.');
+    assert.equal(other.options.renotify, true);
+    // Something newer replaces it and rings again.
+    assert.equal(newest.options.body, 'All set.');
+    assert.equal(newest.options.renotify, true);
+});
+
+test('questions, forms, approvals and tests say what Lumi waits for, in English until the app saves its words', async () => {
+    const app = worker();
+
+    await app.push({ kind: 'question', chatId: notifiedChat, title: 'Trip plan', text: 'Which city first?', host: 'LIGHTO' });
+    await app.push({ kind: 'input', chatId: notifiedChat, title: 'Trip plan', text: 'Trip details', host: 'LIGHTO' });
+    await app.push({ kind: 'approval', chatId: notifiedChat, title: 'Trip plan', text: 'Run setup.ps1', host: 'LIGHTO' });
+    await app.push({ kind: 'test', id: 'test:1', title: '', text: '', host: 'LIGHTO' });
+
+    const shown = app.notifications.map(plain);
+    assert.deepEqual(shown.map(notification => notification.options.body), [
+        'Which city first?',
+        'Needs your input: Trip details',
+        'Needs your approval on LIGHTO: Run setup.ps1',
+        'This is how LIGHTO will reach you while you\'re away.'
+    ]);
+    assert.equal(shown[3].title, 'Notifications work');
+    assert.equal(shown[3].options.tag, 'lumi-test');
+    assert.equal(shown[3].options.data.chatId, null);
+    assert.equal(shown[0].options.lang, 'en');
+});
+
+test('the worker\'s English wording is the app\'s own', () => {
+    const catalog = readFileSync(
+        new URL('../../src/Lumi.Mobile/Localization/ChatSessionStrings.resx', import.meta.url), 'utf8');
+    const worker = source('service-worker.js');
+    for (const [field, key] of [
+        ['testTitle', 'NotificationTestTitle'],
+        ['testText', 'NotificationTestText'],
+        ['inputText', 'NotificationInputText'],
+        ['approvalText', 'NotificationApprovalText'],
+        ['replyFallback', 'NotificationReplyFallback']
+    ]) {
+        const expected = catalog.match(new RegExp(`<data name="${key}"[^>]*><value>([^<]*)</value>`))[1];
+        const actual = worker.match(new RegExp(`${field}: '((?:[^'\\\\]|\\\\.)*)'`))[1].replace(/\\'/g, '\'');
+        assert.equal(actual, expected, field);
+    }
+});
+
+test('an unreadable push still shows a notification, as browsers require', async () => {
+    const app = worker();
+
+    await app.push(new Error('Not JSON'));
+    await app.push(undefined);
+
+    assert.equal(app.notifications.length, 2);
+    assert.equal(app.notifications[0].title, 'Lumi');
+    assert.equal(app.notifications[0].options.body, '');
+    assert.equal(app.notifications[0].options.tag, 'lumi');
+    assert.equal(app.warnings.length, 1);
+});
+
+test('tapping a notification brings the open app forward on its chat', async () => {
+    const focused = [];
+    const posted = [];
+    const client = (url, focusError) => ({
+        url,
+        async focus() {
+            if (focusError)
+                throw focusError;
+            focused.push(url);
+            return this;
+        },
+        postMessage: message => posted.push({ url, message })
+    });
+    const app = worker({
+        appClients: [client('https://lumi.test/elsewhere/'), client('https://lumi.test/app/?workerframes=1')]
+    });
+
+    const closed = await app.click({ chatId: notifiedChat, title: 'Trip plan' });
+
+    assert.equal(closed, 1);
+    assert.deepEqual(focused, ['https://lumi.test/app/?workerframes=1']);
+    assert.deepEqual(plain(posted), [{
+        url: 'https://lumi.test/app/?workerframes=1',
+        message: { type: 'lumi-open-chat', chatId: notifiedChat, title: 'Trip plan' }
+    }]);
+    assert.deepEqual(app.openedWindows, []);
+
+    // A window the browser will not bring forward still opens the chat.
+    const stubborn = worker({ appClients: [client('https://lumi.test/app/', new Error('Not allowed'))] });
+    await stubborn.click({ chatId: notifiedChat, title: 'Trip plan' });
+    assert.equal(posted.length, 2);
+    assert.equal(stubborn.warnings.length, 1);
+});
+
+test('tapping a notification with the app closed opens it on that chat', async () => {
+    const app = worker();
+
+    await app.click({ chatId: notifiedChat, title: 'Trip plan' });
+    await app.click({ chatId: null, title: '' });
+
+    assert.deepEqual(app.openedWindows, [`https://lumi.test/app/?lumi-chat=${notifiedChat}`, 'https://lumi.test/app/']);
+});
+
+test('notification support says what a browser needs first', () => {
+    const support = (options, secure = true) =>
+        host({ secure, notifications: { userAgent: 'Android 15 Chrome/143.0.0.0', ...options } }).context.getNotificationSupport();
+
+    assert.equal(support({}), 'supported');
+    assert.equal(support({}, false), 'insecure');
+    assert.equal(support({ userAgent: 'iPhone OS 18 Safari/605.1' }), 'home-screen');
+    assert.equal(support({ userAgent: 'iPhone OS 18 Safari/605.1', standalone: true }), 'supported');
+    assert.equal(support({ userAgent: 'Macintosh Safari/605.1', platform: 'MacIntel', maxTouchPoints: 5 }), 'home-screen');
+    assert.equal(support({ userAgent: 'Macintosh Safari/605.1', platform: 'MacIntel', maxTouchPoints: 0 }), 'supported');
+    assert.equal(support({ supported: false }), 'unsupported');
+});
+
+test('turning notifications on asks the browser and reports its answer', async () => {
+    const app = host({ notifications: { permission: 'default', answer: 'granted' } });
+    assert.equal(app.context.getNotificationPermission(), 'default');
+    assert.equal(await app.context.requestNotificationPermission(), 'granted');
+    assert.equal(app.context.getNotificationPermission(), 'granted');
+
+    const without = host({ notifications: { supported: false } });
+    assert.equal(without.context.getNotificationPermission(), 'denied');
+    assert.equal(await without.context.requestNotificationPermission(), 'denied');
+});
+
+test('subscribing leaves the wording for the worker and keeps one subscription for the PC\'s key', async () => {
+    const manager = pushManager();
+    const caches = notificationCaches();
+    const app = host({ notifications: { permission: 'granted', caches, pushManager: manager } });
+
+    const first = JSON.parse(await app.context.subscribeToPush(pcKey, '{"lang":"he"}'));
+    const again = JSON.parse(await app.context.subscribeToPush(pcKey, '{"lang":"he"}'));
+
+    assert.deepEqual(first, { endpoint: 'https://fcm.googleapis.com/fcm/send/browser', p256dh: 'BBrowserKey', auth: 'Secret' });
+    assert.deepEqual(again, first);
+    assert.equal(manager.calls.subscribed.length, 1);
+    assert.equal(manager.calls.subscribed[0].userVisibleOnly, true);
+    assert.deepEqual(
+        Array.from(manager.calls.subscribed[0].applicationServerKey),
+        Array.from(Buffer.from(pcKey, 'base64url')));
+    assert.equal(caches.saved.get('lumi-notifications https://lumi.test/app/notification-text.json'), '{"lang":"he"}');
+});
+
+test('a subscription for another key is replaced, and a browser without a push service is refused', async () => {
+    const replaced = pushManager({ existing: { key: new Uint8Array(65).fill(9).buffer } });
+    const app = host({ notifications: { permission: 'granted', caches: notificationCaches(), pushManager: replaced } });
+    await app.context.subscribeToPush(pcKey, '{}');
+    assert.equal(replaced.calls.unsubscribed, 1);
+    assert.equal(replaced.calls.subscribed.length, 1);
+
+    const removed = pushManager({ endpoint: 'https://permanently-removed.invalid/fcm/send/browser' });
+    const edge = host({ notifications: { permission: 'granted', caches: notificationCaches(), pushManager: removed } });
+    await assert.rejects(edge.context.subscribeToPush(pcKey, '{}'), /no working push service/);
+    assert.equal(removed.calls.unsubscribed, 1);
+});
+
+test('turning notifications off ends the browser\'s subscription', async () => {
+    const manager = pushManager({ existing: { key: Buffer.from(pcKey, 'base64url') } });
+    const app = host({ notifications: { pushManager: manager } });
+
+    await app.context.unsubscribeFromPush();
+    await app.context.unsubscribeFromPush();
+
+    assert.equal(manager.calls.unsubscribed, 1);
+});
+
+test('opening a chat takes down only that chat\'s notifications', async () => {
+    const closed = [];
+    const shown = ['chat-1', 'chat-2', 'chat-1'].map((tag, index) => ({ tag, close: () => closed.push(`${tag}#${index}`) }));
+    const app = host({ notifications: { shown } });
+
+    app.context.clearChatNotifications('chat-1');
+    await settle();
+
+    assert.deepEqual(closed, ['chat-1#0', 'chat-1#2']);
+});
+
+test('a tapped notification opens its chat from the worker, or from the address it opened', () => {
+    const opened = [];
+    const app = host({ notifications: {} });
+    app.window.location.href = `https://lumi.test/app/?workerframes=1&lumi-chat=${notifiedChat}`;
+
+    app.context.configureNotificationClicks((chatId, title) => opened.push([chatId, title]));
+    assert.deepEqual(opened, [[notifiedChat, '']]);
+    assert.equal(app.window.location.href, 'https://lumi.test/app/?workerframes=1');
+    assert.equal(app.serviceWorker.messagesStarted, true);
+
+    app.serviceWorker.dispatch('message', { data: { type: 'lumi-open-chat', chatId: notifiedChat, title: 'Trip plan' } });
+    app.serviceWorker.dispatch('message', { data: { type: 'lumi-open-chat', chatId: 'javascript:alert(1)' } });
+    app.serviceWorker.dispatch('message', { data: { type: 'lumi-other', chatId: notifiedChat } });
+    assert.deepEqual(opened, [[notifiedChat, ''], [notifiedChat, 'Trip plan']]);
+});
+
+test('the worker tells the open app about every push it showed, so a test can confirm delivery', async () => {
+    const posted = [];
+    const client = (url, fails = false) => ({
+        url,
+        postMessage(message) {
+            if (fails)
+                throw new Error('The page is closing.');
+            posted.push({ url, message });
+        }
+    });
+    const app = worker({
+        appClients: [client('https://lumi.test/app/'), client('https://lumi.test/elsewhere/'), client('https://lumi.test/app/?workerframes=1', true)]
+    });
+
+    await app.push({ kind: 'test', id: 'test:1', title: '', text: '', host: 'LIGHTO', at: 5000 });
+    await app.push({ kind: 'reply', chatId: notifiedChat, title: 'Trip plan', text: 'Done.', host: 'LIGHTO', at: 2000 });
+    // A late push that shows the chat's newer notification again still arrived.
+    await app.push({ kind: 'reply', chatId: notifiedChat, title: 'Trip plan', text: 'Older.', host: 'LIGHTO', at: 1000 });
+
+    assert.deepEqual(plain(posted), ['test', 'reply', 'reply'].map(kind => ({
+        url: 'https://lumi.test/app/',
+        message: { type: 'lumi-push-received', kind }
+    })));
+    // A page that can't be told doesn't keep the notification from showing.
+    assert.equal(app.notifications.length, 3);
+    assert.equal(app.warnings.length, 3);
+});
+
+test('a test counts as delivered only once the worker reports a test push, and as lost when none comes', async () => {
+    const app = host({ notifications: {} });
+
+    const arrived = app.context.expectTestPush(20000);
+    assert.equal(app.serviceWorker.messagesStarted, true);
+    app.serviceWorker.dispatch('message', { data: { type: 'lumi-push-received', kind: 'reply' } });
+    app.serviceWorker.dispatch('message', { data: { type: 'lumi-open-chat', kind: 'test' } });
+    app.serviceWorker.dispatch('message', { data: { type: 'lumi-push-received', kind: 'test' } });
+    assert.equal(await arrived, true);
+    assert.equal(app.timers.size, 0);
+
+    const lost = app.context.expectTestPush(20000);
+    const [timer] = [...app.timers.values()];
+    assert.equal(timer.ms, 20000);
+    timer.callback();
+    assert.equal(await lost, false);
+    // Each wait stops listening when it ends.
+    app.serviceWorker.dispatch('message', { data: { type: 'lumi-push-received', kind: 'test' } });
+    assert.equal(app.timers.size, 0);
+});
+
+test('an app opened from the Home Screen counts as installed; a browser tab does not', () => {
+    assert.equal(host({ notifications: {} }).context.isInstalledApp(), false);
+    assert.equal(host({ notifications: { standalone: true } }).context.isInstalledApp(), true);
+    const safari = host({ notifications: {} });
+    safari.context.navigator.standalone = true;
+    assert.equal(safari.context.isInstalledApp(), true);
+});
+
+test('each browser pairs under its own name, so the PC can tell side-by-side browsers apart', () => {
+    const app = viewportHost();
+    const name = (userAgent, extra = {}) => {
+        Object.assign(app.context.navigator, { userAgent, platform: '', maxTouchPoints: 0, ...extra });
+        return app.context.getDeviceName();
+    };
+
+    assert.equal(name('Mozilla/5.0 (Linux; Android 15; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/28.0 Chrome/130.0.0.0 Mobile Safari/537.36'), 'Samsung Internet (Android)');
+    assert.equal(name('Mozilla/5.0 (Linux; Android 15; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Mobile Safari/537.36 EdgA/143.0.0.0'), 'Edge (Android)');
+    assert.equal(name('Mozilla/5.0 (Linux; Android 15; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Mobile Safari/537.36'), 'Chrome (Android)');
+    assert.equal(name('Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Mobile Safari/537.36 OPR/85.0'), 'Opera (Android)');
+    assert.equal(name('Mozilla/5.0 (Android 15; Mobile; rv:143.0) Gecko/143.0 Firefox/143.0'), 'Firefox (Android)');
+    assert.equal(name('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'), 'Safari (iPhone)');
+    assert.equal(name('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/143.0 Mobile/15E148 Safari/604.1'), 'Chrome (iPhone)');
+    assert.equal(name('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15', { platform: 'MacIntel', maxTouchPoints: 5 }), 'Safari (iPad)');
+    assert.equal(name('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0'), 'Edge (Windows)');
+    assert.equal(name(''), '');
 });
 
 test('coordinated recovery activation retains older verified runtimes for other open app pages', async () => {

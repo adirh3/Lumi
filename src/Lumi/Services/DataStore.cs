@@ -361,6 +361,7 @@ public partial class DataStore : IChatContentSearch
             _data.Settings.RemoteAllowInsecureLan = persisted.RemoteAllowInsecureLan;
             _data.Settings.RemoteUseDevTunnel = persisted.RemoteUseDevTunnel;
             _data.Settings.RemoteDevTunnelId = persisted.RemoteDevTunnelId;
+            _data.Settings.RemoteWebPushKey = persisted.RemoteWebPushKey;
             _data.Settings.RemotePairedDevices = persisted.RemotePairedDevices
                 .Select(CloneRemotePairedDevice)
                 .ToList();
@@ -438,6 +439,7 @@ public partial class DataStore : IChatContentSearch
                 existing.Token = device.Token;
                 existing.PairedAt = device.PairedAt;
                 existing.LastSeenAt = device.LastSeenAt;
+                existing.WebPush = device.WebPush;
             }
         }
 
@@ -468,6 +470,56 @@ public partial class DataStore : IChatContentSearch
                 device.LastSeenAt = lastSeenAt;
             }
         }
+    }
+
+    /// <summary>
+    /// Sets or clears where a paired browser takes push notifications. A subscription belongs to one
+    /// device: a browser that paired again takes it from its old pairing. False when the device is gone.
+    /// </summary>
+    public bool SetRemoteWebPush(string deviceId, RemoteWebPushSubscription? subscription)
+    {
+        lock (_remoteSecuritySync)
+        {
+            var devices = _data.Settings.RemotePairedDevices;
+            if (devices.FirstOrDefault(candidate =>
+                    string.Equals(candidate.DeviceId, deviceId, StringComparison.Ordinal)) is not { } device)
+            {
+                return false;
+            }
+
+            if (subscription is not null)
+            {
+                foreach (var other in devices.Where(other => other != device
+                             && string.Equals(other.WebPush?.Endpoint, subscription.Endpoint, StringComparison.Ordinal)))
+                {
+                    other.WebPush = null;
+                }
+            }
+
+            device.WebPush = subscription;
+        }
+
+        MarkRemotePairedDevicesChanged();
+        return true;
+    }
+
+    /// <summary>Forgets a push subscription its push service no longer knows. True when one was held.</summary>
+    public bool RemoveRemoteWebPush(string endpoint)
+    {
+        var removed = false;
+        lock (_remoteSecuritySync)
+        {
+            foreach (var device in _data.Settings.RemotePairedDevices.Where(device =>
+                         string.Equals(device.WebPush?.Endpoint, endpoint, StringComparison.Ordinal)))
+            {
+                device.WebPush = null;
+                removed = true;
+            }
+        }
+
+        if (removed)
+            MarkRemotePairedDevicesChanged();
+        return removed;
     }
 
     internal AppData CreateIndexSnapshot()
@@ -610,7 +662,8 @@ public partial class DataStore : IChatContentSearch
             DeviceName = device.DeviceName,
             Token = device.Token,
             PairedAt = device.PairedAt,
-            LastSeenAt = device.LastSeenAt
+            LastSeenAt = device.LastSeenAt,
+            WebPush = device.WebPush
         };
 
     /// <summary>

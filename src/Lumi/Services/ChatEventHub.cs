@@ -11,28 +11,71 @@ public sealed record ChatLifecycleEvent(
     DateTimeOffset OccurredAt,
     string? Detail = null);
 
+public enum ChatAttentionKind
+{
+    /// <summary>The main assistant finished a reply.</summary>
+    Reply,
+
+    /// <summary>ask_question waits for an answer.</summary>
+    Question,
+
+    /// <summary>ask_input waits for a form or a pick.</summary>
+    Input,
+
+    /// <summary>A tool call waits for approval.</summary>
+    Approval
+}
+
+/// <summary>
+/// Something in a chat that needs the user — exactly the moments the desktop notifies about. Phone
+/// notifications are built from these.
+/// </summary>
+public sealed record ChatAttention(
+    Guid ChatId,
+    ChatAttentionKind Kind,
+    string Text,
+    string? RequestId = null);
+
 public sealed class ChatEventHub
 {
     public event Action<ChatLifecycleEvent>? EventPublished;
 
-    public void Publish(ChatLifecycleEvent chatEvent)
-    {
-        ArgumentNullException.ThrowIfNull(chatEvent);
+    /// <summary>A chat needs the user. Raised on the UI thread.</summary>
+    public event Action<ChatAttention>? AttentionRaised;
 
-        var handlers = EventPublished;
+    /// <summary>A pending request (question, input or approval) of a chat was settled. Raised on the UI thread.</summary>
+    public event Action<Guid, string>? AttentionResolved;
+
+    public void PublishAttention(ChatAttention attention)
+    {
+        ArgumentNullException.ThrowIfNull(attention);
+        Raise(AttentionRaised, handler => handler(attention));
+    }
+
+    public void ResolveAttention(Guid chatId, string requestId) =>
+        Raise(AttentionResolved, handler => handler(chatId, requestId));
+
+    private static void Raise<T>(T? handlers, Action<T> invoke) where T : Delegate
+    {
         if (handlers is null)
             return;
 
-        foreach (Action<ChatLifecycleEvent> handler in handlers.GetInvocationList())
+        foreach (T handler in handlers.GetInvocationList())
         {
             try
             {
-                handler(chatEvent);
+                invoke(handler);
             }
             catch (Exception ex)
             {
                 Trace.TraceError($"[ChatEvents] Subscriber failed: {ex}");
             }
         }
+    }
+
+    public void Publish(ChatLifecycleEvent chatEvent)
+    {
+        ArgumentNullException.ThrowIfNull(chatEvent);
+        Raise(EventPublished, handler => handler(chatEvent));
     }
 }

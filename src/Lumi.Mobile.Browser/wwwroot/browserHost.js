@@ -46,6 +46,31 @@ export function getLanguage() {
     return globalThis.lumiLocalization?.language ?? 'en';
 }
 
+/**
+ * What the PC lists this browser as, such as "Samsung Internet (Android)", so phones and browsers
+ * paired side by side can be told apart. Empty when the browser can't be recognized.
+ */
+export function getDeviceName() {
+    const navigator = globalThis.navigator ?? {};
+    const agent = navigator.userAgent ?? '';
+    const browser = /SamsungBrowser\//.test(agent) ? 'Samsung Internet'
+        : /\bEdg(?:A|iOS)?\//.test(agent) ? 'Edge'
+        : /\b(?:Firefox|FxiOS)\//.test(agent) ? 'Firefox'
+        : /\b(?:OPR|OPT)\//.test(agent) ? 'Opera'
+        : /\b(?:Chrome|CriOS)\//.test(agent) ? 'Chrome'
+        : /\bVersion\/[\d.]+.*Safari\//.test(agent) ? 'Safari'
+        : '';
+    const system = /Android/.test(agent) ? 'Android'
+        : /iPhone|iPod/.test(agent) ? 'iPhone'
+        : /iPad/.test(agent) || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1 ? 'iPad'
+        : /Windows/.test(agent) ? 'Windows'
+        : /Macintosh|Mac OS X/.test(agent) ? 'Mac'
+        : /CrOS/.test(agent) ? 'ChromeOS'
+        : /Linux/.test(agent) ? 'Linux'
+        : '';
+    return browser && system ? `${browser} (${system})` : browser || system;
+}
+
 export function getStorageItem(key) {
     try {
         return globalThis.localStorage.getItem(key);

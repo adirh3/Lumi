@@ -134,6 +134,9 @@ internal static class AppDataSnapshotFactory
                 RemotePairedDevices = settings.RemotePairedDevices
                     .Select(CloneRemotePairedDevice)
                     .ToList(),
+                RemoteWebPushKey = settings.RemoteWebPushKey,
+                PhoneNotificationsEnabled = settings.PhoneNotificationsEnabled,
+                PhoneNotificationAwayMinutes = settings.PhoneNotificationAwayMinutes,
             },
             Chats = includeChats
                 ? source.Chats.Select(CloneChatIndex).ToList()
@@ -268,6 +271,7 @@ internal static class AppDataSnapshotFactory
                 currentSnapshot.Settings.RemoteAllowInsecureLan = persistedSnapshot.Settings.RemoteAllowInsecureLan;
                 currentSnapshot.Settings.RemoteUseDevTunnel = persistedSnapshot.Settings.RemoteUseDevTunnel;
                 currentSnapshot.Settings.RemoteDevTunnelId = persistedSnapshot.Settings.RemoteDevTunnelId;
+                currentSnapshot.Settings.RemoteWebPushKey = persistedSnapshot.Settings.RemoteWebPushKey;
                 currentSnapshot.Settings.RemotePairedDevices = persistedSnapshot.Settings.RemotePairedDevices
                     .Select(CloneRemotePairedDevice)
                     .ToList();
@@ -319,6 +323,7 @@ internal static class AppDataSnapshotFactory
             currentSnapshot.Settings.RemoteAllowInsecureLan = persistedSnapshot.Settings.RemoteAllowInsecureLan;
             currentSnapshot.Settings.RemoteUseDevTunnel = persistedSnapshot.Settings.RemoteUseDevTunnel;
             currentSnapshot.Settings.RemoteDevTunnelId = persistedSnapshot.Settings.RemoteDevTunnelId;
+            currentSnapshot.Settings.RemoteWebPushKey = persistedSnapshot.Settings.RemoteWebPushKey;
             currentSnapshot.Settings.RemotePairedDevices = persistedSnapshot.Settings.RemotePairedDevices
                 .Select(CloneRemotePairedDevice)
                 .ToList();
@@ -345,7 +350,8 @@ internal static class AppDataSnapshotFactory
             DeviceName = source.DeviceName,
             Token = source.Token,
             PairedAt = source.PairedAt,
-            LastSeenAt = source.LastSeenAt
+            LastSeenAt = source.LastSeenAt,
+            WebPush = source.WebPush
         };
 
     private static BackgroundJob CloneBackgroundJob(BackgroundJob source)

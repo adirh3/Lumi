@@ -1998,4 +1998,54 @@
   <data name="FilePreviewShareFailed" xml:space="preserve"><value>تعذّرت مشاركة الملف.</value></data>
   <data name="FilePreviewSaveFailed" xml:space="preserve"><value>تعذّر حفظ الملف.</value></data>
   <data name="FilePreviewClose" xml:space="preserve"><value>إغلاق المعاينة</value></data>
+  <data name="Notifications" xml:space="preserve"><value>الإشعارات</value></data>
+  <data name="NotifyMe" xml:space="preserve"><value>أرسل إشعارات إلى هذا الهاتف</value></data>
+  <data name="NotificationsSummary" xml:space="preserve"><value>الردود والأسئلة من {0} عندما تكون بعيدًا عنه</value></data>
+  <data name="NotificationsAwayRule" xml:space="preserve"><value>يعدّك {0} بعيدًا عندما يكون مقفلًا أو بعد {1} د دون لوحة مفاتيح أو ماوس. يمكنك تغيير ذلك على الحاسوب من الإعدادات → الهاتف.</value></data>
+  <data name="NotificationsOffOnPc" xml:space="preserve"><value>إشعارات الهاتف متوقفة على {0}. فعّلها في Lumi على الحاسوب من الإعدادات → الهاتف.</value></data>
+  <data name="NotificationsPcUpdateNeeded" xml:space="preserve"><value>حدّث Lumi على {0} لتلقي الإشعارات.</value></data>
+  <data name="NotificationsBlocked" xml:space="preserve"><value>يحظر Android الإشعارات من Lumi.</value></data>
+  <data name="OpenSystemSettings" xml:space="preserve"><value>افتح الإعدادات</value></data>
+  <data name="NotificationsKinds" xml:space="preserve"><value>ما يصلك إشعار به</value></data>
+  <data name="NotificationChannelQuestions" xml:space="preserve"><value>الأسئلة والموافقات</value></data>
+  <data name="NotificationChannelQuestionsDescription" xml:space="preserve"><value>عندما يحتاجك Lumi ليواصل العمل</value></data>
+  <data name="NotificationChannelReplies" xml:space="preserve"><value>الردود المكتملة</value></data>
+  <data name="NotificationChannelRepliesDescription" xml:space="preserve"><value>عندما ينتهي Lumi من الرد</value></data>
+  <data name="NotificationChannelConnection" xml:space="preserve"><value>الاتصال</value></data>
+  <data name="NotificationChannelConnectionDescription" xml:space="preserve"><value>إشعار صامت بينما يبقى Lumi متصلًا بحاسوبك</value></data>
+  <data name="SendTestNotification" xml:space="preserve"><value>أرسل إشعارًا تجريبيًا</value></data>
+  <data name="TestNotificationSent" xml:space="preserve"><value>تم الإرسال. سيصل بعد لحظة.</value></data>
+  <data name="TestNotificationFailed" xml:space="preserve"><value>تعذّر إرسال تجربة: {0}</value></data>
+  <data name="NotificationTestTitle" xml:space="preserve"><value>الإشعارات تعمل</value></data>
+  <data name="NotificationTestText" xml:space="preserve"><value>هكذا سيصلك {0} عندما تكون بعيدًا.</value></data>
+  <data name="NotificationReplyFallback" xml:space="preserve"><value>انتهى من الرد.</value></data>
+  <data name="NotificationInputText" xml:space="preserve"><value>يحتاج إلى إدخالك: {0}</value></data>
+  <data name="NotificationApprovalText" xml:space="preserve"><value>يحتاج إلى موافقتك على {0}: {1}</value></data>
+  <data name="NotificationConnected" xml:space="preserve"><value>متصل بـ {0}</value></data>
+  <data name="NotificationConnecting" xml:space="preserve"><value>جارٍ الاتصال بـ {0}…</value></data>
+  <data name="NotificationWaiting" xml:space="preserve"><value>بانتظار {0}</value></data>
+  <data name="NotificationPublicReply" xml:space="preserve"><value>أنهى Lumi ردًا</value></data>
+  <data name="NotificationPublicRequest" xml:space="preserve"><value>Lumi يحتاجك</value></data>
+  <data name="NotificationsPromptTitle" xml:space="preserve"><value>احصل على إشعار عندما يحتاجك Lumi</value></data>
+  <data name="NotificationsPromptText" xml:space="preserve"><value>عندما تكون بعيدًا عن {0}، يعرف هذا الهاتف فور جاهزية رد أو عندما يكون لدى Lumi سؤال. لا يصل شيء وأنت أمام الحاسوب.</value></data>
+  <data name="NotificationsPromptExample" xml:space="preserve"><value>تم كل شيء — التقرير جاهز على سطح المكتب.</value></data>
+  <data name="TurnOnNotifications" xml:space="preserve"><value>تفعيل الإشعارات</value></data>
+  <data name="NotNow" xml:space="preserve"><value>ليس الآن</value></data>
+  <data name="NotificationsBackgroundNote" xml:space="preserve"><value>ليصلك فورًا، يحافظ Lumi على اتصال هادئ بحاسوبك. يعرضه Android كإشعار صامت «متصل» يمكنك إخفاؤه.</value></data>
+  <data name="NotificationsNeedHttps" xml:space="preserve"><value>تسمح المتصفحات بالإشعارات على العناوين الآمنة (https) فقط. لتلقيها هنا، اختر Microsoft Dev Tunnel من الإعدادات → الهاتف على {0}، ثم افتح Lumi من الرمز الذي يظهر.</value></data>
+  <data name="NotificationsNeedHomeScreen" xml:space="preserve"><value>على iPhone وiPad، تعمل الإشعارات بعد إضافة Lumi إلى الشاشة الرئيسية: اضغط مشاركة، ثم إضافة إلى الشاشة الرئيسية، وافتح Lumi من هناك.</value></data>
+  <data name="NotificationsBrowserUnsupported" xml:space="preserve"><value>لا يستطيع هذا المتصفح تلقي الإشعارات. جرّب Chrome أو Edge أو Firefox أو Safari.</value></data>
+  <data name="NotificationsBlockedWeb" xml:space="preserve"><value>يحظر متصفحك الإشعارات من Lumi. اسمح بها من إعدادات الموقع، ثم عُد إلى Lumi.</value></data>
+  <data name="NotificationsWebReady" xml:space="preserve"><value>جاهز. يرسل {0} الإشعارات إلى هذا المتصفح.</value></data>
+  <data name="NotificationsWebRegistering" xml:space="preserve"><value>جارٍ إعداد الإشعارات…</value></data>
+  <data name="NotificationsWebFailed" xml:space="preserve"><value>تعذّر إعداد الإشعارات: {0}</value></data>
+  <data name="NotificationsBrowserFailed" xml:space="preserve"><value>خدمة الإشعارات في هذا المتصفح غير متاحة.</value></data>
+  <data name="NotificationsWebNote" xml:space="preserve"><value>تمر الإشعارات عبر خدمة الإشعارات في متصفحك، مشفّرة بحيث لا يقرؤها إلا هذا المتصفح. وتصلك حتى عندما يكون Lumi مغلقًا.</value></data>
+  <data name="AllowNotifications" xml:space="preserve"><value>السماح بالإشعارات</value></data>
+  <data name="NotificationsPermissionNeeded" xml:space="preserve"><value>الإشعارات مفعّلة، لكن Lumi غير مسموح له بعرضها هنا بعد.</value></data>
+  <data name="NotificationsAllowTitle" xml:space="preserve"><value>اسمح لـ Lumi بإشعارك هنا</value></data>
+  <data name="NotificationsBlockedTitle" xml:space="preserve"><value>الإشعارات محظورة</value></data>
+  <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>يحظر هاتفك الإشعارات من Lumi. اسمح بها لـ Lumi من إعدادات الهاتف، ثم عُد إلى Lumi.</value></data>
+  <data name="TestNotificationDelivered" xml:space="preserve"><value>وصل الإشعار. تحقّق من إشعاراتك.</value></data>
+  <data name="TestNotificationNotReceived" xml:space="preserve"><value>أرسله {0}، لكن هذا المتصفح لم يستلمه بعد. إن لم يصل شيء، فقد لا يوصل هذا المتصفح إشعارات الويب؛ جرّب متصفحًا آخر.</value></data>
 </root>

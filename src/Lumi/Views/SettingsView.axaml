@@ -628,6 +628,14 @@
                       <TextBlock Text="{Binding LastSeenText}"
                                 FontSize="{DynamicResource Font.SizeCaption}"
                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                      <StackPanel Orientation="Horizontal" Spacing="5"
+                                  IsVisible="{Binding IsReceivingNotifications}">
+                        <PathIcon Data="{StaticResource St.Icon.Bell}" Width="11" Height="11"
+                                  Foreground="{DynamicResource Brush.AccentDefault}" />
+                        <TextBlock Text="{loc:Str Remote_DeviceNotificationsOn}"
+                                   FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.AccentDefault}" />
+                      </StackPanel>
                     </StackPanel>
                     <Button Grid.Column="1"
                            Classes="subtle motion-action"
@@ -642,6 +650,56 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <!-- Paired phones hear about replies and questions only while the user is away from this PC. -->
+      <sc:StrataSettingGroup x:Name="PhoneNotificationsGroup"
+                             Header="{loc:Str SettingsGroup_PhoneNotifications}"
+                             Description="{loc:Str SettingsGroupDesc_PhoneNotifications}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Bell}"
+                             IsVisible="{Binding RemoteAccessEnabled}">
+        <sc:StrataSetting x:Name="PhoneNotificationsSetting"
+                          Header="{loc:Str Setting_PhoneNotifications}"
+                          Description="{loc:Str SettingDesc_PhoneNotifications}"
+                          IsModified="{Binding IsPhoneNotificationsEnabledModified}">
+          <ToggleSwitch x:Name="PhoneNotificationsToggle"
+                        IsChecked="{Binding PhoneNotificationsEnabled}"
+                        AutomationProperties.Name="{loc:Str Setting_PhoneNotifications}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting x:Name="PhoneNotificationAwaySetting"
+                          Header="{loc:Str Setting_PhoneNotificationAway}"
+                          Description="{loc:Str SettingDesc_PhoneNotificationAway}"
+                          IsModified="{Binding IsPhoneNotificationAwayModified}"
+                          IsEnabled="{Binding PhoneNotificationsEnabled}">
+          <ComboBox x:Name="PhoneNotificationAwayPicker"
+                    ItemsSource="{Binding PhoneAwayChoices}"
+                    SelectedItem="{Binding SelectedPhoneAwayChoice, Mode=TwoWay}"
+                    MinWidth="132"
+                    AutomationProperties.Name="{loc:Str Setting_PhoneNotificationAway}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:PhoneAwayChoice">
+                <TextBlock Text="{Binding Label}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </sc:StrataSetting>
+        <sc:StrataSetting x:Name="PhoneNotificationTestSetting"
+                          Header="{loc:Str Setting_PhoneNotificationTest}"
+                          Description="{Binding PhoneNotificationStatusText}"
+                          IsEnabled="{Binding PhoneNotificationsEnabled}">
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <TextBlock x:Name="PhoneNotificationTestResultText"
+                       Text="{Binding PhoneNotificationTestResult}"
+                       IsVisible="{Binding PhoneNotificationTestResult, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       VerticalAlignment="Center"
+                       FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextSecondary}" />
+            <Button x:Name="SendTestPhoneNotificationButton"
+                    Classes="mg-button motion-action"
+                    Content="{loc:Str Button_SendTestNotification}"
+                    Command="{Binding SendTestPhoneNotificationCommand}" />
+          </StackPanel>
+        </sc:StrataSetting>
       </sc:StrataSettingGroup>
     </StackPanel>
 

@@ -1143,6 +1143,10 @@
     <Setter Property="Background" Value="{DynamicResource Brush.AccentGradient}" />
     <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
   </Style>
+  <!-- Strata gives every TextBlock the primary text colour, so the label does not inherit the button's. -->
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action.primary TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+  </Style>
   <Style Selector="sc|StrataBottomSheet Button.sheet-action.primary:pointerover /template/ Border#PART_Surface,
                    sc|StrataBottomSheet Button.sheet-action.primary:pressed /template/ Border#PART_Surface">
     <Setter Property="Background" Value="{DynamicResource Brush.AccentGradientPressed}" />

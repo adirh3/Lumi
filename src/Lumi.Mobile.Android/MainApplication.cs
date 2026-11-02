@@ -10,12 +10,22 @@ using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Android;
 
+/// <summary>The name under the launcher icon. A preview build (-p:LumiPreview=true) says so.</summary>
+internal static class LumiAppLabel
+{
+#if LUMI_PREVIEW
+    public const string Text = "Lumi Preview";
+#else
+    public const string Text = "Lumi";
+#endif
+}
+
 /// <summary>
 /// The Android application object. Avalonia 12 builds the app here rather than in the activity, so
 /// this is where the shared <see cref="App"/> is configured.
 /// </summary>
 [Application(
-    Label = "Lumi",
+    Label = LumiAppLabel.Text,
     Icon = "@mipmap/ic_launcher",
     RoundIcon = "@mipmap/ic_launcher_round",
     AllowBackup = false,
@@ -32,6 +42,7 @@ public class MainApplication : AvaloniaAndroidApplication<App>
         MobilePlatformServices.ProducedFileOpener = new AndroidProducedFileOpener(this);
         MobilePlatformServices.PdfPreviewRenderer = new AndroidPdfPreviewRenderer();
         MobilePlatformServices.TextShare = new AndroidTextShareService(this);
+        MobilePlatformServices.Notifications = new Notifications.AndroidPhoneNotificationPlatform(this);
         // Strata/theme defaults read the culture when their types and XAML are first loaded.
         Strings.Load(new MobileSettingsStore().Load().Language);
         MobilePlatformServices.DeviceNameOverride = ResolveDeviceName();

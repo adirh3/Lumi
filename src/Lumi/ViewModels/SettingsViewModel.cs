@@ -674,6 +674,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _suggestFollowUps = s.SuggestFollowUps;
         InitializePersonalSkillDirectories(s);
         InitializePermissions(s);
+        InitializePhoneNotifications(s);
         InitializeAppearanceOptions();
 
         // AI
@@ -2474,6 +2475,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         MinimizeToTray = defaults.MinimizeToTray;
         GlobalHotkey = defaults.GlobalHotkey;
         NotificationsEnabled = defaults.NotificationsEnabled;
+        PhoneNotificationsEnabled = defaults.PhoneNotificationsEnabled;
+        SelectedPhoneAwayChoice = AwayChoiceFor(defaults.PhoneNotificationAwayMinutes);
         OfferCopiedCapabilities = defaults.OfferCopiedCapabilities;
         ResetAppearance();
         SendWithEnter = defaults.SendWithEnter;

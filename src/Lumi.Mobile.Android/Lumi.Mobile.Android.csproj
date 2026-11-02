@@ -37,6 +37,13 @@
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
+  <!-- -p:LumiPreview=true builds "Lumi Preview": its own package, data and pairing beside the everyday
+       app, so a build under test can pair with a Debug desktop without replacing or reconnecting it. -->
+  <PropertyGroup Condition="'$(LumiPreview)' == 'true'">
+    <ApplicationId>com.lumi.mobile.preview</ApplicationId>
+    <DefineConstants>$(DefineConstants);LUMI_PREVIEW</DefineConstants>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <AndroidEnableProfiledAot>true</AndroidEnableProfiledAot>
     <PublishTrimmed>true</PublishTrimmed>

@@ -493,6 +493,9 @@ internal static class RemoteProjector
             ModelReasoningEfforts = BuildReasoningEffortMap(models, chatVm),
             ModelContextWindowTiers = BuildContextWindowTierMap(models, chatVm),
             ModelOptions = BuildModelOptions(models, chatVm),
+            PhoneNotificationsEnabled = settings.PhoneNotificationsEnabled,
+            PhoneNotificationAwayMinutes = settings.PhoneNotificationAwayMinutes,
+            WebPushKey = WebPush.PublicKeyOf(settings.RemoteWebPushKey),
             ModelDefaults = chatVm is null
                 ? []
                 : models.Select(model =>
