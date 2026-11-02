@@ -816,6 +816,11 @@ public sealed class MobileFilePreviewTests
             Assert.Equal(2, Grid.GetColumn(host));
             Assert.Equal(conversation.Bounds, host.Bounds);
             Assert.Same(preview, pane.DataContext);
+            // It lands where the chat is: alone on a phone, the whole pane, its content clear of the bars.
+            var surface = Find<ContentControl>(view, "FilePreviewSurface");
+            Assert.Equal(Find<ContentControl>(view, "ChatIsland").Bounds.Size, surface.Bounds.Size);
+            Assert.Equal(default, surface.CornerRadius);
+            Assert.Equal(shell.ChatIslandPadding, surface.Padding);
             Assert.False(ChatDetailView.ShouldShowNativeComposerEditor(shell), "the native editor would draw over the file");
 
             var back = Find<Button>(view, "PreviewBackButton");
@@ -881,13 +886,15 @@ public sealed class MobileFilePreviewTests
         {
             using var files = new TempFiles();
             var preview = Show(shell, files, "report.md", "# Report"u8.ToArray());
-            await preview.LoadAsync();
-            Dispatcher.UIThread.RunJobs();
+            // The pane has begun to grow, and the file waits for it to land before it is built. (Asserted
+            // before the file loads: how long a load takes against the pane's motion is not the point.)
             Assert.True(preview.IsSettling);
+            var loading = preview.LoadAsync();
 
             // Folding shut while the pane grows lands it over the chat at once.
             window.Width = 412;
             window.Height = 960;
+            await loading;
             await SettleAsync(window, () => shell.IsFilePreviewCoveringChat && !shell.IsFilePreviewMoving);
             Assert.False(preview.IsSettling);
             await SettleAsync(window);
@@ -947,6 +954,10 @@ public sealed class MobileFilePreviewTests
             Assert.False(Find<Button>(view, "PreviewBackButton").IsVisible);
             AssertTouchTarget(close, window);
             Assert.True(X(close, window) + close.Bounds.Width <= width - 8, "✕ sits inside the floating card");
+            // The file's header shares its line with the chat's beside it.
+            var chatTitle = Find<Button>(view, "HeaderDetailsButton");
+            Assert.Equal(chatTitle.TranslatePoint(new Point(0, chatTitle.Bounds.Height / 2), window)!.Value.Y,
+                close.TranslatePoint(new Point(0, close.Bounds.Height / 2), window)!.Value.Y, 1);
             Assert.True(Find<DockPanel>(view, "PreviewCsvTable").IsEffectivelyVisible);
 
             Tap(window, close);

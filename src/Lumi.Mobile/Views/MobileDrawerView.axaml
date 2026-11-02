@@ -31,7 +31,7 @@
                              FadeLength="{DynamicResource Mobile.Chat.EdgeFadeLength}" />
       <Border Background="{DynamicResource Brush.NavigationEdgeTop}" />
     </Panel>
-    <Border Padding="{Binding SafeAreaTop}">
+    <Border x:Name="DrawerTopInset" Padding="{Binding CanvasHeaderInset}">
       <Border x:Name="DrawerHeaderSideInset" Padding="{Binding SafeAreaSides}">
         <Grid x:Name="DrawerBrandHeader" RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="*,Auto,Auto"
               RowSpacing="8"

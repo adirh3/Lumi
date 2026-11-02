@@ -127,10 +127,30 @@ public partial class MobileShellView : UserControl
             && sender is StrataNavigationDrawer landing)
             landing.CompleteMotion();
 
+        // A docked list starts sliding from where it is: the chat's island follows it from there, not
+        // from where the list is going, so it never jumps ahead of the first frame. A list sent back
+        // before its first frame never moved at all.
+        if (e.Property == StrataNavigationDrawer.IsOpenProperty
+            && sender is StrataNavigationDrawer settling
+            && DataContext is MobileShellViewModel moving)
+        {
+            moving.NavigationProgress = settling.Progress;
+            if (Math.Abs(settling.Progress - (settling.IsOpen ? 1 : 0)) > 0.001)
+                moving.IsDrawerMoving = true;
+            else if (moving.IsDrawerMoving)
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (ReferenceEquals(DataContext, moving)
+                        && (settling.Progress <= 0.001 || settling.Progress >= 0.999))
+                        moving.IsDrawerMoving = false;
+                }, DispatcherPriority.Loaded);
+        }
+
         if (e.Property == StrataNavigationDrawer.ProgressProperty
             && sender is StrataNavigationDrawer drawer
             && DataContext is MobileShellViewModel shell)
         {
+            shell.NavigationProgress = drawer.Progress;
             shell.IsDrawerPresented = drawer.Progress > 0.001;
             if (drawer.Progress is > 0.001 and < 0.999)
                 shell.IsDrawerMoving = true;
@@ -627,6 +647,7 @@ public partial class MobileShellView : UserControl
         if (DataContext is MobileShellViewModel shell
             && this.FindControl<StrataNavigationDrawer>("NavDrawer") is { } drawer)
         {
+            shell.NavigationProgress = drawer.Progress;
             shell.IsDrawerPresented = drawer.Progress > 0.001;
             shell.IsDrawerMoving = drawer.Progress is > 0.001 and < 0.999;
         }

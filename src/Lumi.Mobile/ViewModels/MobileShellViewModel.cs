@@ -1637,19 +1637,20 @@ public sealed partial class MobileShellViewModel :
     private bool _sidebarYieldedToPanel;
     private bool _isYieldingSidebar;
 
-    /// <summary>The chat makes room on its trailing edge for an open side panel.</summary>
+    /// <summary>The room the chat's island leaves on its trailing edge for an open side panel.</summary>
     public Thickness ChatSidePanelInset => Chat.HasSidePanelOpen
-        ? new Thickness(0, 0, SidePanelWidth + 12, 0)
+        ? new Thickness(0, 0, SidePanelWidth + IslandGap, 0)
         : default;
 
-    /// <summary>Where a side panel floats: clear of the status bar, the cutout and the gesture area.</summary>
+    /// <summary>Where a side panel floats: beside the chat's island, clear of the bars as the island is.</summary>
     public Thickness SidePanelSheetMargin =>
-        new(0, SafeArea.Top + 8, SafeArea.Right + 8, SafeArea.Bottom + 8);
+        new(0, SafeArea.Top + IslandGap, SafeArea.Right + IslandGap, IslandFootClearance + IslandGap);
 
     private void OnSidePanelChanged()
     {
         ReconcileSidebarWithSidePanel();
         OnPropertyChanged(nameof(ChatSidePanelInset));
+        NotifyIslandsChanged();
         OnPropertyChanged(nameof(CanGoBack));
         OnPropertyChanged(nameof(CanDragDrawer));
     }
@@ -1665,7 +1666,10 @@ public sealed partial class MobileShellViewModel :
         if (wantsListAway && IsDrawerDocked)
             YieldSidebar(collapsed: true);
         else if (_sidebarYieldedToPanel && !wantsListAway)
+        {
+            HoldChatIslandWhileListReturns();
             YieldSidebar(collapsed: false);
+        }
     }
 
     private void YieldSidebar(bool collapsed)
@@ -1722,6 +1726,7 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(NavigationLeadingWidth));
         OnPropertyChanged(nameof(ProjectPickerSheetMargin));
         OnPropertyChanged(nameof(CanGoBack));
+        NotifyIslandsChanged();
     }
 
     private bool _isChatListShown;
@@ -1751,11 +1756,15 @@ public sealed partial class MobileShellViewModel :
             _store.Save(_settings);
 
             // Asking for the list back below three panes trades the supporting panel for it, and
-            // at any width trades a preview for it: the preview had taken the list's place.
+            // at any width trades a preview for it: the preview had taken the list's place. The chat
+            // stays an island while the list slides into their place.
             _sidebarYieldedToPanel = false;
-            if (!value && Chat.HasSidePanelOpen && !IsThreePane)
+            var replacesPanel = !value && Chat.HasSidePanelOpen && !IsThreePane;
+            var replacesPreview = !value && IsFilePreviewBeside;
+            _holdChatIsland = replacesPanel || replacesPreview;
+            if (replacesPanel)
                 CloseSidePanels();
-            if (!value && IsFilePreviewBeside)
+            if (replacesPreview)
                 Chat.CloseFilePreviewCommand.Execute(null);
         }
 
@@ -2156,6 +2165,7 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(SafeAreaSides));
         OnPropertyChanged(nameof(SafeAreaSheetMargin));
         OnPropertyChanged(nameof(ProjectPickerSheetMargin));
+        NotifyIslandsChanged();
     }
 
     /// <summary>

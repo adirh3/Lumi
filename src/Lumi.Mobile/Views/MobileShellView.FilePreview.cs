@@ -8,6 +8,7 @@ using Avalonia.Rendering.Composition;
 using Avalonia.Rendering.Composition.Animations;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Lumi.Mobile.Layout;
 using Lumi.Mobile.ViewModels;
 using StrataTheme;
 
@@ -64,6 +65,8 @@ public partial class MobileShellView
         if (e.PropertyName is nameof(MobileShellViewModel.IsFilePreviewBeside)
             or nameof(MobileShellViewModel.FilePreviewPaneWidth)
             or nameof(MobileShellViewModel.FilePreviewPaneMargin)
+            or nameof(MobileShellViewModel.ChatIslandMargin)
+            or nameof(MobileShellViewModel.ChatIslandPadding)
             or nameof(MobileShellViewModel.SafeArea))
         {
             SyncFilePreview(animate: true);
@@ -140,8 +143,11 @@ public partial class MobileShellView
         var frame = PreviewFrame;
         _previewBeside = beside;
         Grid.SetColumn(host, beside ? 4 : 2);
-        this.FindControl<Border>("FilePreviewSurface")?.Classes.Set("beside", beside);
+        var surface = this.FindControl<Island>("FilePreviewSurface");
+        surface?.Classes.Set("beside", beside);
         PreviewPane.IsBesideChat = beside;
+        // Either way the file keeps clear of the bars as the chat does; its content needs no insets.
+        PreviewPane.Insets = default;
         if (beside)
         {
             // The card keeps its final width and slides with the pane's leading edge as the pane grows.
@@ -149,16 +155,22 @@ public partial class MobileShellView
             frame.Width = _previewPaneWidth;
             frame.HorizontalAlignment = HorizontalAlignment.Left;
             frame.Padding = shell.FilePreviewPaneMargin;
-            PreviewPane.Insets = default;
+            surface?.ClearValue(Island.FrameProperty);
+            surface?.ClearValue(PaddingProperty);
             if (!_previewWidthMoving)
                 host.Width = collapsed ? 0 : _previewPaneWidth;
         }
         else
         {
+            // Over the chat it lands exactly where the chat is: its island, or the whole pane.
             frame.Width = double.NaN;
             frame.HorizontalAlignment = HorizontalAlignment.Stretch;
-            frame.Padding = default;
-            PreviewPane.Insets = shell.SafeArea;
+            frame.Padding = shell.ChatIslandMargin;
+            if (surface is not null)
+            {
+                surface.Frame = shell.ChatIslandFrame;
+                surface.Padding = shell.ChatIslandPadding;
+            }
             host.Width = double.NaN;
         }
 

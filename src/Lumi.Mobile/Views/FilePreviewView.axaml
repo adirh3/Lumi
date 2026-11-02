@@ -219,7 +219,7 @@
   <Grid x:Name="PreviewRoot" RowDefinitions="Auto,Auto,*">
 
     <!-- ═══ Header: the file, and the way back to the chat ═══ -->
-    <Border x:Name="PreviewHeader" Classes="preview-header" Padding="12,10">
+    <Border x:Name="PreviewHeader" Classes="preview-header" Padding="12,16,12,10">
       <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12" MinHeight="{DynamicResource Touch.MinTarget}">
         <Button x:Name="PreviewBackButton" Classes="chat-header-action floating-action"
                 Click="OnCloseClick"

@@ -3,6 +3,7 @@
              xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
              xmlns:views="using:Lumi.Mobile.Views"
+             xmlns:layout="using:Lumi.Mobile.Layout"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:textInput="using:Avalonia.Input.TextInput"
              x:Class="Lumi.Mobile.Views.MobileShellView"
@@ -20,19 +21,6 @@
     <Style Selector="sc|StrataBottomSheet.safe-area.side-panel">
       <Setter Property="SheetMargin"
               Value="{Binding #SidePanelMarginProxy.Padding}" />
-    </Style>
-
-    <!-- A file preview over the chat is a page of the canvas; beside it, a card raised off the canvas. -->
-    <Style Selector="Border#FilePreviewSurface">
-      <Setter Property="Background" Value="{DynamicResource Brush.ChatCanvas}" />
-      <Setter Property="ClipToBounds" Value="True" />
-    </Style>
-    <Style Selector="Border#FilePreviewSurface.beside">
-      <Setter Property="Background" Value="{DynamicResource Brush.GroupSurface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.SheetBorder}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Mobile.Sheet.CornerRadius}" />
-      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Sheet}" />
     </Style>
   </UserControl.Styles>
 
@@ -101,9 +89,9 @@
                 Width="{Binding HingeGapWidth}"
                 Background="{DynamicResource Brush.Surface0}" />
 
-        <!-- ═══ The conversation. Always mounted: this app IS the chat. ═══ -->
+        <!-- ═══ The conversation. Always mounted: this app IS the chat. ═══
+             The frame is the conversation's pane; the canvas shows through it around the chat's island. -->
         <Border x:Name="ConversationFrame" Grid.Column="2" Classes="conversation-frame"
-                Background="{DynamicResource Brush.ChatCanvas}"
                 ClipToBounds="True">
         <Panel>
           <views:ChatDetailView x:Name="ChatSurface" IsVisible="{Binding IsChatPage}" />
@@ -120,7 +108,7 @@
           <views:MobileSearchView x:Name="SearchPage" IsVisible="{Binding IsSearchPage}" />
         </Panel>
         </Border>
-        <!-- A docked chat list and the conversation share one canvas: no line is drawn between them. -->
+        <!-- A docked chat list and the chat's island meet across the canvas: no line is drawn between them. -->
 
         <!-- The hinge between the chat and a file preview beside it, never painted over. -->
         <Border x:Name="FilePreviewHingeGap" Grid.Column="3"
@@ -136,9 +124,11 @@
         -->
         <Panel x:Name="FilePreviewHost" Grid.Column="4" IsVisible="False" ClipToBounds="True">
           <Border x:Name="FilePreviewFrame" HorizontalAlignment="Left">
-            <Border x:Name="FilePreviewSurface" Classes="file-preview-surface">
+            <!-- An island either way: over the chat it lands on the chat's own island; beside it, it is
+                 the chat's neighbour, one gap away. -->
+            <layout:Island x:Name="FilePreviewSurface" Classes="file-preview-surface">
               <views:FilePreviewView x:Name="FilePreviewPane" DataContext="{x:Null}" />
-            </Border>
+            </layout:Island>
           </Border>
         </Panel>
       </Grid>

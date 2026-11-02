@@ -82,11 +82,13 @@ public sealed class PopulatedTemplateRenderTests
     {
         var surface = control.GetVisualDescendants().OfType<Border>()
             .Single(border => border.Name == partName);
-        var chat = control.GetVisualAncestors().OfType<ChatDetailView>().First();
+        // A card stands apart from the chat's island it rests on.
+        var island = control.GetVisualAncestors().OfType<ChatDetailView>().First()
+            .GetVisualDescendants().OfType<Border>().First(border => border.Name == "PART_IslandSurface");
         Assert.Equal(1, surface.BorderThickness.Left);
         Assert.True(surface.CornerRadius.TopLeft >= 12);
         Assert.NotEqual(
-            Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(chat.Background).Color,
+            Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(island.Background).Color,
             Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(surface.Background).Color);
     }
 

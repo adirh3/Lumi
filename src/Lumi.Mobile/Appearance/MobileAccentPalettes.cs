@@ -88,7 +88,7 @@ public static class MobileAccentPalettes
     ];
 
     /// <summary>The phone's dark grouped surface, which a dark bubble is softened toward.</summary>
-    private static readonly Color DarkGroupSurface = Color.Parse("#19191D");
+    private static readonly Color DarkGroupSurface = Color.Parse("#2A2A2F");
 
     public static Palette Find(string? id)
         => All.FirstOrDefault(palette => string.Equals(palette.Id, id, StringComparison.OrdinalIgnoreCase)) ?? All[0];

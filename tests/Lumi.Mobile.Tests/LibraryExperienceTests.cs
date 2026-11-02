@@ -860,8 +860,12 @@ public sealed class LibraryExperienceTests
         failure?.Throw();
     }
 
+    // A page's open item is an island, templated once it is first shown; until then its named parts are
+    // found by name rather than in the visual tree.
     private static T Required<T>(Visual root, string name) where T : Control =>
-        root.GetVisualDescendants().OfType<T>().Single(control => control.Name == name);
+        root.GetVisualDescendants().OfType<T>().SingleOrDefault(control => control.Name == name)
+        ?? (root as Control)?.FindControl<T>(name)
+        ?? throw new InvalidOperationException($"{typeof(T).Name} #{name} was not found.");
 
     private static void Tap(Window window, Control control)
     {

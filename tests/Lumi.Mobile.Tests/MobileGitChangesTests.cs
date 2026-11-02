@@ -353,9 +353,21 @@ public sealed class MobileGitChangesTests
                 window.Show();
                 Dispatcher.UIThread.RunJobs();
                 var overlay = view.FindControl<Border>("GitChangesOverlay")!;
-                Assert.Equal(view.Bounds.Size, overlay.Bounds.Size);
-                Assert.Equal(shell.SafeArea, overlay.Padding);
+                var island = view.FindControl<ContentControl>("ChatIsland")!;
+                // The changes take the chat's place. Alone on a phone the chat is the whole pane and keeps
+                // its content clear of the bars, so the overlay needs no inset of its own.
+                var padding = shell.ChatIslandPadding;
+                Assert.Equal(default, island.Margin);
+                Assert.Equal(padding, island.Padding);
+                Assert.Equal(new Thickness(11, 23, 17, shell.ComposerSafeAreaBottom.Bottom), padding);
+                Assert.Equal(view.Bounds.Size, island.Bounds.Size);
+                Assert.Equal(new Size(island.Bounds.Width - padding.Left - padding.Right,
+                    island.Bounds.Height - padding.Top - padding.Bottom), overlay.Bounds.Size);
+                Assert.Equal(default, overlay.Padding);
                 Assert.Equal(255, Assert.IsAssignableFrom<ISolidColorBrush>(overlay.Background).Color.A);
+                // The changes rest on the chat's own surface rather than painting the canvas over it.
+                Assert.Equal(0, Assert.IsAssignableFrom<ISolidColorBrush>(
+                    view.GetVisualDescendants().OfType<GitChangesView>().Single().Background).Color.A);
                 Assert.Equal(1, overlay.Opacity);
                 Assert.True(shell.Chat.HasOpenSheet);
                 Assert.False(ChatDetailView.ShouldShowNativeComposerEditor(shell));

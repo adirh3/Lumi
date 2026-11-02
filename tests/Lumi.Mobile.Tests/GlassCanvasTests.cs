@@ -109,7 +109,8 @@ public sealed class GlassCanvasTests
             var shell = Single<StrataChatShell>(view, "ChatShell");
             var scroll = shell.TranscriptScrollViewer!;
             Assert.True(shell.ExtendsTranscriptBehindChrome);
-            Assert.Equal(view.Bounds.Height, scroll.Bounds.Height, 1);
+            // The conversation runs the whole height of the chat's island, under its floating chrome.
+            Assert.Equal(Single<ContentControl>(view, "ChatIsland").Bounds.Height, scroll.Bounds.Height, 1);
 
             // Resting at the latest message: it sits clear of the composer and no glass is drawn.
             var composer = Single<Border>(view, "ComposerSideInset");
@@ -263,19 +264,21 @@ public sealed class GlassCanvasTests
             Assert.Equal(floatingBlur, Single<StrataBackdropBlur>(shell, "PART_ScrollToBottomBackdrop").BlurRadius);
 
             // As on the desktop, history passing under the top bar dissolves into a veil that covers
-            // the whole bar and fades out below it, so no sharp text shows between its controls.
+            // the whole bar and fades out below it, so no sharp text shows between its controls. The
+            // veils run edge to edge of the chat's island, which clips them to its curve.
+            var island = Single<ContentControl>(view, "ChatIsland");
             var menu = Single<Button>(view, "MenuButton");
             var topVeil = Single<Panel>(view, "TopEdgeMaterial");
-            Assert.Equal(0, topVeil.TranslatePoint(default, view)!.Value.Y, 1);
-            Assert.True(topVeil.TranslatePoint(new Point(0, topVeil.Bounds.Height), view)!.Value.Y
-                        >= menu.TranslatePoint(new Point(0, menu.Bounds.Height), view)!.Value.Y + 20);
-            Assert.Equal(view.Bounds.Width, topVeil.Bounds.Width, 1);
-            // The composer spans the conversation, so beneath it only the gesture area is scrimmed.
+            Assert.Equal(0, topVeil.TranslatePoint(default, island)!.Value.Y, 1);
+            Assert.True(topVeil.TranslatePoint(new Point(0, topVeil.Bounds.Height), island)!.Value.Y
+                        >= menu.TranslatePoint(new Point(0, menu.Bounds.Height), island)!.Value.Y + 20);
+            Assert.Equal(island.Bounds.Width, topVeil.Bounds.Width, 1);
+            // The composer spans the conversation, so beneath it only the island's foot is scrimmed.
             var bottomScrim = Single<Panel>(view, "BottomEdgeMaterial");
-            Assert.True(bottomScrim.TranslatePoint(default, view)!.Value.Y
-                        > composer.TranslatePoint(new Point(0, composer.Bounds.Height / 2), view)!.Value.Y);
-            Assert.Equal(view.Bounds.Height,
-                bottomScrim.TranslatePoint(new Point(0, bottomScrim.Bounds.Height), view)!.Value.Y, 1);
+            Assert.True(bottomScrim.TranslatePoint(default, island)!.Value.Y
+                        > composer.TranslatePoint(new Point(0, composer.Bounds.Height / 2), island)!.Value.Y);
+            Assert.Equal(island.Bounds.Height,
+                bottomScrim.TranslatePoint(new Point(0, bottomScrim.Bounds.Height), island)!.Value.Y, 1);
         });
 
     [Fact]

@@ -8,7 +8,7 @@
              x:Class="Lumi.Mobile.Views.GitChangesView"
              FlowDirection="{x:Static loc:ChatSessionStrings.UiFlowDirection}"
              x:DataType="vm:MobileChatViewModel"
-             Background="{DynamicResource Brush.Surface0}">
+             Background="Transparent">
   <UserControl.Styles>
     <Style Selector="Button.git-touch">
       <Setter Property="MinHeight" Value="48" />
@@ -26,7 +26,7 @@
   </UserControl.Styles>
 
   <Grid x:Name="GitViewport" RowDefinitions="Auto,Auto,*">
-    <Border x:Name="GitHeader" Padding="8,4,8,8">
+    <Border x:Name="GitHeader" Padding="8,16,8,8">
       <StackPanel Spacing="4">
         <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
           <Button x:Name="GitBackButton" Classes="subtle git-touch"

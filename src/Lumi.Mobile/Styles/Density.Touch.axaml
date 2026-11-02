@@ -89,14 +89,18 @@
     phone axis; navigation rows sit 10dp in from the edge with a 14dp inner inset, so their text
     shares the section labels' 24dp axis.
   -->
-  <Thickness x:Key="Mobile.Page.HeaderMargin">16,8,16,12</Thickness>
+  <Thickness x:Key="Mobile.Page.HeaderMargin">16,16,16,12</Thickness>
   <Thickness x:Key="Mobile.Page.ContentMargin">16,0,16,16</Thickness>
   <Thickness x:Key="Mobile.Page.FormContentMargin">16,0,16,24</Thickness>
   <Thickness x:Key="Mobile.Setup.ContentMargin">24,28,24,24</Thickness>
   <Thickness x:Key="Mobile.Drawer.RowMargin">10,1</Thickness>
   <Thickness x:Key="Mobile.Drawer.RowPadding">12,10</Thickness>
   <Thickness x:Key="Mobile.Drawer.GroupLabelMargin">24,14,24,6</Thickness>
-  <Thickness x:Key="Mobile.Navigation.HeaderMargin">16,8,16,8</Thickness>
+  <!-- A header sits as far below the top of its surface as it sits in from the side, inside an island
+       or on the canvas. Where islands rest beside lists, a list's header starts one island gap lower
+       (CanvasHeaderInset), so it shares its line with the island's beside it; on a phone the header row
+       stays at one height moving between the list and what it opens. -->
+  <Thickness x:Key="Mobile.Navigation.HeaderMargin">16,16,16,8</Thickness>
 
   <!-- Mobile-only StrataChatShell overrides consume these named metrics after the desktop theme. -->
   <Thickness x:Key="Mobile.Chat.ComposerHostPadding">12,10,12,12</Thickness>
@@ -137,6 +141,8 @@
   <!-- With two panes the plan, sources and activity open beside the chat at this width. -->
   <x:Double x:Key="Mobile.SidePanel.Width">400</x:Double>
   <CornerRadius x:Key="Mobile.Sheet.CornerRadius">28</CornerRadius>
+  <!-- An island (an open chat, page or file) and the panels floating beside it share one curve. -->
+  <CornerRadius x:Key="Mobile.Island.CornerRadius">24</CornerRadius>
   <x:Double x:Key="Mobile.Sheet.TitleSize">20.5</x:Double>
   <Thickness x:Key="Mobile.Sheet.HeaderMargin">24,0,12,12</Thickness>
   <x:Double x:Key="Mobile.Sheet.RowHeight">56</x:Double>

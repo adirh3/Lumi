@@ -26,7 +26,7 @@
                              FadeLength="{DynamicResource Mobile.Chat.EdgeFadeLength}" />
       <Border Background="{DynamicResource Brush.PageEdgeTop}" />
     </Panel>
-    <Border x:Name="SearchTopInset" Padding="{Binding SafeAreaTop}">
+    <Border x:Name="SearchTopInset" Padding="{Binding CanvasHeaderInset}">
       <Border x:Name="SearchHeaderSideInset" Padding="{Binding SafeAreaSides}">
         <Grid x:Name="SearchHeaderLayout"
               RowDefinitions="Auto,Auto"

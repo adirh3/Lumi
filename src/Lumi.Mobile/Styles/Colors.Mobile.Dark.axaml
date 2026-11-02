@@ -4,38 +4,38 @@
   <!--
     ══ Lumi mobile — DARK surfaces ═══════════════════════════════════════════════════════════════
 
-    The desktop's calm graphite, deepened for an OLED screen: neutral surfaces with no hue of their
+    The desktop's calm graphite, at the desktop's own levels: neutral surfaces with no hue of their
     own, so colour means something — the accent marks selection, the primary action and live work,
     and hues appear only as small marks and line icons.
   -->
 
   <!-- Level 0 — the canvas every pane sits on. -->
-  <Color x:Key="Color.Background">#0B0B0E</Color>
-  <Color x:Key="Color.Surface0">#0B0B0E</Color>
+  <Color x:Key="Color.Background">#18181B</Color>
+  <Color x:Key="Color.Surface0">#18181B</Color>
 
   <!-- Level 1 — cards resting on the canvas. -->
-  <Color x:Key="Color.Surface1">#131316</Color>
+  <Color x:Key="Color.Surface1">#1F1F23</Color>
 
   <!-- Level 2 — grouped rows, raised controls, chips. -->
-  <Color x:Key="Color.Surface2">#19191D</Color>
+  <Color x:Key="Color.Surface2">#2A2A2F</Color>
 
   <!-- Level 3 — sheets and popups, which float above everything. -->
-  <Color x:Key="Color.SurfaceOverlay">#212126</Color>
+  <Color x:Key="Color.SurfaceOverlay">#303036</Color>
 
-  <Color x:Key="Color.ControlDefault">#19191D</Color>
-  <Color x:Key="Color.ControlHover">#212126</Color>
-  <Color x:Key="Color.ControlPressed">#2A2A30</Color>
-  <Color x:Key="Color.ControlDisabled">#131316</Color>
+  <Color x:Key="Color.ControlDefault">#2A2A2F</Color>
+  <Color x:Key="Color.ControlHover">#303036</Color>
+  <Color x:Key="Color.ControlPressed">#38383F</Color>
+  <Color x:Key="Color.ControlDisabled">#1F1F23</Color>
 
   <!-- Hairlines, not keylines. -->
-  <Color x:Key="Color.BorderSubtle">#1E1E22</Color>
-  <Color x:Key="Color.BorderDefault">#27272C</Color>
-  <Color x:Key="Color.BorderStrong">#3A3A41</Color>
+  <Color x:Key="Color.BorderSubtle">#2B2B30</Color>
+  <Color x:Key="Color.BorderDefault">#34343A</Color>
+  <Color x:Key="Color.BorderStrong">#47474F</Color>
 
   <Color x:Key="Color.TextPrimary">#ECECF0</Color>
   <Color x:Key="Color.TextSecondary">#A3A3AE</Color>
-  <!-- Meta text stays legible at phone distance (5:1 on the canvas). -->
-  <Color x:Key="Color.TextTertiary">#85858F</Color>
+  <!-- Meta text stays legible at phone distance (4.5:1 even on a card in an island). -->
+  <Color x:Key="Color.TextTertiary">#90909A</Color>
 
   <Color x:Key="Color.SubtleHover">#0FFFFFFF</Color>
   <Color x:Key="Color.SubtlePressed">#1AFFFFFF</Color>
@@ -48,7 +48,7 @@
 
   <!-- ── Elevation shadows ──────────────────────────────────────────────────────────────────────
     Supporting cue only (see above). Kept tight and dark so they deepen the edge of a raised surface
-    rather than smearing a grey halo across the black behind it.
+    rather than smearing a grey halo across the canvas behind it.
   -->
   <BoxShadows x:Key="Shadow.Level1">0 1 3 0 #66000000</BoxShadows>
   <BoxShadows x:Key="Shadow.Level2">0 2 10 0 #73000000</BoxShadows>
@@ -91,19 +91,31 @@
   <SolidColorBrush x:Key="Brush.AccentSubtle" Color="{StaticResource Color.AccentSubtle}" />
   <SolidColorBrush x:Key="Brush.AccentSubtleHover" Color="{StaticResource Color.AccentSubtleHover}" />
 
-  <!-- Panes share the canvas; a hairline divides them, as the hinge does on the Fold. -->
+  <!-- Lists rest on the canvas itself, as the desktop's sidebar does. -->
   <SolidColorBrush x:Key="Brush.NavigationSurface" Color="{StaticResource Color.Background}" />
-  <SolidColorBrush x:Key="Brush.NavigationControl" Color="#19191D" />
+  <SolidColorBrush x:Key="Brush.NavigationControl" Color="#26262A" />
   <!-- The open row: a whisper of accent, with the slim marker doing the pointing. -->
   <SolidColorBrush x:Key="Brush.NavigationSelected" Color="#17818CF8" />
   <!-- The open chat, as the desktop's chat list marks it: a neutral wash, with the accent left to the slim pipe. -->
   <SolidColorBrush x:Key="Brush.ChatRowSelected" Color="#1CFFFFFF" />
-  <SolidColorBrush x:Key="Brush.ChatCanvas" Color="{StaticResource Color.Background}" />
+  <!--
+    What is open (a chat, a place's page, a file) is an island, as the desktop's chat is: graphite a
+    step above the canvas it rests on and a step below the cards it holds, so the list beside it, the
+    island and its cards read as three layers without a line drawn between any of them.
+  -->
+  <SolidColorBrush x:Key="Brush.ChatCanvas" Color="#242428" />
+  <!-- The island's rim catches the light along its top edge and settles to a hairline down its sides. -->
+  <LinearGradientBrush x:Key="Brush.IslandRim" StartPoint="0,0" EndPoint="0,40">
+    <GradientStop Offset="0" Color="#2EFFFFFF" />
+    <GradientStop Offset="1" Color="#14FFFFFF" />
+  </LinearGradientBrush>
+  <!-- It sits on the canvas: a contact shadow along its edge, and a soft pool under its foot. -->
+  <BoxShadows x:Key="Shadow.Island">0 1 2 0 #40000000, 0 12 32 -12 #99000000</BoxShadows>
   <SolidColorBrush x:Key="Brush.ChatPaneSeparation" Color="#14FFFFFF" />
   <SolidColorBrush x:Key="Brush.ChatUserSurface" Color="#2C2A63" />
 
   <!-- Grouped rows: a raised graphite card with a hairline rim and dividers between rows. -->
-  <SolidColorBrush x:Key="Brush.GroupSurface" Color="#19191D" />
+  <SolidColorBrush x:Key="Brush.GroupSurface" Color="#2A2A2F" />
   <SolidColorBrush x:Key="Brush.GroupBorder" Color="#13FFFFFF" />
   <BoxShadows x:Key="Shadow.Group">0 0 0 0 #00000000</BoxShadows>
   <SolidColorBrush x:Key="Brush.RowDivider" Color="#0FFFFFFF" />
@@ -139,12 +151,12 @@
     edge. A press lowers the surface (a shorter shadow) and lifts its tint a step.
   -->
   <LinearGradientBrush x:Key="Brush.FloatingGlass" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#7A1C1C21" />
-    <GradientStop Offset="1" Color="#70161619" />
+    <GradientStop Offset="0" Color="#7A2C2C32" />
+    <GradientStop Offset="1" Color="#7026262B" />
   </LinearGradientBrush>
   <LinearGradientBrush x:Key="Brush.FloatingGlassPressed" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#A62A2A31" />
-    <GradientStop Offset="1" Color="#9E25252B" />
+    <GradientStop Offset="0" Color="#A6383840" />
+    <GradientStop Offset="1" Color="#9E323239" />
   </LinearGradientBrush>
   <LinearGradientBrush x:Key="Brush.FloatingGlassRim" StartPoint="0%,0%" EndPoint="0%,100%">
     <GradientStop Offset="0" Color="#26FFFFFF" />
@@ -162,8 +174,8 @@
   <!-- Popup glass, as the desktop's menus: graphite at two-thirds over a deep frost of the page, a light
        rim on the top edge, and a light dim around, so the page stays present behind the sheet. -->
   <LinearGradientBrush x:Key="Brush.SheetSurface" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#A31F1F24" />
-    <GradientStop Offset="1" Color="#AD19191D" />
+    <GradientStop Offset="0" Color="#A32E2E34" />
+    <GradientStop Offset="1" Color="#AD28282D" />
   </LinearGradientBrush>
   <LinearGradientBrush x:Key="Brush.SheetBorder" StartPoint="0%,0%" EndPoint="0%,100%">
     <GradientStop Offset="0" Color="#26FFFFFF" />
@@ -183,20 +195,26 @@
   <BoxShadows x:Key="Shadow.MessageMenu">0 1 2 0 #4D000000, 0 12 32 -8 #B3000000</BoxShadows>
 
   <!-- Scroll-edge veils over the frost, as the desktop's: light enough that what scrolls beneath the
-       header and the places still shows through, softened, and deepest at the screen's edge. -->
+       header and the places still shows through, softened, and deepest at the edge. An island's veils
+       are tinted with the island, the list's and page's with the canvas. -->
   <LinearGradientBrush x:Key="Brush.ChromeEdgeBottom" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#000B0B0E" />
-    <GradientStop Offset="0.5" Color="#330B0B0E" />
-    <GradientStop Offset="1" Color="#B30B0B0E" />
+    <GradientStop Offset="0" Color="#00242428" />
+    <GradientStop Offset="0.5" Color="#33242428" />
+    <GradientStop Offset="1" Color="#B3242428" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Brush.IslandEdgeTop" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#B8242428" />
+    <GradientStop Offset="0.5" Color="#73242428" />
+    <GradientStop Offset="1" Color="#00242428" />
   </LinearGradientBrush>
   <LinearGradientBrush x:Key="Brush.NavigationEdgeTop" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#B80B0B0E" />
-    <GradientStop Offset="0.5" Color="#730B0B0E" />
-    <GradientStop Offset="1" Color="#000B0B0E" />
+    <GradientStop Offset="0" Color="#B818181B" />
+    <GradientStop Offset="0.5" Color="#7318181B" />
+    <GradientStop Offset="1" Color="#0018181B" />
   </LinearGradientBrush>
   <LinearGradientBrush x:Key="Brush.PageEdgeTop" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#B80B0B0E" />
-    <GradientStop Offset="0.5" Color="#730B0B0E" />
-    <GradientStop Offset="1" Color="#000B0B0E" />
+    <GradientStop Offset="0" Color="#B818181B" />
+    <GradientStop Offset="0.5" Color="#7318181B" />
+    <GradientStop Offset="1" Color="#0018181B" />
   </LinearGradientBrush>
 </ResourceDictionary>

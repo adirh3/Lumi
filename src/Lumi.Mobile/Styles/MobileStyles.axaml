@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:behaviors="using:Lumi.Mobile.Behaviors"
         xmlns:views="using:Lumi.Mobile.Views"
+        xmlns:layout="using:Lumi.Mobile.Layout"
         xmlns:sa="using:StrataTheme.Animation"
         xmlns:primitives="using:Avalonia.Controls.Primitives"
         xmlns:textInput="using:Avalonia.Input.TextInput"
@@ -14,6 +15,45 @@
   -->
   <Style Selector=":is(TopLevel)">
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+  </Style>
+
+  <!--
+    ══ Islands ══
+    What is open (the chat, a place's page, a file) rests on the canvas as an island beside a list, as the
+    desktop's chat does, while lists stay on the canvas itself. Alone, it is the whole pane in the island's
+    colour, with its content clear of the bars (Padding). The fill and its shadow sit beneath; the content
+    is clipped to the curve; the rim is drawn over the content, so the veils under a header or the composer
+    never dim the light along its edge, and it fades as the island settles into the pane.
+  -->
+  <Style Selector="layout|Island">
+    <Setter Property="IslandRadius" Value="{DynamicResource Mobile.Island.CornerRadius}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Panel>
+          <Border Name="PART_IslandSurface"
+                  Background="{DynamicResource Brush.ChatCanvas}"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  BoxShadow="{DynamicResource Shadow.Island}" />
+          <Border Name="PART_IslandClip"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  ClipToBounds="True">
+            <ContentPresenter Name="PART_ContentPresenter"
+                              Padding="{TemplateBinding Padding}"
+                              Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" />
+          </Border>
+          <Border Name="PART_IslandRim"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  BorderThickness="1"
+                  BorderBrush="{DynamicResource Brush.IslandRim}"
+                  Opacity="{TemplateBinding Frame}"
+                  IsHitTestVisible="False" />
+        </Panel>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="layout|Island:flat /template/ Border#PART_IslandSurface">
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
   </Style>
 
   <!--
@@ -910,6 +950,11 @@
     <Setter Property="ClipToBounds" Value="False" />
   </Style>
 
+  <!-- Beside the chat a panel is one of its islands' family, and shares their curve. -->
+  <Style Selector="sc|StrataBottomSheet.safe-area.side-panel /template/ Border#PART_Sheet">
+    <Setter Property="CornerRadius" Value="{DynamicResource Mobile.Island.CornerRadius}" />
+  </Style>
+
   <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Grip,
                    sc|StrataBottomSheet.touch-picker /template/ Border#PART_Grip">
     <Setter Property="Width" Value="36" />
@@ -920,6 +965,11 @@
   <Style Selector="sc|StrataBottomSheet.safe-area /template/ Grid#PART_HeaderContent,
                    sc|StrataBottomSheet.touch-picker /template/ Grid#PART_HeaderContent">
     <Setter Property="Margin" Value="{DynamicResource Mobile.Sheet.HeaderMargin}" />
+  </Style>
+  <!-- A panel beside the chat has no grip; its header keeps the room the grip gives a sheet, clear of
+       the panel's curve. -->
+  <Style Selector="sc|StrataBottomSheet.safe-area.side-panel /template/ Grid#PART_HeaderContent">
+    <Setter Property="Margin" Value="24,20,12,12" />
   </Style>
 
   <Style Selector="sc|StrataBottomSheet.safe-area /template/ TextBlock#PART_Title,

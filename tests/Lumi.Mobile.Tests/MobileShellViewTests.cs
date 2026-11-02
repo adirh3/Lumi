@@ -2120,14 +2120,18 @@ public sealed class MobileShellViewTests
             // The shell itself must NOT consume the inset, or everything inside it is letterboxed.
             Assert.Equal(default, shellView.Padding);
 
-            // The chat surface still fills the window top to bottom — its background runs under the
-            // status bar — while the top bar's own content is pushed clear of it.
+            // The chat surface still fills the window top to bottom. Alone on a phone the chat is the whole
+            // pane, its surface under the status bar and its content clear of it, so its top bar needs no
+            // inset of its own.
             var chat = Named(window, "ChatSurface");
             Assert.Equal(0, chat.Bounds.Y, 1);
             Assert.Equal(892, chat.Bounds.Height, 1);
 
+            var island = Assert.IsAssignableFrom<ContentControl>(Named(window, "ChatIsland"));
+            Assert.Equal(0, island.Bounds.Y, 1);
+            Assert.Equal(statusBar, island.Padding.Top, 1);
             var topBarInset = Assert.IsType<Border>(Named(window, "TopBarInset"));
-            Assert.Equal(statusBar, topBarInset.Padding.Top, 1);
+            Assert.Equal(0, topBarInset.Padding.Top, 1);
         });
     }
 
@@ -2529,10 +2533,12 @@ public sealed class MobileShellViewTests
             OpenChat(shell);
             Layout(window, shell, 412, 892);
 
-            var chat = Named(window, "ChatSurface");
+            // The open chat's island wears the chat surface.
+            var chat = Assert.IsAssignableFrom<ContentControl>(Named(window, "ChatIsland"))
+                .GetVisualDescendants().OfType<Border>().Single(border => border.Name == "PART_IslandSurface");
 
             static Color SurfaceOf(Control control) =>
-                Assert.IsType<SolidColorBrush>(control.GetValue(TemplatedControl.BackgroundProperty)).Color;
+                Assert.IsType<SolidColorBrush>(control.GetValue(Border.BackgroundProperty)).Color;
 
             window.RequestedThemeVariant = ThemeVariant.Dark;
             Pump(window);

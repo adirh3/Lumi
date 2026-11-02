@@ -260,15 +260,15 @@
       <Setter Property="Background" Value="#F5F5F7" />
     </Style>
     <Style Selector="Panel.theme-picture.dark Border.pic-canvas">
-      <Setter Property="Background" Value="#0B0B0E" />
+      <Setter Property="Background" Value="#18181B" />
     </Style>
     <Style Selector="Panel.theme-picture.light Border.pic-chrome">
       <Setter Property="Background" Value="#FFFFFF" />
       <Setter Property="BorderBrush" Value="#E0E0E6" />
     </Style>
     <Style Selector="Panel.theme-picture.dark Border.pic-chrome">
-      <Setter Property="Background" Value="#1C1C21" />
-      <Setter Property="BorderBrush" Value="#2C2C33" />
+      <Setter Property="Background" Value="#242428" />
+      <Setter Property="BorderBrush" Value="#34343A" />
     </Style>
     <Style Selector="Panel.theme-picture.light Border.pic-line">
       <Setter Property="Background" Value="#C9C9D1" />
@@ -373,7 +373,7 @@
                              FadeLength="{DynamicResource Mobile.Chat.EdgeFadeLength}" />
       <Border Background="{DynamicResource Brush.PageEdgeTop}" />
     </Panel>
-    <Border x:Name="SettingsTopInset" Padding="{Binding SafeAreaTop}">
+    <Border x:Name="SettingsTopInset" Padding="{Binding CanvasHeaderInset}">
       <Border x:Name="SettingsHeaderSideInset" Padding="{Binding SafeAreaSides}">
         <Grid x:Name="SettingsHeaderLayout"
               RowDefinitions="Auto,Auto"
@@ -528,17 +528,18 @@
     </Panel>
   </Grid>
 
-  <!-- ═══ The open page, on the same canvas as the list: the gutter between them is the only edge ═══ -->
+  <!-- ═══ The open page: an island on the canvas, beside its list or on its own, as the chat is ═══ -->
+  <layout:Island x:Name="SettingsDetailIsland" Frame="{Binding PageIslandFrame}" Margin="{Binding PageIslandMargin}" Padding="{Binding PageIslandPadding}">
   <Grid x:Name="SettingsDetailPane" RowDefinitions="Auto,*"
         Background="{DynamicResource Brush.ChatCanvas}">
     <Panel x:Name="SettingsDetailHeaderChrome" Grid.Row="0" ZIndex="1" Background="Transparent">
     <Panel Classes="chrome-edge" Margin="{DynamicResource Mobile.Chat.TopEdgeMargin}">
       <sc:StrataBackdropBlur Classes="chrome-frost" Fade="Bottom"
                              FadeLength="{DynamicResource Mobile.Chat.EdgeFadeLength}" />
-      <Border Background="{DynamicResource Brush.PageEdgeTop}" />
+      <Border Background="{DynamicResource Brush.IslandEdgeTop}" />
     </Panel>
-    <Border x:Name="SettingsDetailTopInset" Padding="{Binding SafeAreaTop}">
-      <Border x:Name="SettingsDetailHeaderSideInset" Padding="{Binding SafeAreaSides}">
+    <Border x:Name="SettingsDetailTopInset">
+      <Border x:Name="SettingsDetailHeaderSideInset">
         <Grid x:Name="SettingsDetailHeaderLayout"
               ColumnDefinitions="Auto,*"
               ColumnSpacing="4"
@@ -560,8 +561,8 @@
     </Border>
     </Panel>
 
-    <Border x:Name="SettingsDetailBottomInset" Grid.Row="0" Grid.RowSpan="2" Padding="{Binding SafeAreaBottom}">
-      <Border x:Name="SettingsDetailSideInset" Padding="{Binding SafeAreaSides}">
+    <Border x:Name="SettingsDetailBottomInset" Grid.Row="0" Grid.RowSpan="2">
+      <Border x:Name="SettingsDetailSideInset">
         <ScrollViewer x:Name="SettingsDetailScroll" Classes="mobile-scroll"
                       behaviors:ScrollEdgeChrome.Header="{Binding #SettingsDetailHeaderChrome}">
           <Border x:Name="SettingsDetailScrollInset">
@@ -945,6 +946,7 @@
       </Border>
     </Border>
   </Grid>
+  </layout:Island>
   </layout:ListDetailPanel>
 
   <sc:StrataBottomSheet x:Name="DisconnectSheet" Classes="safe-area"

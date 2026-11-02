@@ -90,7 +90,15 @@
   <SolidColorBrush x:Key="Brush.NavigationControl" Color="#FFFFFF" />
   <SolidColorBrush x:Key="Brush.NavigationSelected" Color="#124F46E5" />
   <SolidColorBrush x:Key="Brush.ChatRowSelected" Color="#1218181C" />
-  <SolidColorBrush x:Key="Brush.ChatCanvas" Color="{StaticResource Color.Background}" />
+  <!-- What is open rests on the canvas as a near-white island (see the dark set), as the desktop's white
+       glass reads over its light material: a breath under the white cards it holds, lifted by its rim
+       and a cool, soft shadow, since on a light canvas the shadow is the elevation cue. -->
+  <SolidColorBrush x:Key="Brush.ChatCanvas" Color="#FAFAFB" />
+  <LinearGradientBrush x:Key="Brush.IslandRim" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#0F18181C" />
+    <GradientStop Offset="1" Color="#1A18181C" />
+  </LinearGradientBrush>
+  <BoxShadows x:Key="Shadow.Island">0 1 2 0 #0F1E1E3C, 0 10 30 -10 #2E1E1E3C</BoxShadows>
   <SolidColorBrush x:Key="Brush.ChatPaneSeparation" Color="#1418181C" />
   <SolidColorBrush x:Key="Brush.ChatUserSurface" Color="#E6E1FF" />
 
@@ -170,9 +178,14 @@
   <BoxShadows x:Key="Shadow.MessageMenu">0 1 3 0 #1F18181C, 0 12 32 -8 #4D1E1E3C</BoxShadows>
 
   <LinearGradientBrush x:Key="Brush.ChromeEdgeBottom" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#00F5F5F7" />
-    <GradientStop Offset="0.5" Color="#33F5F5F7" />
-    <GradientStop Offset="1" Color="#BFF5F5F7" />
+    <GradientStop Offset="0" Color="#00FAFAFB" />
+    <GradientStop Offset="0.5" Color="#33FAFAFB" />
+    <GradientStop Offset="1" Color="#BFFAFAFB" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Brush.IslandEdgeTop" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#BFFAFAFB" />
+    <GradientStop Offset="0.5" Color="#7AFAFAFB" />
+    <GradientStop Offset="1" Color="#00FAFAFB" />
   </LinearGradientBrush>
   <LinearGradientBrush x:Key="Brush.NavigationEdgeTop" StartPoint="0%,0%" EndPoint="0%,100%">
     <GradientStop Offset="0" Color="#BFF5F5F7" />

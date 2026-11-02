@@ -92,9 +92,10 @@ public partial class ChatDetailView : UserControl
         };
 
         // The ambient field is created in code rather than XAML because the controller owns it: it
-        // has to insert it as the bottom-most child and keep it out of the hit-test path.
-        if (this.FindControl<Panel>("ChatRoot") is { } root)
-            _presence = new MobilePresenceController(root);
+        // has to insert it as the bottom-most child and keep it out of the hit-test path. It lives in
+        // the chat's island, so it glows within the island's curve and never over the canvas.
+        if (this.FindControl<Panel>("ChatIslandContent") is { } island)
+            _presence = new MobilePresenceController(island);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -334,20 +335,21 @@ public partial class ChatDetailView : UserControl
     {
         if (_shell?.IsWelcomeVisible == true
             && this.FindControl<StrataChatComposer>("Composer") is { } composer
-            && composer.TranslatePoint(default, this) is { } origin
-            && this.FindControl<Border>("WelcomeSideInset") is { } welcome)
+            && this.FindControl<Border>("WelcomeSideInset") is { Parent: Visual island } welcome
+            && composer.TranslatePoint(default, island) is { } origin)
         {
+            // Measured within the chat's island, which the welcome shares with the bars.
             var header = this.FindControl<Border>("ChatHeaderSideInset");
-            var headerBottom = header?.TranslatePoint(new Point(0, header.Bounds.Height), this)?.Y ?? 0;
+            var headerBottom = header?.TranslatePoint(new Point(0, header.Bounds.Height), island)?.Y ?? 0;
             var top = Math.Max(0, headerBottom);
-            var bottom = Math.Max(0, Bounds.Height - origin.Y + 8);
+            var bottom = Math.Max(0, island.Bounds.Height - origin.Y + 8);
             var margin = new Thickness(0, top, 0, bottom);
             if (welcome.Margin != margin)
                 welcome.Margin = margin;
 
             // A short screen keeps the greeting, starters and setups in view and lets the mark go.
             this.FindControl<Grid>("NoChatPlaceholder")?.Classes.Set(
-                "compact", Bounds.Height - top - bottom < WelcomeCompactHeight);
+                "compact", island.Bounds.Height - top - bottom < WelcomeCompactHeight);
         }
     }
 

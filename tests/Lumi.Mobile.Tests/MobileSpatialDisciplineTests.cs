@@ -264,8 +264,10 @@ public sealed class MobileSpatialDisciplineTests
                 var newChat = Required<Button>(chat, "NewChatButton");
                 Assert.True(newChat.IsEffectivelyVisible);
                 Assert.Equal(48, newChat.Bounds.Width);
-                Assert.Equal(chat.Bounds.Width - 16,
-                    newChat.TranslatePoint(new Point(newChat.Bounds.Width, 0), chat)!.Value.X, 1);
+                // New chat closes the bar on the chat island's own 16 dp gutter.
+                var island = Required<ContentControl>(chat, "ChatIsland");
+                Assert.Equal(island.Bounds.Width - 16,
+                    newChat.TranslatePoint(new Point(newChat.Bounds.Width, 0), island)!.Value.X, 1);
                 Assert.Equal("All chats", Required<TextBlock>(drawer, "DrawerProjectLabel").Text);
 
                 var chatTitle = chatButton.GetVisualDescendants().OfType<TextBlock>()
@@ -296,6 +298,7 @@ public sealed class MobileSpatialDisciplineTests
 
                 Assert.Equal(new Thickness(12, 10, 12, 12), composerHost.Padding);
                 Assert.Equal(new Thickness(16, 12, 16, 16), scrollContent.Padding);
+                // Alone on a phone the chat is the whole pane, not an island inset from the screen's edges.
                 Assert.Equal(336, composer.Bounds.Width, 1);
                 Assert.Equal(328, transcript.Bounds.Width, 1);
                 Assert.Equal(760, composer.MaxWidth, 1);
@@ -355,8 +358,8 @@ public sealed class MobileSpatialDisciplineTests
                 transcript = Required<Control>(window, "ChatTranscriptSideInset");
                 Assert.Equal(430, Required<Control>(window, "ConversationFrame").Bounds.Width, 1);
                 Assert.Equal(430, Required<Control>(window, "ChatSurface").Bounds.Width, 1);
-                Assert.Equal(406, composer.Bounds.Width, 1);
-                Assert.Equal(398, transcript.Bounds.Width, 1);
+                Assert.Equal(390, composer.Bounds.Width, 1);
+                Assert.Equal(382, transcript.Bounds.Width, 1);
 
                 _output.WriteLine(
                     "Unfolded fold: composer {0:0.#}; transcript {1:0.#}.",

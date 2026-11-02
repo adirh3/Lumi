@@ -67,19 +67,31 @@ public sealed class OpenCanvasDesignTests
         {
             var chat = Required<ChatDetailView>(view, "ChatSurface");
             var drawer = Required<MobileDrawerView>(view, "DrawerContent");
-            var canvas = ColorOf(chat.Background);
-            var navigation = ColorOf(drawer.Background);
+            var canvas = ColorOf(drawer.Background);
+            var island = ColorOf(Required<Border>(Required<ContentControl>(chat, "ChatIsland"), "PART_IslandSurface").Background);
             Assert.Equal(255, canvas.A);
-            Assert.Equal(canvas, ColorOf(Required<Border>(view, "ConversationFrame").Background));
-            // The panes share the desktop's graphite canvas; a hairline divides them, not a second
-            // colour, and the canvas itself carries no hue.
-            Assert.Equal(navigation, canvas);
-            Assert.True(Math.Abs(canvas.R - canvas.G) <= 3 && Math.Abs(canvas.G - canvas.B) <= 4,
-                $"The canvas is neutral graphite, not tinted: {canvas}.");
+            Assert.Equal(255, island.A);
+            // As on the desktop, the list rests on the graphite canvas and the open chat on it as an
+            // island: nothing but the canvas is painted behind the island, and neither carries a hue.
+            AssertTransparent(chat.Background);
+            AssertTransparent(Required<Border>(view, "ConversationFrame").Background);
+            foreach (var surface in new[] { canvas, island })
+                Assert.True(Math.Abs(surface.R - surface.G) <= 3 && Math.Abs(surface.G - surface.B) <= 4,
+                    $"The canvas and its islands are neutral graphite, not tinted: {surface}.");
             if (dark)
-                Assert.InRange(canvas.R, (byte)0, (byte)16);
+            {
+                // Graphite at the desktop's own level: deep enough to rest on, light enough that the island
+                // and its shadow read above it.
+                Assert.InRange(canvas.R, (byte)20, (byte)32);
+                Assert.InRange(island.R - canvas.R, 8, 20);
+            }
             else
+            {
                 Assert.InRange(canvas.R, (byte)240, byte.MaxValue);
+                // Near-white, as the desktop's white glass reads, above the canvas and under white cards.
+                Assert.InRange(island.R, (byte)248, (byte)254);
+                Assert.True(island.R > canvas.R, $"The island {island} rises above the canvas {canvas}.");
+            }
             Assert.Equal(default, Required<Border>(chat, "TopBarInset").BorderThickness);
             AssertTransparent(Required<Border>(chat, "TopBarInset").Background);
             var controlsButton = Required<Button>(chat, "HeaderDetailsButton");
@@ -290,49 +302,80 @@ public sealed class OpenCanvasDesignTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public Task EveryPlaceKeepsItsListAndPageOnOneCanvas(bool dark) =>
+    public Task EveryPlaceRestsWhatIsOpenOnTheCanvasAsAnIsland(bool dark) =>
         RunAsync(1100, dark, async (model, view, window) =>
         {
-            // Chats: the docked list and the conversation meet with nothing drawn between them.
+            // Chats: the docked list rests on the canvas and the chat is an island one gap beside it.
             var frame = Required<Border>(view, "ConversationFrame");
             var drawer = Required<StrataNavigationDrawer>(view, "NavDrawer");
+            var chatIsland = Required<ContentControl>(Required<ChatDetailView>(view, "ChatSurface"), "ChatIsland");
             Assert.True(model.CanDockDrawer);
             Assert.Equal(drawer.PanelWidth, frame.TranslatePoint(default, view)!.Value.X, precision: 1);
-            AssertOneCanvas(view, Required<Border>(view, "DrawerPane"), frame);
+            AssertIslandBesideList(view, Required<Border>(view, "DrawerPane"), chatIsland);
 
+            // With the list hidden nothing sits beside the chat: it is the whole pane, in the island's colour.
+            var islandColor = ColorOf(Required<Border>(chatIsland, "PART_IslandSurface").Background);
             model.IsNavigationOpen = false;
             await SettleAsync(window);
             Assert.Equal(0, frame.TranslatePoint(default, view)!.Value.X, precision: 1);
             Assert.Equal(view.Bounds.Width, frame.Bounds.Width, precision: 1);
+            Assert.Equal(default, chatIsland.TranslatePoint(default, view)!.Value);
+            Assert.Equal(view.Bounds.Size, chatIsland.Bounds.Size);
+            AssertWholePane(chatIsland, islandColor);
 
-            // Jobs, Customize and Settings keep their list beside the open page on the same canvas.
+            // Brought back, the list has the chat rest beside it as an island again.
+            model.IsNavigationOpen = true;
+            await SettleAsync(window);
+            AssertIslandBesideList(view, Required<Border>(view, "DrawerPane"), chatIsland);
+
+            // Jobs, Customize and Settings keep their list on the canvas and the open page as an island.
             foreach (var place in new[] { MobilePlace.Jobs, MobilePlace.Customize })
             {
                 model.SelectPlace(place);
                 await SettleAsync(window);
                 var library = Required<LibraryView>(view, "LibraryPage");
-                AssertOneCanvas(view, Required<Grid>(library, "LibraryListPane"), Required<Grid>(library, "LibraryDetailPane"));
+                AssertIslandBesideList(view, Required<Grid>(library, "LibraryListPane"),
+                    Required<ContentControl>(library, "LibraryDetailIsland"));
             }
 
             model.SelectPlace(MobilePlace.Settings);
             await SettleAsync(window);
             var settings = Required<MobileSettingsView>(view, "SettingsPage");
-            AssertOneCanvas(view, Required<Grid>(settings, "SettingsListPane"), Required<Grid>(settings, "SettingsDetailPane"));
+            AssertIslandBesideList(view, Required<Grid>(settings, "SettingsListPane"),
+                Required<ContentControl>(settings, "SettingsDetailIsland"));
         });
 
-    /// <summary>Both panes wear the same surface, and nothing thin and tall is painted where they meet.</summary>
-    private static void AssertOneCanvas(Control root, Control list, Control page)
+    /// <summary>
+    /// The list wears the canvas; what is open is a rounded island of another surface one gap beside it,
+    /// its content clipped to the curve and its rim drawn over the content, and nothing thin and tall is
+    /// painted where they meet.
+    /// </summary>
+    private static void AssertIslandBesideList(Control root, Control list, ContentControl island)
     {
-        Assert.True(list.IsEffectivelyVisible && page.IsEffectivelyVisible);
-        Assert.Equal(ColorOf(BackgroundOf(list)), ColorOf(BackgroundOf(page)));
-        if (list is Border listBorder) Assert.Equal(0, listBorder.BorderThickness.Right);
-        if (page is Border pageBorder) Assert.Equal(0, pageBorder.BorderThickness.Left);
+        Assert.True(list.IsEffectivelyVisible && island.IsEffectivelyVisible);
+        var surface = Required<Border>(island, "PART_IslandSurface");
+        Assert.NotEqual(ColorOf(BackgroundOf(list)), ColorOf(surface.Background));
+        Assert.Equal(new CornerRadius(24), surface.CornerRadius);
+        Assert.True(surface.BoxShadow.Count > 0 && surface.BoxShadow[0].Color.A > 0, "an island rests on the canvas");
+        Assert.False(island.ClipToBounds, "its shadow falls beyond it; only its content is clipped, to the curve");
+        var clip = Required<Border>(island, "PART_IslandClip");
+        Assert.True(clip.ClipToBounds);
+        Assert.Equal(surface.CornerRadius, clip.CornerRadius);
+        var rim = Required<Border>(island, "PART_IslandRim");
+        Assert.Equal(new Thickness(1), rim.BorderThickness);
+        Assert.False(rim.IsHitTestVisible);
+        var layers = Assert.IsAssignableFrom<Panel>(rim.GetVisualParent());
+        Assert.True(layers.Children.IndexOf(rim) > layers.Children.IndexOf(clip),
+            "the rim is drawn over the island's content");
 
-        var seam = page.TranslatePoint(default, root)!.Value.X;
-        Assert.True(seam > 100, "the page sits beside its list");
+        var listRight = list.TranslatePoint(new Point(list.Bounds.Width, 0), root)!.Value.X;
+        var islandLeft = island.TranslatePoint(default, root)!.Value.X;
+        Assert.True(listRight > 100, "the island sits beside its list");
+        Assert.Equal(MobileShellViewModel.IslandGap, islandLeft - listRight, precision: 1);
+        Assert.Equal(MobileShellViewModel.IslandGap, island.TranslatePoint(default, root)!.Value.Y, precision: 1);
         Assert.DoesNotContain(root.GetVisualDescendants().OfType<Border>(), border =>
             border.IsEffectivelyVisible && border.Bounds is { Width: <= 2, Height: > 100 }
-            && Math.Abs(border.TranslatePoint(default, root)!.Value.X - seam) < 2
+            && border.TranslatePoint(default, root)!.Value.X is var x && x >= listRight - 2 && x <= islandLeft + 2
             && (Paints(border.Background) || border.BorderThickness != default && Paints(border.BorderBrush)));
 
         static IBrush? BackgroundOf(Control pane) => pane switch
@@ -345,6 +388,66 @@ public sealed class OpenCanvasDesignTests
         static bool Paints(IBrush? brush) =>
             brush is { Opacity: > 0 } && (brush is not ISolidColorBrush solid || solid.Color.A > 0);
     }
+
+    /// <summary>
+    /// Alone, what is open is the whole pane: the island's fill without its curve, rim or shadow.
+    /// </summary>
+    private static void AssertWholePane(ContentControl island, Color islandColor)
+    {
+        var surface = Required<Border>(island, "PART_IslandSurface");
+        Assert.Equal(islandColor, ColorOf(surface.Background));
+        Assert.Equal(default, surface.CornerRadius);
+        Assert.Equal(default, Required<Border>(island, "PART_IslandClip").CornerRadius);
+        Assert.Equal(0, Required<Border>(island, "PART_IslandRim").Opacity);
+        var shadows = surface.BoxShadow;
+        for (var index = 0; index < shadows.Count; index++)
+            Assert.True(shadows[index].Color.A == 0, "a pane casts no shadow");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task APhoneShowsWhatIsOpenAsTheWholeScreen(bool dark) =>
+        RunAsync(360, dark, async (model, view, window) =>
+        {
+            // Nothing ever sits beside the chat on a phone, so it is never an island.
+            var chatIsland = Required<ContentControl>(Required<ChatDetailView>(view, "ChatSurface"), "ChatIsland");
+            Assert.False(model.CanDockDrawer);
+            Assert.Equal(0, model.ChatIslandFrame);
+            Assert.Equal(default, chatIsland.TranslatePoint(default, view)!.Value);
+            Assert.Equal(view.Bounds.Size, chatIsland.Bounds.Size);
+            var islandColor = ColorOf(Required<Border>(chatIsland, "PART_IslandSurface").Background);
+            Assert.NotEqual(ColorOf(Required<MobileDrawerView>(view, "DrawerContent").Background), islandColor);
+            AssertWholePane(chatIsland, islandColor);
+
+            // A place's open page is the whole screen too.
+            model.SelectPlace(MobilePlace.Settings);
+            await SettleAsync(window);
+            model.OpenSettingsSectionCommand.Execute("Appearance");
+            await SettleAsync(window);
+            var page = Required<ContentControl>(Required<MobileSettingsView>(view, "SettingsPage"), "SettingsDetailIsland");
+            Assert.True(page.IsEffectivelyVisible);
+            Assert.Equal(default, page.Margin);
+            AssertWholePane(page, islandColor);
+        });
+
+    [Fact]
+    public Task HalfAnIslandHasHalfItsCurveAndHalfItsRim() =>
+        RunAsync(1100, true, (model, view, window) =>
+        {
+            var chatIsland = Assert.IsType<Lumi.Mobile.Layout.Island>(
+                Required<ContentControl>(Required<ChatDetailView>(view, "ChatSurface"), "ChatIsland"));
+            Assert.Equal(1, chatIsland.Frame);
+            Assert.Equal(new CornerRadius(24), Required<Border>(chatIsland, "PART_IslandSurface").CornerRadius);
+
+            // Midway through the list's slide the chat is half an island.
+            chatIsland.Frame = 0.5;
+            Pump(window);
+            Assert.Equal(new CornerRadius(12), Required<Border>(chatIsland, "PART_IslandSurface").CornerRadius);
+            Assert.Equal(new CornerRadius(12), Required<Border>(chatIsland, "PART_IslandClip").CornerRadius);
+            Assert.Equal(0.5, Required<Border>(chatIsland, "PART_IslandRim").Opacity, precision: 3);
+            return Task.CompletedTask;
+        });
 
     [Theory]
     [InlineData(360)]

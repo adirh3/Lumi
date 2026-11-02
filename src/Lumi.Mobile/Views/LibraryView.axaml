@@ -139,13 +139,13 @@
       proxies inherit the shell DataContext without casting through a temporarily-null ancestor,
       then expose the already-split insets as ordinary control properties for the page below.
     -->
-    <Border x:Name="LibrarySafeAreaTopProxy"
+    <Border x:Name="LibraryCanvasHeaderProxy"
             Width="0" Height="0"
             HorizontalAlignment="Left" VerticalAlignment="Top"
             IsHitTestVisible="False"
             x:DataType="vm:MobileShellViewModel"
             DataContext="{Binding $parent[views:MobileShellView].DataContext}"
-            Padding="{Binding SafeAreaTop}" />
+            Padding="{Binding CanvasHeaderInset}" />
     <Border x:Name="LibrarySafeAreaBottomProxy"
             Width="0" Height="0"
             HorizontalAlignment="Left" VerticalAlignment="Top"
@@ -160,6 +160,21 @@
             x:DataType="vm:MobileShellViewModel"
             DataContext="{Binding $parent[views:MobileShellView].DataContext}"
             Padding="{Binding SafeAreaSides}" />
+    <Border x:Name="LibraryIslandMarginProxy"
+            Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top"
+            IsHitTestVisible="False"
+            x:DataType="vm:MobileShellViewModel"
+            DataContext="{Binding $parent[views:MobileShellView].DataContext}"
+            Padding="{Binding PageIslandMargin}" />
+    <Border x:Name="LibraryIslandShapeProxy"
+            Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top"
+            IsHitTestVisible="False"
+            x:DataType="vm:MobileShellViewModel"
+            DataContext="{Binding $parent[views:MobileShellView].DataContext}"
+            Padding="{Binding PageIslandPadding}"
+            Tag="{Binding PageIslandFrame}" />
 
     <!--
       The place's list and its open item: side by side when there is room, one at a time on a
@@ -178,7 +193,7 @@
           <Border Background="{DynamicResource Brush.PageEdgeTop}" />
         </Panel>
         <Border x:Name="LibraryTopInset"
-                Padding="{Binding #LibrarySafeAreaTopProxy.Padding}">
+                Padding="{Binding #LibraryCanvasHeaderProxy.Padding}">
           <Border x:Name="LibraryHeaderSideInset"
                   Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
             <Grid x:Name="LibraryHeaderLayout"
@@ -187,7 +202,7 @@
                   MinHeight="{DynamicResource Touch.MinTarget}"
                   MaxWidth="720"
                   HorizontalAlignment="Stretch"
-                  Margin="16,8,16,4">
+                  Margin="16,16,16,4">
               <Button x:Name="LibraryBackButton" Grid.Column="0" Classes="chat-header-action floating-action" Margin="-4,0,8,0"
                       IsVisible="{Binding ShowBackButton}"
                       AutomationProperties.Name="{loc:Str Back}"
@@ -354,23 +369,25 @@
         </Panel>
       </Grid>
 
-      <!-- ═══ The open item ═══ -->
+      <!-- ═══ The open item: an island on the canvas, beside its list or on its own, as the chat is ═══ -->
+      <layout:Island x:Name="LibraryDetailIsland"
+                     Frame="{Binding #LibraryIslandShapeProxy.Tag}"
+                     Margin="{Binding #LibraryIslandMarginProxy.Padding}"
+                     Padding="{Binding #LibraryIslandShapeProxy.Padding}">
       <Grid x:Name="LibraryDetailPane" RowDefinitions="Auto,*"
             Background="{DynamicResource Brush.ChatCanvas}">
 
         <!-- The editor's pinned header keeps the title readable and Save above the IME. -->
         <Border x:Name="LibraryEditorTopInset" Grid.Row="0"
-                IsVisible="{Binding IsEditing}"
-                Padding="{Binding #LibrarySafeAreaTopProxy.Padding}">
-          <Border x:Name="LibraryEditorHeaderSideInset"
-                  Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+                IsVisible="{Binding IsEditing}">
+          <Border x:Name="LibraryEditorHeaderSideInset">
             <Grid x:Name="LibraryEditorHeader"
                   RowDefinitions="Auto,Auto"
                   ColumnDefinitions="Auto,*,Auto"
                   ColumnSpacing="8"
                   MaxWidth="720"
                   HorizontalAlignment="Stretch"
-                  Margin="8,8,12,4">
+                  Margin="12,16,12,4">
               <Button x:Name="EditCancelButton" Grid.Column="0" Classes="header-action"
                       Foreground="{DynamicResource Brush.TextSecondary}"
                       Content="{loc:Str Cancel}" Command="{Binding CancelEditCommand}" />
@@ -392,10 +409,8 @@
 
         <!-- Editor -->
         <Border x:Name="LibraryEditorBottomInset" Grid.Row="1"
-                Padding="{Binding #LibrarySafeAreaBottomProxy.Padding}"
                 IsVisible="{Binding IsEditing}">
-          <Border x:Name="LibraryEditorSideInset"
-                  Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+          <Border x:Name="LibraryEditorSideInset">
             <ScrollViewer x:Name="LibraryEditorScrollViewer" Classes="mobile-scroll">
               <StackPanel Spacing="12" x:Name="LibraryEditor" MaxWidth="720"
                           HorizontalAlignment="Stretch"
@@ -449,15 +464,14 @@
 
         <!-- An item's own page: built-in agents and skills, connectors and jobs open read-only. -->
         <Border x:Name="LibraryViewerTopInset" Grid.Row="0"
-                IsVisible="{Binding IsViewing}"
-                Padding="{Binding #LibrarySafeAreaTopProxy.Padding}">
-          <Border Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+                IsVisible="{Binding IsViewing}">
+          <Border>
             <ContentControl x:Name="LibraryViewerHeaderHost" Content="{Binding ViewedEntry}"
                             HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
               <ContentControl.ContentTemplate>
                 <DataTemplate x:DataType="vm:LibraryEntryViewModel">
                   <Grid x:Name="LibraryViewerHeader" ColumnDefinitions="Auto,Auto,*,Auto"
-                        MaxWidth="720" HorizontalAlignment="Stretch" Margin="8,8,12,8">
+                        MaxWidth="720" HorizontalAlignment="Stretch" Margin="8,16,12,8">
                     <Button x:Name="LibraryViewerBackButton" Classes="chat-header-action floating-action" Margin="0,0,4,0"
                             IsVisible="{Binding !$parent[layout:ListDetailPanel].IsTwoPane}"
                             AutomationProperties.Name="{loc:Str Back}"
@@ -490,9 +504,8 @@
         </Border>
 
         <Border x:Name="LibraryViewerBottomInset" Grid.Row="1"
-                IsVisible="{Binding IsViewing}"
-                Padding="{Binding #LibrarySafeAreaBottomProxy.Padding}">
-          <Border Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+                IsVisible="{Binding IsViewing}">
+          <Border>
             <ContentControl x:Name="LibraryViewerContentHost" Content="{Binding ViewedEntry}"
                             HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
               <ContentControl.ContentTemplate>
@@ -587,6 +600,7 @@
           <TextBlock Text="{Binding DetailPlaceholder}" Classes="supporting" TextAlignment="Center" />
         </StackPanel>
       </Grid>
+      </layout:Island>
     </layout:ListDetailPanel>
 
     <!-- Row actions cover the whole page so the header/search cannot be used through the scrim. -->

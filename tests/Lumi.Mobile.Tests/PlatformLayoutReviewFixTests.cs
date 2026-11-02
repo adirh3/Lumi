@@ -127,8 +127,14 @@ public sealed class PlatformLayoutReviewFixTests
                 var chat = Required<ChatDetailView>(view, "ChatSurface");
                 var composer = Required<StrataChatComposer>(chat, "Composer");
                 var composerInset = Required<Border>(chat, "ComposerInset");
+                var island = Required<ContentControl>(chat, "ChatIsland");
                 Assert.Equal(view.Bounds.Size, chat.Bounds.Size);
-                Assert.Equal(shell.ComposerSafeAreaBottom, composerInset.Padding);
+                // Alone on a phone the chat is the whole pane: its padding carries the composer's clearance
+                // and its content adds none of its own.
+                Assert.Equal(default, island.Margin);
+                Assert.Equal(shell.ChatIslandPadding, island.Padding);
+                Assert.Equal(shell.ComposerSafeAreaBottom.Bottom, island.Padding.Bottom);
+                Assert.Equal(default, composerInset.Padding);
                 Assert.Equal(12, ComposerGap(), 1);
                 foreach (var name in new[] { "ComposerAttachButton", "PART_SendButton" })
                 {
@@ -235,30 +241,37 @@ public sealed class PlatformLayoutReviewFixTests
                 var chat = Required<ChatDetailView>(shellView, "ChatSurface");
                 var composerInset = Required<Border>(chat, "ComposerInset");
                 var composerContent = Required<Border>(chat, "ComposerSideInset");
+                var island = Required<ContentControl>(chat, "ChatIsland");
                 AssertEdgeToEdge(chat, window);
                 Assert.Equal(default, shellView.Padding);
                 Assert.Equal(viewportHeight, shell.UsableContentHeight, 1);
                 Assert.True(shell.IsKeyboardOpen);
                 Assert.Equal(keyboardInset, shell.SafeAreaBottom.Bottom, 1);
-                Assert.Equal(shell.SafeAreaBottom, composerInset.Padding);
+                // Alone on a phone the chat's padding keeps the composer above the keyboard; the composer
+                // needs no inset of its own.
+                Assert.Equal(default, island.Margin);
+                Assert.Equal(keyboardInset, island.Padding.Bottom, 1);
+                Assert.Equal(default, composerInset.Padding);
 
                 var composerBottom = composerContent.TranslatePoint(
-                    new Point(0, composerContent.Bounds.Height), composerInset)!.Value.Y;
-                Assert.Equal(composerInset.Bounds.Height - keyboardInset, composerBottom, 1);
+                    new Point(0, composerContent.Bounds.Height), chat)!.Value.Y;
+                // The composer keeps its own 12 dp above the keyboard, as it does above the screen's foot.
+                Assert.Equal(chat.Bounds.Height - keyboardInset - 12, composerBottom, 1);
 
-                // Closing the keyboard restores exactly one home-indicator inset without
-                // shortening the canvas, including after Safari/standalone height changes.
+                // Closing the keyboard returns the composer to the screen's foot without shortening the
+                // canvas, including after Safari/standalone height changes: the home indicator passes over
+                // the composer's own gap.
                 shellView.ApplyPlatformInsets(safeArea, viewportHeight: viewportHeight);
                 Pump(window);
                 Assert.False(shell.IsKeyboardOpen);
-                Assert.Equal(0, composerInset.Padding.Bottom, 1);
+                Assert.Equal(0, island.Padding.Bottom, 1);
                 AssertEdgeToEdge(chat, window);
 
                 shellView.ApplyPlatformInsets(safeArea, keyboardInset, viewportHeight);
                 shellView.NotifyApplicationDeactivated();
                 Pump(window);
                 Assert.False(shell.IsKeyboardOpen);
-                Assert.Equal(0, composerInset.Padding.Bottom, 1);
+                Assert.Equal(0, island.Padding.Bottom, 1);
             }
             catch (Exception ex)
             {
@@ -320,7 +333,9 @@ public sealed class PlatformLayoutReviewFixTests
 
                 var search = Required<MobileSearchView>(shellView, "SearchPage");
                 AssertEdgeToEdge(search, window);
-                Assert.Equal(shell.SafeAreaTop, Required<Border>(search, "SearchTopInset").Padding);
+                // A phone's lists start right under the status bar: no island rests beside them.
+                Assert.Equal(shell.SafeAreaTop, shell.CanvasHeaderInset);
+                Assert.Equal(shell.CanvasHeaderInset, Required<Border>(search, "SearchTopInset").Padding);
                 Assert.Equal(shell.SafeAreaBottom, Required<Border>(search, "SearchBottomInset").Padding);
 
                 shell.Page = MobilePage.Settings;
@@ -328,7 +343,7 @@ public sealed class PlatformLayoutReviewFixTests
 
                 var settings = Required<MobileSettingsView>(shellView, "SettingsPage");
                 AssertEdgeToEdge(settings, window);
-                Assert.Equal(shell.SafeAreaTop, Required<Border>(settings, "SettingsTopInset").Padding);
+                Assert.Equal(shell.CanvasHeaderInset, Required<Border>(settings, "SettingsTopInset").Padding);
                 Assert.Equal(shell.SafeAreaBottom, Required<Border>(settings, "SettingsBottomInset").Padding);
 
                 shell.Page = MobilePage.Library;
@@ -336,13 +351,19 @@ public sealed class PlatformLayoutReviewFixTests
 
                 var library = Required<LibraryView>(shellView, "LibraryPage");
                 AssertEdgeToEdge(library, window);
-                Assert.Equal(shell.SafeAreaTop, Required<Border>(library, "LibraryTopInset").Padding);
+                Assert.Equal(shell.CanvasHeaderInset, Required<Border>(library, "LibraryTopInset").Padding);
                 Assert.Equal(shell.SafeAreaBottom, Required<Border>(library, "LibraryListBottomInset").Padding);
 
                 shell.Library.BeginCreateCommand.Execute(null);
                 Pump(window);
 
-                Assert.Equal(shell.SafeAreaBottom, Required<Border>(library, "LibraryEditorBottomInset").Padding);
+                // Alone on a phone the open item is the whole pane, kept clear of the bars by its padding;
+                // its editor adds no inset.
+                var detail = Required<ContentControl>(library, "LibraryDetailIsland");
+                Assert.Equal(default, detail.Margin);
+                Assert.Equal(shell.PageIslandPadding, detail.Padding);
+                Assert.Equal(topInset, detail.Padding.Top);
+                Assert.Equal(default, Required<Border>(library, "LibraryEditorBottomInset").Padding);
             }
             catch (Exception ex)
             {
@@ -425,14 +446,19 @@ public sealed class PlatformLayoutReviewFixTests
                 AssertRenderedSideInset(Required<Border>(drawer, "DrawerContentSideInset"), sideInsets);
                 AssertRenderedSideInset(Required<Border>(drawer, "DrawerAccountSideInset"), sideInsets);
 
-                AssertRenderedSideInset(Required<Border>(chat, "ChatHeaderSideInset"), sideInsets);
-                AssertRenderedSideInset(Required<Border>(chat, "ChatTranscriptSideInset"), sideInsets);
-                AssertRenderedSideInset(Required<Border>(chat, "ComposerSideInset"), sideInsets);
-                AssertRenderedSideInset(Required<Border>(chat, "WelcomeSideInset"), sideInsets);
-                Assert.Equal(new Thickness(0, safeArea.Top, 0, 0),
-                    Required<Border>(chat, "TopBarInset").Padding);
-                Assert.Equal(default,
-                    Required<Border>(chat, "ComposerInset").Padding);
+                // The chat's island keeps clear of the trailing cutout and the bars; the list beside it
+                // takes the leading one. Nothing inside the island insets itself again.
+                var gap = MobileShellViewModel.IslandGap;
+                var chatIsland = Required<ContentControl>(chat, "ChatIsland");
+                Assert.Equal(shell.ChatIslandMargin, chatIsland.Margin);
+                Assert.Equal(gap, chatIsland.Margin.Left);
+                Assert.Equal(safeArea.Top + gap, chatIsland.Margin.Top);
+                Assert.Equal(safeArea.Right + gap, chatIsland.Margin.Right);
+                Assert.Equal(shell.ComposerSafeAreaBottom.Bottom + gap, chatIsland.Margin.Bottom);
+                foreach (var name in new[] { "ChatHeaderSideInset", "ChatTranscriptSideInset", "ComposerSideInset", "WelcomeSideInset" })
+                    AssertRenderedSideInset(Required<Border>(chat, name), default);
+                Assert.Equal(default, Required<Border>(chat, "TopBarInset").Padding);
+                Assert.Equal(default, Required<Border>(chat, "ComposerInset").Padding);
 
                 var runSettings = Required<StrataBottomSheet>(shellView, "RunSettingsSheet");
                 shell.Chat.IsRunSettingsSheetOpen = true;
@@ -513,7 +539,13 @@ public sealed class PlatformLayoutReviewFixTests
                 shell.Library.BeginCreateCommand.Execute(null);
                 Pump(window);
 
-                AssertRenderedSideInset(Required<Border>(library, "LibraryEditorSideInset"), sideInsets);
+                // Beside the hinge-held navigation the open item's island takes only the trailing cutout.
+                var detailIsland = Required<ContentControl>(library, "LibraryDetailIsland");
+                Assert.Equal(shell.PageIslandMargin, detailIsland.Margin);
+                Assert.Equal(gap, detailIsland.Margin.Left);
+                Assert.Equal(safeArea.Top + gap, detailIsland.Margin.Top);
+                Assert.Equal(safeArea.Right + gap, detailIsland.Margin.Right);
+                AssertRenderedSideInset(Required<Border>(library, "LibraryEditorSideInset"), default);
 
                 // Foreground padding must not alter the physical split even after every overlay has
                 // been measured with asymmetric cutout values.

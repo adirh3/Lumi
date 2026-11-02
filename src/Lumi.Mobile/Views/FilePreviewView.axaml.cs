@@ -110,7 +110,7 @@ public partial class FilePreviewView : UserControl
         this.FindControl<Button>("PreviewBackButton")!.IsVisible = !IsBesideChat;
         this.FindControl<Button>("PreviewCloseButton")!.IsVisible = IsBesideChat;
         this.FindControl<Border>("PreviewHeader")!.Padding =
-            new Thickness(12 + insets.Left, 10 + insets.Top, 12 + insets.Right, 10);
+            new Thickness(12 + insets.Left, 16 + insets.Top, 12 + insets.Right, 10);
 
         var bottom = ActionsClearance + insets.Bottom;
         this.FindControl<StackPanel>("PreviewMarkdownContent")!.Margin =

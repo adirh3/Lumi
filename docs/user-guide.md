@@ -925,10 +925,17 @@ Lumi's built-in agents and skills, connectors and jobs on a read-only page with 
 instructions or command from the PC. Connectors and jobs switch on and off right on their row,
 grouped on cards like settings (Jobs counts how many are on and paused), and a job's page opens
 the chat it runs in. From 700 dp wide (an unfolded Galaxy Z Fold, a tablet) every place keeps its
-list beside its content, as the desktop's sidebar does, on one canvas with no line between them; a book-posture fold splits at the
-crease, and a phone held sideways keeps one pane with one-line chrome. Where the chat keeps
-480 dp beside it, the plan, sources and activity open as a panel on the right, with the chat
-and composer still live; below 1200 dp the chat list steps aside while the panel is open.
+list beside its content, as the desktop's sidebar does. As on the desktop, lists rest on the graphite
+canvas, and wherever something sits beside it, what is open (the chat, a place's page, a file) rests
+on the canvas as an island: a step lighter in dark (near-white in light), with a rounded rim, one small
+gap clear of the status bar, the cutout, the gesture area and the keyboard, and no line drawn between
+list and island; the list's header shares its line with the island's. Alone (on a phone, a folded
+Fold, or with the chat list hidden) it is the whole screen in the island's colour, and hiding or
+showing the list settles the chat into the screen, or lifts it out again, as the list slides. A
+book-posture fold splits at the crease, and a phone held sideways keeps one pane with one-line chrome.
+Where the chat keeps 480 dp beside it, the plan, sources and activity open as a panel on the right, one
+gap from the chat's island, with the chat and composer still live; below 1200 dp the chat list steps
+aside while the panel is open.
 With a keyboard, Ctrl+K searches, Ctrl+N starts a chat, Ctrl+B shows or hides the list,
 Ctrl+1–4 open the places and Ctrl+, opens Settings; a secondary click on a row opens the same
 actions as a long press.

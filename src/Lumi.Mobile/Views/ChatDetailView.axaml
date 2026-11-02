@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
              xmlns:views="using:Lumi.Mobile.Views"
+             xmlns:layout="using:Lumi.Mobile.Layout"
              xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:proto="using:Lumi.Remote.Protocol"
              xmlns:behaviors="using:Lumi.Mobile.Behaviors"
@@ -11,7 +12,7 @@
              x:DataType="vm:MobileShellViewModel"
              FlowDirection="{x:Static loc:ChatSessionStrings.UiFlowDirection}"
              sc:StrataTextSelection.IsTouchSelectionEnabled="False"
-             Background="{DynamicResource Brush.ChatCanvas}">
+             Background="Transparent">
 
   <UserControl.Styles>
     <Style Selector="sc|StrataChatShell.mobile /template/ Border#PART_HeaderContainer">
@@ -1060,15 +1061,22 @@
 
   <Panel x:Name="ChatRoot">
     <!--
-      Ambient presence field. Sits behind everything and never takes a hit test: Lumi is *in* the
-      room, not a control on it. State follows the conversation (dormant / idle / thinking /
-      streaming) and it blooms when an answer lands.
+      The conversation rests on the canvas as an island beside the list, as the desktop's does: one gap
+      clear of the status bar, the cutout, the gesture area and the keyboard. Alone (a phone, or the list
+      hidden) it is the whole pane in the island's colour, with its content clear of the bars, so its
+      content never needs insets of its own. Lumi's ambient presence lives inside it (ChatIslandContent),
+      behind everything and never taking a hit test: Lumi is *in* the room, not a control on it. The
+      sheets and the message menu stay over the whole pane.
     -->
+    <layout:Island x:Name="ChatIsland"
+                   Frame="{Binding ChatIslandFrame}"
+                   Margin="{Binding ChatIslandMargin}"
+                   Padding="{Binding ChatIslandPadding}">
+    <Panel x:Name="ChatIslandContent">
 
     <sc:StrataChatShell x:Name="ChatShell"
                        Classes="mobile"
                        ExtendsTranscriptBehindChrome="True"
-                       Margin="{Binding ChatSidePanelInset}"
                        IsVisible="{Binding !Chat.IsGitChangesOpen}"
                         IsOnline="{Binding IsLive}"
                         IsStreaming="{Binding Chat.IsStreaming}">
@@ -1081,11 +1089,11 @@
         <Panel x:Name="TopEdgeMaterial" Classes="chrome-edge" Margin="{DynamicResource Mobile.Chat.TopEdgeMargin}">
           <sc:StrataBackdropBlur x:Name="TopEdgeFrost" Classes="chrome-frost" Fade="Bottom"
                                  FadeLength="{DynamicResource Mobile.Chat.EdgeFadeLength}" />
-          <Border x:Name="TopEdgeTint" Background="{DynamicResource Brush.PageEdgeTop}" />
+          <Border x:Name="TopEdgeTint" Background="{DynamicResource Brush.IslandEdgeTop}" />
         </Panel>
-        <Border x:Name="ChatHeaderSideInset" Padding="{Binding SafeAreaSides}">
+        <Border x:Name="ChatHeaderSideInset">
           <StackPanel>
-          <Border x:Name="TopBarInset" Padding="{Binding SafeAreaTop}" BorderThickness="0">
+          <Border x:Name="TopBarInset" BorderThickness="0">
             <Grid x:Name="TopBar" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6"
                   MinHeight="{DynamicResource Touch.MinTarget}"
                   Margin="{DynamicResource Mobile.Navigation.HeaderMargin}"
@@ -1213,7 +1221,7 @@
 
       <sc:StrataChatShell.Transcript>
         <Grid>
-        <Border x:Name="ChatTranscriptSideInset" Padding="{Binding SafeAreaSides}">
+        <Border x:Name="ChatTranscriptSideInset">
         <StackPanel>
           <ProgressBar x:Name="TranscriptLoading"
                        Height="3"
@@ -1281,7 +1289,7 @@
         <!-- While a slow chat loads, its outline breathes over the canvas. No backdrop of its own: the
              transcript it replaces has already faded out, and Lumi's presence stays visible behind. -->
         <Border x:Name="ChatLoadingOverlay" IsVisible="False"
-                IsHitTestVisible="False" Padding="{Binding SafeAreaSides}">
+                IsHitTestVisible="False">
           <StackPanel Margin="0,14,0,0" Spacing="24"
                       AutomationProperties.Name="{loc:Str LoadingConversation}">
             <Border Height="58" Width="210" HorizontalAlignment="Right" CornerRadius="18"
@@ -1306,20 +1314,17 @@
 
       <sc:StrataChatShell.Composer>
         <Panel x:Name="ComposerLayer">
-        <!-- Gesture-area scrim while history passes under the floating composer, which is glass of its
-             own. It reaches the screen edges; behind an open keyboard there is nothing to frost. -->
+        <!-- Scrim while history passes under the floating composer, which is glass of its own. It
+             reaches the island's edges; the island itself keeps clear of the gesture bar and keyboard. -->
         <Panel x:Name="BottomEdgeMaterial" Classes="chrome-edge" VerticalAlignment="Bottom"
                Margin="{DynamicResource Mobile.Chat.BottomEdgeMargin}">
           <sc:StrataBackdropBlur x:Name="BottomEdgeFrost" Classes="chrome-frost" Fade="Top" FadeLength="0" />
           <Border x:Name="BottomEdgeTint" Background="{DynamicResource Brush.ChromeEdgeBottom}" />
-          <StackPanel>
-            <Panel Height="{DynamicResource Mobile.Chat.EdgeScrimExtent}" />
-            <Border Padding="{Binding SafeAreaBottom}" IsVisible="{Binding !IsKeyboardOpen}" />
-          </StackPanel>
+          <Panel Height="{DynamicResource Mobile.Chat.EdgeScrimExtent}" />
         </Panel>
-        <!-- The browser composer keeps its normal floating gap; native bars and the IME add clearance. -->
-        <Border x:Name="ComposerInset" Padding="{Binding ComposerSafeAreaBottom}">
-          <Border x:Name="ComposerSideInset" Padding="{Binding SafeAreaSides}">
+        <!-- The island carries the bottom clearance (the gesture bar, or the keyboard while it is open). -->
+        <Border x:Name="ComposerInset">
+          <Border x:Name="ComposerSideInset">
           <StackPanel MaxWidth="{DynamicResource Chat.ReadingColumnWidth}">
           <sc:StrataTypingIndicator x:Name="ChatTyping" Classes="mobile-working" Margin="8,0,8,8"
                                     Label="{Binding Chat.WorkingStatusText}"
@@ -1505,7 +1510,6 @@
          on the composer, in the thumb's reach. Its margin tracks the bars (code-behind), and it scrolls
          as one surface when a short screen cannot hold it. -->
     <Border x:Name="WelcomeSideInset"
-            Padding="{Binding SafeAreaSides}"
             Margin="0,0,0,110"
             ClipToBounds="True"
             IsVisible="{Binding IsWelcomeVisible}">
@@ -1610,6 +1614,14 @@
       </Grid>
       </ScrollViewer>
     </Border>
+
+    <!-- The chat's changes take the island's place while they are open. -->
+    <Border x:Name="GitChangesOverlay" IsVisible="{Binding Chat.IsGitChangesOpen}"
+            Background="{DynamicResource Brush.ChatCanvas}">
+      <views:GitChangesView DataContext="{Binding Chat}" />
+    </Border>
+    </Panel>
+    </layout:Island>
 
     <!-- Plan, sources and activity are declared before the other sheets: with room beside the chat
          they are panels, and a picker or the chat's details must open over them.
@@ -2060,10 +2072,6 @@
         </StackPanel>
       </Border>
     </sc:StrataBottomSheet>
-    <Border x:Name="GitChangesOverlay" IsVisible="{Binding Chat.IsGitChangesOpen}"
-            Background="{DynamicResource Brush.Surface0}" Padding="{Binding SafeArea}">
-      <views:GitChangesView DataContext="{Binding Chat}" />
-    </Border>
 
     <!-- Editing a message the menu's Edit opened: dismissing it ends the message's actions. -->
     <sc:StrataBottomSheet x:Name="MessageEditSheet" Classes="safe-area"

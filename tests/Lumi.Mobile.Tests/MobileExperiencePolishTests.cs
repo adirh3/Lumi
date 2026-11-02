@@ -958,7 +958,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Assert.True(bounds.Top >= sheet.SheetMargin.Top - 0.1, sheet.Name);
                 Assert.Equal(sheet.Bounds.Height - sheet.SheetMargin.Bottom, bounds.Bottom, precision: 1);
                 Assert.InRange(surface.Bounds.Width, 1, 560);
-                Assert.Equal(new CornerRadius(28), surface.CornerRadius);
+                // A panel beside the chat shares its islands' curve; a sheet keeps its own.
+                Assert.Equal(new CornerRadius(sheet.Classes.Contains("side-panel") ? 24 : 28), surface.CornerRadius);
                 Assert.Equal(new Thickness(1), surface.BorderThickness);
                 Assert.True(Required<Border>(sheet, "PART_Handle").Bounds.Height >= 48);
                 Assert.Equal(sheet.Bounds.Size, scrim.Bounds.Size);
@@ -1276,8 +1277,13 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             var centers = controls.Select(control =>
                 control.TranslatePoint(new Point(0, control.Bounds.Height / 2), view)!.Value.Y).ToArray();
             Assert.InRange(centers.Max() - centers.Min(), 0, 1);
-            Assert.Equal(new Thickness(16, 8, 16, 8), Required<Grid>(view, "DrawerBrandHeader").Margin);
+            // A header sits as far below its surface's top as it sits in from the side, on the canvas or
+            // in an island. Where islands rest beside lists, the list's header starts one island gap lower,
+            // level with the island's; on a phone neither does.
+            Assert.Equal(new Thickness(16, 16, 16, 8), Required<Grid>(view, "DrawerBrandHeader").Margin);
             Assert.Equal(Required<Grid>(view, "TopBar").Margin, Required<Grid>(view, "DrawerBrandHeader").Margin);
+            Assert.Equal(new Thickness(0, 28 + (shell.Layout.CanShowTwoPanes ? MobileShellViewModel.IslandGap : 0), 0, 0),
+                Required<Border>(view, "DrawerTopInset").Padding);
             Assert.Equal(48, Required<Button>(view, "HeaderDetailsButton").Bounds.Height);
         });
 
@@ -2264,7 +2270,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             var settings = Required<MobileSettingsView>(view, "SettingsPage");
             // A phone lists Settings' pages first; the connection is one of them.
             Assert.False(shell.ShowSettingsDetail);
-            Assert.False(Required<Grid>(settings, "SettingsDetailPane").IsVisible);
+            Assert.False(Required<ContentControl>(settings, "SettingsDetailIsland").IsVisible);
             await Task.Delay(320);
             Pump(window);
             Tap(window, Required<Button>(settings, "SettingsConnectionRow"));
@@ -2425,7 +2431,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 {
                     shell.Page = page;
                     await Task.Delay(260);
-                    Pump(window);
+                    // Hit testing reads the rendered scene, so the page is drawn before it is tapped.
+                    PumpFrame(window);
                     var banner = Required<WebAppUpdateBannerView>(view, name);
                     Assert.Equal(webApp, banner.IsEffectivelyVisible);
                     if (!webApp)

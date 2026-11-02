@@ -279,7 +279,14 @@ public sealed class MobilePlacesNavigationTests
         Assert.True(shell.Chat.HasSidePanelOpen);
         Assert.False(shell.Chat.HasOpenSheet, "a side panel leaves the chat and its composer live");
         Assert.False(shell.IsDrawerDocked, "below three panes the list steps aside for the panel");
-        Assert.Equal(new Thickness(0, 0, MobileShellViewModel.SidePanelWidth + 12, 0), shell.ChatSidePanelInset);
+        Assert.Equal(1, shell.ChatIslandFrame);
+        Assert.Equal(new Thickness(0, 0, MobileShellViewModel.SidePanelWidth + MobileShellViewModel.IslandGap, 0),
+            shell.ChatSidePanelInset);
+        // The chat's island leaves the panel its room on the canvas, one gap away, as the panel keeps
+        // one gap from the screen's edge.
+        Assert.Equal(MobileShellViewModel.IslandGap + MobileShellViewModel.SidePanelWidth + MobileShellViewModel.IslandGap,
+            shell.ChatIslandMargin.Right);
+        Assert.Equal(MobileShellViewModel.IslandGap, shell.SidePanelSheetMargin.Right);
         Assert.True(shell.CanGoBack);
         Assert.False(shell.CanDragDrawer);
 
@@ -287,6 +294,51 @@ public sealed class MobilePlacesNavigationTests
         Assert.False(shell.Chat.IsPlanOpen);
         Assert.True(shell.IsDrawerDocked, "the list returns when the panel closes");
         Assert.Equal(default, shell.ChatSidePanelInset);
+        Assert.Equal(MobileShellViewModel.IslandGap, shell.ChatIslandMargin.Right);
+
+        // The chat stays an island while its list slides back in the panel's place, then rests beside it.
+        shell.IsDrawerMoving = true;
+        shell.NavigationProgress = 0.1;
+        Assert.Equal(1, shell.ChatIslandFrame);
+        shell.NavigationProgress = 1;
+        shell.IsDrawerMoving = false;
+        Assert.Equal(1, shell.ChatIslandFrame);
+
+        // Hiding the list leaves nothing beside the chat: it becomes the whole pane.
+        shell.IsNavigationOpen = false;
+        Assert.Equal(0, shell.ChatIslandFrame);
+        Assert.Equal(default, shell.ChatIslandMargin);
+        Assert.Equal(new Thickness(shell.SafeArea.Left, shell.SafeArea.Top, shell.SafeArea.Right,
+            shell.ComposerSafeAreaBottom.Bottom), shell.ChatIslandPadding);
+    }
+
+    [Fact]
+    public async Task TheChatSettlesIntoThePaneOnTheFramesItsListSlidesAway()
+    {
+        await using var scope = new ShellScope();
+        var shell = scope.Paired(984, 1092);
+        shell.Chat.Reset(Guid.NewGuid(), "Sliding chat");
+        shell.SafeArea = new Thickness(0, 24, 0, 0);
+        var gap = MobileShellViewModel.IslandGap;
+        Assert.Equal(1, shell.ChatIslandFrame);
+        Assert.Equal(new Thickness(gap, 24 + gap, gap, gap), shell.ChatIslandMargin);
+        Assert.Equal(default, shell.ChatIslandPadding);
+
+        // Halfway through the list's slide the chat is half an island, and its content sits halfway
+        // between where the island holds it and where the whole pane does.
+        shell.IsNavigationOpen = false;
+        shell.IsDrawerMoving = true;
+        shell.NavigationProgress = 0.5;
+        Assert.Equal(0.5, shell.ChatIslandFrame, 3);
+        Assert.Equal(new Thickness(gap / 2, (24 + gap) / 2, gap / 2, gap / 2), shell.ChatIslandMargin);
+        Assert.Equal(new Thickness(0, 12, 0, 0), shell.ChatIslandPadding);
+        Assert.Equal(24 + gap / 2, shell.ChatIslandMargin.Top + shell.ChatIslandPadding.Top);
+
+        shell.NavigationProgress = 0;
+        shell.IsDrawerMoving = false;
+        Assert.Equal(0, shell.ChatIslandFrame);
+        Assert.Equal(default, shell.ChatIslandMargin);
+        Assert.Equal(new Thickness(0, 24, 0, 0), shell.ChatIslandPadding);
     }
 
     [Fact]
@@ -334,6 +386,13 @@ public sealed class MobilePlacesNavigationTests
         Assert.True(shell.IsDrawerDocked);
         Assert.False(shell.Chat.IsActivitySheetOpen);
         Assert.False(shell.IsSidebarCollapsed);
+        // The chat stays an island while the list slides into the panel's place.
+        shell.IsDrawerMoving = true;
+        shell.NavigationProgress = 0.1;
+        Assert.Equal(1, shell.ChatIslandFrame);
+        shell.NavigationProgress = 1;
+        shell.IsDrawerMoving = false;
+        Assert.Equal(1, shell.ChatIslandFrame);
     }
 
     [Fact]

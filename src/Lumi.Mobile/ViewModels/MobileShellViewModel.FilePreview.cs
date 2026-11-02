@@ -42,8 +42,12 @@ public sealed partial class MobileShellViewModel : IRemoteProducedFileSink
     /// <summary>The navigation pane keeps the leading side of a hinge, except while a preview has the chat there.</summary>
     public bool ReservesHingeForNavigation => HasHingeGap && !IsFilePreviewBeside;
 
-    /// <summary>Where the preview's floating card sits in its pane: clear of the bars and the screen's edge.</summary>
-    public Thickness FilePreviewPaneMargin => new(8, SafeArea.Top + 8, SafeArea.Right + 8, SafeArea.Bottom + 8);
+    /// <summary>
+    /// Where the preview's island sits in its pane: clear of the bars and the screen's edge. The chat's
+    /// island keeps the gap before it, except across a hinge, where each side keeps its own.
+    /// </summary>
+    public Thickness FilePreviewPaneMargin => new(
+        HasHingeGap ? IslandGap : 0, SafeArea.Top + IslandGap, SafeArea.Right + IslandGap, IslandFootClearance + IslandGap);
 
     /// <summary>Set by the view while the preview's pane grows or shrinks beside the chat.</summary>
     [ObservableProperty] private bool _isFilePreviewMoving;
@@ -91,6 +95,7 @@ public sealed partial class MobileShellViewModel : IRemoteProducedFileSink
         OnPropertyChanged(nameof(FilePreviewPaneMargin));
         OnPropertyChanged(nameof(ReservesHingeForNavigation));
         OnPropertyChanged(nameof(NavigationLeadingWidth));
+        NotifyIslandsChanged();
     }
 
 #if DEBUG
