@@ -1021,10 +1021,11 @@ results are one virtualized list of headers and rows, so row controls are recycl
 groups. The PWA runtime uses a 16 MB young generation, so garbage collections interrupt
 scrolling and typing about a third as often. Glass surfaces reuse their Skia filter and paint
 objects from frame to frame.
-All Lumi hosts use a 64 MiB Skia GPU-resource-cache budget so high-DPI surfaces and glass-filter
-intermediates can be reused without repeatedly allocating textures while scrolling. This is a
-soft cache budget, not an upfront allocation or a hard cap on total graphics memory: resources
-still in use and buffers outside the cache can exceed it. Rendering resolution and quality are unchanged.
+Native Android uses a 128 MiB Skia GPU-resource-cache budget for large chats; the browser,
+desktop and mobile simulator use 64 MiB. This lets high-DPI surfaces and glass-filter
+intermediates be reused without repeatedly allocating textures while scrolling. These are
+soft cache budgets, not upfront allocations or hard caps on total graphics memory: resources
+still in use and buffers outside the cache can exceed them. Rendering resolution and quality are unchanged.
 
 Compatible Android Chromium browsers present completed WebGL frames through a worker-owned
 canvas. Its frame clock avoids Chromium's main-frame high-refresh throttle while rendering
