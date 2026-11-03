@@ -138,6 +138,8 @@ public sealed class TranscriptCollapsibleToggleTests
                 await PumpAsync();
                 window.UpdateLayout();
                 var card = Assert.Single(view.GetVisualDescendants().OfType<StrataThink>());
+                await WaitUntilAsync(() => card.DisplayedPreviewContent is not null);
+                window.UpdateLayout();
                 Assert.Null(card.HeaderExtra);
                 Assert.Null(card.DisplayedContent);
                 Assert.Same(card.PreviewContent, card.DisplayedPreviewContent);
@@ -208,6 +210,11 @@ public sealed class TranscriptCollapsibleToggleTests
                 group.Meta = "4/4 done";
                 group.ProgressValue = 100;
                 await PumpAsync();
+                window.UpdateLayout();
+                // The card settles a moment after the work stops, so a step that follows keeps it open.
+                Assert.Contains(":activity", card.Classes);
+                Assert.DoesNotContain(":active", card.Classes);
+                await WaitUntilAsync(() => !card.Classes.Contains(":activity"));
                 window.UpdateLayout();
                 Assert.Null(card.DisplayedPreviewContent);
                 Assert.Null(card.DisplayedContent);
@@ -382,6 +389,70 @@ public sealed class TranscriptCollapsibleToggleTests
             default:
                 throw new InvalidOperationException($"Unhandled view type {view.GetType().Name}.");
         }
+    }
+
+    [Fact]
+    public async Task RunningToolGroup_QuickStepsNeverFlickerTheActivityCardOpen()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var group = new ToolGroupItem("Finished 2 actions") { Meta = "2/2 done", ProgressValue = 100 };
+            group.ToolCalls.Add(new ToolCallItem("Read README", StrataAiToolCallStatus.Completed));
+            group.ToolCalls.Add(new ToolCallItem("Search files", StrataAiToolCallStatus.Completed));
+            var view = new ChatView().DataTemplates.Single(template => template.Match(group)).Build(group)!;
+            view.DataContext = group;
+            var window = new Window { Width = 640, Height = 400, Content = view };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                var card = Assert.Single(view.GetVisualDescendants().OfType<StrataThink>());
+                // A generous delay keeps each quick step well under it, however slowly the dispatcher pumps.
+                card.ActivityRevealDelay = TimeSpan.FromSeconds(2);
+                var sawActivity = false;
+                for (var step = 0; step < 6; step++)
+                {
+                    group.IsActive = true;
+                    group.ActivityPreview = [new("Reading file", $"file{step}.cs")];
+                    await PumpAsync();
+                    Assert.Contains(":active", card.Classes);
+                    sawActivity |= card.Classes.Contains(":activity") || card.DisplayedPreviewContent is not null;
+                    await Task.Delay(40);
+
+                    group.IsActive = false;
+                    group.ActivityPreview = [];
+                    await PumpAsync();
+                    sawActivity |= card.Classes.Contains(":activity") || card.DisplayedPreviewContent is not null;
+                    await Task.Delay(40);
+                }
+
+                Assert.False(sawActivity);
+                await Task.Delay(700);
+                await PumpAsync();
+                Assert.DoesNotContain(":activity", card.Classes);
+                Assert.Null(card.DisplayedPreviewContent);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 3000)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+                return;
+
+            await PumpAsync();
+            await Task.Delay(20);
+        }
+
+        Assert.True(condition(), "Timed out waiting for the activity card to settle.");
     }
 
     private static async Task PumpAsync()
