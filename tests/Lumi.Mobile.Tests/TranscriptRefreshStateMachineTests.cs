@@ -269,10 +269,7 @@ public sealed class TranscriptRefreshStateMachineTests
             Assert.Equal(1, handler.ActiveTranscriptRequests);
             Assert.Equal(1, handler.MaxActiveTranscriptRequests);
 
-            var freshApplied = WaitForPropertyAsync(
-                shell.Chat,
-                nameof(MobileChatViewModel.Title),
-                () => shell.Chat.Title == "FRESH");
+            var freshApplied = WaitForTranscriptAppliedAsync(shell.Chat, () => shell.Chat.Title == "FRESH");
 
             firstResponse.TrySetResult(stale);
 
@@ -451,10 +448,7 @@ public sealed class TranscriptRefreshStateMachineTests
             Assert.Equal(200, oldRequest.BeforeMessageIndex);
             Assert.Equal(RemoteProtocol.TranscriptWindowRawMessageLimit, oldRequest.MaxMessages);
 
-            var newChatApplied = WaitForPropertyAsync(
-                shell.Chat,
-                nameof(MobileChatViewModel.Title),
-                () => shell.Chat.Title == "CHAT-B");
+            var newChatApplied = WaitForTranscriptAppliedAsync(shell.Chat, () => shell.Chat.Title == "CHAT-B");
 
             var newChat = Assert.Single(Assert.Single(shell.ChatList.Groups).Chats);
             shell.ChatList.OpenChatCommand.Execute(newChat);
@@ -1217,6 +1211,30 @@ public sealed class TranscriptRefreshStateMachineTests
         finally
         {
             source.PropertyChanged -= handler;
+        }
+    }
+
+    /// <summary>
+    /// Completes once a transcript application that leaves <paramref name="condition"/> true has finished.
+    /// A transcript's title is set before its turns, so its title changing doesn't mean its turns are in.
+    /// </summary>
+    private static async Task WaitForTranscriptAppliedAsync(MobileChatViewModel chat, Func<bool> condition)
+    {
+        var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnApplied()
+        {
+            if (condition())
+                applied.TrySetResult();
+        }
+
+        chat.TranscriptApplied += OnApplied;
+        try
+        {
+            await applied.Task.WaitAsync(TestTimeout);
+        }
+        finally
+        {
+            chat.TranscriptApplied -= OnApplied;
         }
     }
 
