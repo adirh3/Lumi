@@ -2025,6 +2025,8 @@
   <data name="NotificationConnecting" xml:space="preserve"><value>{0} に接続しています…</value></data>
   <data name="NotificationWaiting" xml:space="preserve"><value>{0} を待っています</value></data>
   <data name="NotificationPublicReply" xml:space="preserve"><value>Lumi が返信を終えました</value></data>
+  <data name="NotificationActionReply" xml:space="preserve"><value>返信</value></data>
+  <data name="NotificationSendFailed" xml:space="preserve"><value>送信できませんでした。もう一度試すか、Lumi を開いてください。</value></data>
   <data name="NotificationPublicRequest" xml:space="preserve"><value>Lumi があなたを必要としています</value></data>
   <data name="NotificationsPromptTitle" xml:space="preserve"><value>Lumi が必要なときに通知を受け取る</value></data>
   <data name="NotificationsPromptText" xml:space="preserve"><value>{0} から離れているとき、返信が完了したり Lumi から質問があったりすると、すぐにこのスマートフォンに届きます。PC の前にいる間は届きません。</value></data>

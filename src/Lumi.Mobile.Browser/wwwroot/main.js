@@ -86,7 +86,7 @@ try {
     configureAppUpdates(
         interop.CanApplyAppUpdate,
         interop.SetAppUpdateState);
-    configureNotificationClicks(interop.OpenChatFromNotification);
+    configureNotificationClicks(interop.OpenChatFromNotification, interop.SendFromNotification);
 
     // Reconnect as soon as the network returns instead of waiting out a retry pause.
     window.addEventListener('online', () => interop.SetNetworkAvailable(true));

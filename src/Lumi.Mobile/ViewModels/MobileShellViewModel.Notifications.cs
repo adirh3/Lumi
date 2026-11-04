@@ -628,4 +628,51 @@ public sealed partial class MobileShellViewModel
         var known = ChatList.FindLoadedChat(chatId);
         OnChatActivated(chatId, known?.Title ?? title ?? Strings.Get("Chat"), known?.LastModelUsed);
     }
+
+    /// <summary>A suggestion picked in a browser's notification, waiting to be sent in its chat.</summary>
+    private (Guid ChatId, string Text)? _notificationSend;
+
+    /// <summary>
+    /// Sends a suggestion picked in a browser's notification in its chat, as if typed there. It shows in
+    /// the composer at once and goes as soon as the PC is connected and the chat has loaded; editing it,
+    /// or opening another chat, first keeps it from going. A draft the user left in the chat stays as it
+    /// is, and then the suggestion only opens the chat.
+    /// </summary>
+    public void SendFromNotification(Guid chatId, string text)
+    {
+        if (!IsPaired || chatId == Guid.Empty || string.IsNullOrWhiteSpace(text))
+            return;
+
+        if (Chat.ChatId != chatId)
+            OpenChatFromNotification(chatId, null);
+
+        var suggestion = text.Trim();
+        if (Chat.HasAttachments || Chat.PromptText.Trim() is { Length: > 0 } draft && draft != suggestion)
+            return;
+
+        _notificationSend = (chatId, suggestion);
+        Chat.PromptText = suggestion;
+        SendFromNotificationWhenReady();
+    }
+
+    private void SendFromNotificationWhenReady()
+    {
+        if (_notificationSend is not { } pending)
+            return;
+
+        if (Chat.ChatId != pending.ChatId || Chat.PromptText != pending.Text)
+        {
+            _notificationSend = null;
+            return;
+        }
+
+        if (!IsConnected || !Client.HasCompatibleBootstrap || Chat.IsLoading)
+            return;
+
+        _notificationSend = null;
+        if (Chat.SendCommand.CanExecute(null))
+            Chat.SendCommand.Execute(null);
+    }
+
+    partial void OnIsConnectedChanged(bool value) => SendFromNotificationWhenReady();
 }

@@ -234,6 +234,14 @@ internal static class WebPush
             if (!string.IsNullOrEmpty(notification.AgentName))
                 writer.WriteString("agent", notification.AgentName);
             writer.WriteString("text", text);
+            if (notification.Suggestions.Count > 0)
+            {
+                writer.WriteStartArray("suggestions");
+                foreach (var suggestion in notification.Suggestions)
+                    writer.WriteStringValue(suggestion);
+                writer.WriteEndArray();
+            }
+
             writer.WriteString("host", hostName);
             writer.WriteNumber("at", notification.CreatedAt.ToUnixTimeMilliseconds());
             writer.WriteEndObject();

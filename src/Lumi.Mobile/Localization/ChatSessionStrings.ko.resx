@@ -723,6 +723,8 @@
   <data name="NotificationConnecting" xml:space="preserve"><value>{0}에 연결하는 중…</value></data>
   <data name="NotificationWaiting" xml:space="preserve"><value>{0} 기다리는 중</value></data>
   <data name="NotificationPublicReply" xml:space="preserve"><value>Lumi가 답변을 마쳤어요</value></data>
+  <data name="NotificationActionReply" xml:space="preserve"><value>답장</value></data>
+  <data name="NotificationSendFailed" xml:space="preserve"><value>보내지 못했어요. 다시 시도하거나 Lumi를 여세요.</value></data>
   <data name="NotificationPublicRequest" xml:space="preserve"><value>Lumi가 도움이 필요해요</value></data>
   <data name="NotificationsPromptTitle" xml:space="preserve"><value>Lumi가 필요할 때 알림 받기</value></data>
   <data name="NotificationsPromptText" xml:space="preserve"><value>{0}을(를) 떠나 있을 때 답변이 준비되거나 Lumi에게 질문이 생기면 바로 이 휴대폰으로 알려요. 컴퓨터 앞에 있을 때는 오지 않아요.</value></data>

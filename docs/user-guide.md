@@ -41,7 +41,7 @@ Quick links: [AI accounts](#ai-accounts), [voice input](#voice-input),
 - **Make it yours** — Settings → Appearance: a Light, Dark or System theme that spreads across the window from where you pick it, eight accent palettes that recolor buttons, selection, your messages, Lumi's glow and Lumi's icon in the app and the tray, the window material, text size, density and how brightly the presence glows — each shown at once in a live preview, with **Restore default look** one click away
 - **Voice input** — Local, multilingual dictation on Windows, Linux and macOS: asks once before its one-time download, listens instantly with a live waveform, and shows your words as you speak
 - **Desktop notifications** — Toast notifications when responses complete in the background
-- **Phone notifications** — The Android app and the mobile web app hear about finished replies and questions only while you're away from the PC; tapping one opens the chat ([details](#phone-notifications))
+- **Phone notifications** — The Android app and the mobile web app hear about finished replies and questions only while you're away from the PC; tapping one opens the chat, and a finished reply offers Lumi's suggestions to send right from the notification ([details](#phone-notifications))
 - **Welcome & setup** — A guided first run shows what Lumi can do, connects your AI, looks at what you work on (only the sources you allow) and sets up projects from your repositories and document folders, turns a few quick answers into memories, and ends with first tasks tailored to you. Replay it anytime from Settings → Profile → Welcome Tour
 - **Visible startup** — A localized loading window appears before the main UI is built: Lumi's mark puts itself together in your accent over a slowly turning glow and keeps moving while Lumi starts (it stands still with animations off). On Windows, when Lumi opens on its welcome screen or the welcome tour, the loading window grows into Lumi's window and the mark glides into the welcome logo; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
 
@@ -1221,13 +1221,28 @@ the PC, the way Teams and Slack hold mobile notifications while you're active at
   dismissed or you open the chat in the web app. Android's lock screen shows a notification's
   words only if Android is set to show sensitive content there; otherwise it shows "Lumi finished
   a reply" or "Lumi needs you".
+- **Answering from the notification.** A finished reply brings Lumi's follow-up suggestions
+  (Settings → AI Features), so its notification can wait a few seconds, at most 15, while Lumi
+  writes them. In the Android app (Android 12 and later) they're chips marked with Lumi's sparkle,
+  beside **Reply** to type your own: what you pick or type goes to the chat without opening Lumi,
+  once the phone is unlocked, and shows as your message under Lumi's until Lumi starts on it. A paired
+  watch shows them as buttons below its reply, and sends the one you pick without unlocking the
+  phone. Android's own generated replies are left out, so the suggestions are Lumi's. In the web app on
+  Android, the first two are buttons; picking one opens Lumi on the chat with it in the composer
+  and sends it as soon as the chat has loaded (changing it first keeps it from going, and a draft
+  you left in that chat stays as it is instead). Safari's notifications have no buttons, so on
+  iPhone and iPad a tap opens the chat.
 - **In the Android app.** There is no cloud service: while notifications are on, the app keeps
   one quiet connection to the PC over the same private link (Tailscale or local Wi-Fi), as
   Android's remote-messaging foreground service with a silent **Connected to** notice you can
   hide in Android's settings. It checks in every 15 minutes, reconnects at once when the network
   returns, backs off while the PC is out of reach, and comes back after the phone restarts or
   Lumi updates. **Questions and approvals**, **Finished replies** and the connection notice are
-  separate Android channels.
+  separate Android channels. Each chat is an Android conversation, as in chat apps: an avatar of
+  its own (the first letter of its title, on a colour of its own) with Lumi's badge, a place with
+  your other conversations, and Android's conversation choices, such as **Priority**, when you
+  long-press it. Long-pressing Lumi's icon offers recent chats too. Turning notifications off, or
+  forgetting the PC, removes them.
 - **In the web app.** The PC sends each notification through the browser's own push service —
   Google's for Chrome, Edge and Samsung Internet, Apple's for Safari, Mozilla's for Firefox — as
   standard Web Push: encrypted so only that browser can read it, signed with a key the PC keeps,

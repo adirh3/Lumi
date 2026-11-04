@@ -78,7 +78,8 @@ internal sealed class SimulatedNotificationPlatform(bool denyPermission)
     }
 
     public void Show(RemoteNotification notification, bool alert) =>
-        Write($"{(alert ? "alert" : "quiet")} {notification.Kind} {notification.Id} \"{notification.ChatTitle}\": {notification.Text}");
+        Write($"{(alert ? "alert" : "quiet")} {notification.Kind} {notification.Id} \"{notification.ChatTitle}\": {notification.Text}"
+              + (notification.Suggestions.Count > 0 ? $" [suggestions: {string.Join(" | ", notification.Suggestions)}]" : ""));
 
     public void Dismiss(IReadOnlyCollection<string> ids) => Write($"dismiss {string.Join(", ", ids)}");
 

@@ -770,6 +770,67 @@ public sealed class MobileNotificationSettingsTests
     }
 
     [Fact]
+    public async Task ASuggestionPickedInABrowsersNotificationIsSentInItsChat()
+    {
+        using var session = HeadlessMobileSession.Start();
+        var platform = new FakeWebPushPlatform { Allowed = true };
+        await WithPlatformAsync(platform, async () =>
+        {
+            var chatId = Guid.NewGuid();
+            await using var desktop = WebPushDesktop();
+            desktop.Transcript = new RemoteTranscript { ChatId = chatId, Title = "Trip plan", Revision = 1 };
+            await using var shell = NewShell(session.NewStore());
+            await PairAsync(shell, desktop);
+
+            shell.SendFromNotification(chatId, "  Book the Dan ");
+
+            await WaitAsync(() => Commands(desktop, RemoteProtocol.Actions.SendMessage).Count == 1);
+            var sent = Commands(desktop, RemoteProtocol.Actions.SendMessage)[0];
+            Assert.Equal("Book the Dan", sent.Get("message"));
+            Assert.Equal(chatId.ToString(), sent.Get("chatId"));
+            Assert.Equal(chatId, shell.Chat.ChatId);
+            Assert.Equal("", shell.Chat.PromptText);
+        });
+    }
+
+    [Fact]
+    public async Task APickedSuggestionNeverSendsOrReplacesWhatTheUserWrote()
+    {
+        using var session = HeadlessMobileSession.Start();
+        var platform = new FakeWebPushPlatform { Allowed = true };
+        await WithPlatformAsync(platform, async () =>
+        {
+            var chatId = Guid.NewGuid();
+            var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await using var desktop = WebPushDesktop();
+            desktop.TranscriptResponseFactory = async _ =>
+            {
+                await loaded.Task;
+                return new RemoteTranscript { ChatId = chatId, Title = "Trip plan", Revision = 1 };
+            };
+            await using var shell = NewShell(session.NewStore());
+            await PairAsync(shell, desktop);
+
+            // The chat is still loading: what will go shows in the composer, where it can be changed.
+            shell.SendFromNotification(chatId, "Book the Dan");
+            Assert.Equal("Book the Dan", shell.Chat.PromptText);
+            shell.Chat.PromptText = "Book the Dan for two nights";
+
+            loaded.SetResult();
+            await WaitAsync(() => !shell.Chat.IsLoading);
+            await Task.Delay(200);
+            Assert.Empty(Commands(desktop, RemoteProtocol.Actions.SendMessage));
+            Assert.Equal("Book the Dan for two nights", shell.Chat.PromptText);
+
+            // A draft waiting in the chat stays as the user left it; the suggestion only opens the chat.
+            shell.SendFromNotification(chatId, "Ship it");
+            await Task.Delay(200);
+            Assert.Empty(Commands(desktop, RemoteProtocol.Actions.SendMessage));
+            Assert.Equal("Book the Dan for two nights", shell.Chat.PromptText);
+        });
+    }
+
+    [Fact]
     public async Task ABrowserRegistersAgainOnEachLaunchOnceThePcsKeyArrives()
     {
         using var session = HeadlessMobileSession.Start();

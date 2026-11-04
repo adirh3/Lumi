@@ -501,6 +501,14 @@ internal static partial class BrowserInterop
             shell.OpenChatFromNotification(id, title.Length > 0 ? title : null);
     }
 
+    /// <summary>A suggestion was picked in a notification: send it in its chat.</summary>
+    [JSExport]
+    internal static void SendFromNotification(string chatId, string text)
+    {
+        if (Guid.TryParse(chatId, out var id) && (Application.Current as App)?.Shell is { } shell)
+            shell.SendFromNotification(id, text);
+    }
+
     [JSImport("getOrigin", "./browserHost.js")]
     internal static partial string GetOrigin();
 

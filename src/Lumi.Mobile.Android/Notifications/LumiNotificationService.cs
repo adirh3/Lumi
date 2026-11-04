@@ -1,9 +1,12 @@
+using System.Text.Json;
 using Android.App;
 using Android.Content;
 using Android.Content.PM;
 using Android.OS;
 using AndroidX.Core.App;
 using Lumi.Mobile.Services;
+using Lumi.Remote.Protocol;
+using RemoteInput = AndroidX.Core.App.RemoteInput;
 using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Android.Notifications;
@@ -21,7 +24,19 @@ public sealed class LumiNotificationService : Service
 {
     public const string ActionStart = "com.lumi.mobile.notifications.START";
 
+    /// <summary>The user answered a reply from its notification (<see cref="AndroidNotificationPresenter.ReplyInputKey"/>).</summary>
+    public const string ActionReply = "com.lumi.mobile.notifications.REPLY";
+
+    /// <summary>The notification answered, as JSON, so it can be shown again whatever this service remembers.</summary>
+    internal const string NotificationExtra = "com.lumi.mobile.notification";
+
+    /// <summary>One of Lumi's suggestions, picked in a reply's notification and sent as it is.</summary>
+    internal const string SuggestionExtra = "com.lumi.mobile.suggestion";
+
     private const string Tag = "LumiNotifications";
+
+    /// <summary>How long an answer from a notification may take to reach the PC.</summary>
+    private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(45);
 
     private static readonly object StateGate = new();
     private static PhoneNotificationLinkState _state = PhoneNotificationLinkState.Stopped;
@@ -72,6 +87,9 @@ public sealed class LumiNotificationService : Service
             StopSelf();
             return StartCommandResult.NotSticky;
         }
+
+        if (intent?.Action == ActionReply)
+            Reply(intent, settings);
 
         if (!CanRun(this, settings))
         {
@@ -124,8 +142,13 @@ public sealed class LumiNotificationService : Service
         if (_listener is not null && configuration == _configuration)
             return;
 
-        // Another PC's notifications have nothing to do with the new one.
-        StopListening(clearShown: _configuration is not null);
+        // Another PC's notifications, and its chats, have nothing to do with the new one.
+        if (_configuration is not null)
+        {
+            StopListening(clearShown: true);
+            LumiConversations.ForgetAll(this);
+        }
+
         _configuration = configuration;
         _client = new LumiRemoteClient(settings.DeviceId, settings.DeviceName);
         _client.Configure(settings.BaseUrl, settings.Token);
@@ -135,6 +158,84 @@ public sealed class LumiNotificationService : Service
             AndroidPhoneNotificationPlatform.Ledger,
             MobilePlatformServices.NetworkMonitor);
         _listener.Start();
+    }
+
+    /// <summary>
+    /// Sends what the user picked or typed in a reply's notification to its chat. What was sent shows
+    /// under the notification at once, the way a messaging app's reply does; if it did not go, the
+    /// notification says so and offers Reply again.
+    /// </summary>
+    private void Reply(Intent intent, MobileConnectionSettings settings)
+    {
+        var text = (RemoteInput.GetResultsFromIntent(intent)
+                    ?.GetCharSequence(AndroidNotificationPresenter.ReplyInputKey)
+                    ?.ToString()
+                ?? intent.GetStringExtra(SuggestionExtra))
+            ?.Trim();
+        var notification = ReadNotification(intent);
+        if (string.IsNullOrEmpty(text) || notification is not { ChatId: var chatId } || chatId == Guid.Empty
+            || _presenter is not { } presenter)
+        {
+            return;
+        }
+
+        presenter.ShowReplied(notification, text);
+        _ = Task.Run(async () =>
+        {
+            // Taken down meanwhile (the PC moved on, or notifications went off) needs no failure shown.
+            if (!await SendAsync(settings, chatId, text).ConfigureAwait(false)
+                && AndroidPhoneNotificationPlatform.Ledger.Contains(notification.Id))
+            {
+                presenter.ShowReplyFailed(notification, text);
+            }
+        });
+    }
+
+    private static RemoteNotification? ReadNotification(Intent intent)
+    {
+        try
+        {
+            return intent.GetStringExtra(NotificationExtra) is { } json
+                ? JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteNotification)
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Sends a message to the chat as the app does, over its own short connection.</summary>
+    private static async Task<bool> SendAsync(MobileConnectionSettings settings, Guid chatId, string text)
+    {
+        var client = new LumiRemoteClient(settings.DeviceId, settings.DeviceName);
+        try
+        {
+            client.Configure(settings.BaseUrl, settings.Token);
+            using var timeout = new CancellationTokenSource(ReplyTimeout);
+            await client.HelloAsync(settings.BaseUrl, timeout.Token).ConfigureAwait(false);
+            if (!client.HasCompatibleBootstrap)
+                return false;
+
+            var result = await client.SendCommandAsync(
+                    new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                        .With("message", text)
+                        .With("chatId", chatId.ToString("D")),
+                    timeout.Token)
+                .ConfigureAwait(false);
+            if (!result.Ok)
+                global::Android.Util.Log.Warn(Tag, $"The PC did not take the answer: {result.Error}");
+            return result.Ok;
+        }
+        catch (Exception ex)
+        {
+            global::Android.Util.Log.Warn(Tag, $"Could not send the answer: {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            await client.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
     private void StopListening(bool clearShown)
@@ -181,6 +282,7 @@ public sealed class LumiNotificationService : Service
             new Handler(Looper.MainLooper!).Post(() =>
             {
                 StopListening(clearShown: true);
+                LumiConversations.ForgetAll(this);
                 StopSelf();
             });
         }

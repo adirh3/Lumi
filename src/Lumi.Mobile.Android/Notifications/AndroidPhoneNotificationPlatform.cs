@@ -78,6 +78,8 @@ internal sealed class AndroidPhoneNotificationPlatform : IPhoneNotificationPlatf
 
         _context.StopService(new Intent(_context, typeof(LumiNotificationService)));
         Cancel(Ledger.TakeAll());
+        // Off, or no PC to hear from: the chats' conversations go with the notifications.
+        LumiConversations.ForgetAll(_context);
     }
 
     public PhoneNotificationLinkState LinkState => LumiNotificationService.State;

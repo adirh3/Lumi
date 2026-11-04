@@ -6566,7 +6566,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     internal void QueueChatCompletionFollowUps(Chat chat)
     {
         QueueAutonomousMemoryCheckpoint(chat);
-        QueueSuggestionGenerationForLatestAssistant(chat);
+        // Phones hold a finished reply for its suggestions; tell them when none are coming.
+        if (!QueueSuggestionGenerationForLatestAssistant(chat))
+            _chatEvents.PublishSuggestions(chat.Id, []);
     }
 
     private MemoryAgentCheckpoint? CreateMemoryCheckpoint(Chat chat)
@@ -6651,15 +6653,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         };
     }
 
-    private void QueueSuggestionGenerationForLatestAssistant(Chat chat)
+    /// <summary>Starts writing suggestions for the chat's latest reply. True while they are being written.</summary>
+    private bool QueueSuggestionGenerationForLatestAssistant(Chat chat)
     {
-        if (!_dataStore.Data.Settings.SuggestFollowUps
-            || _suggestionGenerationInFlightChats.Contains(chat.Id))
-            return;
+        if (!_dataStore.Data.Settings.SuggestFollowUps)
+            return false;
+        if (_suggestionGenerationInFlightChats.Contains(chat.Id))
+            return true;
 
         var lastAssistant = GetLatestSuggestionEligibleAssistantMessage(chat);
         if (lastAssistant is null)
-            return;
+            return false;
 
         var lastSuggestedId = chat.FollowUpSuggestionAssistantMessageId;
         if ((!lastSuggestedId.HasValue
@@ -6667,15 +6671,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 && trackedSuggestedId == lastAssistant.Id)
             || lastSuggestedId == lastAssistant.Id)
         {
-            return;
+            return false;
         }
 
         var context = CreateSuggestionGenerationContext(chat, lastAssistant.Id);
         if (context is null)
-            return;
+            return false;
 
         _suggestionGenerationInFlightChats.Add(chat.Id);
         _ = GenerateSuggestionsAsync(chat, lastAssistant.Id, context);
+        return true;
     }
 
     private async Task GenerateSuggestionsAsync(
@@ -6712,6 +6717,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var normalizedSuggestions = NormalizeFollowUpSuggestions(suggestions);
                 StoreGeneratedSuggestions(chat, assistantMessageId, normalizedSuggestions);
                 TryApplyDisplayedSuggestions(chat, normalizedSuggestions);
+                _chatEvents.PublishSuggestions(chat.Id, normalizedSuggestions);
 
                 suggestionsApplied = true;
             });
@@ -6730,6 +6736,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 _suggestionGenerationInFlightChats.Remove(chat.Id);
                 if (suggestionsApplied)
                     _lastSuggestedAssistantMessageByChat[chat.Id] = assistantMessageId;
+                else
+                    _chatEvents.PublishSuggestions(chat.Id, []);
             });
         }
     }

@@ -727,6 +727,8 @@
   <data name="NotificationConnecting" xml:space="preserve"><value>Conectando con {0}…</value></data>
   <data name="NotificationWaiting" xml:space="preserve"><value>Esperando a {0}</value></data>
   <data name="NotificationPublicReply" xml:space="preserve"><value>Lumi terminó una respuesta</value></data>
+  <data name="NotificationActionReply" xml:space="preserve"><value>Responder</value></data>
+  <data name="NotificationSendFailed" xml:space="preserve"><value>No se pudo enviar. Inténtalo de nuevo o abre Lumi.</value></data>
   <data name="NotificationPublicRequest" xml:space="preserve"><value>Lumi te necesita</value></data>
   <data name="NotificationsPromptTitle" xml:space="preserve"><value>Recibe avisos cuando Lumi te necesite</value></data>
   <data name="NotificationsPromptText" xml:space="preserve"><value>Cuando no estés en {0}, este teléfono sabrá al momento cuándo hay una respuesta lista o Lumi tiene una pregunta. Mientras estés en el equipo, no llega nada.</value></data>

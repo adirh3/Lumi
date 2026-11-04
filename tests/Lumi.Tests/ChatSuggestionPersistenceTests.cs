@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -110,6 +111,46 @@ public sealed class ChatSuggestionPersistenceTests
             Assert.Equal(activeChat.Id, viewModel.CurrentChat?.Id);
             Assert.False(viewModel.IsSuggestionsGenerating);
             Assert.Equal("", viewModel.SuggestionA);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task FinishedReplyTellsPhonesWhenItsSuggestionsSettle()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var chat = CreateCompletedChat("Phones");
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false
+                },
+                Chats = [chat]
+            };
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            var settled = new List<(Guid ChatId, IReadOnlyList<string> Suggestions)>();
+            viewModel.ChatEvents.SuggestionsSettled += (chatId, suggestions) => settled.Add((chatId, suggestions));
+
+            // Phones holding the reply hear once its suggestions are written, whatever came of them.
+            // Writing them can be a real model call (with at most a minute's wait), so allow for it.
+            viewModel.QueueChatCompletionFollowUps(chat);
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(75);
+            while (settled.Count == 0 && DateTime.UtcNow < deadline)
+                await Task.Delay(20);
+            var first = Assert.Single(settled);
+            Assert.Equal(chat.Id, first.ChatId);
+
+            // With suggestions off, they hear at once that none are coming.
+            data.Settings.SuggestFollowUps = false;
+            chat.Messages.Add(new ChatMessage { Role = "user", Content = "And then?" });
+            chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "Then this." });
+            viewModel.QueueChatCompletionFollowUps(chat);
+            Assert.Equal(2, settled.Count);
+            Assert.Empty(settled[1].Suggestions);
         }, CancellationToken.None);
     }
 

@@ -417,6 +417,10 @@ public sealed partial class MobileShellViewModel :
                 or nameof(MobileChatViewModel.IsLoading)
                 or nameof(MobileChatViewModel.CanChangeProjectSelection))
                 UseStartSetupCommand.NotifyCanExecuteChanged();
+            if (e.PropertyName is nameof(MobileChatViewModel.IsLoading)
+                or nameof(MobileChatViewModel.ChatId)
+                or nameof(MobileChatViewModel.PromptText))
+                SendFromNotificationWhenReady();
             if (e.PropertyName is nameof(MobileChatViewModel.ProjectValue)
                 or nameof(MobileChatViewModel.AgentValue)
                 or nameof(MobileChatViewModel.Model)
@@ -2916,6 +2920,7 @@ public sealed partial class MobileShellViewModel :
             BootstrapSnapshotCount++;
             RefreshNotificationState();
             OfferNotificationsIfUseful();
+            SendFromNotificationWhenReady();
         }
 
         if (!snapshot.IsPartial)

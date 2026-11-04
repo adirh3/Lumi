@@ -2025,6 +2025,8 @@
   <data name="NotificationConnecting" xml:space="preserve"><value>جارٍ الاتصال بـ {0}…</value></data>
   <data name="NotificationWaiting" xml:space="preserve"><value>بانتظار {0}</value></data>
   <data name="NotificationPublicReply" xml:space="preserve"><value>أنهى Lumi ردًا</value></data>
+  <data name="NotificationActionReply" xml:space="preserve"><value>رد</value></data>
+  <data name="NotificationSendFailed" xml:space="preserve"><value>تعذّر الإرسال. حاول مرة أخرى أو افتح Lumi.</value></data>
   <data name="NotificationPublicRequest" xml:space="preserve"><value>Lumi يحتاجك</value></data>
   <data name="NotificationsPromptTitle" xml:space="preserve"><value>احصل على إشعار عندما يحتاجك Lumi</value></data>
   <data name="NotificationsPromptText" xml:space="preserve"><value>عندما تكون بعيدًا عن {0}، يعرف هذا الهاتف فور جاهزية رد أو عندما يكون لدى Lumi سؤال. لا يصل شيء وأنت أمام الحاسوب.</value></data>

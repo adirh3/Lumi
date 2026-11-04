@@ -727,6 +727,8 @@
   <data name="NotificationConnecting" xml:space="preserve"><value>正在连接到 {0}…</value></data>
   <data name="NotificationWaiting" xml:space="preserve"><value>正在等待 {0}</value></data>
   <data name="NotificationPublicReply" xml:space="preserve"><value>Lumi 完成了一条回复</value></data>
+  <data name="NotificationActionReply" xml:space="preserve"><value>回复</value></data>
+  <data name="NotificationSendFailed" xml:space="preserve"><value>无法发送。请重试，或打开 Lumi。</value></data>
   <data name="NotificationPublicRequest" xml:space="preserve"><value>Lumi 需要你</value></data>
   <data name="NotificationsPromptTitle" xml:space="preserve"><value>在 Lumi 需要你时收到通知</value></data>
   <data name="NotificationsPromptText" xml:space="preserve"><value>当你离开 {0} 时，回复一完成或 Lumi 有问题，这部手机就会立即知道。你在电脑前时不会收到任何通知。</value></data>

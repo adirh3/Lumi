@@ -191,7 +191,14 @@ function notificationCaches() {
     return {
         saved,
         async open(name) {
-            return { async put(url, response) { saved.set(`${name} ${url}`, await response.text()); } };
+            return {
+                async put(url, response) { saved.set(`${name} ${url}`, await response.text()); },
+                async match(url) {
+                    const text = saved.get(`${name} ${url}`);
+                    return text === undefined ? undefined : { async json() { return JSON.parse(text); } };
+                },
+                async delete(url) { return saved.delete(`${name} ${url}`); }
+            };
         }
     };
 }
@@ -1151,7 +1158,7 @@ test('exact worker-renderer overrides survive cache recovery and app reload with
 function worker({
     installError, missingCache = false,
     scope = 'https://lumi.test/app/', networkError, networkStatus = 200, networkType = 'basic',
-    appClients = [], legacyFramework, assets, cacheAsset, notificationText
+    appClients = [], legacyFramework, assets, cacheAsset, notificationText, maxActions
 } = {}) {
     const handlers = new Map();
     const requests = [];
@@ -1160,6 +1167,7 @@ function worker({
     const networkOptions = [];
     const warnings = [];
     const notifications = [];
+    const pendingSends = [];
     const displayed = new Map();
     const openedWindows = [];
     let claims = 0;
@@ -1180,9 +1188,15 @@ function worker({
             return notificationText && url === new URL('notification-text.json', scope).href
                 ? { async json() { return notificationText; } }
                 : undefined;
+        },
+        async put(url, response) {
+            assert.equal(url, new URL('pending-send.json', scope).href);
+            pendingSends.push(JSON.parse(await response.text()));
         }
     };
     const self = {
+        // Browsers that show no buttons on notifications (Safari) have no maxActions.
+        ...(maxActions === undefined ? {} : { Notification: { maxActions } }),
         registration: {
             scope,
             async showNotification(title, options) {
@@ -1209,7 +1223,7 @@ function worker({
         skipWaiting() { skips++; }
     };
     vm.runInNewContext(source('service-worker.js'), {
-        self, URL, Request, Set,
+        self, URL, Request, Response, Set,
         importScripts: url => assert.equal(url, './service-worker-assets.js'),
         caches: {
             async open(name) {
@@ -1233,7 +1247,7 @@ function worker({
         console: { warn: (...args) => warnings.push(args) }
     });
     return {
-        requests, network, deleted, networkOptions, warnings, notifications, openedWindows,
+        requests, network, deleted, networkOptions, warnings, notifications, openedWindows, pendingSends,
         get claims() { return claims; },
         get skips() { return skips; },
         async lifecycle(name) {
@@ -1263,10 +1277,11 @@ function worker({
             });
             await pending;
         },
-        async click(data) {
+        async click(data, action = '') {
             let pending;
             let closed = 0;
             handlers.get('notificationclick')({
+                action,
                 notification: { data, close() { closed++; } },
                 waitUntil(value) { pending = value; }
             });
@@ -1519,6 +1534,85 @@ test('tapping a notification with the app closed opens it on that chat', async (
     await app.click({ chatId: null, title: '' });
 
     assert.deepEqual(app.openedWindows, [`https://lumi.test/app/?lumi-chat=${notifiedChat}`, 'https://lumi.test/app/']);
+});
+
+test('a reply offers its suggestions as buttons, as many as the browser shows', async () => {
+    const reply = {
+        kind: 'reply', chatId: notifiedChat, title: 'Trip plan', text: 'Three hotels fit.', host: 'LIGHTO', at: 2000,
+        suggestions: ['Book the Dan', 'Compare prices', 'Show me more']
+    };
+    const app = worker({ maxActions: 2 });
+
+    await app.push(reply);
+    await app.push({ ...reply, kind: 'question', chatId: '0d6f2c3a-1b2c-4d5e-8f90-a1b2c3d4e5f6', at: 2500 });
+    // An older push that arrives late shows the reply again, buttons and all.
+    await app.push({ kind: 'approval', chatId: notifiedChat, title: 'Trip plan', text: 'Run setup.ps1', host: 'LIGHTO', at: 1000 });
+
+    const [shown, question, late] = app.notifications.map(plain);
+    assert.deepEqual(shown.options.actions, [
+        { action: 'suggest:0', title: 'Book the Dan' },
+        { action: 'suggest:1', title: 'Compare prices' }
+    ]);
+    assert.deepEqual(shown.options.data.suggestions, ['Book the Dan', 'Compare prices']);
+    assert.equal(question.options.actions, undefined);
+    assert.deepEqual(late.options.actions, shown.options.actions);
+    assert.deepEqual(late.options.data, shown.options.data);
+
+    // A browser without notification buttons, like Safari, shows the reply alone.
+    const safari = worker();
+    await safari.push(reply);
+    assert.equal(plain(safari.notifications[0]).options.actions, undefined);
+    assert.equal(plain(safari.notifications[0]).options.data.suggestions, undefined);
+});
+
+test('picking a suggestion leaves it for the app, which opens on its chat', async () => {
+    const data = { chatId: notifiedChat, title: 'Trip plan', at: 2000, suggestions: ['Book the Dan', 'Compare prices'] };
+    const app = worker({ maxActions: 2 });
+
+    await app.click(data, 'suggest:1');
+    // A tap on the notification itself, or a button it does not have, sends nothing.
+    await app.click(data);
+    await app.click(data, 'suggest:7');
+
+    assert.deepEqual(app.pendingSends.map(({ chatId, text }) => ({ chatId, text })), [{ chatId: notifiedChat, text: 'Compare prices' }]);
+    assert.equal(typeof app.pendingSends[0].at, 'number');
+    assert.deepEqual(app.openedWindows, Array(3).fill(`https://lumi.test/app/?lumi-chat=${notifiedChat}`));
+});
+
+test('the app sends a picked suggestion in its chat once it is in front, once, and only soon after', async () => {
+    const caches = notificationCaches();
+    const pending = 'lumi-notifications https://lumi.test/app/pending-send.json';
+    const leave = (chatId, at = Date.now()) =>
+        caches.saved.set(pending, JSON.stringify({ chatId, text: 'Compare prices', at }));
+    const opened = [];
+    const sent = [];
+    const app = host({ hidden: true, notifications: { caches } });
+    app.context.configureNotificationClicks(chatId => opened.push(chatId), (chatId, text) => sent.push([chatId, text]));
+    const flush = () => new Promise(resolve => setImmediate(resolve));
+    const tap = async () => {
+        app.serviceWorker.dispatch('message', { data: { type: 'lumi-open-chat', chatId: notifiedChat, title: 'Trip plan' } });
+        await flush();
+    };
+
+    // On a locked phone the app may already be told, but nothing goes until it is in front.
+    leave(notifiedChat);
+    await tap();
+    assert.deepEqual(opened, [notifiedChat]);
+    assert.deepEqual(sent, []);
+    app.document.hidden = false;
+    app.document.dispatch('visibilitychange');
+    await flush();
+    assert.deepEqual(sent, [[notifiedChat, 'Compare prices']]);
+    assert.equal(caches.saved.has(pending), false);
+
+    // Opening the chat again sends nothing more, nor does a suggestion for another chat, or an old one.
+    await tap();
+    leave('0d6f2c3a-1b2c-4d5e-8f90-a1b2c3d4e5f6');
+    await tap();
+    leave(notifiedChat, Date.now() - 6 * 60 * 1000);
+    await tap();
+    assert.deepEqual(sent, [[notifiedChat, 'Compare prices']]);
+    assert.equal(caches.saved.has(pending), false);
 });
 
 test('notification support says what a browser needs first', () => {

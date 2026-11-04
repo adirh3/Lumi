@@ -54,7 +54,8 @@ internal readonly record struct PhoneNotificationTestResult(int Heard, string? P
 /// that happens while the user is at the PC waits: if the user leaves within <see cref="Grace"/> of
 /// it without having dealt with it, the phone hears about it once they count as away; if they read or
 /// answer it here, or stay at the PC longer, it never goes out. With Lumi open on the phone the user
-/// is taken to be there once the PC has been idle briefly.</para>
+/// is taken to be there once the PC has been idle briefly. A finished reply also waits a moment for
+/// Lumi's follow-up suggestions (<see cref="SuggestionWait"/>), which the phone offers to send.</para>
 /// <para>The Lumi app holds a quiet notification stream (<see cref="RemoteProtocol.Routes.Notifications"/>).
 /// Every stream starts with the notifications still waiting, then hears about new ones and about the
 /// ones the user dealt with anywhere, so the phone takes them down. A browser instead hands the PC a
@@ -85,6 +86,12 @@ internal sealed class PhoneNotificationCenter : IDisposable
     /// <summary>A test the browser's push service could not hand over by then is no longer worth showing.</summary>
     internal static readonly TimeSpan TestTimeToLive = TimeSpan.FromMinutes(10);
 
+    /// <summary>
+    /// How long a finished reply waits for its follow-up suggestions, which Lumi writes just after it, so
+    /// the phone can offer them. Without them by then, it goes out as it is.
+    /// </summary>
+    internal static readonly TimeSpan SuggestionWait = TimeSpan.FromSeconds(15);
+
     public static IReadOnlyList<int> AwayMinuteChoices { get; } = [1, 2, 5, 10];
 
     public const int DefaultAwayMinutes = 2;
@@ -101,6 +108,7 @@ internal sealed class PhoneNotificationCenter : IDisposable
     private readonly List<RemoteEventClient> _listeners = [];
     private RemoteNotification[] _delivered = [];
     private DispatcherTimer? _poll;
+    private ITimer? _suggestionWait;
     private ITimer? _ping;
     private ChatEventHub? _events;
     private DateTimeOffset _lumiLastActiveAt;
@@ -175,6 +183,7 @@ internal sealed class PhoneNotificationCenter : IDisposable
         _events = _main.ChatEvents;
         _events.AttentionRaised += OnAttentionRaised;
         _events.AttentionResolved += OnAttentionResolved;
+        _events.SuggestionsSettled += OnSuggestionsSettled;
         _events.EventPublished += OnLifecycleEvent;
         _main.ChatActivityOrReadStateChanged += OnReadStateChanged;
         _main.ChatDeleted += OnChatDeleted;
@@ -192,6 +201,7 @@ internal sealed class PhoneNotificationCenter : IDisposable
         {
             events.AttentionRaised -= OnAttentionRaised;
             events.AttentionResolved -= OnAttentionResolved;
+            events.SuggestionsSettled -= OnSuggestionsSettled;
             events.EventPublished -= OnLifecycleEvent;
             _main.ChatActivityOrReadStateChanged -= OnReadStateChanged;
             _main.ChatDeleted -= OnChatDeleted;
@@ -200,6 +210,8 @@ internal sealed class PhoneNotificationCenter : IDisposable
 
         _ping?.Dispose();
         _ping = null;
+        _suggestionWait?.Dispose();
+        _suggestionWait = null;
         _poll?.Stop();
         _poll = null;
         _items.Clear();
@@ -343,8 +355,34 @@ internal sealed class PhoneNotificationCenter : IDisposable
         if (_items.TryGetValue(notification.Id, out var previous))
             Take(previous, dismiss: true);
 
-        var item = new Item(notification, attention.Kind, _time.GetUtcNow(), chat.HasUnreadMessages);
+        var item = new Item(notification, attention.Kind, _time.GetUtcNow(), chat.HasUnreadMessages)
+        {
+            AwaitsSuggestions = attention.Kind == ChatAttentionKind.Reply && _dataStore.Data.Settings.SuggestFollowUps
+        };
         _items[notification.Id] = item;
+        Evaluate();
+    }
+
+    /// <summary>A reply still waiting for its chat's suggestions takes them, if any came.</summary>
+    private void OnSuggestionsSettled(Guid chatId, IReadOnlyList<string> suggestions)
+    {
+        if (!OnUiThread(() => OnSuggestionsSettled(chatId, suggestions)))
+            return;
+
+        // One already sent, or whose suggestions already settled, stays as it is.
+        if (!_items.TryGetValue(ReplyKey(chatId), out var item) || !item.AwaitsSuggestions || item.IsDelivered)
+            return;
+
+        item.AwaitsSuggestions = false;
+        // A suggestion is sent as written, so one too long for a notification is left out, never cut.
+        item.Notification.Suggestions =
+        [
+            .. suggestions
+                .Select(static suggestion => PhoneNotificationText.Line(suggestion, int.MaxValue))
+                .Where(static suggestion => suggestion.Length is > 0 and <= RemoteProtocol.MobileNotificationSuggestionLimit)
+                .Distinct(StringComparer.Ordinal)
+                .Take(RemoteProtocol.MobileNotificationSuggestionCount)
+        ];
         Evaluate();
     }
 
@@ -487,10 +525,20 @@ internal sealed class PhoneNotificationCenter : IDisposable
                 openOnPhone,
                 seenHere));
             if (decision == PhoneNotificationDecision.Deliver)
+            {
+                // A finished reply waits a moment for its suggestions, so the phone can offer them.
+                if (item.AwaitsSuggestions && now - item.RaisedAt < SuggestionWait)
+                    continue;
+
                 Deliver(item);
+            }
             else if (decision == PhoneNotificationDecision.Drop)
+            {
                 Take(item, dismiss: false);
+            }
         }
+
+        WakeWhenSuggestionWaitEnds(now);
 
         if (_items.Count == 0)
         {
@@ -506,6 +554,31 @@ internal sealed class PhoneNotificationCenter : IDisposable
         {
             _poll.Start();
         }
+    }
+
+    /// <summary>
+    /// Evaluates again the moment the earliest reply stops waiting for its suggestions, rather than at
+    /// the next poll, so it goes out on time.
+    /// </summary>
+    private void WakeWhenSuggestionWaitEnds(DateTimeOffset now)
+    {
+        DateTimeOffset? next = null;
+        foreach (var item in _items.Values)
+        {
+            var ends = item.RaisedAt + SuggestionWait;
+            if (item.AwaitsSuggestions && !item.IsDelivered && ends > now && (next is null || ends < next))
+                next = ends;
+        }
+
+        if (next is not { } due)
+            return;
+
+        _suggestionWait ??= _time.CreateTimer(
+            _ => Dispatcher.UIThread.Post(Evaluate),
+            null,
+            Timeout.InfiniteTimeSpan,
+            Timeout.InfiniteTimeSpan);
+        _suggestionWait.Change(due - now, Timeout.InfiniteTimeSpan);
     }
 
     private void Deliver(Item item)
@@ -694,6 +767,9 @@ internal sealed class PhoneNotificationCenter : IDisposable
 
         /// <summary>The chat was marked unread when this happened, so reading it settles it.</summary>
         public bool WasUnread { get; } = wasUnread;
+
+        /// <summary>A finished reply whose follow-up suggestions are still being written.</summary>
+        public bool AwaitsSuggestions { get; set; }
 
         public bool IsDelivered { get; set; }
     }

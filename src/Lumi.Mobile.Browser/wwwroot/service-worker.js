@@ -127,7 +127,12 @@ self.addEventListener('fetch', event => {
 // The PC pushes each notification through the browser's push service, encrypted for this browser.
 // The page leaves the words they use, in the app's language, in their own cache.
 
+const notificationCacheName = 'lumi-notifications';
 const notificationTextUrl = new URL('notification-text.json', appUrl).href;
+
+// A suggestion picked in a reply's notification waits here for the app, which sends it in its chat once
+// it is in front. Only this app's own scripts can write here, so no link can make the app send anything.
+const pendingSendUrl = new URL('pending-send.json', appUrl).href;
 const englishNotificationText = {
     lang: 'en',
     testTitle: 'Notifications work',
@@ -142,7 +147,7 @@ const fill = (template, ...values) =>
 
 async function notificationText() {
     try {
-        const saved = await (await caches.open('lumi-notifications')).match(notificationTextUrl);
+        const saved = await (await caches.open(notificationCacheName)).match(notificationTextUrl);
         if (saved)
             return { ...englishNotificationText, ...await saved.json() };
     } catch (error) {
@@ -179,13 +184,14 @@ async function showPush(data) {
     if (newer) {
         await self.registration.showNotification(newer.title, {
             body: newer.body, tag, renotify: false, timestamp: newer.data.at, lang: newer.lang,
-            icon: newer.icon, badge: newer.badge, data: newer.data
+            icon: newer.icon, badge: newer.badge, data: newer.data,
+            ...(newer.actions?.length > 0 ? { actions: newer.actions } : {})
         });
         return message.kind;
     }
 
     // A chat shows one notification: a newer one replaces it and rings again.
-    await self.registration.showNotification(isTest ? text.testTitle : message.title || 'Lumi', {
+    const options = {
         body: !isTest && message.agent ? `${message.agent}: ${words}` : words,
         tag,
         renotify: true,
@@ -194,7 +200,18 @@ async function showPush(data) {
         icon: new URL('icons/lumi-192.png', appUrl).href,
         badge: new URL('icons/lumi-badge-96.png', appUrl).href,
         data: { chatId, title: typeof message.title === 'string' ? message.title : '', at }
-    });
+    };
+    // A reply offers what the user will most likely send next, as many as the browser shows as buttons.
+    const offered = message.kind === 'reply' && chatId && Array.isArray(message.suggestions)
+        ? message.suggestions
+            .filter(suggestion => typeof suggestion === 'string' && suggestion.length > 0)
+            .slice(0, Math.max(0, Number(self.Notification?.maxActions) || 0))
+        : [];
+    if (offered.length > 0) {
+        options.actions = offered.map((suggestion, index) => ({ action: `suggest:${index}`, title: suggestion }));
+        options.data.suggestions = offered;
+    }
+    await self.registration.showNotification(isTest ? text.testTitle : message.title || 'Lumi', options);
     return message.kind;
 }
 
@@ -217,10 +234,26 @@ self.addEventListener('push', event => {
     event.waitUntil(showPush(event.data).then(reportPush));
 });
 
+async function leaveSuggestionForApp(chatId, text) {
+    try {
+        const cache = await caches.open(notificationCacheName);
+        await cache.put(pendingSendUrl, new Response(
+            JSON.stringify({ chatId, text, at: Date.now() }),
+            { headers: { 'Content-Type': 'application/json' } }));
+    } catch (error) {
+        console.warn('[Lumi PWA] The picked suggestion could not be handed to the app.', error);
+    }
+}
+
 self.addEventListener('notificationclick', event => {
     event.notification.close();
-    const { chatId, title } = event.notification.data ?? {};
+    const { chatId, title, suggestions } = event.notification.data ?? {};
+    const picked = /^suggest:(\d+)$/.exec(event.action ?? '');
+    const suggestion = chatId && picked ? suggestions?.[Number(picked[1])] : undefined;
     event.waitUntil((async () => {
+        if (typeof suggestion === 'string')
+            await leaveSuggestionForApp(chatId, suggestion);
+
         const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
         const app = windows.find(client => client.url.startsWith(appUrl.href));
         if (app) {

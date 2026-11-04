@@ -276,6 +276,7 @@ public sealed class WebPushTests
             ChatTitle = "Trip plan",
             AgentName = "Travel Lumi",
             Text = "Three hotels fit — \"Dan\" is closest.\nשלום",
+            Suggestions = ["Book the Dan", "Compare prices"],
             CreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(1_793_000_000_000)
         };
 
@@ -288,8 +289,16 @@ public sealed class WebPushTests
         Assert.Equal("Trip plan", root.GetProperty("title").GetString());
         Assert.Equal("Travel Lumi", root.GetProperty("agent").GetString());
         Assert.Equal(notification.Text, root.GetProperty("text").GetString());
+        Assert.Equal(
+            ["Book the Dan", "Compare prices"],
+            root.GetProperty("suggestions").EnumerateArray().Select(static item => item.GetString()));
         Assert.Equal("LIGHTO-DESKTOP", root.GetProperty("host").GetString());
         Assert.Equal(1_793_000_000_000, root.GetProperty("at").GetInt64());
+
+        // Without suggestions the message names none.
+        notification.Suggestions = [];
+        using var plain = JsonDocument.Parse(WebPush.Payload(notification, "LIGHTO-DESKTOP"));
+        Assert.False(plain.RootElement.TryGetProperty("suggestions", out _));
     }
 
     [Fact]
@@ -302,7 +311,10 @@ public sealed class WebPushTests
             ChatId = Guid.NewGuid(),
             ChatTitle = new string('題', RemoteProtocol.MobileNotificationTitleLimit),
             AgentName = new string('エ', RemoteProtocol.MobileNotificationTitleLimit),
-            Text = string.Concat(Enumerable.Repeat("完成しました😀", RemoteProtocol.MobileNotificationTextLimit / 8))
+            Text = string.Concat(Enumerable.Repeat("完成しました😀", RemoteProtocol.MobileNotificationTextLimit / 8)),
+            Suggestions = [.. Enumerable.Repeat(
+                new string('提', RemoteProtocol.MobileNotificationSuggestionLimit),
+                RemoteProtocol.MobileNotificationSuggestionCount)]
         };
 
         var payload = WebPush.Payload(notification, "PC");
@@ -313,6 +325,10 @@ public sealed class WebPushTests
         Assert.EndsWith("…", text, StringComparison.Ordinal);
         Assert.StartsWith("完成しました", text, StringComparison.Ordinal);
         Assert.Equal(notification.ChatTitle, json.RootElement.GetProperty("title").GetString());
+        // The text gives way; the suggestions arrive whole.
+        Assert.Equal(
+            notification.Suggestions,
+            json.RootElement.GetProperty("suggestions").EnumerateArray().Select(static item => item.GetString()!));
         using var browser = new TestPushBrowser();
         Assert.Equal(payload, browser.Decrypt(WebPush.Encrypt(payload, browser.Subscription(FcmEndpoint))));
     }

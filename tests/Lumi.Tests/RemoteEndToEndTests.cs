@@ -2662,13 +2662,18 @@ public sealed class RemoteEndToEndTests
 
     private static readonly Guid NotifiedChatId = Guid.Parse("8a0f6c4e-5d0a-4c55-9c93-1f0b2a7d4e61");
 
-    private static void SeedNotifiedChat(AppData data) =>
+    private static void SeedNotifiedChat(AppData data)
+    {
         data.Chats.Add(new Chat
         {
             Id = NotifiedChatId,
             Title = "Trip plan",
             UpdatedAt = DateTimeOffset.Now
         });
+        // These tests raise replies by hand, so no suggestions would come for a reply to wait for
+        // (PhoneNotificationSuggestionTests covers that wait).
+        data.Settings.SuggestFollowUps = false;
+    }
 
     private sealed class FakePresence : IDesktopPresenceProbe
     {
@@ -2775,6 +2780,32 @@ public sealed class RemoteEndToEndTests
             await WaitAsync(() => presenter.Dismissed.Contains(notification.Id), "the read reply to come down");
             Assert.Empty(rig.Server.PhoneNotifications.Delivered);
         }, seed: SeedNotifiedChat, presence: presence);
+    }
+
+    [Fact]
+    public Task AFinishedReplyReachesThePhoneWithItsSuggestions()
+    {
+        var presence = new FakePresence();
+        presence.Away();
+        return RunAsync(async rig =>
+        {
+            await PairAsync(rig);
+            var presenter = new RecordingPresenter();
+            await using var phone = await ListenForNotificationsAsync(rig, presenter);
+
+            rig.Main.ChatEvents.PublishAttention(new ChatAttention(
+                NotifiedChatId, ChatAttentionKind.Reply, "Three hotels fit. Want me to book the Dan?"));
+            await Task.Delay(300);
+            Assert.Empty(presenter.Shown);
+
+            rig.Main.ChatEvents.PublishSuggestions(NotifiedChatId, ["Book the Dan", "Compare prices"]);
+            await WaitAsync(() => presenter.Shown.Count == 1, "the reply to reach the phone with its suggestions");
+            Assert.Equal(["Book the Dan", "Compare prices"], presenter.Shown[0].Notification.Suggestions);
+        }, seed: data =>
+        {
+            SeedNotifiedChat(data);
+            data.Settings.SuggestFollowUps = true;
+        }, presence: presence);
     }
 
     [Fact]

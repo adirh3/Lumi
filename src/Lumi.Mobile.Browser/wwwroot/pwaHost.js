@@ -414,10 +414,57 @@ export function clearChatNotifications(tag) {
     })().catch(error => console.warn('[Lumi PWA] Could not take down notifications.', error));
 }
 
-export function configureNotificationClicks(openChat) {
+// A suggestion picked in a reply's notification, which the service worker left for the app. It goes in
+// the chat it was offered for, only once the app is in front (so never from a locked phone), and only
+// shortly after the tap.
+const pendingSendLifetimeMs = 5 * 60 * 1000;
+
+async function takePendingSend(chatId) {
+    if (typeof caches === 'undefined')
+        return null;
+    try {
+        const cache = await caches.open(notificationCache);
+        const url = new URL('pending-send.json', window.location.href).href;
+        const saved = await cache.match(url);
+        if (!saved)
+            return null;
+        await cache.delete(url);
+        const pending = await saved.json();
+        return pending?.chatId === chatId
+            && typeof pending.text === 'string'
+            && typeof pending.at === 'number'
+            && Date.now() - pending.at < pendingSendLifetimeMs
+            ? pending.text
+            : null;
+    } catch (error) {
+        console.warn('[Lumi PWA] A suggestion from a notification could not be read.', error);
+        return null;
+    }
+}
+
+function whenVisible(callback) {
+    if (!document.hidden) {
+        callback();
+        return;
+    }
+    const shown = () => {
+        if (document.hidden)
+            return;
+        document.removeEventListener('visibilitychange', shown);
+        callback();
+    };
+    document.addEventListener('visibilitychange', shown);
+}
+
+export function configureNotificationClicks(openChat, sendFromNotification) {
     const open = (chatId, title) => {
-        if (typeof chatId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(chatId))
-            openChat(chatId, typeof title === 'string' ? title : '');
+        if (typeof chatId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(chatId))
+            return;
+        openChat(chatId, typeof title === 'string' ? title : '');
+        whenVisible(() => void takePendingSend(chatId).then(text => {
+            if (text)
+                sendFromNotification(chatId, text);
+        }));
     };
     // A tap on a notification while the app is open arrives from the service worker.
     navigator.serviceWorker?.addEventListener('message', event => {

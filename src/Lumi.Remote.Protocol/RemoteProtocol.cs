@@ -448,6 +448,14 @@ public static class RemoteProtocol
     public const int MobileNotificationTextLimit = 1024;
     public const int MobileNotificationTitleLimit = 256;
 
+    /// <summary>
+    /// Most suggested messages a reply's notification offers, and the most characters in each. A suggestion
+    /// is sent as written, so a longer one is left out rather than cut; this fits the user's usual replies,
+    /// which Lumi reuses word for word.
+    /// </summary>
+    public const int MobileNotificationSuggestionCount = 3;
+    public const int MobileNotificationSuggestionLimit = 160;
+
     /// <summary>Most notifications a phone is sent at once; older ones give way to newer.</summary>
     public const int MobileNotificationCountLimit = 24;
 

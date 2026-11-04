@@ -23,6 +23,12 @@ public sealed class RemoteNotification
     public string Text { get; set; } = "";
 
     /// <summary>
+    /// For a finished reply, what the user will most likely send next (Lumi's follow-up suggestions).
+    /// The phone offers them in the notification and sends the one picked to the chat.
+    /// </summary>
+    public List<string> Suggestions { get; set; } = [];
+
+    /// <summary>
     /// When the PC raised it. A chat's next reply keeps the id of the one before, so this tells a new
     /// notification from the same one sent again.
     /// </summary>

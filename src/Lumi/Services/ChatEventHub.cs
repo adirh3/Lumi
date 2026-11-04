@@ -46,6 +46,12 @@ public sealed class ChatEventHub
     /// <summary>A pending request (question, input or approval) of a chat was settled. Raised on the UI thread.</summary>
     public event Action<Guid, string>? AttentionResolved;
 
+    /// <summary>
+    /// A chat's follow-up suggestions for its latest reply were written, or none are coming (empty).
+    /// Raised on the UI thread.
+    /// </summary>
+    public event Action<Guid, IReadOnlyList<string>>? SuggestionsSettled;
+
     public void PublishAttention(ChatAttention attention)
     {
         ArgumentNullException.ThrowIfNull(attention);
@@ -54,6 +60,9 @@ public sealed class ChatEventHub
 
     public void ResolveAttention(Guid chatId, string requestId) =>
         Raise(AttentionResolved, handler => handler(chatId, requestId));
+
+    public void PublishSuggestions(Guid chatId, IReadOnlyList<string> suggestions) =>
+        Raise(SuggestionsSettled, handler => handler(chatId, suggestions));
 
     private static void Raise<T>(T? handlers, Action<T> invoke) where T : Delegate
     {
