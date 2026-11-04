@@ -25,7 +25,7 @@ jobs:
     name: Validate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     # Nightly/full Windows batches can take about half an hour.
-    timeout-minutes: 45
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -73,10 +73,12 @@ jobs:
         run: dotnet restore Lumi.slnx
 
       - name: Build
+        id: build
         run: dotnet build Lumi.slnx --configuration Release --no-restore
 
+      # Each test step runs once the build succeeds, so one failing suite doesn't hide the others.
       - name: Test (desktop Windows suite in fresh-host batches)
-        if: ${{ runner.os == 'Windows' && (github.event_name == 'schedule' || inputs.full_suite == true) }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && runner.os == 'Windows' && (github.event_name == 'schedule' || inputs.full_suite == true) }}
         shell: pwsh
         run: >
           ./tools/Test-LumiTestsInBatches.ps1
@@ -84,7 +86,7 @@ jobs:
           -ResultsDirectory TestResults
 
       - name: Test (mobile Windows suite)
-        if: ${{ runner.os == 'Windows' && (github.event_name == 'schedule' || inputs.full_suite == true) }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && runner.os == 'Windows' && (github.event_name == 'schedule' || inputs.full_suite == true) }}
         run: >
           dotnet test tests/Lumi.Mobile.Tests/Lumi.Mobile.Tests.csproj
           --configuration Release
@@ -93,6 +95,7 @@ jobs:
           --results-directory TestResults
 
       - name: Test (deterministic desktop and mobile QA)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
         run: >
           ./tools/Test-LumiQa.ps1
@@ -102,6 +105,7 @@ jobs:
           -ResultsDirectory QaResults
 
       - name: Test (native desktop packaging and update channels)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: >
           dotnet test tests/Lumi.Tests/Lumi.Tests.csproj
           --configuration Release
@@ -114,7 +118,7 @@ jobs:
           |FullyQualifiedName~Lumi.Tests.UpdateServiceSafetyTests.UpdateChannel_)"
 
       - name: Test (cross-platform runtime behavior)
-        if: ${{ runner.os != 'Windows' }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && runner.os != 'Windows' }}
         run: >
           dotnet test tests/Lumi.Tests/Lumi.Tests.csproj
           --configuration Release

@@ -81,10 +81,32 @@ $isolatedClasses = @(
     "Lumi.Tests.ChatReferenceTests",
     # Startup loading window and hand-off tests run in their own hosts for the same reason.
     "Lumi.Tests.StartupHandOffTests",
-    "Lumi.Tests.StartupMotionTests"
+    "Lumi.Tests.StartupMotionTests",
+    # CI investigation only: records icon renderings per architecture without regrouping the batches.
+    "Lumi.Tests.IconRenderingEvidenceTests"
 ) | Where-Object { $classes -contains $_ }
 $batchedClasses = @($classes | Where-Object { $_ -notin $isolatedClasses })
 $batchCount = [Math]::Ceiling($batchedClasses.Count / $BatchSize)
+
+# Every host runs even after one fails, so a single failure can't hide the ones after it; the script
+# fails at the end, listing them all.
+$failedHosts = [System.Collections.Generic.List[pscustomobject]]::new()
+
+function Get-FailedTestNames {
+    param([string]$ResultPath)
+
+    if (-not (Test-Path -LiteralPath $ResultPath)) {
+        return @()
+    }
+    try {
+        [xml]$trx = Get-Content -LiteralPath $ResultPath -Raw
+    } catch {
+        return @()
+    }
+    return @($trx.TestRun.Results.UnitTestResult |
+        Where-Object { $_.outcome -eq "Failed" } |
+        ForEach-Object { $_.testName })
+}
 
 function Invoke-TestBatch {
     param(
@@ -126,7 +148,14 @@ function Invoke-TestBatch {
             "The shared test Copilot service did not finish initializing.",
             [StringComparison]::Ordinal)
         if (-not $sharedCopilotStartupFailed -or $attempt -eq 2) {
-            throw "$Label failed."
+            $failedHosts.Add([pscustomobject]@{
+                Label = $Label
+                ExitCode = $exitCode
+                Tests = Get-FailedTestNames (Join-Path $ResultsDirectory $attemptResultFile)
+            })
+            Write-Warning "$Label failed; continuing with the remaining hosts."
+            Start-Sleep -Seconds 2
+            return
         }
 
         Write-Warning "$Label hit the shared Copilot startup transient; retrying in a fresh host."
@@ -152,4 +181,25 @@ foreach ($class in $isolatedClasses) {
         -ResultFile "lumi-desktop-isolated-$shortName.trx"
 }
 
-Write-Host "All $($classes.Count) Lumi desktop test classes passed in $($batchCount + $isolatedClasses.Count) fresh hosts."
+$hostCount = $batchCount + $isolatedClasses.Count
+if ($failedHosts.Count -gt 0) {
+    Write-Host ""
+    Write-Host "$($failedHosts.Count) of $hostCount fresh hosts failed:"
+    foreach ($failedHost in $failedHosts) {
+        Write-Host "  $($failedHost.Label) (exit code $($failedHost.ExitCode))"
+        $details = if ($failedHost.Tests.Count -gt 0) {
+            $failedHost.Tests
+        } else {
+            @("No failed test was recorded; the host crashed, hung or did not start.")
+        }
+        $details | ForEach-Object { Write-Host "    $_" }
+        if ($env:GITHUB_ACTIONS -eq "true") {
+            $title = "$($failedHost.Label) failed" -replace "%", "%25" -replace ":", "%3A" -replace ",", "%2C"
+            $message = ($details -join "`n") -replace "%", "%25" -replace "`r", "%0D" -replace "`n", "%0A"
+            Write-Host "::error title=$title::$message"
+        }
+    }
+    throw "$($failedHosts.Count) of $hostCount Lumi desktop test hosts failed."
+}
+
+Write-Host "All $($classes.Count) Lumi desktop test classes passed in $hostCount fresh hosts."
