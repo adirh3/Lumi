@@ -27,13 +27,13 @@
   -->
   <Style Selector="layout|Island">
     <Setter Property="IslandRadius" Value="{DynamicResource Mobile.Island.CornerRadius}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Island}" />
     <Setter Property="Template">
       <ControlTemplate>
         <Panel>
           <Border Name="PART_IslandSurface"
                   Background="{DynamicResource Brush.ChatCanvas}"
-                  CornerRadius="{TemplateBinding CornerRadius}"
-                  BoxShadow="{DynamicResource Shadow.Island}" />
+                  CornerRadius="{TemplateBinding CornerRadius}" />
           <Border Name="PART_IslandClip"
                   CornerRadius="{TemplateBinding CornerRadius}"
                   ClipToBounds="True">
@@ -52,7 +52,7 @@
       </ControlTemplate>
     </Setter>
   </Style>
-  <Style Selector="layout|Island:flat /template/ Border#PART_IslandSurface">
+  <Style Selector="layout|Island:flat">
     <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
   </Style>
 

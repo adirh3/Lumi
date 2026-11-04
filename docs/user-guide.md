@@ -1023,6 +1023,10 @@ results are one virtualized list of headers and rows, so row controls are recycl
 groups. The PWA runtime uses a 16 MB young generation, so garbage collections interrupt
 scrolling and typing about a third as often. Glass surfaces reuse their Skia filter and paint
 objects from frame to frame.
+Island elevation uses Skia's rounded-shadow masks instead of filtering a pane-sized image,
+avoiding large temporary textures on wide, high-DPI screens such as an unfolded Fold.
+The rounded content clip and rim remain; switching places also keeps the hidden chat's
+geometry until it is shown again rather than flattening and rebuilding it.
 Native Android uses a 128 MiB Skia GPU-resource-cache budget for large chats; the browser,
 desktop and mobile simulator use 64 MiB. This lets high-DPI surfaces and glass-filter
 intermediates be reused without repeatedly allocating textures while scrolling. These are

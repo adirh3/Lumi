@@ -124,6 +124,10 @@ public sealed partial class MobileShellViewModel
     /// <summary>While the list slides, the chat's shape is published only on the frames it changes.</summary>
     private void NotifyChatIslandChanged(bool force)
     {
+        // Retain the hidden chat's clip and viewport instead of flattening them for another place.
+        if (!IsChatPage)
+            return;
+
         var shape = (ChatIslandFrame, ChatIslandMargin, ChatIslandPadding);
         if (!force && shape == _chatIslandShown)
             return;

@@ -345,6 +345,50 @@ public sealed class OpenCanvasDesignTests
                 Required<ContentControl>(settings, "SettingsDetailIsland"));
         });
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task SwitchingPlacesKeepsTheHiddenChatsIslandGeometry(bool dark) =>
+        RunAsync(1100, dark, async (model, view, window) =>
+        {
+            var chat = Required<ChatDetailView>(view, "ChatSurface");
+            var island = Required<Lumi.Mobile.Layout.Island>(chat, "ChatIsland");
+            var shape = (island.Frame, island.Margin, island.Padding, island.CornerRadius);
+            Assert.Equal(1, island.Frame);
+
+            model.SelectPlace(MobilePlace.Settings);
+            await SettleAsync(window);
+            Assert.False(chat.IsEffectivelyVisible);
+            Assert.Equal(shape, (island.Frame, island.Margin, island.Padding, island.CornerRadius));
+
+            model.SelectPlace(MobilePlace.Chats);
+            await SettleAsync(window);
+            Assert.True(chat.IsEffectivelyVisible);
+            Assert.Equal(shape, (island.Frame, island.Margin, island.Padding, island.CornerRadius));
+        });
+
+    [Theory]
+    [InlineData(1100, 412)]
+    [InlineData(412, 1100)]
+    public Task ReturningFromSettingsAfterResizingAppliesTheCurrentChatIsland(double initialWidth, double finalWidth) =>
+        RunAsync(initialWidth, true, async (model, view, window) =>
+        {
+            var chat = Required<ChatDetailView>(view, "ChatSurface");
+            var island = Required<Lumi.Mobile.Layout.Island>(chat, "ChatIsland");
+            model.SelectPlace(MobilePlace.Settings);
+            await SettleAsync(window);
+            window.Width = finalWidth;
+            await SettleAsync(window);
+            Assert.False(chat.IsEffectivelyVisible);
+
+            model.SelectPlace(MobilePlace.Chats);
+            await SettleAsync(window);
+            Assert.Equal(model.ChatIslandFrame, island.Frame);
+            Assert.Equal(model.ChatIslandMargin, island.Margin);
+            Assert.Equal(model.ChatIslandPadding, island.Padding);
+            Assert.Equal(finalWidth > 1000 ? new CornerRadius(24) : default, island.CornerRadius);
+        });
+
     /// <summary>
     /// The list wears the canvas; what is open is a rounded island of another surface one gap beside it,
     /// its content clipped to the curve and its rim drawn over the content, and nothing thin and tall is
@@ -356,7 +400,9 @@ public sealed class OpenCanvasDesignTests
         var surface = Required<Border>(island, "PART_IslandSurface");
         Assert.NotEqual(ColorOf(BackgroundOf(list)), ColorOf(surface.Background));
         Assert.Equal(new CornerRadius(24), surface.CornerRadius);
-        Assert.True(surface.BoxShadow.Count > 0 && surface.BoxShadow[0].Color.A > 0, "an island rests on the canvas");
+        var shadows = Assert.IsType<Lumi.Mobile.Layout.Island>(island).BoxShadow;
+        Assert.True(shadows.Count > 0 && shadows[0].Color.A > 0, "an island rests on the canvas");
+        Assert.Equal(default, surface.BoxShadow);
         Assert.False(island.ClipToBounds, "its shadow falls beyond it; only its content is clipped, to the curve");
         var clip = Required<Border>(island, "PART_IslandClip");
         Assert.True(clip.ClipToBounds);
@@ -399,7 +445,7 @@ public sealed class OpenCanvasDesignTests
         Assert.Equal(default, surface.CornerRadius);
         Assert.Equal(default, Required<Border>(island, "PART_IslandClip").CornerRadius);
         Assert.Equal(0, Required<Border>(island, "PART_IslandRim").Opacity);
-        var shadows = surface.BoxShadow;
+        var shadows = Assert.IsType<Lumi.Mobile.Layout.Island>(island).BoxShadow;
         for (var index = 0; index < shadows.Count; index++)
             Assert.True(shadows[index].Color.A == 0, "a pane casts no shadow");
     }
