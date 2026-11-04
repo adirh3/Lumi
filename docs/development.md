@@ -162,6 +162,30 @@ On macOS/Linux use `src/Lumi/Lumi.csproj`. Before launching, follow the
 [isolated-profile run commands](../CONTRIBUTING.md#run-with-an-isolated-profile);
 do not run against your normal app data.
 
+The Windows app uses the unmodified `netstandard2.0` asset already published in
+FlaUI.Core 4.0.0. It has the same UIA3 automation APIs without the WinForms
+highlighting overlay, which Lumi does not use. `build\WindowsAutomation.targets`
+selects that asset for both compilation and runtime, preserves its package
+dependencies, and removes its now-unneeded transitive WinForms framework
+reference. DPAPI remains an explicit Windows package dependency. No FlaUI source
+is forked, patched or repacked.
+
+Copilot supplies its own RPC transport and exception types; `StreamJsonRpc`
+belongs only to the test project's scripted peer. WebView2's build targets also
+add WPF/WinForms control wrappers which Lumi does not use: the app references only
+CoreWebView2 and retains its native loader. Keep partial trimming and built-in COM
+support; do not remove WindowsDesktop files indiscriminately. The packaging tests
+pin the app's dependency manifest, the FlaUI asset and the SDK process-exit hook,
+while the browser and native-automation suites exercise the retained APIs.
+
+Desktop speech content is restricted to the build's runtime identifier (or the
+SDK's native RID for an ordinary build). Its CPU, no-AVX fallback and Vulkan
+variants are retained where supported; macOS keeps its Metal shader and maps
+`osx-*` to Whisper's `macos-*` folders. Foreign binaries are excluded before copy
+and bundling. Release publishes omit PDBs, including native Skia/HarfBuzz symbols;
+build outputs still retain their symbols. Velopack already excluded PDBs, so this
+last change reduces raw publish directories, not an additional installer payload.
+
 Drawing-free UI tests reuse Avalonia's assembly headless session so cached
 geometries keep one owning UI thread. Each dispatch still gets a fresh
 application and services through `PerTest` isolation; dispose the test wrapper,

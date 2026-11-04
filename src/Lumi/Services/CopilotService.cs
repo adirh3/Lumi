@@ -478,8 +478,7 @@ public class CopilotService : IAsyncDisposable
         }
     }
 
-    /// <summary>Uses reflection to reach the SDK's internal Process and JsonRpc
-    /// objects and subscribes to their exit/disconnect events.
+    /// <summary>Uses reflection to reach the SDK's internal Process and subscribes to its exit event.
     /// When the CLI process dies, the service automatically reconnects and then
     /// fires <see cref="CliProcessExited"/> so consumers can update UI state.
     /// If reflection fails (SDK internals changed), falls back to periodic ping checks.</summary>
@@ -521,11 +520,9 @@ public class CopilotService : IAsyncDisposable
 
             EventHandler? processHandler = null;
             Process? process = null;
-            EventHandler<StreamJsonRpc.JsonRpcDisconnectedEventArgs>? rpcHandler = null;
-            StreamJsonRpc.JsonRpc? jsonRpc = null;
 
             // Primary: Process.Exited — fires instantly when the OS process terminates
-#pragma warning disable IL2075 // Reflection on non-annotated type — CliProcess/Rpc are internal SDK properties
+#pragma warning disable IL2075 // Reflection on non-annotated type — CliProcess is an internal SDK property
             var processProp = result.GetType().GetProperty("CliProcess", bf);
             if (processProp?.GetValue(result) is Process cliProcess)
             {
@@ -535,18 +532,10 @@ public class CopilotService : IAsyncDisposable
                 cliProcess.Exited += processHandler;
             }
 
-            // Backup: JsonRpc.Disconnected — fires on RPC transport breaks
-            var rpcProp = result.GetType().GetProperty("Rpc", bf);
 #pragma warning restore IL2075
-            if (rpcProp?.GetValue(result) is StreamJsonRpc.JsonRpc rpc)
-            {
-                jsonRpc = rpc;
-                rpcHandler = (_, _) => FireOnce();
-                rpc.Disconnected += rpcHandler;
-            }
 
-            // If we couldn't hook either signal, fall back to polling
-            if (process is null && jsonRpc is null)
+            // If the connection has no local process, fall back to polling.
+            if (process is null)
             {
                 StartStatePollingFallback(client, gen, FireOnce);
                 return;
@@ -556,8 +545,6 @@ public class CopilotService : IAsyncDisposable
             {
                 if (process is not null && processHandler is not null)
                     process.Exited -= processHandler;
-                if (jsonRpc is not null && rpcHandler is not null)
-                    jsonRpc.Disconnected -= rpcHandler;
             };
         }
         catch

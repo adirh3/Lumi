@@ -288,12 +288,17 @@ public sealed class PromptSharingTests
         sheet.CloseCommand.Execute(null);
     }
 
-    [Fact]
-    public async Task ShareSheetFailuresAreVisibleAndNeverReturnAnOriginalPromptFallback()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ShareSheetFailuresAreVisibleAndNeverReturnAnOriginalPromptFallback(bool remoteRpcFailure)
     {
         var sheet = new ShareSheetViewModel(Store(), static () => []);
+        Exception error = remoteRpcFailure
+            ? new RemoteRpcException("Model unavailable", -32603)
+            : new TimeoutException("Model unavailable");
         await sheet.OpenForPromptAsync(new("Visible transcript", 2, false), (_, _) =>
-            Task.FromException<SharedPrompt>(new TimeoutException("Model unavailable")));
+            Task.FromException<SharedPrompt>(error));
         Assert.True(sheet.IsOpen);
         Assert.True(sheet.IsStatusError);
         Assert.Contains("Model unavailable", sheet.StatusMessage);

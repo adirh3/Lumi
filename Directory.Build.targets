@@ -6,4 +6,5 @@
   <ItemGroup>
     <PackageReference Update="Avalonia.Controls.DataGrid" Version="[$(AvaloniaDataGridVersion)]" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)build\WindowsAutomation.targets" />
 </Project>

@@ -65,7 +65,6 @@
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaVersion)" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.28" />
-    <PackageReference Include="StreamJsonRpc" Version="2.25.29" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.5" />
     <!-- Override the transitive SQLitePCLRaw.bundle_e_sqlite3 2.1.10 (vulnerable SQLite < 3.50.2, CVE-2025-6965 / GHSA-2m69-gcr7-jv3q).
          3.0.x ships the patched native binary via SourceGear.sqlite3. -->
@@ -91,6 +90,7 @@
        if the Windows TFM is ever built from a non-Windows host. -->
   <ItemGroup Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' == 'windows'">
     <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.5" />
     <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
   </ItemGroup>
@@ -99,6 +99,15 @@
   <ItemGroup Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' != 'windows'">
     <PackageReference Include="Avalonia.Controls.WebView" Version="12.1.0" />
   </ItemGroup>
+
+  <!-- WebView2 adds both desktop control wrappers; Lumi hosts CoreWebView2 directly. -->
+  <Target Name="LumiKeepCoreWebView2Reference" BeforeTargets="ResolveAssemblyReferences"
+          Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' == 'windows'">
+    <ItemGroup>
+      <Reference Remove="@(Reference)"
+                 Condition="'%(Reference.Filename)' == 'Microsoft.Web.WebView2.Wpf' or '%(Reference.Filename)' == 'Microsoft.Web.WebView2.WinForms'" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <ProjectReference Include="..\Lumi.Generators\Lumi.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
@@ -129,19 +138,33 @@
 
   <Import Project="..\..\build\Copilot\CopilotCli.targets" />
 
-  <!-- Whisper.net's Vulkan runtime adds both its Windows and its Linux GPU library (each about 57 MB) to every build.
-       Keep only the one this build can load: win-x64 or linux-x64, none for ARM64 or macOS. -->
+  <!-- Whisper packages copy several platforms as content rather than RID-selected native assets. -->
   <PropertyGroup>
-    <_LumiVulkanTargetRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_LumiVulkanTargetRid>
-    <_LumiVulkanTargetRid Condition="'$(RuntimeIdentifier)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</_LumiVulkanTargetRid>
-    <_LumiVulkanRid Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' == 'windows' and '$(_LumiVulkanTargetRid)' == 'win-x64'">win-x64</_LumiVulkanRid>
-    <_LumiVulkanRid Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' != 'windows' and '$(_LumiVulkanTargetRid)' == 'linux-x64'">linux-x64</_LumiVulkanRid>
+    <_LumiVoiceTargetRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_LumiVoiceTargetRid>
+    <_LumiVoiceTargetRid Condition="'$(RuntimeIdentifier)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</_LumiVoiceTargetRid>
+    <_LumiWhisperRid>$(_LumiVoiceTargetRid.Replace('osx-', 'macos-'))</_LumiWhisperRid>
+    <_LumiVulkanRid Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' == 'windows' and '$(_LumiVoiceTargetRid)' == 'win-x64'">win-x64</_LumiVulkanRid>
+    <_LumiVulkanRid Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' != 'windows' and '$(_LumiVoiceTargetRid)' == 'linux-x64'">linux-x64</_LumiVulkanRid>
   </PropertyGroup>
-  <Target Name="LumiKeepOwnVulkanRuntime" BeforeTargets="AssignTargetPaths">
+  <Target Name="LumiKeepOwnVoiceRuntimes" BeforeTargets="AssignTargetPaths">
     <ItemGroup>
+      <_LumiCpuRuntime Include="@(None)" Condition="'%(None.DefiningProjectName)' == 'Whisper.net.Runtime' or '%(None.DefiningProjectName)' == 'Whisper.net.Runtime.NoAvx'" />
+      <_LumiForeignCpuRuntime Include="@(_LumiCpuRuntime)"
+                              Condition="!$([System.String]::Copy('%(_LumiCpuRuntime.TargetPath)').Replace('\', '/').StartsWith('runtimes/$(_LumiWhisperRid)/')) and !$([System.String]::Copy('%(_LumiCpuRuntime.TargetPath)').Replace('\', '/').StartsWith('runtimes/noavx/$(_LumiWhisperRid)/'))" />
+      <None Remove="@(_LumiForeignCpuRuntime)" />
       <_LumiVulkanRuntime Include="@(None)" Condition="$([System.String]::Copy('%(None.TargetPath)').Replace('\', '/').StartsWith('runtimes/vulkan/'))" />
       <_LumiForeignVulkanRuntime Include="@(_LumiVulkanRuntime)" Condition="'$(_LumiVulkanRid)' == '' or !$([System.String]::Copy('%(_LumiVulkanRuntime.TargetPath)').Replace('\', '/').StartsWith('runtimes/vulkan/$(_LumiVulkanRid)/'))" />
       <None Remove="@(_LumiForeignVulkanRuntime)" />
+      <_LumiUnusedMetalShader Include="@(None)" Condition="'%(None.DefiningProjectName)' == 'Whisper.net.Runtime.Metal' and !$(_LumiVoiceTargetRid.StartsWith('osx-'))" />
+      <None Remove="@(_LumiUnusedMetalShader)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Velopack already excludes PDBs; do not inflate raw Release publishes with them either. -->
+  <Target Name="LumiOmitReleasePublishSymbols" AfterTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb'" />
     </ItemGroup>
   </Target>
 

@@ -31,6 +31,34 @@ public sealed class VoiceInputPackagingTests
     }
 
     [Fact]
+    public void OnlyThisPlatformsCpuRuntimesAreCopied()
+    {
+        using var voice = new VoiceInputService();
+        if (!voice.IsAvailable)
+            return;
+        var platform = OperatingSystem.IsWindows() ? "win" : OperatingSystem.IsMacOS() ? "macos" : "linux";
+        var architecture = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "arm64" : "x64";
+        var whisper = OperatingSystem.IsWindows() ? "whisper.dll"
+            : OperatingSystem.IsMacOS() ? "libwhisper.dylib" : "libwhisper.so";
+        var runtimes = Path.Combine(AppContext.BaseDirectory, "runtimes");
+        var cpu = Directory.GetDirectories(runtimes)
+            .Where(directory => File.Exists(Path.Combine(directory, whisper)))
+            .Select(directory => new DirectoryInfo(directory).Name).Order().ToArray();
+        Assert.Equal([$"{platform}-{architecture}"], cpu);
+
+        var noAvx = Path.Combine(runtimes, "noavx");
+        string[] copied = Directory.Exists(noAvx)
+            ? Directory.GetDirectories(noAvx).Select(directory => new DirectoryInfo(directory).Name).Order().ToArray() : [];
+        string[] expected = architecture == "x64" && !OperatingSystem.IsMacOS()
+            ? [$"{platform}-{architecture}"] : [];
+        Assert.Equal(expected, copied);
+        foreach (var runtime in expected)
+            Assert.True(File.Exists(Path.Combine(noAvx, runtime, whisper)));
+        Assert.Equal(OperatingSystem.IsMacOS(),
+            File.Exists(Path.Combine(AppContext.BaseDirectory, "ggml-metal.metal")));
+    }
+
+    [Fact]
     public void OnlyThisPlatformsGpuRuntimeIsCopied()
     {
         // Whisper.net's Vulkan package carries both its Windows and its Linux GPU library; each build keeps its own.

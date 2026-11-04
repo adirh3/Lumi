@@ -106,7 +106,7 @@ public partial class ShareSheetViewModel
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or JsonException
                                    or TimeoutException or IOException or HttpRequestException
-                                   or StreamJsonRpc.RemoteInvocationException)
+                                   or GitHub.Copilot.RemoteRpcException)
         {
             Debug.WriteLine($"[Lumi] Prompt drafting failed: {ex.Message}");
             if (IsOpen && ReferenceEquals(_promptPreparation, cancellation))

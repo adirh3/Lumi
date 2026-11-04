@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -231,6 +232,32 @@ public class CopilotIntegrationTests : IAsyncLifetime
         if (!IsEnabled) return;
         _service = new CopilotService();
         await _service.ConnectAsync();
+    }
+
+    [SkippableFact]
+    public async Task CliProcessExit_ReconnectsAndNotifiesWithoutTheLegacyRpcStack()
+    {
+        SkipIfDisabled();
+        var client = Assert.IsType<CopilotClient>(_service.Client);
+        var connectionTask = Assert.IsAssignableFrom<Task>(typeof(CopilotClient)
+            .GetField("_connectionTask", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(client));
+        Assert.True(connectionTask.IsCompletedSuccessfully);
+        var connection = connectionTask.GetType().GetProperty("Result")!.GetValue(connectionTask)!;
+        var process = Assert.IsType<Process>(connection.GetType()
+            .GetProperty("CliProcess", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+            .GetValue(connection));
+        Assert.Equal(Path.GetFullPath(CopilotService.BundledCliPath!), process.MainModule!.FileName,
+            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        var generation = _service.ConnectionGeneration;
+        var exited = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _service.CliProcessExited += previousGeneration => exited.TrySetResult(previousGeneration);
+
+        process.Kill(entireProcessTree: true);
+
+        Assert.Equal(generation, await exited.Task.WaitAsync(TimeSpan.FromSeconds(30)));
+        Assert.True(_service.ConnectionGeneration > generation);
+        Assert.NotSame(client, _service.Client);
+        await Assert.IsType<CopilotClient>(_service.Client).PingAsync();
     }
 
 #pragma warning disable GHCP001 // Verify native Fusion execution, rather than only an accepted model selection.

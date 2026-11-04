@@ -1,0 +1,33 @@
+<Project>
+  <!-- FlaUI 4's netstandard build uses NullOverlayManager; its Windows build adds
+       WinForms only for highlighting overlays, which Lumi does not use. -->
+  <Target Name="LumiUseFlaUIWithoutWinForms"
+          BeforeTargets="AddTransitiveFrameworkReferences;ResolveLockFileReferences;ResolveLockFileCopyLocalFiles"
+          Condition="'$(TargetPlatformIdentifier)' == 'Windows'">
+    <ItemGroup>
+      <_LumiFlaUICompile Include="@(ResolvedCompileFileDefinitions)"
+                         Condition="'%(ResolvedCompileFileDefinitions.NuGetPackageId)' == 'FlaUI.Core'">
+        <NetStandardPath>$([MSBuild]::NormalizePath('%(RootDir)%(Directory)', '..', 'netstandard2.0', '%(Filename)%(Extension)'))</NetStandardPath>
+      </_LumiFlaUICompile>
+      <_LumiFlaUIRuntime Include="@(RuntimeCopyLocalItems)"
+                         Condition="'%(RuntimeCopyLocalItems.NuGetPackageId)' == 'FlaUI.Core'">
+        <NetStandardPath>$([MSBuild]::NormalizePath('%(RootDir)%(Directory)', '..', 'netstandard2.0', '%(Filename)%(Extension)'))</NetStandardPath>
+      </_LumiFlaUIRuntime>
+    </ItemGroup>
+    <Error Condition="'@(_LumiFlaUICompile)' != '' and !Exists('%(_LumiFlaUICompile.NetStandardPath)')"
+           Text="The selected FlaUI.Core package must include the reviewed netstandard2.0 asset." />
+    <ItemGroup>
+      <ResolvedCompileFileDefinitions Remove="@(_LumiFlaUICompile)" />
+      <ResolvedCompileFileDefinitions Include="@(_LumiFlaUICompile->'%(NetStandardPath)')">
+        <HintPath>%(_LumiFlaUICompile.NetStandardPath)</HintPath>
+        <PathInPackage>lib/netstandard2.0/FlaUI.Core.dll</PathInPackage>
+      </ResolvedCompileFileDefinitions>
+      <RuntimeCopyLocalItems Remove="@(_LumiFlaUIRuntime)" />
+      <RuntimeCopyLocalItems Include="@(_LumiFlaUIRuntime->'%(NetStandardPath)')">
+        <PathInPackage>lib/netstandard2.0/FlaUI.Core.dll</PathInPackage>
+      </RuntimeCopyLocalItems>
+      <TransitiveFrameworkReference Remove="Microsoft.WindowsDesktop.App.WindowsForms"
+                                    Condition="'@(_LumiFlaUICompile)' != ''" />
+    </ItemGroup>
+  </Target>
+</Project>
