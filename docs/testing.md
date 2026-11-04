@@ -224,8 +224,9 @@ only when it is safe without accounts or special host state, and register its
 fully qualified method name in `tools\qa-core-coverage.json`. Adding/removing/
 renaming a selected method or changing its category requires reviewing that
 catalog too; changing theory arguments does not. Do not move a
-flaky test into CoreQA or add retries to make a gate green. Keep native/Skia
-dispatcher tests in their existing isolated processes.
+flaky test into CoreQA or add retries to make a gate green. A class that
+starts an Avalonia session of its own needs `[Trait("Host", "Own")]`, which
+gives it a test host of its own in the full Windows suite.
 
 Headless pointer tests must flush window layout before locating generated list
 containers and measuring click coordinates. Draining dispatcher queues alone

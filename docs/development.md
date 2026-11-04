@@ -204,12 +204,16 @@ the actual shared buffer, collection after GC, and selection/filter/scroll state
 Nightly or manually requested full Windows CI runs
 `tools\Test-LumiTestsInBatches.ps1` after the Release build. Ordinary PRs use
 the deterministic CoreQA gate; see [Automated QA](testing.md) for the exact
-component/headed split and the release gate.
-The Skia-backed `AvaloniaTextInputTests` and `AvaloniaTextLayoutTests` each run
-in a fresh test host, separate from the drawing-free UI tests. Mixing these
-dispatchers lets delayed callbacks from an earlier window access its controls
-on another UI thread and fail an otherwise unrelated test. Keep these classes
-isolated rather than retrying or skipping their failures.
+component/headed split and the release gate. The script runs every batch and
+every isolated class even after one fails, then fails listing all of them.
+A test class that starts an Avalonia session of its own (Skia drawing, a
+clipboard app, another UI thread) runs in a fresh test host of its own, which
+it asks for with `[Trait("Host", "Own")]`; `HeadlessTestSession` refuses to
+start such a session for a class without it. Avalonia keeps state from the
+first session in a process for every later one (`GlyphRun` keeps that
+session's renderer, `TextDecorations` belong to its thread), so sharing a host
+made these tests pass or fail depending on which classes ran before them. Keep
+them isolated rather than retrying or skipping their failures.
 
 The composer's real-pixel animation checks run in an isolated Skia test process;
 the ordinary drawing-free headless suite skips them to avoid mixing graphics backends:
