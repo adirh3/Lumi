@@ -1396,6 +1396,8 @@
   "Browser_CloseTab": "关闭标签页",
   "Browser_Back": "返回",
   "Browser_Refresh": "刷新",
+  "Browser_CopyAddress": "复制地址",
+  "Browser_Copied": "已复制",
   "Desktop_Title": "桌面",
   "Desktop_ShowDesktop": "显示桌面预览",
   "Desktop_Refresh": "刷新截图",

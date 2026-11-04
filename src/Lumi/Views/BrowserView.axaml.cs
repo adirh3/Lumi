@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
@@ -38,6 +39,9 @@ public partial class BrowserView : UserControl
     private TextBlock? _importStatusText;
     private StackPanel? _onboardingActions;
     private TextBlock? _urlText;
+    private Button? _copyUrlButton;
+    private string? _shownUrl;
+    private DispatcherTimer? _urlCopiedTimer;
     private Run? _urlHostRun;
     private Run? _urlRestRun;
     private PathIcon? _urlIcon;
@@ -69,6 +73,7 @@ public partial class BrowserView : UserControl
         _importStatusText = this.FindControl<TextBlock>("ImportStatusText");
         _onboardingActions = this.FindControl<StackPanel>("OnboardingActions");
         _urlText = this.FindControl<TextBlock>("UrlText");
+        _copyUrlButton = this.FindControl<Button>("CopyUrlButton");
         _urlHostRun = _urlText?.Inlines?.ElementAtOrDefault(0) as Run;
         _urlRestRun = _urlText?.Inlines?.ElementAtOrDefault(1) as Run;
         _urlIcon = this.FindControl<PathIcon>("UrlIcon");
@@ -360,6 +365,40 @@ public partial class BrowserView : UserControl
     {
         if (_browserService is not null)
             ShowLocation(_browserService.CurrentUrl);
+    }
+
+    private async void OnCopyUrlClick(object? sender, RoutedEventArgs e)
+    {
+        var url = _shownUrl;
+        if (string.IsNullOrEmpty(url) || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
+            return;
+        // An automation Invoke (screen readers, UI Automation) arrives inside an input-synchronous
+        // call, where Windows refuses clipboard calls; write once that call has returned.
+        await Task.Yield();
+        try
+        {
+            var data = new DataTransfer();
+            data.Add(DataTransferItem.CreateText(url));
+            await clipboard.SetDataAsync(data);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Browser] Copying the address failed ({ex.GetType().Name}).");
+            return;
+        }
+        if (string.Equals(url, _shownUrl, StringComparison.Ordinal))
+            ShowUrlCopied(true);
+    }
+
+    private void ShowUrlCopied(bool copied)
+    {
+        _urlCopiedTimer?.Stop();
+        _copyUrlButton?.Classes.Set("copied", copied);
+        if (!copied)
+            return;
+        _urlCopiedTimer ??= new DispatcherTimer(TimeSpan.FromSeconds(1.6), DispatcherPriority.Normal,
+            (_, _) => ShowUrlCopied(false));
+        _urlCopiedTimer.Start();
     }
 
     /// <summary>Public method to force a bounds refresh from outside (e.g. after layout changes).</summary>

@@ -1396,6 +1396,8 @@
   "Browser_CloseTab": "Tab schließen",
   "Browser_Back": "Zurück",
   "Browser_Refresh": "Aktualisieren",
+  "Browser_CopyAddress": "Adresse kopieren",
+  "Browser_Copied": "Kopiert",
   "Desktop_Title": "Desktop",
   "Desktop_ShowDesktop": "Desktop-Vorschau anzeigen",
   "Desktop_Refresh": "Screenshot aktualisieren",

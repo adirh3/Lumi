@@ -1408,6 +1408,8 @@
   "Browser_CloseTab": "סגור לשונית",
   "Browser_Back": "חזרה",
   "Browser_Refresh": "רענן",
+  "Browser_CopyAddress": "העתק כתובת",
+  "Browser_Copied": "הועתק",
   "Desktop_Title": "שולחן העבודה",
   "Desktop_ShowDesktop": "הצג תצוגה מקדימה של שולחן העבודה",
   "Desktop_Refresh": "רענן צילום מסך",

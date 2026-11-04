@@ -194,6 +194,52 @@
     <Style Selector="Border#UrlBar:not(.motion-disabled) Button#NewBrowserTab:pointerover PathIcon">
       <Setter Property="RenderTransform" Value="rotate(90deg)" />
     </Style>
+
+    <!-- ── The address: reads as text, offers to copy itself on hover, says so once copied. ── -->
+    <Style Selector="Button.browser-location">
+      <Setter Property="Height" Value="28" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="6,0,8,0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="ToolTip.Placement" Value="Top" />
+      <Setter Property="ToolTip.VerticalOffset" Value="-6" />
+    </Style>
+    <Style Selector="Button.browser-location.empty">
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Focusable" Value="False" />
+    </Style>
+    <Style Selector="Button.browser-location StackPanel#CopyUrlHint">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.browser-location:pointerover StackPanel#CopyUrlHint, Button.browser-location:focus-visible StackPanel#CopyUrlHint, Button.browser-location.copied StackPanel#CopyUrlHint">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.browser-location PathIcon#CopyUrlIcon">
+      <Setter Property="Data" Value="{x:Static vm:WorkspaceIcons.Copy}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.browser-location TextBlock#UrlCopiedText">
+      <Setter Property="IsVisible" Value="False" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.browser-location.copied TextBlock#UrlCopiedText">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="Button.browser-location.copied PathIcon#CopyUrlIcon">
+      <Setter Property="Data" Value="{x:Static vm:WorkspaceIcons.Checkmark}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
   </UserControl.Styles>
 
   <Panel x:Name="BrowserPanel">
@@ -332,17 +378,29 @@
                   Click="OnRefreshClick">
             <PathIcon Data="{x:Static vm:WorkspaceIcons.Refresh}" />
           </Button>
-          <!-- Where the page is: the site in full colour, the rest of the address quieter. -->
-          <Grid Grid.Column="2" ColumnDefinitions="Auto,*" Margin="8,0,4,0" VerticalAlignment="Center">
-            <PathIcon x:Name="UrlIcon" Width="14" Height="14" VerticalAlignment="Center"
-                      Foreground="{DynamicResource Brush.TextTertiary}"
-                      Data="{x:Static vm:WorkspaceIcons.Browser}" />
-            <TextBlock x:Name="UrlText" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center"
-                       FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextTertiary}"
-                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
-                       ToolTip.Placement="Top" ToolTip.VerticalOffset="-6"><Run Foreground="{DynamicResource Brush.TextPrimary}" FontWeight="Medium" /><Run Text="about:blank" /></TextBlock>
-          </Grid>
+          <!-- Where the page is: the site in full colour, the rest of the address quieter.
+               A click copies the whole address. -->
+          <Button x:Name="CopyUrlButton" Grid.Column="2" Margin="4,0,0,0"
+                  Classes="subtle browser-location empty"
+                  AutomationProperties.Name="{loc:Str Browser_CopyAddress}"
+                  Click="OnCopyUrlClick">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+              <PathIcon x:Name="UrlIcon" Width="14" Height="14" VerticalAlignment="Center"
+                        Foreground="{DynamicResource Brush.TextTertiary}"
+                        Data="{x:Static vm:WorkspaceIcons.Browser}" />
+              <TextBlock x:Name="UrlText" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center"
+                         FontSize="{DynamicResource Font.SizeCaption}"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"><Run Foreground="{DynamicResource Brush.TextPrimary}" FontWeight="Medium" /><Run Text="about:blank" /></TextBlock>
+              <StackPanel x:Name="CopyUrlHint" Grid.Column="2" Orientation="Horizontal" Spacing="4"
+                          Margin="8,0,0,0" VerticalAlignment="Center">
+                <TextBlock x:Name="UrlCopiedText" VerticalAlignment="Center"
+                           FontSize="{DynamicResource Font.SizeCaption}"
+                           Text="{loc:Str Browser_Copied}" />
+                <PathIcon x:Name="CopyUrlIcon" Width="14" Height="14" VerticalAlignment="Center" />
+              </StackPanel>
+            </Grid>
+          </Button>
         </Grid>
         <TextBlock x:Name="BrowserErrorText" IsVisible="False" TextWrapping="Wrap" Margin="4,0"
                    Classes="caption" Foreground="{DynamicResource Brush.TextSecondary}" />

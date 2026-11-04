@@ -1417,6 +1417,8 @@
   "Browser_CloseTab": "Close tab",
   "Browser_Back": "Back",
   "Browser_Refresh": "Refresh",
+  "Browser_CopyAddress": "Copy address",
+  "Browser_Copied": "Copied",
   "Desktop_Title": "Desktop",
   "Desktop_ShowDesktop": "Show desktop preview",
   "Desktop_Refresh": "Refresh screenshot",

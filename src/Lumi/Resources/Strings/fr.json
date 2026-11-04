@@ -1396,6 +1396,8 @@
   "Browser_CloseTab": "Fermer l’onglet",
   "Browser_Back": "Retour",
   "Browser_Refresh": "Actualiser",
+  "Browser_CopyAddress": "Copier l’adresse",
+  "Browser_Copied": "Copié",
   "Desktop_Title": "Bureau",
   "Desktop_ShowDesktop": "Afficher l’aperçu du bureau",
   "Desktop_Refresh": "Actualiser la capture",

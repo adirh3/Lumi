@@ -1396,6 +1396,8 @@
   "Browser_CloseTab": "タブを閉じる",
   "Browser_Back": "戻る",
   "Browser_Refresh": "更新",
+  "Browser_CopyAddress": "アドレスをコピー",
+  "Browser_Copied": "コピーしました",
   "Desktop_Title": "デスクトップ",
   "Desktop_ShowDesktop": "デスクトップのプレビューを表示",
   "Desktop_Refresh": "スクリーンショットを更新",

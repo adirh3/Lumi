@@ -357,8 +357,15 @@ public partial class BrowserView
             _urlHostRun.Text = location.Host;
         if (_urlRestRun is not null)
             _urlRestRun.Text = location.Rest;
-        if (_urlText is not null)
-            ToolTip.SetTip(_urlText, location.Kind == BrowserSiteKind.Blank ? null : url);
+        var copyable = location.Kind == BrowserSiteKind.Blank ? null : url;
+        if (!string.Equals(_shownUrl, copyable, StringComparison.Ordinal))
+            ShowUrlCopied(false);
+        _shownUrl = copyable;
+        if (_copyUrlButton is not null)
+        {
+            ToolTip.SetTip(_copyUrlButton, copyable);
+            _copyUrlButton.Classes.Set("empty", copyable is null);
+        }
         if (_urlIcon is not null && _shownUrlKind != location.Kind)
         {
             _shownUrlKind = location.Kind;

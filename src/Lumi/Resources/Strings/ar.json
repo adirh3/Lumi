@@ -1396,6 +1396,8 @@
   "Browser_CloseTab": "إغلاق علامة التبويب",
   "Browser_Back": "رجوع",
   "Browser_Refresh": "تحديث",
+  "Browser_CopyAddress": "نسخ العنوان",
+  "Browser_Copied": "تم النسخ",
   "Desktop_Title": "سطح المكتب",
   "Desktop_ShowDesktop": "إظهار معاينة سطح المكتب",
   "Desktop_Refresh": "تحديث لقطة الشاشة",
