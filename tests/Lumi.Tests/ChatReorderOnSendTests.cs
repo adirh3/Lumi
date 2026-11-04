@@ -136,6 +136,30 @@ public class ChatReorderOnSendTests
     }
 
     [Fact]
+    public void RefreshChatList_GroupsByTheLocalDay_WhateverOffsetAChatWasSavedIn()
+    {
+        // The same instant, saved where the calendar is already tomorrow and where it is still yesterday
+        // (as after travel or a time zone change), is still a chat of today, never a missing one.
+        var now = DateTimeOffset.Now;
+        var ahead = new Chat { Title = "Saved at UTC+14", UpdatedAt = now.ToOffset(TimeSpan.FromHours(14)) };
+        var behind = new Chat { Title = "Saved at UTC-12", UpdatedAt = now.ToOffset(TimeSpan.FromHours(-12)) };
+        var ds = CreateDataStore(ahead, behind);
+
+        var vm = new MainViewModel(ds, TestCopilot.Shared, new UpdateService());
+
+        var today = Assert.Single(vm.ChatGroups);
+        Assert.Equal(Loc.ChatGroup_Today, today.Label);
+        Assert.Equal(2, today.Chats.Count);
+
+        // The phone's chat list groups them the same way.
+        var page = Lumi.Services.Remote.RemoteProjector.BuildChatPage(
+            ds, vm, offset: 0, limit: 10, query: null, projectId: null);
+        var phoneToday = Assert.Single(page.Groups);
+        Assert.Equal(Loc.ChatGroup_Today, phoneToday.Label);
+        Assert.Equal(2, phoneToday.Chats.Count);
+    }
+
+    [Fact]
     public void ChatUpdated_EventTriggersRefreshChatList()
     {
         var older = new Chat { Title = "Older", UpdatedAt = DateTimeOffset.Now.AddHours(-2) };

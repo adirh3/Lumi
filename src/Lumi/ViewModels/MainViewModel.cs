@@ -1845,10 +1845,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         var pinnedChats = ordered.Where(c => c.IsPinned).ToList();
         var unpinnedChats = ordered.Where(c => !c.IsPinned).ToList();
-        var todayChats = unpinnedChats.Where(c => c.UpdatedAt.Date == today).ToList();
-        var yesterdayChats = unpinnedChats.Where(c => c.UpdatedAt.Date == yesterday).ToList();
-        var weekChats = unpinnedChats.Where(c => c.UpdatedAt.Date < yesterday && c.UpdatedAt.Date >= weekAgo).ToList();
-        var olderChats = unpinnedChats.Where(c => c.UpdatedAt.Date < weekAgo).ToList();
+        // By the local day, whatever offset a chat was saved in; a day after today (a clock or time zone
+        // change) counts as today, so no chat falls between the groups.
+        var todayChats = unpinnedChats.Where(c => LocalDay(c) >= today).ToList();
+        var yesterdayChats = unpinnedChats.Where(c => LocalDay(c) == yesterday).ToList();
+        var weekChats = unpinnedChats.Where(c => LocalDay(c) < yesterday && LocalDay(c) >= weekAgo).ToList();
+        var olderChats = unpinnedChats.Where(c => LocalDay(c) < weekAgo).ToList();
 
         var groups = new List<ChatGroup>(5);
         var rowsChanged = false;
@@ -1872,6 +1874,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             rowsChanged |= SynchronizeCollection(group.Chats, items);
             groups.Add(group);
         }
+
+        static DateTime LocalDay(Chat chat) => chat.UpdatedAt.LocalDateTime.Date;
     }
 
     private static bool SynchronizeCollection<T>(ObservableCollection<T> target, IReadOnlyList<T> desired)

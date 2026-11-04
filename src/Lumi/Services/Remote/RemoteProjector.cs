@@ -103,12 +103,13 @@ internal static class RemoteProjector
 
         var groups = new List<RemoteChatGroup>();
         AddGroup(Loc.ChatGroup_Pinned, pinned);
-        AddGroup(Loc.ChatGroup_Today, unpinned.Where(chat => chat.UpdatedAt.Date == today));
-        AddGroup(Loc.ChatGroup_Yesterday, unpinned.Where(chat => chat.UpdatedAt.Date == yesterday));
+        // By the local day, as the desktop sidebar groups them.
+        AddGroup(Loc.ChatGroup_Today, unpinned.Where(chat => LocalDay(chat) >= today));
+        AddGroup(Loc.ChatGroup_Yesterday, unpinned.Where(chat => LocalDay(chat) == yesterday));
         AddGroup(
             Loc.ChatGroup_Previous7Days,
-            unpinned.Where(chat => chat.UpdatedAt.Date < yesterday && chat.UpdatedAt.Date >= weekAgo));
-        AddGroup(Loc.ChatGroup_Older, unpinned.Where(chat => chat.UpdatedAt.Date < weekAgo));
+            unpinned.Where(chat => LocalDay(chat) < yesterday && LocalDay(chat) >= weekAgo));
+        AddGroup(Loc.ChatGroup_Older, unpinned.Where(chat => LocalDay(chat) < weekAgo));
         return new RemoteChatPage
         {
             Offset = offset,
@@ -127,6 +128,8 @@ internal static class RemoteProjector
             if (projected.Count > 0)
                 groups.Add(new RemoteChatGroup { Label = label, Chats = projected });
         }
+
+        static DateTime LocalDay(Chat chat) => chat.UpdatedAt.LocalDateTime.Date;
     }
 
     private static bool MatchesQuery(Chat chat, string query, ChatProjectionContext context)
