@@ -44,6 +44,7 @@ public sealed class SkiaHeadlessTestApp : Lumi.App
 /// single frame — guarding against a regression to the old base-offset snap.
 /// </summary>
 [Collection("Headless UI")]
+[Trait(HeadlessTestSession.HostTrait, HeadlessTestSession.OwnHost)]
 public sealed class StrataPresenceMotionTests
 {
     /// <summary>
@@ -152,7 +153,7 @@ public sealed class StrataPresenceMotionTests
         string? skipReason = null;
         try
         {
-            session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+            session = HeadlessTestSession.StartOwn(typeof(SkiaHeadlessTestApp));
         }
         catch (Exception ex)
         {
@@ -245,7 +246,7 @@ public sealed class StrataPresenceMotionTests
         string? skipReason = null;
         try
         {
-            session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+            session = HeadlessTestSession.StartOwn(typeof(SkiaHeadlessTestApp));
         }
         catch (Exception ex)
         {
@@ -343,7 +344,7 @@ public sealed class StrataPresenceMotionTests
         string? skipReason = null;
         try
         {
-            session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+            session = HeadlessTestSession.StartOwn(typeof(SkiaHeadlessTestApp));
         }
         catch (Exception ex)
         {

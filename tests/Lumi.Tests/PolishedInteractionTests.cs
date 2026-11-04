@@ -20,6 +20,7 @@ using Xunit;
 namespace Lumi.Tests;
 
 [Collection("Headless UI")]
+[Trait(HeadlessTestSession.HostTrait, HeadlessTestSession.OwnHost)]
 public sealed class PolishedInteractionTests
 {
     private const string Form = """{"id":"trip","title":"Trip preferences","fields":[{"id":"destination","label":"Destination","required":true},{"id":"budget","label":"Budget","type":"number","required":true,"minimum":0}]}""";
@@ -282,7 +283,7 @@ public sealed class PolishedInteractionTests
 
     private static async Task Run(Func<Task> action)
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(HeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+        using var session = HeadlessTestSession.StartOwn(typeof(HeadlessTestApp));
         ExceptionDispatchInfo? failure = null;
         await session.Dispatch(async () =>
         {

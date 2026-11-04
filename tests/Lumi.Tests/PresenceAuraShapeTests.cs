@@ -21,6 +21,7 @@ namespace Lumi.Tests;
 /// at the composer — the two qualities behind "the idle aura should spread along the composer".
 /// </summary>
 [Collection("Headless UI")]
+[Trait(HeadlessTestSession.HostTrait, HeadlessTestSession.OwnHost)]
 public sealed class PresenceAuraShapeTests
 {
     private readonly ITestOutputHelper _out;
@@ -34,7 +35,7 @@ public sealed class PresenceAuraShapeTests
         string? skipReason = null;
         try
         {
-            session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+            session = HeadlessTestSession.StartOwn(typeof(SkiaHeadlessTestApp));
         }
         catch (Exception ex)
         {
@@ -128,7 +129,7 @@ public sealed class PresenceAuraShapeTests
         string? skipReason = null;
         try
         {
-            session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+            session = HeadlessTestSession.StartOwn(typeof(SkiaHeadlessTestApp));
         }
         catch (Exception ex)
         {
@@ -246,7 +247,7 @@ public sealed class PresenceAuraShapeTests
         string? skipReason = null;
         try
         {
-            session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+            session = HeadlessTestSession.StartOwn(typeof(SkiaHeadlessTestApp));
         }
         catch (Exception ex)
         {
@@ -329,7 +330,7 @@ public sealed class PresenceAuraShapeTests
         string? skipReason = null;
         try
         {
-            session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+            session = HeadlessTestSession.StartOwn(typeof(SkiaHeadlessTestApp));
         }
         catch (Exception ex)
         {
@@ -425,7 +426,7 @@ public sealed class PresenceAuraShapeTests
         string? skipReason = null;
         try
         {
-            session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+            session = HeadlessTestSession.StartOwn(typeof(SkiaHeadlessTestApp));
         }
         catch (Exception ex)
         {

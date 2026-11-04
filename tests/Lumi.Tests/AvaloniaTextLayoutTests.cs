@@ -11,6 +11,7 @@ using Xunit;
 namespace Lumi.Tests;
 
 [Collection("Headless UI")]
+[Trait(HeadlessTestSession.HostTrait, HeadlessTestSession.OwnHost)]
 public sealed class AvaloniaTextLayoutTests
 {
     [Theory]

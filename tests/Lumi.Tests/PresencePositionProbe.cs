@@ -32,6 +32,7 @@ namespace Lumi.Tests;
 /// <see cref="PresenceGeometryTests"/> for the always-on math guarantees).
 /// </summary>
 [Collection("Headless UI")]
+[Trait(HeadlessTestSession.HostTrait, HeadlessTestSession.OwnHost)]
 public sealed class PresencePositionProbe
 {
     private readonly ITestOutputHelper _out;
@@ -380,7 +381,7 @@ public sealed class PresencePositionProbe
         skip = null;
         try
         {
-            return HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+            return HeadlessTestSession.StartOwn(typeof(SkiaHeadlessTestApp));
         }
         catch (Exception ex)
         {

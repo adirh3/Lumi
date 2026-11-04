@@ -39,6 +39,7 @@ namespace Lumi.Tests;
 /// Gated behind <c>PRESENCE_CAPTURE=1</c> so it is inert in normal CI runs.
 /// </summary>
 [Collection("Headless UI")]
+[Trait(HeadlessTestSession.HostTrait, HeadlessTestSession.OwnHost)]
 public sealed class PresenceMotionCaptureHarness
 {
     private readonly ITestOutputHelper _out;
@@ -92,7 +93,7 @@ public sealed class PresenceMotionCaptureHarness
         string? skipReason = null;
         try
         {
-            session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+            session = HeadlessTestSession.StartOwn(typeof(SkiaHeadlessTestApp));
         }
         catch (Exception ex)
         {

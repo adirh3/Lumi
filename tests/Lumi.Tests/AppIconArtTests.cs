@@ -18,6 +18,7 @@ using Xunit;
 namespace Lumi.Tests;
 
 [Collection("Headless UI")]
+[Trait(HeadlessTestSession.HostTrait, HeadlessTestSession.OwnHost)]
 public sealed class AppIconArtTests
 {
     // Points of a 256 px icon: the tile, Lumi's sparkle, yours, the model's dot, and two points of Lumi

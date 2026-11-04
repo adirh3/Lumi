@@ -27,6 +27,7 @@ namespace Lumi.Tests;
 /// Render one only:  <c>$env:MERMAID_CAPTURE_ONLY=architecture</c>.
 /// </summary>
 [Collection("Headless UI")]
+[Trait(HeadlessTestSession.HostTrait, HeadlessTestSession.OwnHost)]
 public sealed class MermaidRenderHarness
 {
     private readonly ITestOutputHelper _out;
@@ -167,7 +168,7 @@ public sealed class MermaidRenderHarness
         string? skipReason = null;
         try
         {
-            session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+            session = HeadlessTestSession.StartOwn(typeof(SkiaHeadlessTestApp));
         }
         catch (Exception ex)
         {

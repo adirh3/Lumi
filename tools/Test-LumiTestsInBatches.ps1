@@ -19,38 +19,43 @@ $listArguments = @(
     "--nologo",
     "--list-tests"
 )
+function Get-TestClassNames {
+    param([object[]]$ListOutput)
+
+    return @($ListOutput |
+        ForEach-Object { $_.ToString().Trim() } |
+        Where-Object { $_ -match "^Lumi\.Tests\." } |
+        ForEach-Object {
+            if ($_ -match "^(Lumi\.Tests\.[^.]+)\.") {
+                $matches[1]
+            }
+        } |
+        Sort-Object -Unique)
+}
+
 $listOutput = & dotnet @listArguments 2>&1
 if ($LASTEXITCODE -ne 0) {
     throw "Could not enumerate Lumi desktop tests."
 }
-
-$testNames = $listOutput |
-    ForEach-Object { $_.ToString().Trim() } |
-    Where-Object { $_ -match "^Lumi\.Tests\." }
-$classes = $testNames |
-    ForEach-Object {
-        if ($_ -match "^(Lumi\.Tests\.[^.]+)\.") {
-            $matches[1]
-        }
-    } |
-    Sort-Object -Unique
+$classes = Get-TestClassNames $listOutput
 
 if ($classes.Count -eq 0) {
     throw "No Lumi desktop test classes were discovered."
 }
 
+# Classes that start an Avalonia session of their own say so with [Trait("Host", "Own")], which
+# HeadlessTestSession requires of them: what the first session in a process sets up stays for every
+# later one, so they always run alone, whichever classes would share their batch.
+$ownHostOutput = & dotnet @listArguments --filter "Host=Own" 2>&1
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not enumerate the Lumi desktop tests that need a host of their own."
+}
+$ownHostClasses = Get-TestClassNames $ownHostOutput
+
 $isolatedClasses = @(
-    "Lumi.Tests.AnimationLifecycleRegressionTests",
-    # These use a separate Skia dispatcher; delayed callbacks from drawing-free tests
-    # must not run on it and access controls owned by the assembly UI thread.
-    "Lumi.Tests.AvaloniaTextInputTests",
-    "Lumi.Tests.AvaloniaTextLayoutTests",
-    "Lumi.Tests.RtlTextSelectionTests",
     # Its native STA dispatcher must not reset dispatcher state owned by earlier headless tests.
     "Lumi.Tests.BrowserServiceIntegrationTests",
-    "Lumi.Tests.ChatViewClipboardTests",
     "Lumi.Tests.ChatViewScrollBehaviorTests",
-    "Lumi.Tests.DesktopPreviewUiTests",
     "Lumi.Tests.SearchOverlayLayoutTests",
     # Capability sharing tests. They need no isolation themselves; running them in their own hosts
     # keeps every existing class in the batch it had, since regrouping batches makes CI flaky.
@@ -84,7 +89,8 @@ $isolatedClasses = @(
     "Lumi.Tests.StartupMotionTests",
     # CI investigation only: records icon renderings per architecture without regrouping the batches.
     "Lumi.Tests.IconRenderingEvidenceTests"
-) | Where-Object { $classes -contains $_ }
+) + $ownHostClasses | Select-Object -Unique | Where-Object { $classes -contains $_ }
+$isolatedClasses = @($isolatedClasses)
 $batchedClasses = @($classes | Where-Object { $_ -notin $isolatedClasses })
 $batchCount = [Math]::Ceiling($batchedClasses.Count / $BatchSize)
 

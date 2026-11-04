@@ -34,6 +34,7 @@ namespace Lumi.Tests;
 /// Customize and Memories is a Settings page, so each lights the place it belongs to.
 /// </summary>
 [Collection("Headless UI")]
+[Trait(HeadlessTestSession.HostTrait, HeadlessTestSession.OwnHost)]
 public sealed class NavigationBarTests
 {
     private static readonly string[] Places = ["NavChat", "NavLibrary", "NavJobs", "NavCustomize", "NavSettings"];
