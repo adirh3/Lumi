@@ -68,16 +68,9 @@ public sealed class AppIconArtTests
         const int layer = 432, shown = 288, offset = (layer - shown) / 2;
         using var background = AppIconArt.RenderAdaptiveLayer(AppIconArt.Lumi, layer, foreground: false);
         using var foreground = AppIconArt.RenderAdaptiveLayer(AppIconArt.Lumi, layer, foreground: true);
-        using var square = AppIconArt.Render(AppIconArt.Lumi, shown, AppIconArt.Shape.Square);
-        using var icon = new SKBitmap(new SKImageInfo(layer, layer, SKColorType.Bgra8888, SKAlphaType.Premul));
-        using (var canvas = new SKCanvas(icon))
-        {
-            canvas.DrawBitmap(background, 0, 0);
-            canvas.DrawBitmap(foreground, 0, 0);
-        }
 
         // Whatever a launcher's shape, the mark lies inside the middle 66 dp it keeps, on a tile that reaches
-        // every edge; and the middle 72 dp it shows is the icon itself.
+        // every edge.
         var safe = layer * AppIconArt.AdaptiveSafeFraction / 2;
         for (var y = 0; y < layer; y++)
         for (var x = 0; x < layer; x++)
@@ -90,12 +83,27 @@ public sealed class AppIconArtTests
             }
         }
 
+        // And the middle 72 dp it shows is the icon itself. Compared in half-float: in 8-bit layers the mark's
+        // faintest shadows round apart from the icon drawn in one pass, by an amount that differs between
+        // processors (Skia rounds gradients and layer blending differently on x64 and ARM64), so only the
+        // readback's own rounding is left to allow for.
+        using var square = AppIconArt.Render(AppIconArt.Lumi, shown, AppIconArt.Shape.Square, colorType: SKColorType.RgbaF16);
+        using var preciseBackground = AppIconArt.RenderAdaptiveLayer(AppIconArt.Lumi, layer, foreground: false, SKColorType.RgbaF16);
+        using var preciseForeground = AppIconArt.RenderAdaptiveLayer(AppIconArt.Lumi, layer, foreground: true, SKColorType.RgbaF16);
+        using var icon = new SKBitmap(new SKImageInfo(layer, layer, SKColorType.RgbaF16, SKAlphaType.Premul));
+        using (var canvas = new SKCanvas(icon))
+        {
+            canvas.Clear(SKColors.Transparent);
+            canvas.DrawBitmap(preciseBackground, 0, 0);
+            canvas.DrawBitmap(preciseForeground, 0, 0);
+        }
+
         for (var y = 0; y < shown; y++)
         for (var x = 0; x < shown; x++)
         {
             var (a, b) = (square.GetPixel(x, y), icon.GetPixel(x + offset, y + offset));
             var difference = new[] { Math.Abs(a.Red - b.Red), Math.Abs(a.Green - b.Green), Math.Abs(a.Blue - b.Blue) }.Max();
-            Assert.True(difference <= 3, $"The adaptive icon differs from the icon by {difference} at ({x}, {y}).");
+            Assert.True(difference <= 1, $"The adaptive icon differs from the icon by {difference} at ({x}, {y}).");
         }
     }
 

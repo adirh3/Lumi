@@ -78,10 +78,12 @@ internal static class AppIconArt
             ToSk(dark.Subtle), Mix(white, light.Secondary, 0.1f), Mix(white, light.Secondary, 0.25f));
     }
 
-    internal static SKBitmap Render(IconColors colors, int size, Shape shape = Shape.Squircle, float markScale = 1f)
+    internal static SKBitmap Render(
+        IconColors colors, int size, Shape shape = Shape.Squircle, float markScale = 1f,
+        SKColorType colorType = SKColorType.Bgra8888)
     {
         var small = size <= SmallCutMaxSize;
-        var bitmap = new SKBitmap(new SKImageInfo(size, size, SKColorType.Bgra8888, SKAlphaType.Premul));
+        var bitmap = new SKBitmap(new SKImageInfo(size, size, colorType, SKAlphaType.Premul));
         using var canvas = new SKCanvas(bitmap);
         canvas.Clear(SKColors.Transparent);
         canvas.Scale(size / Unit);
@@ -94,9 +96,10 @@ internal static class AppIconArt
     /// out to the layer's edges, or the mark alone at the same size, well inside what every mask keeps. Masked
     /// in any launcher's shape, the two show the icon as <see cref="Shape.Square"/> draws it.
     /// </summary>
-    internal static SKBitmap RenderAdaptiveLayer(IconColors colors, int size, bool foreground)
+    internal static SKBitmap RenderAdaptiveLayer(
+        IconColors colors, int size, bool foreground, SKColorType colorType = SKColorType.Bgra8888)
     {
-        var bitmap = new SKBitmap(new SKImageInfo(size, size, SKColorType.Bgra8888, SKAlphaType.Premul));
+        var bitmap = new SKBitmap(new SKImageInfo(size, size, colorType, SKAlphaType.Premul));
         using var canvas = new SKCanvas(bitmap);
         canvas.Clear(SKColors.Transparent);
         canvas.Scale(size / Unit);
