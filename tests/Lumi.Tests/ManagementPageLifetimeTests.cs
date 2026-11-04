@@ -458,6 +458,10 @@ public sealed class ManagementPageLifetimeTests
         var header = search.GetVisualAncestors().OfType<Grid>().First();
         var column = header.ColumnDefinitions[0];
         Assert.Equal(420, column.MaxWidth);
+        // Every Grid on this thread shares that buffer, and one laid out after the header (an item a timer realized,
+        // an animation frame) can replace it, so lay the header out last.
+        header.InvalidateMeasure();
+        window.UpdateLayout();
         var slot = (LocalDataStoreSlot)typeof(Grid)
             .GetField("s_tempDefinitionsDataSlot", BindingFlags.Static | BindingFlags.NonPublic)!
             .GetValue(null)!;
