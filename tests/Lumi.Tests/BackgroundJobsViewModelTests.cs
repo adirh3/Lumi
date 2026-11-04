@@ -734,7 +734,9 @@ public sealed class BackgroundJobsViewModelTests
         var stored = NextRunText(job.NextRunAt.Value);
         Assert.Equal(stored, vm.EditNextRunText);
 
-        vm.EditIntervalMinutes = 360;
+        // Not a whole number of hours away, so the shown time differs even across a daylight-saving change,
+        // when two runs an hour apart can read the same.
+        vm.EditIntervalMinutes = 345;
         Assert.NotEqual(stored, vm.EditNextRunText);
         vm.EditIntervalMinutes = 720;
         Assert.Equal(stored, vm.EditNextRunText);
