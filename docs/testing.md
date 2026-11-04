@@ -142,7 +142,12 @@ Silicon, and macOS Intel. ARM64 uses `windows-11-arm` and `ubuntu-24.04-arm`
 native runners. The longer Windows desktop batches and
 complete mobile suite run nightly, or via **Run workflow > full_suite**.
 This removes account/native/animation-sensitive tests from the ordinary PR
-critical path without deleting their broader coverage.
+critical path without deleting their broader coverage. A green run without
+them doesn't show that a commit passed them: `tools\Assert-LumiFullSuite.ps1
+-Sha <commit>` checks that a PR Build ran and passed both full Windows suites
+on every Windows runner for that commit, which a release needs. Each test
+step runs once the build succeeds, so one failing suite doesn't hide another's
+results.
 
 Builds make at most three attempts to download the official Copilot CLI within
 the original download deadline. Connection failures, HTTP 408/429 and 5xx

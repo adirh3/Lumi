@@ -20,11 +20,7 @@ A full run takes about 35 to 50 minutes.
 
 ## Steps
 
-1. **Sync and check main.** Run `git pull --ff-only origin main` and `git fetch --tags`. Check that PR validation passed for the commit `main` points to:
-   ```powershell
-   gh run list --workflow=pr-validation.yml --branch main -L 3 --json headSha,conclusion
-   ```
-   If it hasn't run for that commit, or failed, run it (`gh workflow run pr-validation.yml --ref main`), wait for it, and fix or report failures before releasing.
+1. **Sync main.** Run `git pull --ff-only origin main` and `git fetch --tags`. The commit you release is validated after the bump (step 5).
 2. **Choose the version.** Read `<Version>` in `src/Lumi/Lumi.csproj` and bump the patch number, unless the user gives a version. It must be numeric `major.minor.patch` and higher than the last release, because the Android version code is derived from it.
 3. **Bump only `src/Lumi/Lumi.csproj`.** The workflow stamps the version into every package, including Android's version code.
 4. **Write the release notes** to a markdown file in the session's files folder.
@@ -35,12 +31,16 @@ A full run takes about 35 to 50 minutes.
      - **🔧 Improvements**: polish, performance and refactors users notice
    - Write one concise, user-friendly sentence per entry, grouping related commits. Use Lumi's user-facing names (connectors, agents, AI accounts), not code names. Check claims against commit bodies or the code.
    - End with an `## Android` section: the APK name (`Lumi-X.Y.Z-android-arm64.apk`), and the note that early preview builds signed with the Android debug certificate can't update in place (revoke the paired phone in the preview app, uninstall it, install the APK and pair again). With that heading present, the pipeline doesn't append its own note.
-5. **Commit and push the bump.**
+5. **Commit and push the bump, then validate it with the full suites.** PR and manual PR Build runs skip the full Windows desktop and mobile suites unless asked for them, so a green run isn't enough on its own.
    ```powershell
    git add src/Lumi/Lumi.csproj
    git commit -m "bump version to X.Y.Z"
    git push origin main
+   gh workflow run pr-validation.yml --ref main -f full_suite=true
+   # About 40 minutes. When it finishes:
+   pwsh tools/Assert-LumiFullSuite.ps1 -Sha (git rev-parse HEAD)
    ```
+   If it fails, fix or report the failures before releasing.
 6. **Start the release and approve Android.**
    ```powershell
    gh workflow run release.yml --ref main -f version=X.Y.Z
