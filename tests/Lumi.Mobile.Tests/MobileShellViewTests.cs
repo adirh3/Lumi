@@ -190,6 +190,8 @@ public sealed class MobileShellViewTests
             {
                 IsShown = false;
                 HideCount++;
+                if (FocusRequested)
+                    Blur();
             }
 
             public void FocusAt(int caretIndex)
@@ -492,6 +494,67 @@ public sealed class MobileShellViewTests
                         && pairingSession.ClipBounds.Bottom <= viewport.Bottom,
                         $"Pairing clip {pairingSession.ClipBounds} escaped onboarding viewport {viewport}.");
                 }
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.ResetTextInputOverlayPresenter(presenter);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BrowserPairingInputStaysFocusedWhenTheKeyboardShrinksItsViewport(bool keyboardOverlaps)
+    {
+        var presenter = new RecordingNativeTextInputOverlayPresenter();
+        MobilePlatformServices.TextInputOverlayPresenter = presenter;
+        try
+        {
+            await RunAsync(async (shell, window) =>
+            {
+                Layout(window, shell, 412, 892);
+                shell.Connect.TargetHostName = Pc;
+                shell.Connect.Step = ConnectStep.EnterCode;
+                await Task.Delay(320);
+                Pump(window);
+
+                var textBox = Assert.IsType<TextBox>(Named(window, "PairingCodeBox"));
+                var pairingSession = Assert.Single(presenter.Sessions,
+                    session => session.IsShown && session.Options.Placeholder == "000000");
+                pairingSession.SimulateText("12", 1);
+                pairingSession.FocusAt(1);
+                Pump(window);
+                var hides = pairingSession.HideCount;
+                var focusRequests = pairingSession.FocusRequestCount;
+
+                if (keyboardOverlaps)
+                    ((MobileShellView)window.Content!).ApplyPlatformInsets(default, keyboardInset: 480);
+                else
+                    Layout(window, shell, 412, 412);
+                Pump(window);
+
+                Assert.True(pairingSession.IsShown,
+                    "Opening the keyboard must scroll the focused pairing field into view, not hide its native input.");
+                Assert.Equal(hides, pairingSession.HideCount);
+                Assert.Contains("native-input-focused", textBox.Classes);
+                Assert.False(textBox.IsFocused);
+                Assert.Equal(focusRequests, pairingSession.FocusRequestCount);
+                Assert.Equal(1, pairingSession.CaretIndex);
+                var scroll = textBox.GetVisualAncestors().OfType<ScrollViewer>().First();
+                var viewport = new Rect(scroll.TranslatePoint(default, window)!.Value, scroll.Bounds.Size);
+                Assert.True(pairingSession.Bounds.Top >= viewport.Top - 1
+                    && pairingSession.Bounds.Bottom <= viewport.Bottom + 1,
+                    $"Pairing field {pairingSession.Bounds} must stay inside the keyboard-reduced viewport {viewport}.");
+                pairingSession.SimulateText("123456");
+                Pump(window);
+                Assert.Equal("123456", shell.Connect.PairingCode);
+                Assert.True(shell.Connect.CanSubmitCode);
+
+                scroll.Offset = default;
+                Pump(window);
+                Assert.False(pairingSession.IsShown,
+                    "Explicitly scrolling the field offscreen must still hide its native overlay.");
             });
         }
         finally

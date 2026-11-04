@@ -6,6 +6,7 @@ using Avalonia.Input.TextInput;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
@@ -215,12 +216,13 @@ public sealed class NativeTextInputOverlay
     private sealed class Controller : IDisposable
     {
         private readonly TextBox _textBox;
-        private readonly List<ScrollViewer> _scrollViewers = [];
+        private readonly List<(ScrollViewer Viewer, Size Viewport)> _scrollViewers = [];
         private INativeTextInputOverlaySession? _session;
         private ShownState? _shown;
         private bool _hidden;
         private bool _isAttached;
         private bool _hasNativeFocus;
+        private bool _bringIntoViewPending;
         private bool _isApplyingNativeText;
         private bool _disposed;
 
@@ -294,7 +296,7 @@ public sealed class NativeTextInputOverlay
             foreach (var scrollViewer in _textBox.GetVisualAncestors().OfType<ScrollViewer>())
             {
                 scrollViewer.ScrollChanged += OnScrollChanged;
-                _scrollViewers.Add(scrollViewer);
+                _scrollViewers.Add((scrollViewer, scrollViewer.Viewport));
             }
             UpdateSession();
             if (_textBox.IsFocused)
@@ -307,7 +309,7 @@ public sealed class NativeTextInputOverlay
                 return;
 
             _isAttached = false;
-            foreach (var scrollViewer in _scrollViewers)
+            foreach (var (scrollViewer, _) in _scrollViewers)
                 scrollViewer.ScrollChanged -= OnScrollChanged;
             _scrollViewers.Clear();
             _session?.Dispose();
@@ -354,9 +356,24 @@ public sealed class NativeTextInputOverlay
             }
         }
 
+        private bool UpdateScrollViewports()
+        {
+            var changed = false;
+            for (var i = 0; i < _scrollViewers.Count; i++)
+            {
+                var (viewer, viewport) = _scrollViewers[i];
+                if (viewer.Viewport == viewport)
+                    continue;
+
+                _scrollViewers[i] = (viewer, viewer.Viewport);
+                changed = true;
+            }
+            return changed;
+        }
+
         private void UpdateSession()
         {
-            if (_session is null)
+            if (_session is null || _bringIntoViewPending)
                 return;
 
             var topLevel = TopLevel.GetTopLevel(_textBox);
@@ -366,6 +383,21 @@ public sealed class NativeTextInputOverlay
                 || _textBox.Bounds.Height <= 0)
             {
                 HideSession();
+                return;
+            }
+
+            if (UpdateScrollViewports()
+                && _hasNativeFocus
+                && !IsOccludedByModal(_textBox, topLevel))
+            {
+                // A keyboard resize must scroll before clipping can hide and blur the native editor.
+                _bringIntoViewPending = true;
+                _textBox.BringIntoView();
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _bringIntoViewPending = false;
+                    UpdateSession();
+                }, DispatcherPriority.Loaded);
                 return;
             }
 
