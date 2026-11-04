@@ -24,7 +24,8 @@ jobs:
   validate:
     name: Validate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Nightly/full Windows batches can take about half an hour.
+    # A full Windows run takes about 40 minutes on ARM64, and every test host runs even after one
+    # fails (a hung host costs its 3-minute blame timeout).
     timeout-minutes: 75
     strategy:
       fail-fast: false
