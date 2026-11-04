@@ -86,9 +86,7 @@ $isolatedClasses = @(
     "Lumi.Tests.ChatReferenceTests",
     # Startup loading window and hand-off tests run in their own hosts for the same reason.
     "Lumi.Tests.StartupHandOffTests",
-    "Lumi.Tests.StartupMotionTests",
-    # CI investigation only: records icon renderings per architecture without regrouping the batches.
-    "Lumi.Tests.IconRenderingEvidenceTests"
+    "Lumi.Tests.StartupMotionTests"
 ) + $ownHostClasses | Select-Object -Unique | Where-Object { $classes -contains $_ }
 $isolatedClasses = @($isolatedClasses)
 $batchedClasses = @($classes | Where-Object { $_ -notin $isolatedClasses })
