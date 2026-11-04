@@ -772,7 +772,10 @@ public sealed class WorkspaceTests
                 Assert.True(controller.IsOpen);
                 Assert.Equal("new.md", controller.Header.Title);
                 Assert.Equal("Git changes", controller.Header.Subtitle);
-                Assert.IsType<DiffView>(pageHost.Content);
+                var diffView = Assert.IsType<DiffView>(pageHost.Content);
+                // The added file is read in the background; until that read finishes it holds the file, which
+                // the test deletes at the end.
+                await WaitForAsync(() => diffView.FilePath == path);
 
                 controller.GoBack();
 
@@ -947,5 +950,17 @@ public sealed class WorkspaceTests
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Input);
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+    }
+
+    private static async Task WaitForAsync(Func<bool> condition, int timeoutMs = 5_000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(15);
+            await PumpAsync();
+        }
+
+        Assert.True(condition(), "Timed out waiting for the expected state.");
     }
 }
