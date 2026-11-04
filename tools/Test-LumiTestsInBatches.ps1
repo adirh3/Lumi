@@ -45,6 +45,7 @@ $isolatedClasses = @(
     # must not run on it and access controls owned by the assembly UI thread.
     "Lumi.Tests.AvaloniaTextInputTests",
     "Lumi.Tests.AvaloniaTextLayoutTests",
+    "Lumi.Tests.RtlTextSelectionTests",
     # Its native STA dispatcher must not reset dispatcher state owned by earlier headless tests.
     "Lumi.Tests.BrowserServiceIntegrationTests",
     "Lumi.Tests.ChatViewClipboardTests",
