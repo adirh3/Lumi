@@ -7,6 +7,7 @@ using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
 using Lumi.ViewModels;
 using Lumi.Views;
 using StrataTheme.Controls;
@@ -204,7 +205,9 @@ public sealed class ChatCheckoutTests
                     Projects = [project],
                     Chats = [chat]
                 };
-                using var vm = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+                var dataStore = new DataStore(data);
+                using var capabilities = LumiCapabilitiesOnly(dataStore);
+                using var vm = new ChatViewModel(dataStore, TestCopilot.Shared, capabilityCatalog: capabilities);
                 vm.ActiveProjectFilterId = project.Id;
                 await vm.LoadChatAsync(chat);
                 await vm.RefreshCodingProjectState();
@@ -274,7 +277,9 @@ public sealed class ChatCheckoutTests
                     Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
                     Projects = [first, second]
                 };
-                using var vm = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+                var dataStore = new DataStore(data);
+                using var capabilities = LumiCapabilitiesOnly(dataStore);
+                using var vm = new ChatViewModel(dataStore, TestCopilot.Shared, capabilityCatalog: capabilities);
                 vm.SetProjectId(first.Id);
                 await WaitForGitRefreshAsync(vm);
                 showedEditedChanges = vm.ShowCheckoutChanges;
@@ -341,6 +346,14 @@ public sealed class ChatCheckoutTests
         while (vm.IsRefreshingGitStatus)
             await Task.Delay(10, timeout.Token);
     }
+
+    /// <summary>
+    /// Capabilities without the Copilot runtime's. Once another test in the host has connected the shared
+    /// Copilot service, every project change asks its runtime to look for skills, agents and MCP servers in the
+    /// project folder, and the runtime can still be holding a test repository when the test deletes it.
+    /// </summary>
+    private static CapabilityCatalog LumiCapabilitiesOnly(DataStore dataStore)
+        => new(new LumiCapabilityProvider(dataStore));
 
     private static Border ProjectChip(StrataChatComposer composer) => composer.GetVisualDescendants()
         .OfType<Border>()
