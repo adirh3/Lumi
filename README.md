@@ -1,12 +1,12 @@
 # Lumi ✨
 
-**An open-source AI assistant for getting things done on your computer.**
+**The open-source agent for your desktop. It works with the AI you already have.**
 
-Work on code, research a question, create files, or pick up a task from your phone.
-Lumi is a native desktop application for **Windows, macOS and Linux**, built with
-C#/.NET and [Avalonia](https://avaloniaui.net/), with an Android and mobile web
-companion. The [GitHub Copilot SDK](https://github.com/github/copilot-sdk) supplies
-the agent runtime.
+Work on code, files, documents and the web, and pick up a task from your phone.
+Bring GitHub Copilot, a ChatGPT plan, an API key or a local model. Lumi is a
+native desktop application for **Windows, macOS and Linux**, built with C#/.NET
+and [Avalonia](https://avaloniaui.net/), with an Android and mobile web companion.
+The [GitHub Copilot SDK](https://github.com/github/copilot-sdk) supplies the agent runtime.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
