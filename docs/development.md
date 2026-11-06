@@ -777,6 +777,23 @@ data without pairing or model calls. See the
 [mobile UI reference](user-guide.md#mobile-conversations) for device and popup
 options. Omit the preview flag to test an actual paired connection.
 
+Mobile sends clear the composer and show the user bubble and Thinking before
+waiting for pending configuration requests. Sending closes the keyboard; on Android
+the composer and conversation follow the keyboard's own slide frame by frame
+(`InputPaneStateEventArgs` duration and easing) instead of jumping to where it ends.
+Configuration and send commands still
+share their transport gate; Stop cancels a send still waiting for that gate and
+returns its draft without dispatching it. The desktop's `RequestId` confirms the optimistic
+bubble in place, preserving its control and render-thread entrance; an older
+in-flight transcript must not detach it. Confirmation removes expired history and
+inserts missing turns around retained controls when the bounded tail rolls forward.
+New visible rows are hidden before their
+first paint and revealed after layout, rather than starting motion in a
+background-priority callback. An idle status received during a transcript fetch
+is held only until the reply arrives, without replacing a newer busy status.
+`MobileMotionTests` covers these send boundaries;
+run `MobileMotionRenderTests` in its own test process for the Skia pixel checks.
+
 The Android and browser hosts are intentionally outside `Lumi.slnx`:
 
 | Host | Additional tooling |

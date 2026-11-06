@@ -2227,6 +2227,56 @@ public sealed class MobileShellViewTests
     }
 
     [Fact]
+    public async Task TheChatFollowsTheKeyboardsSlideInsteadOfJumpingToItsEnd()
+    {
+        await RunAsync(async (shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+            var view = window.GetVisualDescendants().OfType<MobileShellView>().Single();
+            view.ApplyInputPaneGeometry(Avalonia.Controls.Platform.InputPaneState.Open, new Rect(0, 572, 412, 320));
+            Pump(window);
+            Assert.Equal(320, shell.SafeArea.Bottom, 1);
+
+            // Android reports a closing keyboard once, with its slide's duration and curve.
+            var duration = TimeSpan.FromMilliseconds(400);
+            view.ApplyInputPaneGeometry(
+                Avalonia.Controls.Platform.InputPaneState.Closed, default, duration, new Avalonia.Animation.Easings.LinearEasing());
+            Pump(window);
+            Assert.Equal(320, shell.SafeArea.Bottom, 1);
+
+            var seen = new List<double>();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (clock.Elapsed < duration + TimeSpan.FromMilliseconds(150))
+            {
+                await Task.Delay(16);
+                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Pump(window);
+                seen.Add(shell.SafeArea.Bottom);
+            }
+
+            Assert.Contains(seen, bottom => bottom is > 40 and < 280);
+            Assert.True(seen.Zip(seen.Skip(1)).All(pair => pair.Second <= pair.First + 0.5),
+                "The closing keyboard's inset must only shrink: " + string.Join(", ", seen.Select(v => v.ToString("F0"))));
+            Assert.False(shell.IsKeyboardOpen);
+            Assert.Equal(0, shell.SafeArea.Bottom, 1);
+
+            // A newer report (or the app leaving) replaces a slide still in progress.
+            view.ApplyInputPaneGeometry(Avalonia.Controls.Platform.InputPaneState.Open, new Rect(0, 572, 412, 320),
+                duration, new Avalonia.Animation.Easings.LinearEasing());
+            view.ApplyInputPaneGeometry(Avalonia.Controls.Platform.InputPaneState.Closed, default);
+            for (var frame = 0; frame < 6; frame++)
+            {
+                await Task.Delay(16);
+                Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Pump(window);
+                Assert.Equal(0, shell.SafeArea.Bottom, 1);
+            }
+        });
+    }
+
+    [Fact]
     public async Task AppDeactivationClearsAStaleKeyboardInset()
     {
         await Run((shell, window) =>

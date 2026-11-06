@@ -167,7 +167,8 @@ internal sealed class TranscriptTurnView : Decorator
                 chat.RequestRealization(this);
             }
             chat?.QueueChatEntrance();
-        }, DispatcherPriority.Background);
+        }, _turn?.DisplayItems.Any(item => item.HasPendingEntranceAnimation) == true
+            ? DispatcherPriority.Loaded : DispatcherPriority.Background);
     }
 
     /// <summary>Builds or restores this turn's content; false when there was nothing to do.</summary>
@@ -214,20 +215,50 @@ internal sealed class TranscriptTurnView : Decorator
     {
         var version = _version;
         var container = e.Container;
-        Dispatcher.UIThread.Post(() =>
+        if (container.DataContext is not TranscriptItemViewModel item
+            || !item.TryConsumeEntranceAnimation()
+            || _chat?.CanAnimateArrival != true)
+            return;
+
+        // Hide before the first paint, not in a background job after the bubble already appeared.
+        container.Opacity = 0;
+        void Cancel()
+        {
+            container.LayoutUpdated -= Reveal;
+            container.DetachedFromVisualTree -= OnDetached;
+            container.Opacity = 1;
+        }
+
+        void OnDetached(object? sender, VisualTreeAttachmentEventArgs args) => Cancel();
+
+        void Reveal(object? sender, EventArgs args)
         {
             if (!_attached || version != _version
-                || container.DataContext is not TranscriptItemViewModel item
-                || !container.IsAttachedToVisualTree()
-                || !item.TryConsumeEntranceAnimation())
+                || !container.IsAttachedToVisualTree())
+            {
+                Cancel();
+                return;
+            }
+            if (!container.IsMeasureValid || !container.IsArrangeValid
+                || container.Bounds.Width <= 0 || container.Bounds.Height <= 0 || !HasViewport)
                 return;
 
+            container.LayoutUpdated -= Reveal;
+            container.DetachedFromVisualTree -= OnDetached;
             var position = container.TranslatePoint(default, this);
-            if (this.FindAncestorOfType<ChatDetailView>()?.CanAnimateArrival == true
+            if (_chat?.CanAnimateArrival == true
                 && position is { } point
                 && new Rect(point, container.Bounds.Size).Intersects(_viewport))
-                SlideFadeEntrance.PlayComposited(container, offsetY: 12, duration: TimeSpan.FromMilliseconds(260));
-        }, DispatcherPriority.Background);
+                SlideFadeEntrance.PlayComposited(container,
+                    offsetY: item is UserTurnItemViewModel ? 18 : 12,
+                    duration: TimeSpan.FromMilliseconds(280));
+            else
+                container.Opacity = 1;
+        }
+
+        container.LayoutUpdated += Reveal;
+        container.DetachedFromVisualTree += OnDetached;
+        Dispatcher.UIThread.Post(() => Reveal(null, EventArgs.Empty), DispatcherPriority.Loaded);
     }
 
     private void SetAnchor(bool active)

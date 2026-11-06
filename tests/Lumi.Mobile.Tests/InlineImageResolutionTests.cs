@@ -8,6 +8,50 @@ namespace Lumi.Mobile.Tests;
 [Collection("Headless mobile UI")]
 public sealed class InlineImageResolutionTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConfirmedSendRetainsImageResolutionAndMessageActions(bool newChat)
+    {
+        using var session = HeadlessMobileSession.Start();
+        Exception? failure = null;
+        await session.Dispatch(async () =>
+        {
+            var id = Guid.NewGuid();
+            var messageId = Guid.NewGuid();
+            var sink = new ImageSink("/cache/local.png") { CreatedChatId = newChat ? id : null };
+            var chat = new MobileChatViewModel(sink);
+            try
+            {
+                chat.ChatCreated += (created, generation) => Assert.True(chat.TryAdoptCreatedChat(created, generation));
+                chat.Reset(newChat ? Guid.Empty : id, "Images");
+                chat.PromptText = "Create an image";
+                await chat.SendCommand.ExecuteAsync(null);
+                var echo = Assert.Single(chat.Turns);
+                var transcript = ImageTranscript(id, messageId);
+                transcript.Revision = 2;
+                transcript.Turns[0].Items.Insert(0, new RemoteTranscriptItem
+                {
+                    Id = "accepted-user", Kind = RemoteProtocol.ItemKinds.User,
+                    Text = "Create an image", RequestId = sink.LastRequestId
+                });
+                chat.ApplyTranscript(transcript);
+                Dispatcher.UIThread.RunJobs();
+                Assert.Same(echo, Assert.Single(chat.Turns));
+                var answer = Assert.IsType<AssistantItemViewModel>(echo.Items[1]);
+                Assert.Equal("![Local](/cache/local.png)", answer.Text);
+                Assert.Equal((id, messageId, 0), sink.LastRequest);
+                Assert.NotNull(answer.OpenActionsCommand);
+                chat.ResetHostState();
+                Assert.Equal((id, messageId, 0), sink.LastRelease);
+            }
+            catch (Exception ex) { failure = ex; }
+            finally { chat.ResetHostState(); }
+        }, CancellationToken.None);
+        if (failure is not null)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
     [Fact]
     public async Task UnchangedRefreshKeepsResolvedImagesAndTheirLeases()
     {
@@ -412,9 +456,14 @@ public sealed class InlineImageResolutionTests
         public int RequestCount { get; private set; }
         public (Guid ChatId, Guid MessageId, int Index) LastRequest { get; private set; }
         public (Guid ChatId, Guid MessageId, int Index)? LastRelease { get; private set; }
+        public Guid? CreatedChatId { get; init; }
+        public string? LastRequestId { get; private set; }
 
-        public Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command) =>
-            Task.FromResult(new RemoteCommandResult { Ok = true });
+        public Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command)
+        {
+            LastRequestId = command.RequestId;
+            return Task.FromResult(new RemoteCommandResult { Ok = true, ChatId = CreatedChatId });
+        }
 
         public Task<RemoteUploadResponse> UploadAsync(
             string fileName,

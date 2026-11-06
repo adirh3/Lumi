@@ -23,13 +23,21 @@ public abstract partial class TranscriptItemViewModel : ObservableObject, IDispo
         Kind = item.Kind;
     }
 
-    public string Id { get; }
+    public string Id { get; private set; }
+
+    internal void AdoptServerIdentity(string id)
+    {
+        Id = id;
+        OnPropertyChanged(nameof(Id));
+    }
 
     public string Kind { get; }
 
     public IRelayCommand? OpenActionsCommand { get; internal set; }
 
     internal void RequestEntranceAnimation() => _entranceRequestedAt = Stopwatch.GetTimestamp();
+
+    internal bool HasPendingEntranceAnimation => _entranceRequestedAt is not null;
 
     internal bool TryConsumeEntranceAnimation()
     {
@@ -1173,7 +1181,14 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
         };
     }
 
-    public string Id { get; }
+    public string Id { get; private set; }
+
+    internal void AdoptServerIdentity(string turnId, string userId)
+    {
+        Id = turnId;
+        Items[0].AdoptServerIdentity(userId);
+        OnPropertyChanged(nameof(Id));
+    }
 
     public ObservableCollection<TranscriptItemViewModel> Items { get; } = [];
 

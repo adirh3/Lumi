@@ -38,6 +38,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private readonly Func<DateTimeOffset> _now;
     private readonly Action<Action> _post;
     private readonly SemaphoreSlim _configurationGate = new(1, 1);
+    private readonly List<(ChatSurfaceIdentity Surface, long HostGeneration, CancellationTokenSource Cancellation)> _stagedSends = [];
     private string? _preferredModel;
     private long _revision = -1;
     private string? _revisionEpoch;
@@ -2089,6 +2090,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             _revision = -1;
             _transcriptVersion = null;
             _pendingEchoBaselineRevision = null;
+            _pendingEchoRequestId = null;
             _hasAuthoritativeTranscript = chatId == Guid.Empty;
             WindowStartMessageIndex = 0;
             WindowEndMessageIndex = 0;
@@ -2180,11 +2182,23 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         var previousItemIds = _hasAuthoritativeTranscript
                               && IsLatestWindow && transcript.IsLatestWindow
-                              && !epochChanged && transcript.Revision > _revision
+                              && (!epochChanged || _revisionEpoch is null) && transcript.Revision > _revision
             ? Turns.SelectMany(turn => turn.DisplayItems).Select(item => item.Id)
                 .ToHashSet(StringComparer.Ordinal)
             : null;
-        var hadPendingEcho = Turns.Any(turn => turn.Id == EchoTurnId);
+        var echo = Turns.FirstOrDefault(turn => turn.Id == EchoTurnId);
+        var hadPendingEcho = echo is not null;
+        var confirmedEcho = _pendingEchoRequestId is { } requestId
+            ? transcript.Turns.FirstOrDefault(turn => turn.Items.FirstOrDefault() is
+                { Kind: RemoteProtocol.ItemKinds.User } user && user.RequestId == requestId)
+            : null;
+        if (echo is not null && confirmedEcho is not null)
+        {
+            // Keep the bubble and its render-thread motion; only its server identity changes.
+            echo.AdoptServerIdentity(confirmedEcho.Id, confirmedEcho.Items[0].Id);
+            _pendingEchoBaselineRevision = null;
+            _pendingEchoRequestId = null;
+        }
 
         if (incomingEpoch is not null)
             _revisionEpoch = incomingEpoch;
@@ -2203,25 +2217,42 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         // A transcript request already in flight when Send was tapped can arrive after the
         // optimistic bubble with the same pre-send revision. Reconcile its authoritative turns
-        // without counting the local echo, then put the echo back at the tail. The first newer
-        // revision replaces it normally.
+        // without counting the local echo, keeping it at the tail until a newer projection arrives.
         var retainPendingEcho = _pendingEchoBaselineRevision is { } echoRevision
                                 && !epochChanged
                                 && transcript.Revision <= echoRevision;
         var pendingEcho = retainPendingEcho
             ? Turns.FirstOrDefault(turn => turn.Id == EchoTurnId)
             : null;
+        var keepPendingEchoInPlace = pendingEcho is not null
+                                     && Turns.IndexOf(pendingEcho) == transcript.Turns.Count;
         var selectedActivityId = IsActivitySheetOpen ? SelectedActivity?.ActivityId : null;
         var technicalDetailsWereVisible =
             SelectedActivity?.IsTechnicalDetailsVisible == true;
         var selectedSourceAnswerId =
             IsSourcesSheetOpen ? SelectedSourceAnswer?.Id : null;
         var selectedJobWakeId = IsJobWakeSheetOpen ? SelectedJobWake?.Id : null;
-        if (pendingEcho is not null)
+        if (pendingEcho is not null && !keepPendingEchoInPlace)
             Turns.Remove(pendingEcho);
-        else
+        else if (pendingEcho is null)
         {
             ClearPendingEchoes();
+        }
+
+        var confirmedTurnIds = echo is not null && confirmedEcho is not null
+            ? transcript.Turns.Select(turn => turn.Id).ToHashSet(StringComparer.Ordinal)
+            : null;
+        if (confirmedTurnIds is not null)
+        {
+            // Removing expired history shifts the surviving containers without detaching the bubble.
+            for (var index = Turns.Count - 1; index >= 0; index--)
+            {
+                if (confirmedTurnIds.Contains(Turns[index].Id))
+                    continue;
+                var removed = Turns[index];
+                Turns.RemoveAt(index);
+                removed.Dispose();
+            }
         }
 
         var imageChatId = transcript.ChatId;
@@ -2265,22 +2296,27 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
             if (i < Turns.Count)
             {
-                var replaced = Turns[i];
-                Turns[i] = created;
-                replaced.Dispose();
+                if (confirmedTurnIds?.Contains(Turns[i].Id) == true)
+                    Turns.Insert(i, created);
+                else
+                {
+                    var replaced = Turns[i];
+                    Turns[i] = created;
+                    replaced.Dispose();
+                }
             }
             else
                 Turns.Add(created);
         }
 
-        while (Turns.Count > transcript.Turns.Count)
+        while (Turns.Count > transcript.Turns.Count + (keepPendingEchoInPlace ? 1 : 0))
         {
             var removed = Turns[^1];
             Turns.RemoveAt(Turns.Count - 1);
             removed.Dispose();
         }
 
-        if (pendingEcho is not null)
+        if (pendingEcho is not null && !keepPendingEchoInPlace)
             Turns.Add(pendingEcho);
 
         if (selectedActivityId is { Length: > 0 })
@@ -2549,6 +2585,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                               _awaitingVisibleActivity &&
                               !reportsWorking &&
                               wasWorking;
+        _idleAwaitingVisibleActivity = holdingProgress;
         if (!reportsSessionActive)
             IsSessionActive = false;
         if (pendingStopCompleted)
@@ -3183,20 +3220,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanSend))]
     private Task SendAsync() => SendAsync(steer: IsBusy || IsStreaming, stopAndSend: false);
 
-    private async Task SendAsync(bool steer, bool stopAndSend = false)
-    {
-        await _configurationGate.WaitAsync();
-        try
-        {
-            await SendCoreAsync(steer, stopAndSend);
-        }
-        finally
-        {
-            _configurationGate.Release();
-            if (!_pendingConfiguration.IsEmpty && ChatId != Guid.Empty)
-                _ = FlushPendingConfigurationAsync();
-        }
-    }
+    private Task SendAsync(bool steer, bool stopAndSend = false) => SendCoreAsync(steer, stopAndSend);
 
     private async Task SendCoreAsync(bool steer, bool stopAndSend)
     {
@@ -3261,10 +3285,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // Paint the bubble NOW. The real one only arrives after an HTTP round trip, an SSE
         // invalidation and a transcript refetch — three hops on a phone's Wi-Fi — and staring at an
         // unchanged screen after tapping send is the single most damaging kind of latency, because
-        // the user cannot tell whether the tap registered. The echo is replaced by the server's own
-        // copy on the next transcript, so nothing here can drift.
+        // the user cannot tell whether the tap registered. Confirmation applies the server's identity
+        // and content to this bubble in place.
         var echo = AddPendingEcho(
             text,
+            requestId,
             effectiveSteer || effectiveStopAndSend,
             attached);
         if (surface.ChatId != Guid.Empty)
@@ -3293,93 +3318,138 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (effectiveStopAndSend)
             command.With("stopAndSend", "true");
 
-        RemoteCommandResult result;
-        try
-        {
-            result = await _sink.SendCommandAsync(command);
-        }
-        catch (Exception ex)
+        // Capture the send and paint its feedback before waiting for a settings round trip.
+        // The transport remains serialized with configuration changes.
+        using var cancellation = new CancellationTokenSource();
+        var staged = (Surface: surface, HostGeneration: hostGeneration, Cancellation: cancellation);
+        void ReturnCancelledDraft()
         {
             if (!IsCurrentHost(hostGeneration))
                 return;
-
-            if (surface.IsBlank && _pendingStopBlankGeneration == surface.BlankGeneration)
-                _pendingStopBlankGeneration = null;
-            RestoreFailedSendForSurface(
-                surface,
-                activation,
-                payload,
-                pendingConfiguration,
-                requestId,
-                false,
-                effectiveSteer,
-                effectiveStopAndSend,
-                Strings.Get("SendMessageFailed"),
-                echo);
+            RestoreSendDraftForSurface(
+                surface, activation, payload, pendingConfiguration, requestId,
+                matchingRetry is not null, effectiveSteer, effectiveStopAndSend, null, echo);
             if (!surface.IsBlank)
                 ChatActivitySubmissionFailed?.Invoke(surface.ChatId);
-            Trace.TraceWarning($"[Mobile] Send failed: {ex}");
+        }
+        _stagedSends.Add(staged);
+        try
+        {
+            await _configurationGate.WaitAsync(cancellation.Token);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            ReturnCancelledDraft();
             return;
         }
-
-        if (!IsCurrentHost(hostGeneration))
-            return;
-
-        if (surface.IsBlank
-            && result.ChatId is { } createdChatId
-            && createdChatId != Guid.Empty
-            && _pendingStopBlankGeneration == surface.BlankGeneration)
+        finally
         {
-            _pendingStopBlankGeneration = null;
-            await StopCreatedChatAsync(createdChatId);
+            _stagedSends.Remove(staged);
         }
-        else if (surface.IsBlank
-                 && !result.Ok
-                 && !IsAmbiguousFailure(result)
-                 && _pendingStopBlankGeneration == surface.BlankGeneration)
+        try
         {
-            _pendingStopBlankGeneration = null;
-        }
-
-        var targetSurface = result.ChatId is { } resultChatId && resultChatId != Guid.Empty
-            ? MapSurfaceToChat(surface, resultChatId)
-            : ResolveSurface(surface);
-
-        if (!result.Ok)
-        {
-            RestoreFailedSendForSurface(
-                surface,
-                activation,
-                payload,
-                pendingConfiguration,
-                result.RequestId ?? requestId,
-                IsAmbiguousFailure(result),
-                effectiveSteer,
-                effectiveStopAndSend,
-                result.Error ?? Strings.Get("SendMessageFailed"),
-                echo);
-            if (!surface.IsBlank)
-                ChatActivitySubmissionFailed?.Invoke(surface.ChatId);
-
-            if (surface.IsBlank &&
-                result.ChatId is { } failedCreatedId &&
-                failedCreatedId != Guid.Empty)
+            if (!IsCurrentHost(hostGeneration))
+                return;
+            if (cancellation.IsCancellationRequested)
             {
-                ChatCreated?.Invoke(failedCreatedId, surface.BlankGeneration);
+                ReturnCancelledDraft();
+                return;
             }
 
-            return;
+            RemoteCommandResult result;
+            try
+            {
+                result = await _sink.SendCommandAsync(command);
+            }
+            catch (Exception ex)
+            {
+                if (!IsCurrentHost(hostGeneration))
+                    return;
+
+                if (surface.IsBlank && _pendingStopBlankGeneration == surface.BlankGeneration)
+                    _pendingStopBlankGeneration = null;
+                RestoreSendDraftForSurface(
+                    surface,
+                    activation,
+                    payload,
+                    pendingConfiguration,
+                    requestId,
+                    false,
+                    effectiveSteer,
+                    effectiveStopAndSend,
+                    Strings.Get("SendMessageFailed"),
+                    echo);
+                if (!surface.IsBlank)
+                    ChatActivitySubmissionFailed?.Invoke(surface.ChatId);
+                Trace.TraceWarning($"[Mobile] Send failed: {ex}");
+                return;
+            }
+
+            if (!IsCurrentHost(hostGeneration))
+                return;
+
+            if (surface.IsBlank
+                && result.ChatId is { } createdChatId
+                && createdChatId != Guid.Empty
+                && _pendingStopBlankGeneration == surface.BlankGeneration)
+            {
+                _pendingStopBlankGeneration = null;
+                await StopCreatedChatAsync(createdChatId);
+            }
+            else if (surface.IsBlank
+                     && !result.Ok
+                     && !IsAmbiguousFailure(result)
+                     && _pendingStopBlankGeneration == surface.BlankGeneration)
+            {
+                _pendingStopBlankGeneration = null;
+            }
+
+            var targetSurface = result.ChatId is { } resultChatId && resultChatId != Guid.Empty
+                ? MapSurfaceToChat(surface, resultChatId)
+                : ResolveSurface(surface);
+
+            if (!result.Ok)
+            {
+                RestoreSendDraftForSurface(
+                    surface,
+                    activation,
+                    payload,
+                    pendingConfiguration,
+                    result.RequestId ?? requestId,
+                    IsAmbiguousFailure(result),
+                    effectiveSteer,
+                    effectiveStopAndSend,
+                    result.Error ?? Strings.Get("SendMessageFailed"),
+                    echo);
+                if (!surface.IsBlank)
+                    ChatActivitySubmissionFailed?.Invoke(surface.ChatId);
+
+                if (surface.IsBlank &&
+                    result.ChatId is { } failedCreatedId &&
+                    failedCreatedId != Guid.Empty)
+                {
+                    ChatCreated?.Invoke(failedCreatedId, surface.BlankGeneration);
+                }
+
+                return;
+            }
+
+            CompleteSuccessfulSend(targetSurface, activation, pendingConfiguration);
+
+            if (surface.IsBlank && result.ChatId is { } created && created != Guid.Empty)
+                ChatCreated?.Invoke(created, surface.BlankGeneration);
+            else if (surface.IsBlank)
+                ReleaseBlankProjectSelection(surface);
         }
-
-        CompleteSuccessfulSend(targetSurface, activation, pendingConfiguration);
-
-        if (surface.IsBlank && result.ChatId is { } created && created != Guid.Empty)
-            ChatCreated?.Invoke(created, surface.BlankGeneration);
-        else if (surface.IsBlank)
-            ReleaseBlankProjectSelection(surface);
+        finally
+        {
+            _configurationGate.Release();
+            if (!_pendingConfiguration.IsEmpty && ChatId != Guid.Empty)
+                _ = FlushPendingConfigurationAsync();
+        }
     }
 
-    private void RestoreFailedSendForSurface(
+    private void RestoreSendDraftForSurface(
         ChatSurfaceIdentity surface,
         long activation,
         SendPayload sentPayload,
@@ -3388,7 +3458,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         bool preserveRequestIdentity,
         bool steer,
         bool stopAndSend,
-        string error,
+        string? error,
         TranscriptTurnViewModel? echo)
     {
         var originSurface = surface;
@@ -3428,7 +3498,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         var restored = new DraftState(
             promptText,
             [.. attachments],
-            error,
+            error ?? draft.ErrorText,
             configuration,
             retry);
 
@@ -3481,6 +3551,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         result.IsTimeout || result.IsOutcomeUnknown;
 
     private bool _awaitingVisibleActivity;
+    private bool _idleAwaitingVisibleActivity;
     private bool _hasVisibleResponseActivity;
     private readonly HashSet<string> _visibleActivityBaselineItemIds = new(StringComparer.Ordinal);
     private string? _visibleActivityBaselineTurnId;
@@ -3489,6 +3560,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     private void BeginAwaitingVisibleActivity()
     {
+        _idleAwaitingVisibleActivity = false;
         _hasVisibleResponseActivity = false;
         _visibleActivityBaselineItemIds.Clear();
 
@@ -3518,14 +3590,21 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     private void MarkVisibleResponseActivity()
     {
+        var idle = _idleAwaitingVisibleActivity;
+        _idleAwaitingVisibleActivity = false;
         _hasVisibleResponseActivity = true;
         _visibleActivityBaselineItemIds.Clear();
         _visibleActivityBaselineTurnId = null;
         SetAwaitingVisibleActivity(false);
+        // A newer idle frame can arrive while the reply's transcript request is still in flight.
+        // That request must not apply stale status, but the held idle now has visible content.
+        if (idle)
+            ApplyWorkingState(isBusy: false, isStreaming: false);
     }
 
     private void ResetVisibleActivityProgress()
     {
+        _idleAwaitingVisibleActivity = false;
         _hasVisibleResponseActivity = false;
         _visibleActivityBaselineItemIds.Clear();
         _visibleActivityBaselineTurnId = null;
@@ -3588,22 +3667,39 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
     }
 
-    /// <summary>Turn id used for the optimistic echo, so a real transcript can replace it wholesale.</summary>
+    /// <summary>Identifies the local bubble until the desktop confirms its request.</summary>
     private const string EchoTurnId = "__pending_echo__";
+    private string? _pendingEchoRequestId;
 
     private TranscriptTurnViewModel? AddPendingEcho(
         string text,
+        string requestId,
         bool steer,
         IReadOnlyList<PendingAttachment>? attachments = null)
     {
         _pendingEchoBaselineRevision = _revision;
+        _pendingEchoRequestId = requestId;
+        var surface = CurrentSurface;
+        var imageChatId = surface.ChatId;
         var turn = new TranscriptTurnViewModel(
             EchoTurnId,
             OpenActivityAsync,
-            OpenSources);
+            OpenSources,
+            (messageId, markdown, images, cancellationToken) =>
+            {
+                // A blank surface receives its chat id only after the creating send is accepted.
+                if (imageChatId == Guid.Empty)
+                    imageChatId = ResolveSurface(surface).ChatId;
+                return ResolveInlineImagesAsync(imageChatId, messageId, markdown, images, cancellationToken);
+            },
+            (messageId, images) => ReleaseInlineImages(imageChatId, messageId, images),
+            OpenJobWake,
+            DisplayModel,
+            OpenMessageActions);
         var user = new UserTurnItemViewModel(new RemoteTranscriptItem
         {
             Id = EchoTurnId,
+            RequestId = requestId,
             Kind = RemoteProtocol.ItemKinds.User,
             Text = text,
             Timestamp = DateTimeOffset.Now,
@@ -3677,11 +3773,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     private void RemovePendingEcho(TranscriptTurnViewModel? turn)
     {
-        if (turn is null)
+        if (turn is null || turn.Id != EchoTurnId)
             return;
 
         var removed = Turns.Remove(turn);
         _pendingEchoBaselineRevision = null;
+        _pendingEchoRequestId = null;
         if (removed)
         {
             turn.Dispose();
@@ -3709,6 +3806,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
 
         _pendingEchoBaselineRevision = null;
+        _pendingEchoRequestId = null;
         if (removed)
         {
             OnPropertyChanged(nameof(IsEmpty));
@@ -3764,6 +3862,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [RelayCommand]
     private async Task StopAsync()
     {
+        var surface = CurrentSurface;
+        foreach (var staged in _stagedSends.Where(staged =>
+                     IsCurrentHost(staged.HostGeneration)
+                     && ResolveSurface(staged.Surface) == ResolveSurface(surface)).ToArray())
+            staged.Cancellation.Cancel();
+
         if (ChatId == Guid.Empty)
         {
             ResetVisibleActivityProgress();
@@ -3774,7 +3878,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
             return;
         }
 
-        var surface = CurrentSurface;
         var activation = _surfaceActivationGeneration;
         var chatId = ChatId;
         var previousStatus = StatusText;

@@ -1,14 +1,22 @@
 using System.Diagnostics;
+using System.Net;
+using System.Net.Http;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.Behaviors;
+using Lumi.Mobile.Services;
+using Lumi.Mobile.ViewModels;
+using Lumi.Mobile.Views;
+using Lumi.Remote.Protocol;
 using StrataTheme.Animation;
 using StrataTheme.Controls;
 using Xunit;
@@ -18,6 +26,153 @@ namespace Lumi.Mobile.Tests;
 [Collection("Headless mobile UI")]
 public sealed class MobileMotionRenderTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TappingSendAnimatesTheRealBubbleAndConfirmationKeepsItsControl(bool windowRollsForward)
+    {
+        using var session = HeadlessUnitTestSession.StartNew(
+            typeof(MobileMotionRenderApp), AvaloniaTestIsolationLevel.PerTest);
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch<bool>(async () =>
+        {
+            var handler = new HeldSendHandler();
+            var storeDirectory = Path.Combine(Path.GetTempPath(), "Lumi-mobile-send", Guid.NewGuid().ToString("N"));
+            var store = new MobileSettingsStore(storeDirectory);
+            await using var model = new MobileShellViewModel(
+                client: new LumiRemoteClient("motion-test", "Motion test", handler),
+                store: store, post: action => action());
+            model.Client.Configure("http://127.0.0.1:18764", "fixture");
+            model.Client.MarkProtocolCompatibleForTests();
+            model.IsPaired = model.IsConnected = model.IsHostReady = true;
+            model.Glow = MobileShellViewModel.GlowPreference.Off;
+            var view = new ChatDetailView { DataContext = model };
+            var window = new Window { Width = 412, Height = 892, Content = view };
+            Task? send = null;
+            try
+            {
+                window.Show();
+                var id = Guid.NewGuid();
+                var initialTurn = new RemoteTranscriptTurn
+                {
+                    Id = "history",
+                    Items = [new()
+                    {
+                        Id = "history-user", Kind = RemoteProtocol.ItemKinds.User, Text = "A previous message"
+                    }]
+                };
+                model.Chat.Reset(id, "Send motion", isLoading: true);
+                model.Chat.ApplyTranscript(new RemoteTranscript
+                {
+                    ChatId = id, Revision = 1, RevisionEpoch = "test",
+                    Status = new RemoteChatStatus { ChatId = id },
+                    Turns = [initialTurn]
+                });
+                model.Chat.IsLoading = false;
+                await PumpAsync(window, TimeSpan.FromMilliseconds(450));
+                // Frost has separate pixel tests; software blur would dominate synchronous captures.
+                foreach (var frost in view.GetVisualDescendants().OfType<StrataBackdropBlur>())
+                    frost.BlurRadius = 0;
+
+                var hiddenBeforePaint = false;
+                var sinceHidden = new Stopwatch();
+                using var observation = Visual.OpacityProperty.Changed.AddClassHandler<ContentPresenter>((control, _) =>
+                {
+                    if (control.DataContext is UserTurnItemViewModel { Text: "Smooth send" } && control.Opacity == 0)
+                    {
+                        hiddenBeforePaint = true;
+                        sinceHidden.Restart();
+                    }
+                });
+                model.Chat.PromptText = "Smooth send";
+                await PumpAsync(window, TimeSpan.FromMilliseconds(30));
+                var button = view.GetVisualDescendants().OfType<Button>()
+                    .Single(control => control.Name == "PART_SendButton");
+                var tap = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+                window.MouseDown(tap, MouseButton.Left);
+                window.MouseUp(tap, MouseButton.Left);
+                send = model.Chat.SendCommand.ExecutionTask;
+                Assert.NotNull(send);
+                Assert.True(model.Chat.ShowThinking);
+                Assert.Empty(model.Chat.PromptText);
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+
+                var turn = model.Chat.Turns[^1];
+                var user = Assert.Single(turn.Items);
+                var host = view.GetVisualDescendants().OfType<ContentPresenter>()
+                    .Single(control => ReferenceEquals(control.DataContext, user)
+                        && control.GetVisualDescendants().OfType<StrataChatMessage>().Any());
+                Assert.True(hiddenBeforePaint, "The sent bubble must be hidden before its first paint.");
+                var bubble = host.GetVisualDescendants().OfType<Border>()
+                    .Single(control => control.Name == "PART_Bubble");
+                bubble.Background = Brushes.White;
+                var origin = host.TranslatePoint(default, window)!.Value;
+                var region = new Rect(origin, host.Bounds.Size);
+                var bounds = host.Bounds;
+                var samples = new List<(double Brightness, double Y)>();
+                var elapsed = Stopwatch.StartNew();
+                var captureStartedAt = sinceHidden.ElapsedMilliseconds;
+                while (elapsed.ElapsedMilliseconds < 380)
+                {
+                    Thread.Sleep(16);
+                    using var frame = window.CaptureRenderedFrame()!;
+                    samples.Add(Measure(frame, region));
+                    Assert.Equal(bounds, host.Bounds);
+                }
+                Assert.True(samples.Any(sample =>
+                    sample.Brightness > samples[^1].Brightness * 0.08
+                    && sample.Brightness < samples[^1].Brightness * 0.92),
+                    "The actual sent bubble must paint intermediate entrance frames while the UI thread is occupied. " +
+                    $"Region {region}; capture started {captureStartedAt}ms after preparation; visible fractions: {string.Join(", ", samples.Select(sample =>
+                        (sample.Brightness / samples[^1].Brightness).ToString("F2")))}.");
+
+                var detached = false;
+                host.DetachedFromVisualTree += (_, _) => detached = true;
+                model.Chat.ApplyTranscript(new RemoteTranscript
+                {
+                    ChatId = id, Revision = 2, RevisionEpoch = "test",
+                    Status = new RemoteChatStatus { ChatId = id, IsBusy = true },
+                    WindowStartMessageIndex = windowRollsForward ? 1 : 0,
+                    HasEarlierMessages = windowRollsForward,
+                    Turns = [.. (windowRollsForward ? Array.Empty<RemoteTranscriptTurn>() : new[] { initialTurn }), new()
+                    {
+                        Id = "server-turn",
+                        Items = [new()
+                        {
+                            Id = "server-user", Kind = RemoteProtocol.ItemKinds.User,
+                            Text = "Smooth send", RequestId = handler.RequestId
+                        }]
+                    }]
+                });
+                await PumpAsync(window, TimeSpan.FromMilliseconds(60));
+                Assert.False(detached);
+                Assert.Same(turn, model.Chat.Turns[^1]);
+                Assert.Same(user, Assert.Single(turn.Items));
+                Assert.True(model.Chat.ShowThinking);
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                handler.Response.TrySetResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"ok":true}""")
+                });
+                if (send is not null)
+                    await send;
+                window.Close();
+                Directory.Delete(storeDirectory, recursive: true);
+            }
+            return true;
+        }, CancellationToken.None);
+        failure?.Throw();
+    }
+
     [Fact]
     public async Task EntrancePaintsIntermediatePixelsWithoutMovingTheLogicalViewport()
     {
@@ -168,7 +323,7 @@ public sealed class MobileMotionRenderTests
         }
     }
 
-    private static (double Brightness, double Y) Measure(Bitmap bitmap)
+    private static (double Brightness, double Y) Measure(Bitmap bitmap, Rect? region = null)
     {
         var size = bitmap.PixelSize;
         var stride = size.Width * 4;
@@ -184,8 +339,9 @@ public sealed class MobileMotionRenderTests
             Marshal.FreeHGlobal(buffer);
         }
         double brightness = 0, weightedY = 0;
-        for (var y = 20; y < size.Height - 10; y++)
-        for (var x = 20; x < Math.Min(size.Width, 130); x++)
+        var area = region ?? new Rect(20, 20, Math.Min(size.Width, 130) - 20, size.Height - 30);
+        for (var y = Math.Max(0, (int)area.Top); y < Math.Min(size.Height, area.Bottom); y++)
+        for (var x = Math.Max(0, (int)area.Left); x < Math.Min(size.Width, area.Right); x++)
         {
             var index = y * stride + x * 4;
             var value = bytes[index] + bytes[index + 1] + bytes[index + 2];
@@ -193,6 +349,21 @@ public sealed class MobileMotionRenderTests
             weightedY += value * y;
         }
         return (brightness, brightness > 0 ? weightedY / brightness : 0);
+    }
+
+    private sealed class HeldSendHandler : HttpMessageHandler
+    {
+        public string? RequestId { get; private set; }
+        public TaskCompletionSource<HttpResponseMessage> Response { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var json = await request.Content!.ReadAsStringAsync(cancellationToken);
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            RequestId = document.RootElement.GetProperty("requestId").GetString();
+            return await Response.Task.WaitAsync(cancellationToken);
+        }
     }
 }
 

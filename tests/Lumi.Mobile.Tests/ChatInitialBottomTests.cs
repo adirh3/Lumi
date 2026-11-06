@@ -548,6 +548,77 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task SendingAtTheEndOfALongChatAnimatesTheNewBubble()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var handler = new HeldSendHandler();
+            await using var model = new MobileShellViewModel(
+                client: new Lumi.Mobile.Services.LumiRemoteClient("long-chat", "Long chat", handler),
+                store: session.NewStore(), post: action => action());
+            model.Client.Configure("http://127.0.0.1:18765", "fixture");
+            model.Client.MarkProtocolCompatibleForTests();
+            model.IsPaired = model.IsConnected = model.IsHostReady = true;
+            var view = new ChatDetailView { DataContext = model };
+            var window = new Window { Width = 412, Height = 892, Content = view };
+            window.Show();
+            Task? send = null;
+            try
+            {
+                await OpenChatAsync(model, Guid.NewGuid());
+                var shell = view.FindControl<StrataChatShell>("ChatShell")!;
+                AssertAtBottom(shell, "before sending");
+
+                model.Chat.PromptText = "A message at the end of a long chat";
+                send = model.Chat.SendCommand.ExecuteAsync(null);
+                var user = model.Chat.Turns[^1].Items[0];
+                Control? host = null;
+                var animated = false;
+                // Frames without time passing: the entrance must start before the jump to the latest
+                // message settles, and must still be running rather than replaced by a plain reveal.
+                for (var frame = 0; frame < 8 && !animated; frame++)
+                {
+                    Dispatcher.UIThread.RunJobs();
+                    window.UpdateLayout();
+                    host ??= view.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>()
+                        .FirstOrDefault(control => ReferenceEquals(control.DataContext, user));
+                    animated = host is not null && StrataTheme.Animation.SlideFadeEntrance.IsCompositedRunning(host);
+                }
+                Assert.NotNull(host);
+                Assert.True(animated, $"The sent bubble appeared without its entrance (opacity {host!.Opacity}).");
+
+                await PumpAsync();
+                AssertAtBottom(shell, "after sending");
+            }
+            finally
+            {
+                handler.Release();
+                if (send is not null)
+                    await send;
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    private sealed class HeldSendHandler : System.Net.Http.HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Release() => _release.TrySetResult();
+
+        protected override async Task<System.Net.Http.HttpResponseMessage> SendAsync(
+            System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await _release.Task.WaitAsync(cancellationToken);
+            return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new System.Net.Http.StringContent("""{"ok":true}""")
+            };
+        }
+    }
+
     private static async Task OpenChatAsync(MobileShellViewModel model, Guid chatId)
     {
         model.Chat.Reset(chatId, "Bottom settling", isLoading: true);

@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using Avalonia;
+using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Controls.Platform;
 using Avalonia.Input;
@@ -28,6 +30,7 @@ public partial class MobileShellView : UserControl
     private bool _hasHostInsets;
     private double _keyboardInset;
     private double _keyboardTop = double.NaN;
+    private int _keyboardMotionVersion;
     private bool _isApplicationActive = true;
     private readonly Dictionary<Control, MobileEntrance> _pageEntrances = [];
     private readonly HashSet<StrataBottomSheet> _presentedSheets = [];
@@ -464,6 +467,7 @@ public partial class MobileShellView : UserControl
 
     private void ApplyKeyboardInset(double keyboardInset, double? viewportHeight = null)
     {
+        _keyboardMotionVersion++;
         _keyboardInset = _isApplicationActive ? keyboardInset : 0;
         // Browser viewport events can arrive before Avalonia's ResizeObserver. Keep the keyboard
         // edge in the measured host's coordinates rather than combining it with a stale height.
@@ -479,6 +483,7 @@ public partial class MobileShellView : UserControl
     {
         _isApplicationActive = false;
         LifecycleOpacityPulse.SetIsPaused(this, true);
+        _keyboardMotionVersion++;
         _keyboardInset = 0;
         _keyboardTop = double.NaN;
         ApplyInsets();
@@ -490,6 +495,7 @@ public partial class MobileShellView : UserControl
     {
         _isApplicationActive = true;
         LifecycleOpacityPulse.SetIsPaused(this, false);
+        _keyboardMotionVersion++;
         _keyboardInset = 0;
         _keyboardTop = double.NaN;
         ApplyInsets();
@@ -509,10 +515,16 @@ public partial class MobileShellView : UserControl
     private void OnInputPaneStateChanged(object? sender, InputPaneStateEventArgs e)
     {
         if (!_hasHostInsets)
-            ApplyInputPaneGeometry(e.NewState, e.EndRect);
+            ApplyInputPaneGeometry(e.NewState, e.EndRect, e.AnimationDuration, e.Easing);
     }
 
-    internal void ApplyInputPaneGeometry(InputPaneState state, Rect occludedRect)
+    /// <param name="duration">
+    /// The keyboard's own slide. Android reports it once, as the slide starts; the composer and the
+    /// conversation then follow it frame by frame, as in native apps, instead of jumping to where it
+    /// ends. Only the chat's height changes on those frames, so its messages keep their measurements.
+    /// </param>
+    internal void ApplyInputPaneGeometry(
+        InputPaneState state, Rect occludedRect, TimeSpan duration = default, IEasing? easing = null)
     {
         if (!_isApplicationActive)
             return;
@@ -528,11 +540,36 @@ public partial class MobileShellView : UserControl
         var rect = state == InputPaneState.Open && occludedRect.Top > _safeArea.Top
             ? occludedRect
             : default;
-        _keyboardInset = rect.Height > 0 && _topLevel is { } top
+        var target = rect.Height > 0 && _topLevel is { } top
             ? Math.Max(0, top.ClientSize.Height - rect.Top)
             : 0;
-        _keyboardTop = _keyboardInset > 0 ? rect.Top : double.NaN;
 
+        var version = ++_keyboardMotionVersion;
+        var from = _keyboardInset;
+        if (duration <= TimeSpan.Zero || _topLevel is not { } topLevel || Math.Abs(target - from) < 1)
+        {
+            SetKeyboardInset(target);
+            return;
+        }
+
+        var curve = easing ?? new CubicEaseOut();
+        var clock = Stopwatch.StartNew();
+        void OnFrame(TimeSpan _)
+        {
+            if (version != _keyboardMotionVersion || !_isApplicationActive)
+                return;
+            var progress = Math.Min(1, clock.Elapsed / duration);
+            SetKeyboardInset(from + (target - from) * curve.Ease(progress));
+            if (progress < 1)
+                topLevel.RequestAnimationFrame(OnFrame);
+        }
+        topLevel.RequestAnimationFrame(OnFrame);
+    }
+
+    private void SetKeyboardInset(double inset)
+    {
+        _keyboardInset = inset;
+        _keyboardTop = inset > 0 && _topLevel is { } top ? top.ClientSize.Height - inset : double.NaN;
         ApplyInsets();
     }
 
