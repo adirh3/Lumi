@@ -1580,6 +1580,12 @@
   "ModelPicker_FusionSwitchFailed": "Couldn't change Fusion effort to {0}. It is still using {1}.",
   "ModelPicker_AutoTier": "Auto · {0}",
   "ModelPicker_Pinned": "Pinned",
+  "ModelSwitch_Pending": "{0} takes over after this reply",
+  "ModelSwitch_Switching": "Switching to {0}…",
+  "ModelSwitch_Applied": "Now using {0}",
+  "ModelSwitch_SwitchNow": "Switch now",
+  "ModelSwitch_SwitchNowToolTip": "Stops the current step and continues this work with {0}",
+  "ModelSwitch_NextMessage": "{0} takes over with your next message",
 
   "FieldLabel_URL": "URL",
   "FieldLabel_File": "File",

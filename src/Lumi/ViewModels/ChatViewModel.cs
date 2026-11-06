@@ -1106,7 +1106,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public string ComposerPlaceholder => IsEditingMessage
         ? Loc.Get("Chat_EditPlaceholder")
         : IsRecording ? Loc.Voice_Placeholder
-        : IsPaused ? Loc.Get("Chat_PausedPlaceholder")
+        : ShowPauseStatus ? Loc.Get("Chat_PausedPlaceholder")
         : HasPendingReply ? Loc.Chat_ReplyPlaceholder : Loc.Chat_Placeholder;
 
     partial void OnIsBusyChanging(bool value)
@@ -1842,6 +1842,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         NotifyHeaderRunningChanged();
         UpdateUserMessageEditState();
         NotifyContextActionAvailabilityChanged();
+        RefreshModelSwitchNotice();
         if (value && !IsPaused && !IsAwaitingInput)
             _transcriptBuilder.ShowTypingIndicator(StatusText);
         else

@@ -610,9 +610,9 @@ public partial class ChatViewModel
         if (string.IsNullOrWhiteSpace(modelId))
             return true;
 
-        // The SDK's SetModelAsync only swaps the model id inside the existing session — it does
+        // Switching a live session's model only swaps the model id inside the existing session — it does
         // NOT touch the Provider config (BaseUrl, Type, WireApi, ApiKey, Headers). If the new
-        // model resolves to a different BYOK endpoint, calling SetModelAsync would route the new
+        // model resolves to a different BYOK endpoint, switching would route the new
         // model's id through the OLD endpoint and fail (or worse, leak the previous endpoint's
         // auth header to the new provider). Detect this mismatch here and force a session
         // recreation on the next SendMessage instead.
@@ -627,6 +627,13 @@ public partial class ChatViewModel
         if (!string.Equals(newSignature, _activeSessionProviderSignature, StringComparison.Ordinal))
         {
             InvalidateCurrentSessionForModelSwitch();
+            try
+            {
+                await WaitForSessionRebuildAsync(chat, modelRoute.WireModelId, selectionToken);
+            }
+            catch (OperationCanceledException) when (selectionToken.IsCancellationRequested)
+            {
+            }
             return false;
         }
 
@@ -653,12 +660,21 @@ public partial class ChatViewModel
 
             try
             {
-                await session.SetModelAsync(
+                // While a turn runs, the runtime queues a new model until the reply ends.
+                await SwitchSessionModelAsync(
+                    chat,
+                    session,
                     modelRoute.WireModelId,
                     SessionConfigBuilder.CreateSetModelOptions(
                         modelRoute.SelectionToken, reasoningEffort, contextTier,
-                        ByokConfigHelper.BuildModelCapabilitiesOverride(modelRoute.ByokModel, contextTier)));
+                        ByokConfigHelper.BuildModelCapabilitiesOverride(modelRoute.ByokModel, contextTier)),
+                    selectionToken);
                 return true;
+            }
+            catch (OperationCanceledException) when (selectionToken.IsCancellationRequested)
+            {
+                // A newer pick took over before this one reached the session.
+                return false;
             }
             catch
             {

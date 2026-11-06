@@ -2469,6 +2469,59 @@
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="False" />
     </Style>
 
+    <!-- ── A model picked while Lumi works ── -->
+    <Style Selector="Border#ModelSwitchBar">
+      <Setter Property="Margin" Value="4,0,4,8" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
+    </Style>
+    <Style Selector="Border#ModelSwitchBar sc|StrataLineIcon.model-switch-glyph">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="StrokeThickness" Value="1.8" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Border#ModelSwitchBar sc|StrataLineIcon.model-switch-glyph.accent">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border#ModelSwitchBar TextBlock#ModelSwitchText">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border#ModelSwitchProgressLine">
+      <Setter Property="IsVisible" Value="False" />
+      <Setter Property="Height" Value="1.5" />
+      <Setter Property="Margin" Value="18,0" />
+      <Setter Property="CornerRadius" Value="1" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Background" Value="{DynamicResource Brush.StratumLine}" />
+      <Setter Property="OpacityMask">
+        <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+          <GradientStop Offset="0" Color="#00000000" />
+          <GradientStop Offset="0.15" Color="#FF000000" />
+          <GradientStop Offset="0.85" Color="#FF000000" />
+          <GradientStop Offset="1" Color="#00000000" />
+        </LinearGradientBrush>
+      </Setter>
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.35" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.6" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="Border#ModelSwitchBar.switching Border#ModelSwitchProgressLine">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="Border#ModelSwitchBar.motion-disabled Border#ModelSwitchProgressLine">
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="False" />
+    </Style>
+
     <!-- ── Ctrl+F search bar ── -->
     <Style Selector="Border#SearchBar">
       <Setter Property="IsVisible" Value="False" />
@@ -5052,7 +5105,7 @@
               Classes="pause-bar"
               Classes.pending="{Binding IsPausePending}"
               Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
-              IsVisible="{Binding IsPaused}"
+              IsVisible="{Binding ShowPauseStatus}"
               AutomationProperties.Name="{Binding PauseStatusTitle}"
               AutomationProperties.HelpText="{Binding PauseStatusDescription}">
         <Panel>
@@ -5095,6 +5148,39 @@
             </StackPanel>
           </Grid>
           <Border x:Name="ChatPauseProgressLine" Classes="pause-bar-line" />
+        </Panel>
+      </Border>
+
+      <!-- A model picked while Lumi works waits for the reply to end, since the runtime switches models
+           between turns: say when it takes over, and offer to move the running work over now. -->
+      <Border x:Name="ModelSwitchBar"
+              TextOptions.TextRenderingMode="Antialias"
+              Classes.switching="{Binding IsModelSwitchInProgress}"
+              Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
+              IsVisible="{Binding HasModelSwitchNotice}"
+              AutomationProperties.Name="{Binding ModelSwitchNoticeText}">
+        <Panel>
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="12,6,6,6" MinHeight="26">
+            <Panel VerticalAlignment="Center">
+              <sc:StrataLineIcon Classes="model-switch-glyph" Data="{x:Static sc:StrataIcons.Clock}"
+                                 IsVisible="{Binding IsModelSwitchPending}" />
+              <sc:StrataLineIcon Classes="model-switch-glyph accent" Data="{x:Static sc:StrataIcons.Retry}"
+                                 IsVisible="{Binding IsModelSwitchInProgress}" />
+              <sc:StrataLineIcon Classes="model-switch-glyph accent" Data="{x:Static sc:StrataIcons.Check}"
+                                 IsVisible="{Binding IsModelSwitchApplied}" />
+            </Panel>
+            <TextBlock x:Name="ModelSwitchText" Grid.Column="1" Text="{Binding ModelSwitchNoticeText}" />
+            <Button x:Name="SwitchModelNowButton" Grid.Column="2" Classes="accent"
+                    Content="{loc:Str ModelSwitch_SwitchNow}"
+                    Command="{Binding SwitchModelNowCommand}"
+                    IsVisible="{Binding CanSwitchModelNow}"
+                    ToolTip.Tip="{Binding SwitchModelNowToolTip}"
+                    ToolTip.Placement="Top"
+                    ToolTip.VerticalOffset="-6"
+                    AutomationProperties.HelpText="{Binding SwitchModelNowToolTip}"
+                    Padding="10,4" MinHeight="0" CornerRadius="9" FontSize="12" />
+          </Grid>
+          <Border x:Name="ModelSwitchProgressLine" />
         </Panel>
       </Border>
 

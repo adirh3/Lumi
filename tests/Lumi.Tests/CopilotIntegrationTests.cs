@@ -1498,6 +1498,68 @@ public class CopilotIntegrationTests : IAsyncLifetime
     }
 
     [SkippableFact]
+    public async Task ModelSwitch_WaitsForTheTurn_AndAnInterruptedTurnContinuesOnTheNewModel()
+    {
+        SkipIfDisabled();
+        var ids = (await _service.GetModelsAsync()).Select(model => model.Id).ToHashSet(StringComparer.Ordinal);
+        var running = new[] { "gpt-5.6-luna", "gpt-6-luna", "gpt-5-mini" }.FirstOrDefault(ids.Contains);
+        var picked = new[] { "claude-haiku-5.5", "claude-haiku-4.5", "gpt-5.6-terra", "gpt-4.1" }.FirstOrDefault(ids.Contains);
+        Skip.If(running is null || picked is null, "The account does not offer the two test models.");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        var tool = AIFunctionFactory.Create(async (CancellationToken cancellationToken) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                started.TrySetResult();
+                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+            }
+            return "MODEL_SWITCH_COMPLETE";
+        }, "switch_probe", "Get the completion marker. Retry this tool if it was interrupted.");
+        var session = await _service.CreateSessionAsync(SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
+        {
+            Model = running,
+            SystemPrompt = "Call switch_probe and reply with its returned marker. Retry if interrupted.",
+            Tools = [tool],
+            Streaming = true
+        }));
+        var usedModels = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var subscription = session.On<AssistantUsageEvent>(evt => usedModels.Enqueue(evt.Data.Model ?? ""));
+        try
+        {
+            await session.SendAsync(new MessageOptions { Prompt = "Run the tool and report its marker." });
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(60));
+
+            var queued = await SessionModelSwitch.SwitchAsync(session, picked!, new SetModelOptions());
+            Assert.True(queued.Deferred);
+            var queueId = Assert.Single(queued.QueueIds);
+
+#pragma warning disable GHCP001
+            await session.Rpc.Queue.SetDrainPausedAsync(true);
+            var abort = await session.Rpc.AbortAsync();
+            Assert.True(abort.Success, abort.Error);
+            // The abort drops the queued switch with the turn, and a switch now applies at once.
+            Assert.DoesNotContain((await session.Rpc.Queue.PendingItemsAsync()).Items, item => item.Id == queueId);
+            Assert.False((await SessionModelSwitch.SwitchAsync(session, picked!, new SetModelOptions())).Deferred);
+            await session.Rpc.Queue.SetDrainPausedAsync(false);
+            usedModels.Clear();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            await session.Rpc.SendMessagesAsync([], wait: true, cancellationToken: timeout.Token);
+#pragma warning restore GHCP001
+
+            _output.WriteLine($"Calls: {calls}; continuation models: {string.Join(", ", usedModels)}");
+            Assert.True(calls >= 2);
+            Assert.NotEmpty(usedModels);
+            Assert.All(usedModels, model => Assert.Equal(picked, model));
+        }
+        finally
+        {
+            await session.DisposeAsync();
+            await _service.DeleteSessionAsync(session.SessionId);
+        }
+    }
+
+    [SkippableFact]
     public async Task CustomTool_IsInvoked_WithEventsAndHook()
     {
         SkipIfDisabled();

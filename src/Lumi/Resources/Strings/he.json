@@ -1569,6 +1569,12 @@
   "ModelPicker_FusionSwitchFailed": "לא ניתן היה לשנות את רמת המאמץ של Fusion ל-{0}. הרמה הפעילה עדיין היא {1}.",
   "ModelPicker_AutoTier": "אוטומטי · {0}",
   "ModelPicker_Pinned": "מוצמדים",
+  "ModelSwitch_Pending": "{0} ימשיך אחרי התשובה הזו",
+  "ModelSwitch_Switching": "עובר ל-{0}…",
+  "ModelSwitch_Applied": "עובד עכשיו עם {0}",
+  "ModelSwitch_SwitchNow": "החלף עכשיו",
+  "ModelSwitch_SwitchNowToolTip": "עוצר את השלב הנוכחי וממשיך את העבודה עם {0}",
+  "ModelSwitch_NextMessage": "{0} ימשיך מההודעה הבאה שלך",
 
   "FieldLabel_URL": "כתובת URL",
   "FieldLabel_File": "קובץ",

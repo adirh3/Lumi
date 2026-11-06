@@ -9,6 +9,15 @@ internal enum ContextTokenLimitSource
     Session
 }
 
+/// <summary>A model pick waiting for the running turn to end.</summary>
+/// <param name="WireModelId">The model id the runtime reports when the switch applies.</param>
+/// <param name="QueueIds">The runtime's queue items holding the switch.</param>
+/// <param name="NeedsNewSession">
+/// No switch is queued: the running session can't take the pick (it routes to another endpoint, or the
+/// session rejected it), so the next message's session does.
+/// </param>
+internal sealed record PendingModelSwitch(string WireModelId, IReadOnlyList<string> QueueIds, bool NeedsNewSession = false);
+
 internal sealed class ChatRuntimeState
 {
     private bool _isBusy;
@@ -92,6 +101,15 @@ internal sealed class ChatRuntimeState
     public string? ActiveModelId { get; set; }
 
     public string? ActiveContextWindowTier { get; set; }
+
+    /// <summary>
+    /// A model picked while the assistant worked. The runtime switches models only between turns, so the
+    /// pick waits for the running reply to end, or for "Switch now". Null when nothing waits.
+    /// </summary>
+    public PendingModelSwitch? PendingModelSwitch { get; set; }
+
+    /// <summary>True while "Switch now" interrupts the running step to continue it on the picked model.</summary>
+    public bool IsSwitchingModel { get; set; }
 
     public int ActiveToolCount { get; set; }
 

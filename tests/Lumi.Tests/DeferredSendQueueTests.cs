@@ -38,7 +38,7 @@ namespace Lumi.Tests;
 /// undelivered when it can no longer be sent.
 /// </summary>
 [Collection("Headless UI")]
-public sealed class DeferredSendQueueTests
+public sealed partial class DeferredSendQueueTests
 {
     [Fact]
     public void ByokSteeringSignature_MatchesCapabilitiesAndRejectsChanges()
@@ -2875,7 +2875,7 @@ public sealed class DeferredSendQueueTests
         Assert.Equal([("two", 1), ("three", 2)], host.ViewModel.QueuedSends.Select(item => (item.Text, item.Position)));
     }
 
-    private sealed class DeferredSendHost : IDisposable
+    private sealed partial class DeferredSendHost : IDisposable
     {
         private DeferredSendHost(ChatViewModel viewModel, Chat chat)
         {
@@ -3219,7 +3219,7 @@ public sealed class DeferredSendQueueTests
         }
     }
 
-    private sealed class AbortRpc : IDisposable
+    private sealed partial class AbortRpc : IDisposable
     {
         private readonly JsonRpc _rpc;
         private readonly IDisposable _sdkRpc;

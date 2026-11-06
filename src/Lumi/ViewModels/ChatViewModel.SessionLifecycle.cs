@@ -1162,6 +1162,8 @@ public partial class ChatViewModel
                     break;
                 case AssistantTurnStartEvent turnStart when IsRootAgentEvent(evt):
                     // Empty-batch continuations have no user.message echo to establish their epoch.
+                    var startsContinuation = runtime.IsContinuationTurn
+                        && sessionTurnSequence != runtime.LifecycleTurnSequence;
                     if (runtime.IsContinuationTurn)
                         sessionTurnSequence = runtime.LifecycleTurnSequence;
                     Volatile.Write(ref runtime.AssistantTurnStarted, true);
@@ -1174,6 +1176,10 @@ public partial class ChatViewModel
                         // that turn must NOT overwrite this — if the user
                         // changed the model picker while a turn is streaming, the in-flight session still
                         // uses the ORIGINAL model, and the label must reflect that, not the new selection.
+                        // A resumed continuation is a turn of its own, which may run on a model picked while
+                        // it was interrupted ("Switch now").
+                        if (startsContinuation)
+                            turnModelId = null;
                         turnModelId = CaptureTurnModelId(turnModelId, ResolveSelectedModelForChat(chat));
                         MarkRuntimeActive(runtime, Loc.Status_Thinking);
                         if (IsAuthoritativeSession() && isTopLevelTurnStart)
@@ -2758,6 +2764,7 @@ public partial class ChatViewModel
                             modelChange.Data.ReasoningEffort,
                             modelChange.Data.ContextTier,
                             IsDisplayedSession());
+                        ConfirmModelSwitch(chat, runtime, modelChange.Data.NewModel);
                         // Update in-flight streaming message with the actual model used
                         if (streamingMsg is not null)
                             streamingMsg.Model = runtime.ActiveModelId;

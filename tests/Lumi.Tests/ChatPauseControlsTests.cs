@@ -56,7 +56,7 @@ public sealed class ChatPauseControlsTests
 
         Assert.Same(composer.Parent, notice.Parent);
         Assert.Contains(composer.ElementsBeforeSelf(), element => ReferenceEquals(element, notice));
-        Assert.Equal("{Binding IsPaused}", Attribute(notice, "IsVisible"));
+        Assert.Equal("{Binding ShowPauseStatus}", Attribute(notice, "IsVisible"));
         Assert.Equal("{Binding PauseStatusTitle}", Attribute(Named(view, "ChatPauseStatusTitle"), "Text"));
         Assert.Equal("{Binding PauseStatusDescription}", Attribute(Named(view, "ChatPauseStatusDescription"), "Text"));
 

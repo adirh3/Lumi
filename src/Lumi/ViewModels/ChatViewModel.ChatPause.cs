@@ -25,13 +25,16 @@ public partial class ChatViewModel
         Chat chat, CopilotSession session, MessageOptions options, CancellationToken cancellationToken)
     {
         await GetOrCreateRuntimeState(chat.Id).PauseGate.WaitAsync(cancellationToken);
+        await ApplyPendingModelSwitchAsync(chat, session);
         await session.SendAsync(options, cancellationToken);
     }
 
     public bool IsPaused => CurrentChat?.IsPaused == true;
     public bool IsPausePending => CurrentChat?.IsPausePending == true;
-    public bool CanPauseChat => CurrentChat is not null && (IsBusy || IsSessionActive) && !IsPaused;
-    public bool IsComposerBusy => IsBusy && !IsPaused;
+    public bool CanPauseChat => CurrentChat is not null && (IsBusy || IsSessionActive) && !IsPaused && !IsCurrentChatSwitchingModel;
+    public bool IsComposerBusy => (IsBusy && !IsPaused) || IsCurrentChatSwitchingModel;
+    /// <summary>The pause bar, except while "Switch now" passes through a pause on its way to the new model.</summary>
+    public bool ShowPauseStatus => IsPaused && !IsCurrentChatSwitchingModel;
     public bool IsTranscriptStreaming => IsStreaming && !IsPaused;
     public string PauseStatusTitle => Loc.Get(IsPausePending ? "Chat_Pausing" : "Chat_Paused");
     public string PauseStatusDescription => PauseError ?? Loc.Get(
@@ -140,6 +143,8 @@ public partial class ChatViewModel
             if (CurrentChat?.Id == chat.Id)
                 ApplyDisplayedRuntimeState(runtime);
             await AcquireByokRateSlotAsync(chat, cancellation.Token);
+            // The interruption dropped a switch queued for the end of the turn: the work goes on with the pick.
+            await ApplyPendingModelSwitchAsync(chat, resumedSession);
 #pragma warning disable GHCP001
             await resumedSession.Rpc.Queue.SetDrainPausedAsync(false, cancellation.Token);
             await resumedSession.Rpc.SendMessagesAsync([], cancellationToken: cancellation.Token);
@@ -193,7 +198,8 @@ public partial class ChatViewModel
         else
             chat.IsPausePending = false;
 
-        if (paused)
+        // "Switch now" resumes at once, so the messages queued for after the reply stay queued.
+        if (paused && runtime?.IsSwitchingModel != true)
             HoldWaitingSendsForPause(chat);
         if (_queuedBusySendPrompts.TryGetValue(chat.Id, out var queued))
         {
@@ -231,6 +237,7 @@ public partial class ChatViewModel
         OnPropertyChanged(nameof(CanSubmitInteractions));
         OnPropertyChanged(nameof(IsPaused));
         OnPropertyChanged(nameof(IsPausePending));
+        OnPropertyChanged(nameof(ShowPauseStatus));
         OnPropertyChanged(nameof(CanPauseChat));
         OnPropertyChanged(nameof(IsComposerBusy));
         OnPropertyChanged(nameof(IsTranscriptStreaming));
@@ -240,6 +247,7 @@ public partial class ChatViewModel
         OnPropertyChanged(nameof(HasBackgroundActivity));
         NotifyHeaderRunningChanged();
         NotifyContextActionAvailabilityChanged();
+        RefreshModelSwitchNotice();
         if (IsPaused)
             _transcriptBuilder.HideTypingIndicator();
         else if (IsBusy && !IsAwaitingInput)
