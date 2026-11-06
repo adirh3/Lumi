@@ -22,6 +22,9 @@ public sealed class ProviderConnectionService : IDisposable
     // The runtime omits the field for "none", which cannot disable an external provider's default.
     private static readonly string[] EffortOrder = ["minimal", "low", "medium", "high", "xhigh", "max"];
     private readonly HttpClient _http;
+
+    /// <summary>The client this service's requests go through, for other requests to the same accounts.</summary>
+    internal HttpClient Http => _http;
     private readonly bool _ownsHttp;
 
     public ProviderConnectionService(HttpClient? http = null)

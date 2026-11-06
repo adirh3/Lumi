@@ -9,7 +9,11 @@ namespace Lumi.Services;
 public sealed record ModelCatalogSnapshot(
     IReadOnlyList<ModelInfo> Models,
     ModelContextWindowCatalog ContextWindows,
-    string? DefaultAutoTier = null);
+    string? DefaultAutoTier = null,
+    CopilotImageModel? ImageModel = null);
+
+/// <summary>The image model GitHub Copilot's native <c>image_generation</c> tool uses for this account.</summary>
+public sealed record CopilotImageModel(string Id, string Name);
 
 /// <summary>
 /// Caches the Copilot model catalog and refreshes it on demand so a model released while Lumi is
@@ -43,6 +47,9 @@ public sealed class ModelCatalogCache
     public static ModelContextWindowCatalog Empty => new(
         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
         new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>The catalog already fetched, without fetching one.</summary>
+    public ModelCatalogSnapshot? Cached => _snapshot;
 
     public async Task<List<ModelInfo>> GetModelsAsync(CancellationToken ct = default)
         => (await GetSnapshotAsync(ct).ConfigureAwait(false)).Models.ToList();
@@ -109,7 +116,7 @@ public sealed class ModelCatalogCache
             _snapshot = snapshot;
             Stamp();
 
-            var signature = BuildSignature(snapshot.Models, snapshot.ContextWindows, snapshot.DefaultAutoTier);
+            var signature = BuildSignature(snapshot.Models, snapshot.ContextWindows, snapshot.DefaultAutoTier) + "|image:" + snapshot.ImageModel?.Id;
             if (string.Equals(previousSignature, signature, StringComparison.Ordinal))
                 return false;
 
@@ -154,7 +161,7 @@ public sealed class ModelCatalogCache
     /// <summary>Fingerprint of the currently cached catalog, or empty when nothing is cached yet.</summary>
     private string CurrentSignature
         => _snapshot is { } snapshot
-            ? BuildSignature(snapshot.Models, snapshot.ContextWindows, snapshot.DefaultAutoTier)
+            ? BuildSignature(snapshot.Models, snapshot.ContextWindows, snapshot.DefaultAutoTier) + "|image:" + snapshot.ImageModel?.Id
             : string.Empty;
 
     private void Stamp() => Interlocked.Exchange(ref _loadedAtTicks, Stopwatch.GetTimestamp());

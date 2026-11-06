@@ -174,6 +174,23 @@
       <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
+    <!-- Images: a tile like the account's own, in the accent, so the section reads as a capability. -->
+    <Style Selector="Border.ec-images">
+      <Setter Property="Padding" Value="14,12" />
+    </Style>
+    <Style Selector="Border.ec-images-tile">
+      <Setter Property="Width" Value="34" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.ec-images-tile PathIcon">
+      <Setter Property="Width" Value="17" />
+      <Setter Property="Height" Value="17" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
     <Style Selector="Border.ec-progress-icon">
       <Setter Property="Width" Value="24" />
       <Setter Property="Height" Value="24" />
@@ -517,6 +534,7 @@
 
       <!-- ── 2 · Model ── -->
       <StackPanel x:Name="ModelStep" Spacing="12" IsVisible="{Binding IsModelStage}">
+        <StackPanel x:Name="ChatModelChoices" Spacing="12" IsVisible="{Binding ShowChatModels}">
         <DockPanel>
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" VerticalAlignment="Top" IsVisible="{Binding IsManaging}">
             <Button Classes="mg-text-button" Command="{Binding DiscoverCommand}" ToolTip.Tip="{loc:Str EasyConnect_RefreshModels}">
@@ -612,7 +630,63 @@
           <Button Grid.Column="2" Classes="mg-button" Command="{Binding AddModelCommand}" Content="{loc:Str EasyConnect_AddModel}" />
           <Button Grid.Column="4" Classes="subtle mg-button" Command="{Binding ToggleManualModelCommand}" Content="{loc:Str EasyConnect_Cancel}" />
         </Grid>
+        </StackPanel>
 
+        <!-- Images: whether chats create images with this account, and with which model (on Foundry, which
+             deployment). Opened for images, this is the whole step. -->
+        <Border x:Name="ConnectImages" Classes="mg-inset ec-images" IsVisible="{Binding ShowImageSection}">
+          <StackPanel Spacing="10">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+              <Border Classes="ec-images-tile">
+                <PathIcon Data="{StaticResource Ec.Image}" />
+              </Border>
+              <StackPanel Grid.Column="1" Spacing="2" Margin="12,0,0,0" VerticalAlignment="Center">
+                <TextBlock Classes="ec-strong" Text="{loc:Str EasyConnect_ImagesTitle}" />
+                <TextBlock Classes="ec-hint" Text="{Binding ImageSectionCaption}" TextWrapping="Wrap" />
+              </StackPanel>
+              <ToggleSwitch x:Name="UseForImagesToggle" Grid.Column="2" VerticalAlignment="Center" Margin="12,0,0,0"
+                            OnContent="" OffContent="" IsChecked="{Binding UseForImages}"
+                            IsVisible="{Binding ShowImageToggle}"
+                            AutomationProperties.Name="{loc:Str EasyConnect_ImagesTitle}" />
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsFindingImageModels}">
+              <ProgressBar IsIndeterminate="True" Width="80" VerticalAlignment="Center" />
+              <TextBlock Classes="ec-hint" Text="{loc:Str EasyConnect_FindingImageModels}" VerticalAlignment="Center" />
+            </StackPanel>
+            <ItemsControl x:Name="ImageModelChoices" ItemsSource="{Binding ImageModels}" IsVisible="{Binding ShowImageChoices}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ImageModelChoice">
+                  <ToggleButton Classes="mg-pick" IsChecked="{Binding IsSelected}" Margin="0,0,0,6"
+                                AutomationProperties.Name="{Binding Id}">
+                    <Grid ColumnDefinitions="Auto,*">
+                      <Border Classes="mg-check">
+                        <PathIcon Data="{StaticResource Ec.Check}" />
+                      </Border>
+                      <TextBlock Grid.Column="1" Classes="mg-pick-title" Margin="11,0,8,0" VerticalAlignment="Center"
+                                 Text="{Binding Id}" FontFamily="{DynamicResource Font.FamilyMono}" />
+                    </Grid>
+                  </ToggleButton>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="ec-hint" Text="{Binding NoImageModelsText}" TextWrapping="Wrap"
+                       IsVisible="{Binding ShowNoImageModels}" />
+            <Button x:Name="ShowImageModelEntry" Classes="mg-text-button" HorizontalAlignment="Left"
+                    Command="{Binding ToggleImageModelEntryCommand}" IsVisible="{Binding ShowAddImageModel}">
+              <StackPanel Orientation="Horizontal" Spacing="5">
+                <PathIcon Data="{StaticResource Ec.Plus}" />
+                <TextBlock Text="{Binding AddImageModelText}" />
+              </StackPanel>
+            </Button>
+            <Grid ColumnDefinitions="*,8,Auto" IsVisible="{Binding ShowImageModelEntry}">
+              <TextBox x:Name="ConnectImageModel" Classes="mg-field mono" Text="{Binding ManualImageModel}"
+                       PlaceholderText="{Binding ImageModelPlaceholder}" />
+              <Button Grid.Column="2" Classes="mg-button" Command="{Binding AddImageModelCommand}" Content="{loc:Str EasyConnect_AddModel}" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <StackPanel Spacing="12" IsVisible="{Binding ShowChatModels}">
         <Border Classes="mg-card-divider" Margin="0,4" />
 
         <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ShowDefaultChoice}">
@@ -635,6 +709,7 @@
                     Foreground="{DynamicResource Brush.TextTertiary}" />
           <TextBlock Classes="ec-hint" Text="{Binding VerifyCostText}" />
         </StackPanel>
+        </StackPanel>
         <CheckBox x:Name="ModelPlaintextConsent" Content="{loc:Str EasyConnect_AllowPlaintext}"
                   IsChecked="{Binding AllowPlaintextStorage}" IsVisible="{Binding ShowPlaintextConsent}" />
       </StackPanel>
@@ -649,7 +724,7 @@
             </Border>
             <TextBlock Grid.Column="1" Classes="ec-strong" Text="{loc:Str EasyConnect_ProgressAccount}" Margin="12,0,0,0" VerticalAlignment="Center" />
           </Grid>
-          <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding !SkipModelCheck}">
+          <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding ShowsModelCheck}">
             <Border Classes="ec-progress-icon" Classes.active="{Binding IsTestingStage}" Classes.done="{Binding IsSavingStage}">
               <Panel>
                 <Border Classes="ec-pulse" IsVisible="{Binding IsTestingStage}" />

@@ -3534,6 +3534,9 @@
                                     Result="{Binding ResultText}"
                                     IsFailed="{Binding HasError}" />
             </Border>
+            <!-- A lone image step shows the images it created -->
+            <ItemsControl Classes="generated-images" ItemsSource="{Binding ImageStep.Images, FallbackValue={x:Null}}"
+                          IsVisible="{Binding ImageStep.HasImages, FallbackValue=False}" />
             <!-- A lone plan lists its steps -->
             <ContentControl Content="{Binding Plan}" IsVisible="{Binding IsPlan}" />
             <!-- Terminal: the command, then its output -->

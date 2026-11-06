@@ -129,6 +129,14 @@ public class ChatMessage
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? PlanSnapshot { get => _planSnapshot; set => SetPersisted(ref _planSnapshot, value); }
+
+    private List<string>? _generatedImages;
+    /// <summary>
+    /// The files an <c>image_generation</c> call saved, read from its result's <c>saved_to</c> lines. Null for
+    /// every other message, and until the call succeeds.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? GeneratedImages { get => _generatedImages; set => SetPersisted(ref _generatedImages, value); }
     private Guid? _linkedChatId;
     public Guid? LinkedChatId { get => _linkedChatId; set => SetPersisted(ref _linkedChatId, value); }
     private string? _linkedChatTitle;
@@ -1894,7 +1902,24 @@ public class UserSettings
     /// </summary>
     public bool UseBYOKOnly { get; set; } = false;
 
-    // ── MCP ──
+    // ── Image generation ──
+    /// <summary>Chats can create and edit images when asked (Settings → AI &amp; Models → Image generation).</summary>
+    public bool EnableImageGeneration { get; set; } = true;
+
+    /// <summary>
+    /// Where chats create images: null picks GitHub Copilot when it can run and else the first account that can
+    /// (see <see cref="Services.ImageGeneration.ImageGenerationRouting"/>); <see cref="CopilotImageProvider"/> or a
+    /// <see cref="ByokEndpoint.Id"/> picks one.
+    /// </summary>
+    public string? ImageGenerationProvider { get; set; }
+
+    /// <summary>The image model an account's images use, or null for the newest one it offers.</summary>
+    public string? ImageGenerationModel { get; set; }
+
+    /// <summary>GitHub Copilot's visible "Made with AI" mark on the images it creates.</summary>
+    public bool ImageGenerationWatermark { get; set; }
+
+    public const string CopilotImageProvider = "copilot";
     // When true, local MCP servers are routed through Lumi's shared proxy so they
     // start once and are reused across chats. When false (default), MCP servers are
     // passed directly to Copilot and initialized per session.

@@ -323,6 +323,31 @@ explicitly instead of sending context to GitHub; an explicit Copilot background
 choice is still blocked by **Use only your own accounts**. Existing Copilot and manual
 BYOK configurations remain editable under **AI accounts → Endpoints & models**.
 
+### Image generation
+
+Ask a chat for an image ("draw a poster for…", "make this photo look like a watercolor")
+and it creates or edits one. The model decides whether you see it: an image it makes for you
+appears in its reply, while images it makes only as material for other work (frames for a video,
+a texture for a page) stay in its steps. Every created image shows as a thumbnail on its step,
+opens in the chat's preview, and is listed in the **Library** under created files.
+
+Chats use **GitHub Copilot's** image model whenever Copilot is signed in, whichever model the
+chat itself uses; each image uses AI credits on that account. With **Use only your own
+accounts** on, or without Copilot, an account that serves the OpenAI Images API creates them
+instead: OpenAI, Microsoft Foundry, Gemini, xAI or a compatible custom endpoint. Lumi picks the
+account's newest image model unless you choose one, and the provider bills that account. Either
+way the model sees one `image_generation` tool with the same description and arguments.
+
+**Settings → AI & Models → Image generation** turns it on or off, says what creates images
+now, chooses between Copilot and your accounts, picks an account's image model, and turns on
+Copilot's visible "Made with AI" mark. **Add image account** opens the account dialog at the
+providers that create images and asks only about images: pick the provider, give its key (and
+for Microsoft Foundry its endpoint), and Lumi lists the account's image models, or a Foundry
+resource's image deployments, with the newest picked. An account can be connected for images
+alone. Any account added or managed under **AI accounts** shows the same **Create images with
+this account** switch when its provider can create images. A change applies to new chats and to
+chats when their session next starts.
+
 ### Interactive answers
 
 Lumi can choose a native control when it makes the next step easier. Every control shares one

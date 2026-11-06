@@ -29,12 +29,15 @@ public static class ApprovalPolicy
     /// <summary>
     /// Lumi tools that only read, or only talk to the user. They carry Copilot's native
     /// <c>skip_permission</c>, so no mode asks for them; a Never rule still blocks them.
+    /// <c>image_generation</c> is Lumi's stand-in for Copilot's native tool of that name, which no
+    /// permission request covers, so it runs the same way whichever route a chat takes.
     /// </summary>
     private static readonly FrozenSet<string> HarmlessTools = new[]
     {
         "ask_question", "ask_input", "announce_file", "recall_memory", "search_chats", "read_chat",
         "lumi_browser_look", "lumi_browser_find", "lumi_browser_screenshot",
         "ui_list_windows", "ui_inspect", "ui_find", "ui_read", "ui_screenshot",
+        "image_generation",
     }.ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly IReadOnlyDictionary<string, string[]> ToolGroups = new Dictionary<string, string[]>(StringComparer.Ordinal)

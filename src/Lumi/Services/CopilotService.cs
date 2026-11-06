@@ -212,6 +212,19 @@ public class CopilotService : IAsyncDisposable
         => settings.UseBYOKOnly
            || (!isGitHubAuthenticated && ByokConfigHelper.IsByokModel(settings.PreferredModel));
 
+    /// <summary>True while GitHub Copilot is signed in.</summary>
+    public bool IsGitHubAuthenticated => _isGitHubAuthenticated == true;
+
+    /// <summary>The image model Copilot's native tool uses, once the catalog has been read; null without one.</summary>
+    public CopilotImageModel? CopilotImageModel => _modelCatalog.Cached?.ImageModel;
+
+    /// <summary>
+    /// GitHub Copilot can create images in chats: it is signed in, and its catalog (when read yet) offers an
+    /// image model. Its native tool runs in any chat, whichever model the chat uses.
+    /// </summary>
+    public bool CanUseCopilotImages
+        => _isGitHubAuthenticated == true && (_modelCatalog.Cached is not { } snapshot || snapshot.ImageModel is not null);
+
     /// <summary>
     /// Throws <see cref="ByokOnlyRequestBlockedException"/> when the BYOK Only block is active and the
     /// caller did not supply a BYOK provider with a real endpoint URL. This is the hard guarantee

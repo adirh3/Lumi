@@ -112,6 +112,10 @@ internal static class AppDataSnapshotFactory
                     })
                     .ToList(),
                 UseBYOKOnly = settings.UseBYOKOnly,
+                EnableImageGeneration = settings.EnableImageGeneration,
+                ImageGenerationProvider = settings.ImageGenerationProvider,
+                ImageGenerationModel = settings.ImageGenerationModel,
+                ImageGenerationWatermark = settings.ImageGenerationWatermark,
                 EnableMemoryAutoSave = settings.EnableMemoryAutoSave,
                 EnableMemoryAutoMaintenance = settings.EnableMemoryAutoMaintenance,
                 EnableDailyBriefs = settings.EnableDailyBriefs,

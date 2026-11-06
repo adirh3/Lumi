@@ -32,6 +32,7 @@ public class TranscriptBuilder
     private readonly Func<string, string>? _resolveFilePath;
     private readonly Action<MessageReply>? _openReplySourceAction;
     private readonly Action<string>? _openJobAction;
+    private readonly Action<string>? _openFilePreviewAction;
     private readonly bool _foldProgressMessages;
     private readonly Func<ChatMessage, EmbeddedAppItem?>? _appItemFor;
     private readonly HashSet<ChatMessage> _shownApps = [];
@@ -179,7 +180,8 @@ public class TranscriptBuilder
         Action<MessageReply>? openReplySourceAction = null,
         bool foldProgressMessages = true,
         Func<ChatMessage, EmbeddedAppItem?>? appItemFor = null,
-        Action<string>? openJobAction = null)
+        Action<string>? openJobAction = null,
+        Action<string>? openFilePreviewAction = null)
     {
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
@@ -198,6 +200,7 @@ public class TranscriptBuilder
         _foldProgressMessages = foldProgressMessages;
         _appItemFor = appItemFor;
         _openJobAction = openJobAction;
+        _openFilePreviewAction = openFilePreviewAction;
     }
 
     /// <summary>
@@ -959,18 +962,19 @@ public class TranscriptBuilder
             return;
         }
 
-        var toolCall = new ToolCallItem(friendlyName, initialStatus, $"tool:{toolStableIdSeed}")
-        {
-            IconKey = iconKey,
-            Detail = friendlyInfo,
-            InputParameters = ToolDisplayHelper.FormatToolArgsFriendly(toolName, msgVm.Content, displaySkillName),
-            MoreInfo = BuildToolCallMoreInfo(friendlyInfo, msgVm, initialStatus),
-            DurationMs = msgVm.Message.ToolDurationMs ?? 0,
-            RunningSince = msgVm.Message.ToolStartedAt,
-            Timestamp = msgVm.Message.ToolStartedAt ?? msgVm.Message.Timestamp,
-            IsCompact = ToolDisplayHelper.IsCompactEligible(toolName)
-                && initialStatus == StrataAiToolCallStatus.Completed,
-        };
+        var toolCall = toolName == ToolDisplayHelper.ImageGenerationToolName
+            ? new ImageGenerationToolItem(friendlyName, initialStatus, $"tool:{toolStableIdSeed}") { IconKey = iconKey }
+            : new ToolCallItem(friendlyName, initialStatus, $"tool:{toolStableIdSeed}") { IconKey = iconKey };
+        toolCall.Detail = friendlyInfo;
+        toolCall.InputParameters = ToolDisplayHelper.FormatToolArgsFriendly(toolName, msgVm.Content, displaySkillName);
+        toolCall.MoreInfo = BuildToolCallMoreInfo(friendlyInfo, msgVm, initialStatus);
+        toolCall.DurationMs = msgVm.Message.ToolDurationMs ?? 0;
+        toolCall.RunningSince = msgVm.Message.ToolStartedAt;
+        toolCall.Timestamp = msgVm.Message.ToolStartedAt ?? msgVm.Message.Timestamp;
+        toolCall.IsCompact = ToolDisplayHelper.IsCompactEligible(toolName)
+            && initialStatus == StrataAiToolCallStatus.Completed;
+        var imageStep = toolCall as ImageGenerationToolItem;
+        imageStep?.ShowImages(msgVm.Message.GeneratedImages, _openFilePreviewAction);
 
         if (toolName == "skill" && _openSkillAction is not null
             && ToolDisplayHelper.ExtractJsonField(msgVm.Content, "skill") is { Length: > 0 } invokedSkillName)
@@ -1016,6 +1020,9 @@ public class TranscriptBuilder
                     TryEmitLinkedChatChip(msgVm);
                     return;
                 }
+                if (imageStep is not null
+                    && args.PropertyName is nameof(ChatMessage.GeneratedImages) or nameof(ChatMessageViewModel.ToolStatus))
+                    imageStep.ShowImages(msgVm.Message.GeneratedImages, _openFilePreviewAction);
                 if (args.PropertyName != nameof(ChatMessageViewModel.ToolStatus))
                     return;
 
@@ -3231,6 +3238,9 @@ public class TranscriptBuilder
 
         var text = message?.Trim();
         if (string.IsNullOrEmpty(text) || string.Equals(text, running.Item.ProgressText, StringComparison.Ordinal))
+            return;
+        // Copilot's image tool reports only "Generating image": the step keeps its prompt as its glance.
+        if (running.Item is ImageGenerationToolItem)
             return;
 
         running.Item.ProgressText = text;

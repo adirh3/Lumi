@@ -12,6 +12,7 @@ public partial class ChatViewModel
     internal static SessionHooks BuildSessionHooks() => new()
     {
         OnPreToolUse = async (_, _) => new PreToolUseHookOutput(),
+        OnPostToolUse = (input, _) => AddImagePresentationGuidance(input),
         OnErrorOccurred = async (input, _) =>
         {
             if (input.Recoverable || CopilotService.IsTransientServerAuthError(input.Error))

@@ -23,6 +23,7 @@ public static partial class ToolDisplayHelper
     public const string BrowserJsToolName = "lumi_browser_js";
     public const string BrowserTabsToolName = "lumi_browser_tabs";
     public const string BrowserScreenshotToolName = "lumi_browser_screenshot";
+    public const string ImageGenerationToolName = "image_generation";
 
     public static string ToRuntimeToolName(string toolName) => toolName switch
     {
@@ -52,6 +53,7 @@ public static partial class ToolDisplayHelper
             or BrowserOpenToolName or BrowserLookToolName or BrowserFindToolName or BrowserDoToolName or BrowserJsToolName
             or BrowserTabsToolName => "🌐",
         BrowserScreenshotToolName => "📷",
+        ImageGenerationToolName => "🎨",
         "web_search" or "search" => "🔎",
         "web_fetch" or "lumi_fetch" => "📚",
         "ui_inspect" or "ui_do" or "ui_find" or "ui_click" or "ui_type" or "ui_read" or "ui_screenshot" or "ui_click_at" => "🖥",
@@ -88,6 +90,7 @@ public static partial class ToolDisplayHelper
         "view" or "read_file" or "read" or "announce_file" => TranscriptIcons.Read,
         "grep" or "glob" or "rg" or "search" or "web_search" or "code_review" or "search_code" => TranscriptIcons.Search,
         BrowserScreenshotToolName or "ui_screenshot" => TranscriptIcons.Screenshot,
+        ImageGenerationToolName => TranscriptIcons.Image,
         "browser" or "browser_navigate" or "browser_do" or "browser_look" or "browser_find" or "browser_js"
             or BrowserOpenToolName or BrowserLookToolName or BrowserFindToolName or BrowserDoToolName or BrowserJsToolName
             or BrowserTabsToolName => TranscriptIcons.Web,
@@ -211,6 +214,8 @@ public static partial class ToolDisplayHelper
             }
             case BrowserScreenshotToolName:
                 return (Loc.Tool_BrowserScreenshot, ExtractJsonField(argsJson, "tabId"));
+            case ImageGenerationToolName:
+                return (GetImageGenerationName(argsJson), SummarizeImagePrompt(ExtractJsonField(argsJson, "prompt")));
             case "save_memory":
                 return (Loc.Tool_Remembering, ExtractJsonField(argsJson, "key"));
             case "update_memory":
@@ -404,6 +409,8 @@ public static partial class ToolDisplayHelper
                 }
                 case "fetch_skill":
                     return GetString(root, "name") is { } skillName ? $"**{Loc.FieldLabel_Skill}:** {skillName}" : null;
+                case ImageGenerationToolName:
+                    return FormatImageGenerationArgs(root);
                 case "skill":
                     return (displaySkillName ?? GetString(root, "skill")) is { } nativeSkillName
                         ? $"**{Loc.FieldLabel_Skill}:** {nativeSkillName}" : null;

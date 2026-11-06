@@ -78,7 +78,11 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         if (value == AboutPageIndex)
             ShouldAutoNavigateToUpdateCenter = false;
         else if (value == AiModelsPageIndex)
+        {
             _ = RefreshAuthStatusAsync();
+            // Copilot's sign-in and catalog can settle after this page was built.
+            SyncImageGenerationOptions();
+        }
         else if (value == PermissionsPageIndex)
             RefreshApprovalRules();
     }
@@ -763,6 +767,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
         // BYOK privacy guard
         _useBYOKOnly = s.UseBYOKOnly;
+        InitializeImageGeneration(s);
 
         // MCP
         _useMcpProxy = s.UseMcpProxy;
@@ -811,6 +816,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _personalSkillDirectoriesDisposed = true;
         _dataStore.PersonalSkillDirectoriesChanged -= OnPersonalSkillDirectoriesChanged;
         EasyConnect.Dispose();
+        DisposeImageGeneration();
         _updateService.StatusChanged -= OnUpdateStatusChanged;
         _dataStore.AppearanceSettingsChanged -= OnAppearanceSettingsChanged;
         DisposeRemoteState();
@@ -1401,6 +1407,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _copilotService.SetSettingsProvider(() => _dataStore.Data.Settings, _secureKeyStore);
         Save();
         NotifyModified();
+        SyncImageGenerationOptions();
     }
 
     partial void OnContextWindowTierChanged(string value)
@@ -2531,6 +2538,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         EnableMemoryAutoMaintenance = defaults.EnableMemoryAutoMaintenance;
         EnableDailyBriefs = defaults.EnableDailyBriefs;
         AutoSaveChats = defaults.AutoSaveChats;
+        ResetImageGeneration(defaults);
         NeedsRestart = false;
     }
 

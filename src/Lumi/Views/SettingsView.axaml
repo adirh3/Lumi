@@ -1792,6 +1792,84 @@
           </sc:StrataSetting>
       </sc:StrataSettingGroup>
 
+      <!-- Chats create images with GitHub Copilot while it can run, else with an account of the user's. -->
+      <sc:StrataSettingGroup x:Name="ImageGenerationGroup"
+                             Header="{loc:Str ImageGen_Group}" Description="{loc:Str ImageGen_GroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Image}"
+                             st:SettingsChrome.SearchText="{loc:Str ImageGen_Keywords}">
+        <sc:StrataSetting x:Name="ImageGenerationSetting"
+                          Header="{loc:Str ImageGen_Enable}"
+                          Description="{Binding ImageGenerationStatus}"
+                          IsModified="{Binding IsEnableImageGenerationModified}">
+          <ToggleSwitch x:Name="ImageGenerationToggle" IsChecked="{Binding EnableImageGeneration}"
+                        AutomationProperties.Name="{loc:Str ImageGen_Enable}" />
+        </sc:StrataSetting>
+        <!-- Your own account for images: opens the connect dialog at the providers that create them. -->
+        <sc:StrataSetting x:Name="ImageGenerationConnectSetting"
+                          Header="{loc:Str ImageGen_ConnectTitle}"
+                          Description="{Binding ImageAccountHint}"
+                          IsVisible="{Binding EnableImageGeneration}">
+          <Button x:Name="ConnectImageAccountButton" Classes="mg-button motion-action"
+                  Command="{Binding ConnectImageAccountCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Text="{loc:Str ImageGen_ConnectButton}" />
+              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronRight}" Width="13" Height="13" StrokeThickness="2"
+                                 VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+            </StackPanel>
+          </Button>
+        </sc:StrataSetting>
+        <sc:StrataSetting x:Name="ImageProviderSetting"
+                          Header="{loc:Str ImageGen_Provider}"
+                          Description="{loc:Str ImageGen_ProviderDesc}"
+                          IsVisible="{Binding ShowsImageProvider}">
+          <ComboBox x:Name="ImageProviderPicker" Width="260"
+                    ItemsSource="{Binding ImageProviderOptions}"
+                    SelectedItem="{Binding SelectedImageProvider, Mode=TwoWay}"
+                    AutomationProperties.Name="{loc:Str ImageGen_Provider}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:ImageProviderOption">
+                <StackPanel Spacing="1">
+                  <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{Binding Detail}" TextTrimming="CharacterEllipsis"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             Foreground="{DynamicResource Brush.TextTertiary}" />
+                </StackPanel>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </sc:StrataSetting>
+        <sc:StrataSetting x:Name="ImageModelSetting"
+                          Header="{loc:Str ImageGen_Model}"
+                          Description="{loc:Str ImageGen_ModelDesc}"
+                          IsVisible="{Binding ShowsImageModel}">
+          <StackPanel Spacing="6">
+            <ComboBox x:Name="ImageModelPicker" Width="260"
+                      ItemsSource="{Binding ImageModelOptions}"
+                      SelectedItem="{Binding SelectedImageModel, Mode=TwoWay}"
+                      DropDownOpened="OnImageModelPickerOpened"
+                      AutomationProperties.Name="{loc:Str ImageGen_Model}">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ImageModelOption">
+                  <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="{Binding ImageModelStatus}"
+                       IsVisible="{Binding ImageModelStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}"
+                       TextWrapping="Wrap" MaxWidth="260" />
+          </StackPanel>
+        </sc:StrataSetting>
+        <sc:StrataSetting x:Name="ImageWatermarkSetting"
+                          Header="{loc:Str ImageGen_Watermark}"
+                          Description="{loc:Str ImageGen_WatermarkDesc}"
+                          IsVisible="{Binding ShowsImageWatermark}">
+          <ToggleSwitch IsChecked="{Binding ImageGenerationWatermark}"
+                        AutomationProperties.Name="{loc:Str ImageGen_Watermark}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
       <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Instructions}" Description="{loc:Str SettingsGroupDesc_Instructions}"
                              st:SettingsChrome.Icon="{StaticResource St.Icon.Document}">
         <sc:StrataSetting Classes="stacked-content"

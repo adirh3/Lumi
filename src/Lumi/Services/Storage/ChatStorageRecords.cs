@@ -63,6 +63,8 @@ internal static class ChatMessageKinds
             return Web;
         if (tool is "view" or "read_file" or "read" && LooksLikeImagePath(message.Content))
             return Image;
+        if (tool is ToolDisplayHelper.ImageGenerationToolName)
+            return Image;
         return null;
     }
 

@@ -26,6 +26,13 @@ internal static class RemoteMarkdownImageFiles
                     paths.Add(path);
             }
 
+            // An image a chat created can be shown wherever its reply shows it.
+            foreach (var generated in message.GeneratedImages ?? [])
+            {
+                if (TryResolveLocalPath(generated, out var path))
+                    paths.Add(path);
+            }
+
             string pathField;
             if (string.Equals(
                     message.ToolName,

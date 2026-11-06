@@ -99,6 +99,13 @@ public partial class SettingsView : UserControl, IDisposable
         }
     }
 
+    /// <summary>Reads the account's image models when their picker opens, so the list is current without a page visit costing a request.</summary>
+    private void OnImageModelPickerOpened(object? sender, EventArgs e)
+    {
+        if (DataContext is SettingsViewModel viewModel && viewModel.RefreshImageModelsCommand.CanExecute(null))
+            viewModel.RefreshImageModelsCommand.Execute(null);
+    }
+
     private async void OnBrowsePersonalSkillFoldersClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not SettingsViewModel viewModel || TopLevel.GetTopLevel(this) is not { } topLevel)
@@ -451,6 +458,7 @@ public partial class SettingsView : UserControl, IDisposable
         ["ResponseDetailSetting"] = vm => vm.RevertResponseDetailCommand.Execute(null),
         [Loc.Setting_BackgroundModel] = vm => vm.RevertBackgroundModelCommand.Execute(null),
         [Loc.Setting_UseMcpProxy] = vm => vm.RevertUseMcpProxyCommand.Execute(null),
+        ["ImageGenerationSetting"] = vm => vm.RevertEnableImageGenerationCommand.Execute(null),
         [Loc.Setting_UseLazyMcpInitialization] = vm => vm.RevertUseLazyMcpInitializationCommand.Execute(null),
         [Loc.Setting_McpToolTimeout] = vm => vm.RevertMcpToolTimeoutCommand.Execute(null),
         [Loc.Setting_AutoMaintainMemories] = vm => vm.RevertEnableMemoryAutoMaintenanceCommand.Execute(null),

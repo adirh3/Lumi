@@ -35,7 +35,8 @@ public partial class ChatViewModel
                 : path,
             openReplySourceAction: RequestReplySourceJump,
             appItemFor: GetAppItem,
-            openJobAction: RequestOpenJob);
+            openJobAction: RequestOpenJob,
+            openFilePreviewAction: OpenFilePreview);
 
     /// <summary>True when <paramref name="message"/> belongs to the chat's stored history, before its live tail.</summary>
     private bool IsStoredHistoryMessage(Chat chat, ChatMessage message)

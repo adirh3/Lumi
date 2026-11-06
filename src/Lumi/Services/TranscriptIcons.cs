@@ -15,6 +15,7 @@ public static class TranscriptIcons
     public const string Terminal = "terminal";
     public const string Plan = "plan";
     public const string Screenshot = "screenshot";
+    public const string Image = "image";
     public const string Desktop = "desktop";
     public const string Memory = "memory";
     public const string Skill = "skill";

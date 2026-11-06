@@ -17,6 +17,7 @@ using Lumi.Services;
 using Lumi.Services.Byok;
 using Microsoft.Extensions.AI;
 
+using Lumi.Services.ImageGeneration;
 namespace Lumi.ViewModels;
 
 /// <summary>Where the add/manage AI account dialog currently is.</summary>
@@ -125,12 +126,13 @@ public partial class ConnectedProviderCard : ObservableObject
     public ConnectedProviderCard(
         ByokEndpoint endpoint, ProviderProfile? profile, int modelCount, bool isDefault,
         Action<ByokEndpoint> manage, Func<ConnectedProviderCard, Task> makeDefault,
-        Func<ConnectedProviderCard, Task> disconnect, Action<Uri> open)
+        Func<ConnectedProviderCard, Task> disconnect, Action<Uri> open, string? imageModel = null)
     {
         Endpoint = endpoint;
         Profile = profile;
         ModelCount = modelCount;
         IsDefault = isDefault;
+        ImageModel = imageModel;
         Badge = ProviderBadge.For(profile);
         ManageCommand = new RelayCommand(() => manage(endpoint));
         MakeDefaultCommand = new AsyncRelayCommand(() => makeDefault(this));
@@ -149,6 +151,9 @@ public partial class ConnectedProviderCard : ObservableObject
     public ProviderBadge Badge { get; }
     public int ModelCount { get; }
     public bool IsDefault { get; }
+
+    /// <summary>The model chats create images with on this account, when they do.</summary>
+    public string? ImageModel { get; }
     public string Name => Endpoint.Name;
     public bool IsExpired => Endpoint.CredentialExpiresAt is { } expiry && expiry <= DateTimeOffset.UtcNow;
     public bool CanMakeDefault => !IsDefault && Endpoint.IsEnabled && !IsExpired && ModelCount > 0;
@@ -157,8 +162,15 @@ public partial class ConnectedProviderCard : ObservableObject
     public string Detail => IsExpired
         ? Loc.Get(Profile?.IsChatGpt == true ? "ChatGpt_ConnectionExpired" : "EasyConnect_ConnectionExpired")
         : (Endpoint.Account?.Email is { Length: > 0 } email ? email + " · " : "")
-          + (ModelCount == 1 ? Loc.Get("EasyConnect_ConnectedModel")
-              : string.Format(Loc.Get("EasyConnect_ConnectedModels"), ModelCount)) + " · " + Billing;
+          + string.Join(" · ", new[]
+          {
+              // An account used only for images says so instead of "0 models".
+              ModelCount == 0 && ImageModel is not null ? null
+                  : ModelCount == 1 ? Loc.Get("EasyConnect_ConnectedModel")
+                  : string.Format(Loc.Get("EasyConnect_ConnectedModels"), ModelCount),
+              ImageModel is null ? null : string.Format(Loc.Get("EasyConnect_ConnectedImages"), ImageModel),
+              Billing,
+          }.Where(static part => !string.IsNullOrEmpty(part)));
     public string DisconnectPrompt => Profile?.IsChatGpt == true ? Loc.Get("ChatGpt_DisconnectPrompt")
         : string.Format(Loc.Get("EasyConnect_DisconnectPrompt"), Name);
     [ObservableProperty] private bool _isConfirmingDisconnect;
@@ -308,7 +320,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public bool IsReadyStepActive => Stage == ConnectStage.Connecting;
     public bool IsReadyStepDone => Stage == ConnectStage.Done;
     public string DialogTitle => Stage == ConnectStage.Gallery
-        ? Loc.Get("EasyConnect_DialogTitle")
+        ? Loc.Get(IsImageSetup ? "EasyConnect_ImageDialogTitle" : "EasyConnect_DialogTitle")
         : string.Format(Loc.Get(IsManaging ? "EasyConnect_ManageTitle" : "EasyConnect_ConnectTitle"), SelectedName);
 
     // ── Selected provider ──
@@ -410,8 +422,13 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     {
         get
         {
+            // Set up for images, the footer names the image model instead of counting chat models.
+            var images = ImagesReady ? string.Format(Loc.Get("EasyConnect_ConnectedImages"), SelectedImageModelId) : "";
+            if (IsImageSetup)
+                return images;
             var count = Models.Count(model => model.IsSelected);
-            return count == 1 ? Loc.Get("EasyConnect_OneSelected") : string.Format(Loc.Get("EasyConnect_SelectedCount"), count);
+            var models = count == 1 ? Loc.Get("EasyConnect_OneSelected") : string.Format(Loc.Get("EasyConnect_SelectedCount"), count);
+            return images.Length == 0 ? models : models + " · " + images;
         }
     }
     public string ModelCaption => IsFoundry ? Loc.Get("EasyConnect_FoundryModelsCaption") : IsManaging
@@ -423,7 +440,11 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public string DefaultHint => !CanToggleDefault ? Loc.Get("EasyConnect_DefaultRequired")
         : IsGitHubDefault ? Loc.Get("EasyConnect_DefaultKeepsGitHub")
         : Loc.Get("EasyConnect_DefaultKeepsCurrent");
-    public bool CanSave => !IsWorking && Models.Any(model => model.IsSelected);
+    // An account can be saved for images alone; set up for images, its chat models are left as they are.
+    public bool CanSave => !IsWorking && (IsImageSetup ? ImagesReady : Models.Any(model => model.IsSelected) || ImagesReady);
+
+    /// <summary>Saving checks a chat model with one tool call: only when chat models are being chosen.</summary>
+    public bool ShowsModelCheck => !SkipModelCheck && !IsImageSetup && Models.Any(model => model.IsSelected);
     public string PrimaryActionText => Loc.Get(SkipModelCheck ? "EasyConnect_SaveWithoutTesting"
         : IsManaging ? "EasyConnect_Save" : "EasyConnect_Connect");
     public string BackText => Loc.Get(IsManaging && Stage == ConnectStage.Models ? "EasyConnect_Cancel" : "EasyConnect_Back");
@@ -607,6 +628,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
                      nameof(BackText), nameof(ShowModelFooter), nameof(ShowRemoveConfirm),
                      nameof(ShowPlanConfirmation), nameof(DoneTitle), nameof(DoneActionText) })
             OnPropertyChanged(name);
+        NotifyImages();
     }
     partial void OnIsDialogOpenChanged(bool value)
     {
@@ -621,6 +643,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         _operation?.Cancel();
         if (!IsWorking)
             ResetWizard();
+        IsImageSetup = false;
+        RefreshProviders();
     }
     partial void OnSelectedProviderChanged(ProviderProfile? value)
     {
@@ -636,6 +660,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
                      nameof(CanSaveCredential) })
             OnPropertyChanged(name);
         UpdateAccountState();
+        NotifyImages();
     }
 
     private void UpdateAccountState()
@@ -652,6 +677,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(CanDiscover));
         OnPropertyChanged(nameof(CanSave));
+        OnPropertyChanged(nameof(ShowsModelCheck));
         OnPropertyChanged(nameof(CanCancel));
         OnPropertyChanged(nameof(SelectedCount));
         OnPropertyChanged(nameof(StarterName));
@@ -683,7 +709,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         var signature = string.Join('|', settings.ByokEndpoints.Select(endpoint =>
             $"{endpoint.Id}:{endpoint.Name}:{endpoint.IsEnabled}:{endpoint.ConnectionProviderId}:{endpoint.CredentialExpiresAt?.Ticks}:"
             + settings.ByokModels.Count(model => model.EndpointId == endpoint.Id && model.IsEnabled)))
-            + "|" + settings.PreferredModel + "|" + settings.UseBYOKOnly;
+            + "|" + settings.PreferredModel + "|" + settings.UseBYOKOnly
+            + "|" + settings.ImageGenerationProvider + ":" + settings.ImageGenerationModel;
         if (!force && signature == _overviewSignature)
             return;
         _overviewSignature = signature;
@@ -692,8 +719,11 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         {
             var models = settings.ByokModels.Where(model => model.EndpointId == endpoint.Id && model.IsEnabled).ToList();
             var isDefault = models.Any(model => ByokConfigHelper.BuildModelToken(model) == settings.PreferredModel);
+            var imageModel = settings.ImageGenerationProvider == endpoint.Id
+                ? settings.ImageGenerationModel ?? Loc.Get("ImageGen_ModelNewest")
+                : null;
             Connections.Add(new(endpoint, ExistingProfile(endpoint), models.Count, isDefault,
-                Manage, MakeConnectionDefaultAsync, card => DisconnectAsync(card.Endpoint), OpenUrl));
+                Manage, MakeConnectionDefaultAsync, card => DisconnectAsync(card.Endpoint), OpenUrl, imageModel));
         }
         OnPropertyChanged(nameof(HasUsableConnections));
         OnPropertyChanged(nameof(ShowChatGptOffer));
@@ -710,6 +740,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         Providers.Clear();
         foreach (var profile in ProviderCatalog.All.Where(profile =>
                      (!profile.IsCopilot || !IsGitHubSignedIn)
+                     && (!IsImageSetup || ImageGenerationRouting.IsImageProvider(profile.Id))
                      && (string.IsNullOrWhiteSpace(Search)
                          || profile.Name.Contains(Search, StringComparison.OrdinalIgnoreCase)
                          || profile.Description.Contains(Search, StringComparison.OrdinalIgnoreCase)
@@ -741,6 +772,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
             return;
         }
         ResetWizard();
+        IsImageSetup = false;
+        RefreshProviders();
         IsDialogOpen = true;
     }
 
@@ -795,6 +828,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         IsAddingManualModel = false;
         Search = "";
         Stage = ConnectStage.Gallery;
+        ResetImages();
         NotifyModels();
         OnPropertyChanged(nameof(ShowDefaultChoice));
         OnPropertyChanged(nameof(IsCurrentDefault));
@@ -863,6 +897,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         RefreshDefaultChoice();
         UpdateAccountState();
         IsDialogOpen = true;
+        if (!expired)
+            BeginImageDiscovery(endpoint, () => ByokConfigHelper.ResolveApiKey(endpoint, _keys));
     }
 
     private void RefreshDefaultChoice()
@@ -1232,11 +1268,13 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         Status = Loc.Get("EasyConnect_FindingModels");
         IReadOnlyList<ProviderModel> models;
         string discoveryNotice = "";
+        string? accountKey = null;
         if (IsChatGpt)
             models = await DiscoverChatGptModelsAsync(ct);
         else
         {
             var key = HasKey ? await CurrentKeyAsync() : null;
+            accountKey = key;
             if (HasKey && string.IsNullOrEmpty(key))
                 throw new ProviderConnectionException(Loc.Get("EasyConnect_KeyRequired"));
             try
@@ -1291,6 +1329,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         Status = discoveryNotice;
         Stage = ConnectStage.Models;
         NotifyModels();
+        if (!IsChatGpt)
+            BeginImageDiscovery(DraftEndpoint(), () => accountKey);
     }
 
     private async Task<IReadOnlyList<ProviderModel>> DiscoverChatGptModelsAsync(CancellationToken ct)
@@ -1397,7 +1437,9 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
             if (HasKey && !isChatGpt && string.IsNullOrEmpty(key))
                 throw new ProviderConnectionException(Loc.Get("EasyConnect_KeyRequired"));
             var selected = Models.Where(model => model.IsSelected).ToArray();
-            var starter = selected[0];
+            // Saved for images alone, an account has no chat model to check or to make the default.
+            var starter = selected.FirstOrDefault();
+            var checksChatModel = !skipModelCheck && !IsImageSetup && starter is not null;
             Stage = ConnectStage.Connecting;
             IsSavingStage = false;
             ProviderConfig provider;
@@ -1417,7 +1459,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
                 endpoint.ApiKey = key;
                 provider = ByokConfigHelper.BuildProviderConfig(endpoint);
             }
-            if (!skipModelCheck)
+            if (checksChatModel)
             {
                 var called = false;
                 var tool = AIFunctionFactory.Create(() =>
@@ -1432,7 +1474,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
                     await _copilot.UseLightweightSessionAsync(
                         new LightweightSessionOptions
                         {
-                            Model = starter.Id,
+                            Model = starter!.Id,
                             Provider = provider,
                             Streaming = true,
                             SystemPrompt = "Call lumi_connection_check once, then respond with its exact returned word. No other action.",
@@ -1513,15 +1555,19 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
             foreach (var model in settings.ByokModels.Where(model => model.EndpointId == endpoint.Id))
                 model.IsEnabled = selected.Any(choice => choice.Id == model.ModelId);
 
-            var starterToken = ByokConfigHelper.BuildModelToken(settings.ByokModels.First(item =>
-                item.EndpointId == endpoint.Id && item.ModelId == starter.Id));
-            var keepsCurrentDefault = settings.ByokModels.Any(model => model.EndpointId == endpoint.Id && model.IsEnabled
-                && ByokConfigHelper.BuildModelToken(model) == settings.PreferredModel);
-            var lostDefault = settings.ByokModels.Any(model => model.EndpointId == endpoint.Id && !model.IsEnabled
-                && ByokConfigHelper.BuildModelToken(model) == settings.PreferredModel);
-            var becameDefault = !keepsCurrentDefault && (MakeDefault || !hadUsableDefault || lostDefault);
-            if (becameDefault)
-                settings.PreferredModel = starterToken;
+            if (starter is not null && !IsImageSetup)
+            {
+                var starterToken = ByokConfigHelper.BuildModelToken(settings.ByokModels.First(item =>
+                    item.EndpointId == endpoint.Id && item.ModelId == starter.Id));
+                var keepsCurrentDefault = settings.ByokModels.Any(model => model.EndpointId == endpoint.Id && model.IsEnabled
+                    && ByokConfigHelper.BuildModelToken(model) == settings.PreferredModel);
+                var lostDefault = settings.ByokModels.Any(model => model.EndpointId == endpoint.Id && !model.IsEnabled
+                    && ByokConfigHelper.BuildModelToken(model) == settings.PreferredModel);
+                var becameDefault = !keepsCurrentDefault && (MakeDefault || !hadUsableDefault || lostDefault);
+                if (becameDefault)
+                    settings.PreferredModel = starterToken;
+            }
+            var imageModel = ApplyImageChoice(settings, endpoint.Id);
             await _store.SaveAsync();
             _saved();
             ApiKey = "";
@@ -1529,9 +1575,13 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
             var defaultChoice = selected.FirstOrDefault(choice => settings.ByokModels.Any(model =>
                 model.EndpointId == endpoint.Id && model.ModelId == choice.Id
                 && ByokConfigHelper.BuildModelToken(model) == settings.PreferredModel));
-            DoneText = defaultChoice is not null
-                ? string.Format(Loc.Get(skipModelCheck ? "EasyConnect_DoneUnverifiedDefault" : "EasyConnect_DoneDefault"), defaultChoice.Name)
-                : string.Format(Loc.Get(skipModelCheck ? "EasyConnect_DoneUnverifiedAvailable" : "EasyConnect_DoneAvailable"), starter.Name);
+            var chatChecked = !skipModelCheck;
+            DoneText = IsImageSetup || starter is null
+                ? string.Format(Loc.Get("EasyConnect_DoneImages"), imageModel, SelectedName)
+                : (defaultChoice is not null
+                    ? string.Format(Loc.Get(chatChecked ? "EasyConnect_DoneDefault" : "EasyConnect_DoneUnverifiedDefault"), defaultChoice.Name)
+                    : string.Format(Loc.Get(chatChecked ? "EasyConnect_DoneAvailable" : "EasyConnect_DoneUnverifiedAvailable"), starter.Name))
+                  + (imageModel is null ? "" : " " + string.Format(Loc.Get("EasyConnect_DoneAlsoImages"), imageModel));
             if (isChatGpt && !IsManaging)
                 DoneText += " " + Loc.Get("ChatGpt_DoneUsage");
             _chatGptSignIn = null;

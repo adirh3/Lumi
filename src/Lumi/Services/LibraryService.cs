@@ -415,6 +415,13 @@ public sealed class LibraryService
                     references.Add(created);
             }
 
+            // Images a chat created, whether or not its reply showed them.
+            foreach (var image in message.GeneratedImages ?? [])
+            {
+                if (CreateFileReference(chat, chatTitle, message.Timestamp, image, LibraryArtifactOrigin.Created) is { } generated)
+                    references.Add(generated);
+            }
+
             foreach (var source in message.Sources)
             {
                 if (CreateLinkReference(chat, chatTitle, message.Timestamp, source) is { } link)
@@ -559,7 +566,8 @@ public sealed class LibraryService
         };
     }
 
-    private static readonly string[] LibraryArtifactKinds = [Storage.ChatMessageKinds.Deliverable];
+    // Created images ride on image_generation steps, filed under the image facet with image views.
+    private static readonly string[] LibraryArtifactKinds = [Storage.ChatMessageKinds.Deliverable, Storage.ChatMessageKinds.Image];
 
     private string BuildChatSignature(Chat chat)
     {

@@ -105,8 +105,17 @@ internal static class CopilotModelCatalog
                 limits[model.Id] = new(defaultContextMax, longContextMax > 0 ? longContextMax : null);
         }
 
-        return new(BuildModels(catalog), new(longContextModelIds, limits), catalog.Auto?.DefaultTier);
+        return new(BuildModels(catalog), new(longContextModelIds, limits), catalog.Auto?.DefaultTier, BuildImageModel(catalog));
     }
+
+    /// <summary>The image model Copilot's native tool uses: the account's default available one, if any.</summary>
+    internal static CopilotImageModel? BuildImageModel(GitHub.Copilot.Rpc.ModelList catalog)
+        => catalog.ImageModels?
+            .Where(static model => model.Availability == GitHub.Copilot.Rpc.ImageToolModelAvailability.Available
+                && !string.IsNullOrWhiteSpace(model.Id))
+            .OrderByDescending(static model => model.IsDefault == true)
+            .Select(static model => new CopilotImageModel(model.Id, string.IsNullOrWhiteSpace(model.Name) ? model.Id : model.Name))
+            .FirstOrDefault();
 
     internal static List<ModelInfo> BuildModels(GitHub.Copilot.Rpc.ModelList catalog)
     {

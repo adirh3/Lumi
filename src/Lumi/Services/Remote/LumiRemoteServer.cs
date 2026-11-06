@@ -3250,6 +3250,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             ParentToolCallId = message.ParentToolCallId,
             ToolStatus = message.ToolStatus,
             ToolOutput = message.ToolOutput,
+            GeneratedImages = message.GeneratedImages is null ? null : [.. message.GeneratedImages],
             ToolStartedAt = message.ToolStartedAt,
             ToolDurationMs = message.ToolDurationMs,
             LinkedChatId = message.LinkedChatId,

@@ -1099,6 +1099,9 @@ public partial class SingleToolItem : TranscriptItem
     public ChatMessageViewModel? Source => _source;
 
     public bool HasDiff => Inner is ToolCallItem { HasDiff: true };
+
+    /// <summary>A lone image step: opened, it shows the images it created.</summary>
+    public ImageGenerationToolItem? ImageStep => Inner as ImageGenerationToolItem;
     public ICommand? ShowDiffCommand => Inner is ToolCallItem tc ? tc.ShowDiffCommand : null;
     public ICommand? HeaderCommand => Inner is ToolCallItem tc ? tc.HeaderCommand : null;
 
@@ -1705,6 +1708,108 @@ public partial class ToolCallItem : ToolCallItemBase
     }
 }
 
+// ── Image generation (a step that shows the images it created) ─
+
+/// <summary>
+/// An <c>image_generation</c> step: its row like any step, then the images it saved as thumbnails. The step
+/// keeps them in the work trail; the model shows the ones meant for the user in its reply.
+/// </summary>
+public partial class ImageGenerationToolItem : ToolCallItem
+{
+    private Action<string>? _preview;
+
+    public ObservableCollection<GeneratedImageItem> Images { get; } = [];
+
+    [ObservableProperty] private bool _hasImages;
+
+    public ImageGenerationToolItem(string toolName, StrataAiToolCallStatus status, string? stableId = null)
+        : base(toolName, status, stableId)
+    {
+    }
+
+    /// <summary>Shows the images the step's message records, adding only ones not shown yet.</summary>
+    internal void ShowImages(IReadOnlyList<string>? paths, Action<string>? preview)
+    {
+        _preview = preview;
+        if (paths is null)
+            return;
+
+        foreach (var path in paths)
+        {
+            if (!Images.Any(image => string.Equals(image.FilePath, path, StringComparison.OrdinalIgnoreCase)))
+                Images.Add(new GeneratedImageItem(path, _preview));
+        }
+        HasImages = Images.Count > 0;
+    }
+}
+
+/// <summary>One image a step created: a thumbnail that opens it, decoded off the UI thread at the size it is shown.</summary>
+public sealed partial class GeneratedImageItem : ObservableObject
+{
+    /// <summary>Thumbnails are drawn up to 168 px tall; decoded at twice that for high-density screens.</summary>
+    private const int ThumbnailDecodeWidth = 400;
+
+    private readonly Action<string>? _preview;
+
+    public string FilePath { get; }
+    public string FileName { get; }
+
+    [ObservableProperty] private Avalonia.Media.Imaging.Bitmap? _thumbnail;
+    [ObservableProperty] private bool _isMissing;
+
+    public GeneratedImageItem(string filePath, Action<string>? preview)
+    {
+        FilePath = filePath;
+        FileName = Path.GetFileName(filePath);
+        _preview = preview;
+        _ = LoadThumbnailAsync();
+    }
+
+    private async Task LoadThumbnailAsync()
+    {
+        var path = FilePath;
+        var bitmap = await Task.Run(() =>
+        {
+            try
+            {
+                using var stream = File.OpenRead(path);
+                return Avalonia.Media.Imaging.Bitmap.DecodeToWidth(stream, ThumbnailDecodeWidth,
+                    Avalonia.Media.Imaging.BitmapInterpolationMode.MediumQuality);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException
+                                           or NotSupportedException)
+            {
+                return null;
+            }
+        }).ConfigureAwait(false);
+        Dispatcher.UIThread.Post(() =>
+        {
+            Thumbnail = bitmap;
+            IsMissing = bitmap is null;
+        });
+    }
+
+    /// <summary>Opens the image in the chat's preview, or the default app where the surface has none.</summary>
+    [RelayCommand]
+    private void Preview()
+    {
+        if (_preview is not null && File.Exists(FilePath))
+            _preview(FilePath);
+        else
+            FileAttachmentItem.OpenWithDefaultApp(FilePath);
+    }
+
+    [RelayCommand]
+    private void Open() => FileAttachmentItem.OpenWithDefaultApp(FilePath);
+
+    [RelayCommand]
+    private void ShowInFolder() => FileAttachmentItem.RevealInFolder(FilePath);
+
+    /// <summary>Copies the image file, to paste into a folder or another app.</summary>
+    [RelayCommand]
+    private Task Copy() => Services.ClipboardHelper.CopyFileAsync(FilePath);
+}
+
 // ── Terminal preview (powershell output) ─────────────
 
 public partial class TerminalPreviewItem : ToolCallItemBase
@@ -2083,22 +2188,26 @@ public partial class FileAttachmentItem : ObservableObject
     }
 
     [RelayCommand]
-    private void Open()
+    private void Open() => OpenWithDefaultApp(FilePath);
+
+    internal static void OpenWithDefaultApp(string filePath)
     {
-        try { Process.Start(new ProcessStartInfo(FilePath) { UseShellExecute = true }); }
+        try { Process.Start(new ProcessStartInfo(filePath) { UseShellExecute = true }); }
         catch { /* ignore if file doesn't exist */ }
     }
 
     /// <summary>Opens the containing folder, selecting the file when it still exists.</summary>
     [RelayCommand]
-    private void ShowInFolder()
+    private void ShowInFolder() => RevealInFolder(FilePath);
+
+    internal static void RevealInFolder(string filePath)
     {
         try
         {
             // explorer.exe /select only honors backslash separators, and announced paths
             // frequently arrive with forward slashes from tool output — normalize first.
-            var path = FilePath;
-            try { path = Path.GetFullPath(FilePath); } catch { /* keep original */ }
+            var path = filePath;
+            try { path = Path.GetFullPath(filePath); } catch { /* keep original */ }
 
             if (OperatingSystem.IsWindows() && File.Exists(path))
             {

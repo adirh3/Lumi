@@ -68,6 +68,7 @@ public static partial class ToolDisplayHelper
             "browser_js" or BrowserJsToolName => Loc.Tool_BrowserEvaluate,
             BrowserTabsToolName => Loc.Tool_ManagingBrowserTabs,
             BrowserScreenshotToolName => Loc.Tool_BrowserScreenshot,
+            ImageGenerationToolName => GetImageGenerationName(argsJson),
             "save_memory" => Loc.Tool_Remembering,
             "update_memory" => Loc.Tool_UpdatingMemory,
             "delete_memory" => Loc.Tool_Forgetting,

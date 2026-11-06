@@ -1646,6 +1646,9 @@ public partial class ChatViewModel
                         RecordMcpApp(chat, session, toolMsg, toolEnd.Data, completedAppServer, IsDisplayedSession());
                         if (!success)
                             toolMsg.ToolOutput = completedToolOutput;
+                        // Before the status changes, so the step shows its images as it completes.
+                        else if (RecordGeneratedImages(toolMsg, toolEnd.Data.Result?.Content + "\n" + toolEnd.Data.Result?.DetailedContent))
+                            QueueSaveChat(chat, saveIndex: false);
 
                         if (ShouldApplyToolExecutionCompletionStatus(toolMsg.ToolName, success))
                         {

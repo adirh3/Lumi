@@ -145,6 +145,9 @@ UI details in those guides follow `main`.
   instead of treating the assistant as a black box.
 - **Keep useful context:** organize work into projects and reuse instructions
   through skills, custom agents and memories.
+- **Create images:** ask a chat to create or edit an image, with GitHub Copilot's
+  image model or an OpenAI-compatible account of your own; each image uses that
+  account's credits.
 - **Connect your tools:** use MCP connectors and plugins for services you choose
   to add; those services can have their own setup and account requirements.
 - **Keep work going:** use background jobs and continue desktop conversations

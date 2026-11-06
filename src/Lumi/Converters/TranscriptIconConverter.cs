@@ -36,6 +36,7 @@ public sealed class TranscriptIconConverter : IValueConverter
         TranscriptIcons.Terminal => StrataIcons.Terminal,
         TranscriptIcons.Plan => StrataIcons.Checklist,
         TranscriptIcons.Screenshot => StrataIcons.Camera,
+        TranscriptIcons.Image => StrataIcons.Image,
         TranscriptIcons.Desktop => StrataIcons.Monitor,
         TranscriptIcons.Memory => StrataIcons.Bookmark,
         TranscriptIcons.Skill => StrataIcons.Wand,

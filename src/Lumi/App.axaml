@@ -47,6 +47,44 @@
       </DockPanel>
     </DataTemplate>
 
+    <!-- An image step: the row every step has, then the images it created, under the row's details.
+         Before ToolCallItem's template, which would otherwise match it too. -->
+    <DataTemplate DataType="vm:ImageGenerationToolItem">
+      <StackPanel>
+        <sc:StrataAiToolCall ToolName="{Binding ToolName}"
+                             Icon="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
+                             Detail="{Binding LiveDetail}"
+                             Status="{Binding Status}"
+                             IsExpanded="{Binding IsExpanded}"
+                             InputParameters="{Binding InputParameters}"
+                             Progress="{Binding ProgressText}"
+                             MoreInfo="{Binding ResultText}"
+                             DurationMs="{Binding DurationMs}"
+                             RunningSince="{Binding RunningSince}" />
+        <ItemsControl Classes="generated-images" ItemsSource="{Binding Images}"
+                      IsVisible="{Binding HasImages}" Margin="29,2,8,8" />
+      </StackPanel>
+    </DataTemplate>
+
+    <!-- A created image: its thumbnail opens it; its menu opens, reveals or copies the file. -->
+    <DataTemplate DataType="vm:GeneratedImageItem">
+      <Button Classes="generated-image" Command="{Binding PreviewCommand}"
+              AutomationProperties.Name="{Binding FileName}">
+        <Button.ContextFlyout>
+          <MenuFlyout>
+            <MenuItem Header="{loc:Str FileMenu_Open}" Command="{Binding OpenCommand}" />
+            <MenuItem Header="{loc:Str FileMenu_ShowInFolder}" Command="{Binding ShowInFolderCommand}" />
+            <MenuItem Header="{loc:Str FileMenu_Copy}" Command="{Binding CopyCommand}" />
+          </MenuFlyout>
+        </Button.ContextFlyout>
+        <Panel Classes="generated-image-frame">
+          <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
+          <sc:StrataLineIcon Classes="generated-image-missing" Data="{x:Static sc:StrataIcons.Image}"
+                             IsVisible="{Binding IsMissing}" />
+        </Panel>
+      </Button>
+    </DataTemplate>
+
     <DataTemplate DataType="vm:ToolCallItem">
       <sc:StrataAiToolCall ToolName="{Binding ToolName}"
                            Icon="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
@@ -161,6 +199,39 @@
     </Style>
     <Style Selector="Button.transcript-diff:pointerover TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentHover}" />
+    </Style>
+
+    <!-- Images a step created: rounded thumbnails in a row that wraps, each opening its image. -->
+    <Style Selector="ItemsControl.generated-images">
+      <Setter Property="ItemsPanel">
+        <ItemsPanelTemplate>
+          <WrapPanel ItemSpacing="8" LineSpacing="8" />
+        </ItemsPanelTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.generated-image">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassWell}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassDivider}" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.generated-image:pointerover /template/ Border#PART_Surface">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.generated-image Panel.generated-image-frame">
+      <Setter Property="Height" Value="148" />
+      <Setter Property="MinWidth" Value="148" />
+      <Setter Property="MaxWidth" Value="264" />
+    </Style>
+    <Style Selector="Button.generated-image sc|StrataLineIcon.generated-image-missing">
+      <Setter Property="Width" Value="22" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
 
     <!-- A plan's steps: a check when done, a ring while open (the accent on the current one), a clock

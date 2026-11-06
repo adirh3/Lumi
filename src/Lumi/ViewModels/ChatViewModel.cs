@@ -23,6 +23,7 @@ using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Capabilities;
 using Lumi.Services.EmbeddedApps;
+using Lumi.Services.ImageGeneration;
 using StrataTheme.Controls;
 
 using ChatMessage = Lumi.Models.ChatMessage;
@@ -2449,6 +2450,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var skillProvider = BuildLumiSkillProvider(activeAgent, capabilities);
         var customTools = BuildCustomTools(chat.Id, activeAgent, skillProvider);
 
+        // One image_generation either way: Copilot's native tool, or Lumi's backed by the user's account.
+        var imagePlan = ResolveImageGenerationPlan();
+        if (imagePlan is { Route: ImageGenerationRoute.Account, Account: { } imageAccount })
+            customTools.Add(BuildAccountImageTool(chat.Id, imageAccount, _dataStore.Data.Settings));
+        var imageGeneration = BuildImageGenerationConfig(imagePlan, _dataStore.Data.Settings);
+
         // The native skill tool reads Lumi skills through the provider and discovers other sources.
         // Explicitly selected Lumi skills remain preloaded in the prompt.
         var skillRoots = capabilities.SessionSkillRoots.ToList();
@@ -2587,6 +2594,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
                 modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
             config.ManagedSettings = askLayer;
+#pragma warning disable GHCP001 // Image generation is an experimental Copilot SDK option.
+            config.ImageGeneration = imageGeneration;
+#pragma warning restore GHCP001
             return config;
         }
 
@@ -2599,6 +2609,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
                 modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
             config.ManagedSettings = askLayer;
+#pragma warning disable GHCP001 // Image generation is an experimental Copilot SDK option.
+            config.ImageGeneration = imageGeneration;
+#pragma warning restore GHCP001
             config.OpenCanvases = EmbeddedAppData.SavedOpenCanvases(chat, _dataStore.GetAppMessages(chat));
             return config;
         }
@@ -7913,6 +7926,8 @@ public partial class ChatMessageViewModel : ObservableObject
         PresentationRevision++;
         OnPropertyChanged(nameof(ChatMessage.ToolOutput));
     }
+
+    public void NotifyGeneratedImagesChanged() => OnPropertyChanged(nameof(ChatMessage.GeneratedImages));
 
     public void NotifyLinkedChatChanged()
     {
