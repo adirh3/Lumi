@@ -832,9 +832,7 @@ internal sealed class WorkspacePanelController : IDisposable
                 ? (run.DisplayName, (string?)Loc.Workspace_Agents)
                 : (Loc.Workspace_Agents, _vm.SubagentRunsSummary),
             WorkspacePage.GitChanges => _gitFile is { } file
-                ? (file.FileName, (string?)(file.Change.SubmoduleName is { Length: > 0 } submodule
-                    ? $"{Loc.Workspace_GitChanges} · {submodule}"
-                    : Loc.Workspace_GitChanges))
+                ? (file.FileName, (string?)GitFileSubtitle(file))
                 : (Loc.Workspace_GitChanges, _gitChanges?.BranchLabel),
             WorkspacePage.Diff => (_diffItem?.FileName ?? Loc.Diff_Title, _diffItem?.ActionLabel),
             WorkspacePage.Skill => (_vm.SkillPreviewTitle ?? Loc.Workspace_Skill, (string?)Loc.Workspace_Skill),
@@ -850,6 +848,10 @@ internal sealed class WorkspacePanelController : IDisposable
         Header.Subtitle = subtitle;
         var app = _page == WorkspacePage.App ? _vm.SelectedApp : null;
         Header.CanCloseApp = app?.CanClose == true;
+        var gitFile = _page == WorkspacePage.GitChanges ? _gitFile : null;
+        Header.IsGitFile = gitFile is not null;
+        Header.CanGoToPreviousGitFile = gitFile is not null && _gitChanges?.AdjacentFile(gitFile, -1) is not null;
+        Header.CanGoToNextGitFile = gitFile is not null && _gitChanges?.AdjacentFile(gitFile, 1) is not null;
         TrackHeaderApp(app);
     }
 
@@ -892,7 +894,32 @@ internal sealed class WorkspacePanelController : IDisposable
         };
     }
 
-    private void OpenGitFile(GitFileChangeViewModel file)
+    /// <summary>"Git changes · 3 of 42", with the submodule when the file lives in one.</summary>
+    private string GitFileSubtitle(GitFileChangeViewModel file)
+    {
+        var subtitle = file.Change.SubmoduleName is { Length: > 0 } submodule
+            ? $"{Loc.Workspace_GitChanges} · {submodule}"
+            : Loc.Workspace_GitChanges;
+        if (_gitChanges?.PositionOf(file) is { Position: > 0, Count: > 1 } place)
+            subtitle += " · " + string.Format(Loc.Culture, Loc.Git_FilePosition, place.Position, place.Count);
+        return subtitle;
+    }
+
+    /// <summary>Steps from the open diff to the previous (-1) or next (+1) changed file.</summary>
+    public bool ShowAdjacentGitFile(int delta)
+    {
+        if (_page != WorkspacePage.GitChanges || _gitFile is null || _gitChanges is null)
+            return false;
+        if (_gitChanges.AdjacentFile(_gitFile, delta) is not { } next)
+            return false;
+
+        OpenGitFile(next, back: delta < 0);
+        return true;
+    }
+
+    private void OpenGitFile(GitFileChangeViewModel file) => OpenGitFile(file, back: false);
+
+    private void OpenGitFile(GitFileChangeViewModel file, bool back)
     {
         if (_gitChanges is null || _page != WorkspacePage.GitChanges)
             return;
@@ -907,7 +934,7 @@ internal sealed class WorkspacePanelController : IDisposable
         _pageContent = diffView;
         RefreshHeader();
         if (_panelShownTask.IsCompleted)
-            PlayPageEntrance(_parts.PageHost, back: false);
+            PlayPageEntrance(_parts.PageHost, back);
 
         if (file.Kind == GitChangeKind.Submodule)
             _ = ShowSubmodulePointerDiffAsync(file.Change, diffView);
@@ -939,7 +966,10 @@ internal sealed class WorkspacePanelController : IDisposable
         Dispatcher.UIThread.Post(() =>
         {
             if (_gitPage is not null && _gitFile is null)
+            {
                 _gitPage.ScrollOffset = offset;
+                _gitPage.RevealSelected();
+            }
         }, DispatcherPriority.Loaded);
     }
 

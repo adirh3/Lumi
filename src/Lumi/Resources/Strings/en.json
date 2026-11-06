@@ -2111,7 +2111,11 @@
   "Git_ClearFilter": "Clear filter",
   "Git_NoFilterMatches": "No files match",
   "Git_NoFilterMatchesHint": "Try a different part of the file or folder name.",
-  "Git_ToggleAllSources": "Expand or collapse all sources",
+  "Git_CollapseAll": "Collapse all folders",
+  "Git_ExpandAll": "Expand all folders",
+  "Git_PreviousFile": "Previous file (Alt+↑)",
+  "Git_NextFile": "Next file (Alt+↓)",
+  "Git_FilePosition": "{0} of {1}",
 
   "Workspace_Title": "Workspace",
   "Workspace_Apps": "Apps & canvases",

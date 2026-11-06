@@ -142,7 +142,25 @@ public sealed class GitChangesTests
     }
 
     [Fact]
-    public void GitChangesViewModel_GroupsBySourceThenFolder()
+    public async Task RenamedFileIsListedAtItsNewPath()
+    {
+        using var temp = new TempDir();
+        Directory.CreateDirectory(Path.Combine(temp.Path, "tools"));
+        File.WriteAllText(Path.Combine(temp.Path, "tools", "old.cs"), "one\ntwo\n");
+        InitRepo(temp.Path);
+        Assert.True(TryGit(temp.Path, "mv tools/old.cs tools/new.cs", out _));
+
+        var change = Assert.Single(await GitService.GetChangedFilesAsync(temp.Path));
+
+        Assert.Equal(GitChangeKind.Renamed, change.Kind);
+        Assert.Equal("tools/new.cs", change.RelativePath);
+        Assert.Equal("tools/old.cs", change.OriginalRepoRelativePath);
+        Assert.Equal("new.cs", change.FileName);
+        Assert.Equal("tools", change.RepoRelativeDirectory);
+    }
+
+    [Fact]
+    public void GitChangesViewModel_GroupsBySourceThenFolderTree()
     {
         var vm = new GitChangesViewModel(
             [
@@ -160,19 +178,23 @@ public sealed class GitChangesTests
         var main = vm.Sources[0];
         Assert.Equal("Lumi", main.Name);
         Assert.False(main.IsSubmodule);
-        // Root-level files sort before nested folders.
-        Assert.Equal(2, main.Folders.Count);
-        Assert.Equal("src/Lumi/Views", main.Folders[1].FolderLabel);
-        Assert.Equal(2, main.Folders[1].Files.Count);
-        Assert.Equal("ChatView.axaml", main.Folders[1].Files[0].FileName);
+        // A chain of folders that only hold one folder is one row, as editors compact it.
+        var views = Assert.Single(main.Folders);
+        Assert.Equal("src/Lumi/Views", views.Name);
+        Assert.Equal("src/Lumi/", views.ParentLabel);
+        Assert.Equal("Views", views.LeafLabel);
+        Assert.Equal(2, views.Files.Count);
+        Assert.Equal("ChatView.axaml", views.Files[0].FileName);
+        Assert.Equal("+12", views.AddedCell);
+        Assert.Equal("−5", views.RemovedCell);
+        Assert.Equal("README.md", Assert.Single(main.Files).FileName);
 
         var submodule = vm.Sources[1];
         Assert.Equal("Strata", submodule.Name);
         Assert.True(submodule.IsSubmodule);
-        // Folder labels inside a submodule are relative to the submodule, not the parent repo.
-        Assert.Equal("src/Controls", submodule.Folders[0].FolderLabel);
+        // Folders inside a submodule are relative to the submodule, not the parent repo.
+        Assert.Equal("src/Controls", Assert.Single(submodule.Folders).FullPath);
 
-        // The header shows a compact count so a narrow island still has room for the name.
         Assert.Equal("3", main.FileCountCompact);
         Assert.Equal("3 files changed", main.FileCountLabel);
         Assert.Equal("1", submodule.FileCountCompact);
@@ -183,10 +205,71 @@ public sealed class GitChangesTests
         Assert.True(vm.HasTotalStats);
         Assert.True(vm.AddedBarWidth > vm.RemovedBarWidth);
         Assert.Equal("main", vm.BranchLabel);
+
+        // Rows: each source's header, its folders before its files, children one level deeper.
+        Assert.Equal(
+            ["Lumi:0", "src/Lumi/Views:1", "ChatView.axaml:2", "DiffView.axaml:2", "README.md:1",
+             "Strata:0", "src/Controls:1", "Button.cs:2"],
+            vm.Rows.Select(Describe));
     }
 
     [Fact]
-    public void GitChangesViewModel_FilterNarrowsGroupsAndReportsNoMatches()
+    public void GitChangesViewModel_OneSourceShowsNoHeaderRowAndSplitsFoldersWhereTheyBranch()
+    {
+        var vm = new GitChangesViewModel(
+            [
+                Change("src/app/a.cs", GitChangeKind.Modified, added: 1),
+                Change("src/app/b.cs", GitChangeKind.Modified, added: 1),
+                Change("src/lib/c.cs", GitChangeKind.Modified, added: 1),
+            ],
+            rootPath: @"C:\repos\Lumi",
+            branch: null,
+            isWorktree: false);
+
+        Assert.False(vm.HasMultipleSources);
+        Assert.Equal(
+            ["src:0", "app:1", "a.cs:2", "b.cs:2", "lib:1", "c.cs:2"],
+            vm.Rows.Select(Describe));
+    }
+
+    [Fact]
+    public void GitChangesViewModel_FoldingAFolderRemovesOnlyItsRows()
+    {
+        var vm = new GitChangesViewModel(
+            [
+                Change("src/app/a.cs", GitChangeKind.Modified, added: 1),
+                Change("src/lib/c.cs", GitChangeKind.Modified, added: 1),
+                Change("README.md", GitChangeKind.Modified, added: 1),
+            ],
+            rootPath: @"C:\repos\Lumi",
+            branch: null,
+            isWorktree: false);
+        var rows = vm.Rows;
+        var app = vm.Sources[0].Folders[0].Folders[0];
+        Assert.Equal("app", app.Name);
+
+        app.ToggleCommand.Execute(null);
+
+        Assert.False(app.IsExpanded);
+        Assert.Same(rows, vm.Rows);
+        Assert.Equal(["src:0", "app:1", "lib:1", "c.cs:2", "README.md:0"], vm.Rows.Select(Describe));
+        Assert.True(vm.CanCollapseAll);
+
+        app.ToggleCommand.Execute(null);
+        Assert.Equal(["src:0", "app:1", "a.cs:2", "lib:1", "c.cs:2", "README.md:0"], vm.Rows.Select(Describe));
+
+        vm.ToggleAllCommand.Execute(null);
+        Assert.False(vm.CanCollapseAll);
+        Assert.Equal(Loc.Git_ExpandAll, vm.ToggleAllLabel);
+        Assert.Equal(["src:0", "README.md:0"], vm.Rows.Select(Describe));
+
+        vm.ToggleAllCommand.Execute(null);
+        Assert.True(vm.CanCollapseAll);
+        Assert.Equal(6, vm.Rows.Count);
+    }
+
+    [Fact]
+    public void GitChangesViewModel_FilterNarrowsTheTreeOpensMatchesAndKeepsFoldingOnClear()
     {
         var vm = new GitChangesViewModel(
             [
@@ -197,47 +280,88 @@ public sealed class GitChangesTests
             branch: null,
             isWorktree: false);
 
+        vm.ToggleAllCommand.Execute(null);
+        Assert.Equal(["docs:0", "src:0"], vm.Rows.Select(Describe));
+
         vm.FilterText = "docs";
-        var source = Assert.Single(vm.Sources);
-        var folder = Assert.Single(source.Folders);
-        Assert.Equal("b.md", Assert.Single(folder.Files).FileName);
+        Assert.Equal(["docs:0", "b.md:1"], vm.Rows.Select(Describe));
         Assert.False(vm.HasNoMatches);
 
         vm.FilterText = "nothing-here";
         Assert.Empty(vm.Sources);
+        Assert.Empty(vm.Rows);
         Assert.True(vm.HasNoMatches);
 
         vm.ClearFilterCommand.Execute(null);
         Assert.Equal("", vm.FilterText);
         Assert.False(vm.HasNoMatches);
-        Assert.Equal(2, vm.Sources.Single().Folders.Count);
+        Assert.Equal(["docs:0", "src:0"], vm.Rows.Select(Describe));
     }
 
     [Fact]
-    public void GitChangesViewModel_SelectionAndToggleAllTrackIslandNavigation()
+    public void GitChangesViewModel_KindChipsFilterToOneKind()
     {
         var vm = new GitChangesViewModel(
-            [Change("src/a.cs", GitChangeKind.Modified, added: 1)],
+            [
+                Change("src/a.cs", GitChangeKind.Modified, added: 1),
+                Change("src/new.cs", GitChangeKind.Untracked, added: 3),
+                Change("src/old.cs", GitChangeKind.Deleted, removed: 2),
+            ],
+            rootPath: @"C:\repos\Lumi",
+            branch: null,
+            isWorktree: false);
+
+        Assert.Equal(["1 added", "1 modified", "1 deleted"], vm.KindFilters.Select(static k => k.Label));
+        Assert.Equal("1 added · 1 modified · 1 deleted", vm.KindBreakdownLabel);
+
+        var added = vm.KindFilters[0];
+        added.ToggleCommand.Execute(null);
+        Assert.True(added.IsActive);
+        Assert.Equal(["src:0", "new.cs:1"], vm.Rows.Select(Describe));
+
+        vm.KindFilters[2].ToggleCommand.Execute(null);
+        Assert.False(added.IsActive);
+        Assert.Equal(["src:0", "old.cs:1"], vm.Rows.Select(Describe));
+
+        vm.KindFilters[2].ToggleCommand.Execute(null);
+        Assert.Null(vm.ActiveKind);
+        Assert.Equal(4, vm.Rows.Count);
+    }
+
+    [Fact]
+    public void GitChangesViewModel_SelectionStepsThroughFilesAndUnfoldsTheirFolders()
+    {
+        var vm = new GitChangesViewModel(
+            [
+                Change("src/a.cs", GitChangeKind.Modified, added: 1),
+                Change("src/b.cs", GitChangeKind.Modified, added: 1),
+                Change("z.md", GitChangeKind.Modified, added: 1),
+            ],
             rootPath: @"C:\repos\Lumi",
             branch: null,
             isWorktree: true);
 
-        var file = vm.Sources[0].Folders[0].Files[0];
-        vm.Select(file);
-        Assert.True(file.IsSelected);
+        var a = vm.Sources[0].Folders[0].Files[0];
+        var b = vm.AdjacentFile(a, 1)!;
+        Assert.Equal("b.cs", b.FileName);
+        Assert.Equal("z.md", vm.AdjacentFile(b, 1)!.FileName);
+        Assert.Null(vm.AdjacentFile(a, -1));
+        Assert.Equal((2, 3), vm.PositionOf(b));
+
+        vm.ToggleAllCommand.Execute(null);
+        Assert.Equal(-1, vm.IndexOfRow(b));
+
+        vm.Select(b);
+        Assert.True(b.IsSelected);
+        Assert.False(a.IsSelected);
+        Assert.Equal(2, vm.IndexOfRow(b));
 
         vm.ClearSelection();
-        Assert.False(file.IsSelected);
-
-        Assert.True(vm.Sources[0].IsExpanded);
-        vm.ToggleAllSourcesCommand.Execute(null);
-        Assert.False(vm.Sources[0].IsExpanded);
-        vm.ToggleAllSourcesCommand.Execute(null);
-        Assert.True(vm.Sources[0].IsExpanded);
+        Assert.False(b.IsSelected);
     }
 
     [Fact]
-    public void GitChangesViewModel_NestedSubmodulePointerGroupsAtSubmoduleRoot()
+    public void GitChangesViewModel_NestedSubmodulePointerSitsAtSubmoduleRoot()
     {
         // The pointer row keeps its parent-repo path so git can still resolve the commit log, so the
         // island must not fold it into a folder named after the submodule's parent directory.
@@ -254,11 +378,18 @@ public sealed class GitChangesTests
         Assert.True(submodule.IsSubmodule);
         Assert.Equal("lib", submodule.Name);
 
-        Assert.Equal(2, submodule.Folders.Count);
-        Assert.Equal(Loc.Git_RepositoryRoot, submodule.Folders[0].FolderLabel);
-        Assert.Equal("lib", Assert.Single(submodule.Folders[0].Files).FileName);
-        Assert.Equal("src", submodule.Folders[1].FolderLabel);
+        Assert.Equal("lib", Assert.Single(submodule.Files).FileName);
+        Assert.Equal("src", Assert.Single(submodule.Folders).FullPath);
+        Assert.Equal(["src:0", "Widget.cs:1", "lib:0"], vm.Rows.Select(Describe));
     }
+
+    private static string Describe(GitChangeTreeRow row) => row switch
+    {
+        GitChangeSourceGroup source => $"{source.Name}:{row.Depth}",
+        GitChangeFolderNode folder => $"{folder.Name}:{row.Depth}",
+        GitFileChangeViewModel file => $"{file.FileName}:{row.Depth}",
+        _ => "?",
+    };
 
     private static GitFileChange Change(string relativePath, GitChangeKind kind, int added = 0, int removed = 0)
         => new()

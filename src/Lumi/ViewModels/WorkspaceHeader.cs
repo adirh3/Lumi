@@ -22,6 +22,22 @@ public sealed partial class WorkspaceHeader : ObservableObject
     /// <summary>The app page shows a canvas that is running (its header offers to close it).</summary>
     [ObservableProperty] private bool _canCloseApp;
 
+    /// <summary>The git changes page shows one file's diff, so the header steps between files.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowsGitFileSteps))]
+    private bool _isGitFile;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowsGitFileSteps))]
+    private bool _canGoToPreviousGitFile;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowsGitFileSteps))]
+    private bool _canGoToNextGitFile;
+
+    /// <summary>Previous/next only appear when there is somewhere to go.</summary>
+    public bool ShowsGitFileSteps => IsGitFile && (CanGoToPreviousGitFile || CanGoToNextGitFile);
+
     public bool IsOverview => Page == WorkspacePage.Overview;
     public bool IsFilePreview => Page == WorkspacePage.FilePreview;
     public bool IsApp => Page == WorkspacePage.App;

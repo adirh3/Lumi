@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
+             xmlns:views="using:Lumi.Views"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.GitChangesView"
              x:DataType="vm:GitChangesViewModel"
@@ -14,17 +15,20 @@
     <StreamGeometry x:Key="Gc.Branch">M7 3.5a2.5 2.5 0 0 0-1 4.79v7.42a2.5 2.5 0 1 0 2 0v-3.02a4.48 4.48 0 0 0 2.5.76h2A3.5 3.5 0 0 0 16 9.95V8.29a2.5 2.5 0 1 0-2 0v1.66c0 .83-.67 1.5-1.5 1.5h-2A2.5 2.5 0 0 1 8 8.95v-.66A2.5 2.5 0 0 0 7 3.5z</StreamGeometry>
     <StreamGeometry x:Key="Gc.Search">M10 3a7 7 0 1 0 4.2 12.6l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 10 3zm-5 7a5 5 0 1 1 10 0 5 5 0 0 1-10 0z</StreamGeometry>
     <StreamGeometry x:Key="Gc.Dismiss">M6.4 6.4a1 1 0 0 1 1.4 0L12 10.6l4.2-4.2a1 1 0 1 1 1.4 1.4L13.4 12l4.2 4.2a1 1 0 0 1-1.4 1.4L12 13.4l-4.2 4.2a1 1 0 0 1-1.4-1.4L10.6 12 6.4 7.8a1 1 0 0 1 0-1.4z</StreamGeometry>
-    <StreamGeometry x:Key="Gc.CollapseAll">M12 3.6l4.7 4.7a1 1 0 0 1-1.4 1.4L12 6.4 8.7 9.7a1 1 0 0 1-1.4-1.4L12 3.6zm0 16.8l-4.7-4.7a1 1 0 0 1 1.4-1.4l3.3 3.3 3.3-3.3a1 1 0 0 1 1.4 1.4L12 20.4z</StreamGeometry>
+    <StreamGeometry x:Key="Gc.ExpandAll">M12 3.6l4.7 4.7a1 1 0 0 1-1.4 1.4L12 6.4 8.7 9.7a1 1 0 0 1-1.4-1.4L12 3.6zm0 16.8l-4.7-4.7a1 1 0 0 1 1.4-1.4l3.3 3.3 3.3-3.3a1 1 0 0 1 1.4 1.4L12 20.4z</StreamGeometry>
+    <StreamGeometry x:Key="Gc.CollapseAll">M12 10.4L7.3 5.7a1 1 0 0 1 1.4-1.4L12 7.6l3.3-3.3a1 1 0 0 1 1.4 1.4L12 10.4zm0 3.2l4.7 4.7a1 1 0 0 1-1.4 1.4L12 16.4l-3.3 3.3a1 1 0 0 1-1.4-1.4L12 13.6z</StreamGeometry>
   </UserControl.Resources>
 
   <UserControl.Styles>
 
-    <!-- ── Rows: source headers and file rows share one flat, template-owned look ── -->
+    <!-- ── Rows: sources, folders and files share one flat, template-owned look. Rows have no
+         vertical padding and a fixed height, so the indent guides run unbroken from row to row. ── -->
     <Style Selector="Button.gc-row">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="MinHeight" Value="0" />
-      <Setter Property="Padding" Value="6,5" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="Padding" Value="4,0,6,0" />
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
@@ -48,7 +52,7 @@
                               Content="{TemplateBinding Content}"
                               Padding="{TemplateBinding Padding}"
                               HorizontalContentAlignment="Stretch"
-                              VerticalContentAlignment="Center" />
+                              VerticalContentAlignment="Stretch" />
           </Panel>
         </ControlTemplate>
       </Setter>
@@ -112,8 +116,8 @@
 
     <!-- ── Status badge ── -->
     <Style Selector="Border.gc-badge">
-      <Setter Property="Width" Value="20" />
-      <Setter Property="Height" Value="20" />
+      <Setter Property="Width" Value="18" />
+      <Setter Property="Height" Value="18" />
       <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
       <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
     </Style>
@@ -163,6 +167,74 @@
     <Style Selector="TextBlock.gc-stat.removed">
       <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
     </Style>
+    <!-- Folder totals step back so the files' own numbers lead. -->
+    <Style Selector="TextBlock.gc-stat.dim">
+      <Setter Property="Opacity" Value="0.55" />
+    </Style>
+
+    <!-- ── Kind chips: the breakdown doubles as a one-tap filter ── -->
+    <Style Selector="Button.gc-chip">
+      <Setter Property="Height" Value="22" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="8,0,9,0" />
+      <Setter Property="Margin" Value="0,0,5,5" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.12" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}">
+            <ContentPresenter Content="{TemplateBinding Content}"
+                              VerticalContentAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.gc-chip:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+    </Style>
+    <Style Selector="Button.gc-chip.active">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.gc-chip TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Ellipse.gc-dot">
+      <Setter Property="Width" Value="6" />
+      <Setter Property="Height" Value="6" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Fill" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Ellipse.gc-dot.added">
+      <Setter Property="Fill" Value="{DynamicResource Brush.SuccessDefault}" />
+    </Style>
+    <Style Selector="Ellipse.gc-dot.deleted">
+      <Setter Property="Fill" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+    <Style Selector="Ellipse.gc-dot.renamed">
+      <Setter Property="Fill" Value="{DynamicResource Brush.WarningDefault}" />
+    </Style>
+    <Style Selector="Ellipse.gc-dot.submodule">
+      <Setter Property="Fill" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
 
     <!-- ── Text roles ── -->
     <Style Selector="TextBlock.gc-source">
@@ -206,33 +278,46 @@
     </Style>
   </UserControl.Styles>
 
+
   <DockPanel x:Name="GitChangesRoot" LastChildFill="True">
 
     <!-- ── Summary: everything that changed, at a glance ── -->
     <Border DockPanel.Dock="Top"
-            Margin="10,8,10,0" Padding="12,10"
+            Margin="10,8,10,0" Padding="12,10,12,7"
             Background="{DynamicResource Brush.SurfaceCard}"
             BorderBrush="{DynamicResource Brush.BorderSubtle}"
             BorderThickness="1"
             CornerRadius="{DynamicResource Radius.Interactive}">
       <StackPanel Spacing="8">
 
-        <Grid ColumnDefinitions="*,Auto,Auto">
+        <Grid ColumnDefinitions="*,Auto,Auto,Auto">
           <TextBlock x:Name="GitChangesTotal" Grid.Column="0"
                      Classes="body-strong"
                      Text="{Binding TotalFilesLabel}"
                      VerticalAlignment="Center"
                      TextTrimming="CharacterEllipsis" />
-          <TextBlock Grid.Column="1" Classes="gc-stat added" Margin="10,0,0,0"
+          <Border Grid.Column="1" Width="64" Height="4" Margin="10,0,0,0"
+                  VerticalAlignment="Center" ClipToBounds="True"
+                  CornerRadius="{DynamicResource Radius.Full}"
+                  Background="{DynamicResource Brush.Surface2}"
+                  IsVisible="{Binding HasTotalStats}">
+            <Viewbox Stretch="Fill">
+              <StackPanel Orientation="Horizontal" Height="4">
+                <Border Background="{DynamicResource Brush.SuccessDefault}" Width="{Binding AddedBarWidth}" />
+                <Border Background="{DynamicResource Brush.DangerDefault}" Width="{Binding RemovedBarWidth}" />
+              </StackPanel>
+            </Viewbox>
+          </Border>
+          <TextBlock Grid.Column="2" Classes="gc-stat added" Margin="10,0,0,0"
                      Text="{Binding TotalAddedLabel}"
                      IsVisible="{Binding HasTotalStats}" />
-          <TextBlock Grid.Column="2" Classes="gc-stat removed" Margin="8,0,0,0"
+          <TextBlock Grid.Column="3" Classes="gc-stat removed" Margin="8,0,0,0"
                      Text="{Binding TotalRemovedLabel}"
                      IsVisible="{Binding HasTotalStats}" />
         </Grid>
 
         <Grid ColumnDefinitions="Auto,*,Auto">
-          <PathIcon Grid.Column="0" Data="{StaticResource Gc.Folder}" Width="11" Height="11"
+          <PathIcon Grid.Column="0" Data="{StaticResource Gc.Repo}" Width="11" Height="11"
                     Foreground="{DynamicResource Brush.TextTertiary}"
                     Margin="0,0,7,0" VerticalAlignment="Center" />
           <TextBlock Grid.Column="1" Classes="gc-file" Text="{Binding RootName}"
@@ -250,27 +335,36 @@
           </Border>
         </Grid>
 
-        <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasKindBreakdown}">
-          <TextBlock Grid.Column="0" Classes="caption"
-                     Text="{Binding KindBreakdownLabel}"
-                     TextTrimming="CharacterEllipsis"
-                     VerticalAlignment="Center" />
-          <Border Grid.Column="1" Width="96" Height="4" Margin="12,0,0,0"
-                  VerticalAlignment="Center" ClipToBounds="True"
-                  CornerRadius="{DynamicResource Radius.Full}"
-                  Background="{DynamicResource Brush.Surface2}"
-                  IsVisible="{Binding HasTotalStats}">
-            <StackPanel Orientation="Horizontal">
-              <Border Background="{DynamicResource Brush.SuccessDefault}" Width="{Binding AddedBarWidth}" />
-              <Border Background="{DynamicResource Brush.DangerDefault}" Width="{Binding RemovedBarWidth}" />
-            </StackPanel>
-          </Border>
-        </Grid>
+        <!-- Each kind is a chip: tap one to see only those files, tap it again for all. -->
+        <ItemsControl x:Name="GitChangesKinds"
+                      ItemsSource="{Binding KindFilters}"
+                      IsVisible="{Binding HasKindBreakdown}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:GitChangeKindFilter">
+              <Button Classes="gc-chip"
+                      Classes.active="{Binding IsActive}"
+                      Command="{Binding ToggleCommand}"
+                      AutomationProperties.Name="{Binding Label}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Ellipse Classes="gc-dot"
+                           Classes.added="{Binding IsAdded}"
+                           Classes.deleted="{Binding IsDeleted}"
+                           Classes.renamed="{Binding IsRenamed}"
+                           Classes.submodule="{Binding IsSubmodule}" />
+                  <TextBlock Text="{Binding Label}" />
+                </StackPanel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
 
       </StackPanel>
     </Border>
 
-    <!-- ── Filter + collapse-all ── -->
+    <!-- ── Filter + collapse/expand all ── -->
     <Grid DockPanel.Dock="Top" Margin="10,8,10,4"
           ColumnDefinitions="*,Auto">
       <Border x:Name="GitChangesFilterShell" Grid.Column="0"
@@ -301,121 +395,120 @@
       </Border>
       <Button x:Name="GitChangesToggleAll" Grid.Column="1"
               Classes="gc-icon" Margin="6,0,0,0"
-              Command="{Binding ToggleAllSourcesCommand}"
-              IsVisible="{Binding HasMultipleSources}"
-              ToolTip.Tip="{loc:Str Git_ToggleAllSources}">
-        <PathIcon Data="{StaticResource Gc.CollapseAll}" Width="12" Height="12" />
+              Command="{Binding ToggleAllCommand}"
+              IsVisible="{Binding HasFoldableRows}"
+              ToolTip.Tip="{Binding ToggleAllLabel}"
+              AutomationProperties.Name="{Binding ToggleAllLabel}">
+        <Panel>
+          <PathIcon Data="{StaticResource Gc.CollapseAll}" Width="12" Height="12"
+                    IsVisible="{Binding CanCollapseAll}" />
+          <PathIcon Data="{StaticResource Gc.ExpandAll}" Width="12" Height="12"
+                    IsVisible="{Binding !CanCollapseAll}" />
+        </Panel>
       </Button>
     </Grid>
 
     <Panel>
-      <!-- ── Source › folder › file ── -->
+      <!-- ── Source › folder › file, as one virtualized list of rows ── -->
       <ScrollViewer x:Name="GitChangesScroller"
                     Classes="hover-scroll"
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto"
                     Padding="0,0,2,10">
-        <ItemsControl x:Name="GitChangesList" ItemsSource="{Binding Sources}" Margin="8,0,6,0">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:GitChangeSourceGroup">
-              <StackPanel Margin="0,0,0,2">
+        <ItemsControl x:Name="GitChangesList" ItemsSource="{Binding Rows}" Margin="6,2,6,0">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.DataTemplates>
 
-                <Button Classes="gc-row" Command="{Binding ToggleCommand}" Padding="6,6">
-                  <Grid ColumnDefinitions="Auto,Auto,*,Auto,44,40">
-                    <PathIcon Grid.Column="0" Classes="gc-chevron"
-                              Classes.expanded="{Binding IsExpanded}"
-                              Data="{StaticResource Gc.Chevron}"
-                              Margin="0,0,7,0" VerticalAlignment="Center" />
-                    <Panel Grid.Column="1" Margin="0,0,8,0" VerticalAlignment="Center"
-                           ToolTip.Tip="{Binding BadgeLabel}">
-                      <PathIcon Data="{StaticResource Gc.Repo}" Width="13" Height="13"
-                                Foreground="{DynamicResource Brush.TextTertiary}"
-                                IsVisible="{Binding !IsSubmodule}" />
-                      <PathIcon Data="{StaticResource Gc.Submodule}" Width="13" Height="13"
-                                Foreground="{DynamicResource Brush.AccentDefault}"
-                                IsVisible="{Binding IsSubmodule}" />
-                    </Panel>
-                    <!-- Plain TextBlock in the star column, not a horizontal StackPanel: a
-                         StackPanel measures children unbounded, so the name would never trim and
-                         would overlap the columns to its right once the island is dragged narrow. -->
-                    <TextBlock Grid.Column="2" Classes="gc-source" Text="{Binding Name}"
-                               TextTrimming="CharacterEllipsis"
-                               ToolTip.Tip="{Binding SourcePath}" />
-                    <Border Grid.Column="3" Classes="gc-pill" Margin="8,0,8,0"
-                            ToolTip.Tip="{Binding FileCountLabel}">
-                      <TextBlock Text="{Binding FileCountCompact}" />
-                    </Border>
-                    <TextBlock Grid.Column="4" Classes="gc-stat added" Text="{Binding AddedCell}" />
-                    <TextBlock Grid.Column="5" Classes="gc-stat removed" Text="{Binding RemovedCell}" />
-                  </Grid>
-                </Button>
-
-                <!-- Indent rail keeps the "these files belong to that repo" relationship visible -->
-                <Grid ColumnDefinitions="Auto,*" Margin="10,1,0,6"
-                      IsVisible="{Binding IsExpanded}">
-                  <Border Grid.Column="0" Width="1" Margin="0,3"
-                          Background="{DynamicResource Brush.BorderDefault}" />
-                  <ItemsControl Grid.Column="1" ItemsSource="{Binding Folders}" Margin="9,0,0,0">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:GitChangeFolderGroup">
-                        <StackPanel Margin="0,0,0,3">
-
-                          <Grid ColumnDefinitions="Auto,*,Auto" Margin="6,5,6,2">
-                            <PathIcon Grid.Column="0" Data="{StaticResource Gc.Folder}"
-                                      Width="10" Height="10"
-                                      Foreground="{DynamicResource Brush.TextDisabled}"
-                                      VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1" Classes="caption" Margin="7,0,10,0"
-                                       TextTrimming="CharacterEllipsis"
-                                       VerticalAlignment="Center"
-                                       ToolTip.Tip="{Binding FolderLabel}"><Run Text="{Binding FolderParentLabel}" Foreground="{DynamicResource Brush.TextDisabled}" /><Run Text="{Binding FolderLeafLabel}" Foreground="{DynamicResource Brush.TextSecondary}" /></TextBlock>
-                            <TextBlock Grid.Column="2" Classes="gc-stat" Width="30"
-                                       Foreground="{DynamicResource Brush.TextDisabled}"
-                                       Text="{Binding CountLabel}" />
-                          </Grid>
-
-                          <ItemsControl ItemsSource="{Binding Files}">
-                            <ItemsControl.ItemTemplate>
-                              <DataTemplate x:DataType="vm:GitFileChangeViewModel">
-                                <Button Classes="gc-row"
-                                        Classes.selected="{Binding IsSelected}"
-                                        Command="{Binding ShowDiffCommand}"
-                                        Padding="6,4"
-                                        ToolTip.Tip="{Binding PathTooltip}">
-                                  <Grid ColumnDefinitions="Auto,*,44,40">
-                                    <Border Grid.Column="0" Classes="gc-badge"
-                                            Classes.added="{Binding IsAdded}"
-                                            Classes.untracked="{Binding IsUntracked}"
-                                            Classes.deleted="{Binding IsDeleted}"
-                                            Classes.renamed="{Binding IsRenamed}"
-                                            Classes.submodule="{Binding IsSubmodulePointer}"
-                                            Margin="0,0,9,0" VerticalAlignment="Center">
-                                      <TextBlock Text="{Binding KindIcon}" />
-                                    </Border>
-                                    <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                      <TextBlock Classes="gc-file" Text="{Binding FileName}"
-                                                 TextTrimming="CharacterEllipsis" />
-                                      <TextBlock Classes="caption" Text="{Binding SubtitleLabel}"
-                                                 TextTrimming="CharacterEllipsis"
-                                                 IsVisible="{Binding IsSubmodulePointer}" />
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="2" Classes="gc-stat added" Text="{Binding AddedCell}" />
-                                    <TextBlock Grid.Column="3" Classes="gc-stat removed" Text="{Binding RemovedCell}" />
-                                  </Grid>
-                                </Button>
-                              </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                          </ItemsControl>
-
-                        </StackPanel>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
+            <!-- Repository header (shown when a submodule has changes too) -->
+            <DataTemplate DataType="vm:GitChangeSourceGroup">
+              <Button Classes="gc-row" Command="{Binding ToggleCommand}" Height="30"
+                      AutomationProperties.Name="{Binding Name}">
+                <Grid ColumnDefinitions="14,Auto,*,Auto,Auto,44,40">
+                  <PathIcon Grid.Column="0" Classes="gc-chevron"
+                            Classes.expanded="{Binding IsExpanded}"
+                            Data="{StaticResource Gc.Chevron}"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  <Panel Grid.Column="1" Margin="4,0,8,0" VerticalAlignment="Center">
+                    <PathIcon Data="{StaticResource Gc.Repo}" Width="13" Height="13"
+                              Foreground="{DynamicResource Brush.TextTertiary}"
+                              IsVisible="{Binding !IsSubmodule}" />
+                    <PathIcon Data="{StaticResource Gc.Submodule}" Width="13" Height="13"
+                              Foreground="{DynamicResource Brush.AccentDefault}"
+                              IsVisible="{Binding IsSubmodule}" />
+                  </Panel>
+                  <!-- Plain TextBlock in the star column, not a horizontal StackPanel: a
+                       StackPanel measures children unbounded, so the name would never trim and
+                       would overlap the columns to its right once the island is dragged narrow. -->
+                  <TextBlock Grid.Column="2" Classes="gc-source" Text="{Binding Name}"
+                             TextTrimming="CharacterEllipsis" />
+                  <Border Grid.Column="3" Classes="gc-pill" Margin="8,0,0,0"
+                          IsVisible="{Binding HasBadge}">
+                    <TextBlock Text="{Binding BadgeLabel}" />
+                  </Border>
+                  <TextBlock Grid.Column="4" Classes="gc-stat" Margin="8,0,4,0" MinWidth="18"
+                             Foreground="{DynamicResource Brush.TextTertiary}"
+                             Text="{Binding FileCountCompact}" />
+                  <TextBlock Grid.Column="5" Classes="gc-stat added" Text="{Binding AddedCell}" />
+                  <TextBlock Grid.Column="6" Classes="gc-stat removed" Text="{Binding RemovedCell}" />
                 </Grid>
-
-              </StackPanel>
+              </Button>
             </DataTemplate>
-          </ItemsControl.ItemTemplate>
+
+            <!-- Folder: folds its files away; compacted chains dim their leading segments -->
+            <DataTemplate DataType="vm:GitChangeFolderNode">
+              <Button Classes="gc-row" Command="{Binding ToggleCommand}"
+                      AutomationProperties.Name="{Binding FullPath}">
+                <Grid ColumnDefinitions="Auto,14,Auto,*,Auto,44,40">
+                  <views:GitTreeIndent Grid.Column="0" Depth="{Binding Depth}"
+                                       Stroke="{DynamicResource Brush.BorderSubtle}" />
+                  <PathIcon Grid.Column="1" Classes="gc-chevron"
+                            Classes.expanded="{Binding IsExpanded}"
+                            Data="{StaticResource Gc.Chevron}"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  <PathIcon Grid.Column="2" Data="{StaticResource Gc.Folder}"
+                            Width="12" Height="12" Margin="4,0,7,0"
+                            Foreground="{DynamicResource Brush.TextTertiary}"
+                            VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="3" Classes="gc-file"
+                             TextTrimming="CharacterEllipsis"><Run Text="{Binding ParentLabel}" Foreground="{DynamicResource Brush.TextTertiary}" /><Run Text="{Binding LeafLabel}" Foreground="{DynamicResource Brush.TextPrimary}" /></TextBlock>
+                  <TextBlock Grid.Column="4" Classes="gc-stat" Margin="8,0,4,0" MinWidth="18"
+                             Foreground="{DynamicResource Brush.TextTertiary}"
+                             Text="{Binding FileCountCompact}" />
+                  <TextBlock Grid.Column="5" Classes="gc-stat added dim" Text="{Binding AddedCell}" />
+                  <TextBlock Grid.Column="6" Classes="gc-stat removed dim" Text="{Binding RemovedCell}" />
+                </Grid>
+              </Button>
+            </DataTemplate>
+
+            <!-- File: opens its diff -->
+            <DataTemplate DataType="vm:GitFileChangeViewModel">
+              <Button Classes="gc-row"
+                      Classes.selected="{Binding IsSelected}"
+                      Command="{Binding ShowDiffCommand}"
+                      AutomationProperties.Name="{Binding RelativePath}">
+                <Grid ColumnDefinitions="Auto,14,Auto,*,44,40">
+                  <views:GitTreeIndent Grid.Column="0" Depth="{Binding Depth}"
+                                       Stroke="{DynamicResource Brush.BorderSubtle}" />
+                  <Border Grid.Column="2" Classes="gc-badge"
+                          Classes.added="{Binding IsAdded}"
+                          Classes.untracked="{Binding IsUntracked}"
+                          Classes.deleted="{Binding IsDeleted}"
+                          Classes.renamed="{Binding IsRenamed}"
+                          Classes.submodule="{Binding IsSubmodulePointer}"
+                          Margin="1,0,8,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding KindIcon}" />
+                  </Border>
+                  <TextBlock Grid.Column="3" Classes="gc-file"
+                             TextTrimming="CharacterEllipsis"><Run Text="{Binding FileName}" /><Run Text="{Binding InlineNote}" Foreground="{DynamicResource Brush.TextTertiary}" /></TextBlock>
+                  <TextBlock Grid.Column="4" Classes="gc-stat added" Text="{Binding AddedCell}" />
+                  <TextBlock Grid.Column="5" Classes="gc-stat removed" Text="{Binding RemovedCell}" />
+                </Grid>
+              </Button>
+            </DataTemplate>
+
+          </ItemsControl.DataTemplates>
         </ItemsControl>
       </ScrollViewer>
 

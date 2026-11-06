@@ -2099,7 +2099,11 @@
   "Git_ClearFilter": "נקה סינון",
   "Git_NoFilterMatches": "אין קבצים תואמים",
   "Git_NoFilterMatchesHint": "נסה חלק אחר של שם הקובץ או התיקייה.",
-  "Git_ToggleAllSources": "הרחב או כווץ את כל המקורות",
+  "Git_CollapseAll": "כווץ את כל התיקיות",
+  "Git_ExpandAll": "הרחב את כל התיקיות",
+  "Git_PreviousFile": "הקובץ הקודם (Alt+↑)",
+  "Git_NextFile": "הקובץ הבא (Alt+↓)",
+  "Git_FilePosition": "{0} מתוך {1}",
 
   "Workspace_Title": "סביבת עבודה",
   "Workspace_Apps": "אפליקציות וקנבסים",

@@ -208,6 +208,23 @@
                 <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.CloseCanvas}" />
               </Button>
             </StackPanel>
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2"
+                        IsVisible="{Binding ShowsGitFileSteps}">
+              <Button x:Name="WorkspacePreviousGitFileButton" Classes="subtle ws-header-button"
+                      IsEnabled="{Binding CanGoToPreviousGitFile}"
+                      Click="OnPreviousGitFileClick"
+                      ToolTip.Tip="{loc:Str Git_PreviousFile}"
+                      AutomationProperties.Name="{loc:Str Git_PreviousFile}">
+                <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.ChevronUp}" />
+              </Button>
+              <Button x:Name="WorkspaceNextGitFileButton" Classes="subtle ws-header-button"
+                      IsEnabled="{Binding CanGoToNextGitFile}"
+                      Click="OnNextGitFileClick"
+                      ToolTip.Tip="{loc:Str Git_NextFile}"
+                      AutomationProperties.Name="{loc:Str Git_NextFile}">
+                <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.ChevronDown}" />
+              </Button>
+            </StackPanel>
             <Button x:Name="WorkspaceCloseButton" Grid.Column="4"
                     Classes="subtle ws-header-button" Margin="2,0,0,0"
                     Click="OnWorkspaceCloseClick"

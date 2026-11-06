@@ -199,10 +199,25 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
 
     private void OnCloseCanvasClick(object? sender, RoutedEventArgs e) => _workspace?.CloseCanvas();
 
+    private void OnPreviousGitFileClick(object? sender, RoutedEventArgs e) => _workspace?.ShowAdjacentGitFile(-1);
+
+    private void OnNextGitFileClick(object? sender, RoutedEventArgs e) => _workspace?.ShowAdjacentGitFile(1);
+
     /// <summary>Escape steps back: out of a page, else from one kind back to everything.</summary>
     private void OnWorkspaceKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Escape || e.Handled || _workspace is null)
+        if (e.Handled || _workspace is null)
+            return;
+
+        // Alt+Up/Down steps through changed files while a git diff is open.
+        if (e.KeyModifiers == KeyModifiers.Alt && e.Key is Key.Up or Key.Down)
+        {
+            if (_workspace.ShowAdjacentGitFile(e.Key == Key.Up ? -1 : 1))
+                e.Handled = true;
+            return;
+        }
+
+        if (e.Key != Key.Escape)
             return;
 
         if (_workspace.Page != WorkspacePage.Overview)

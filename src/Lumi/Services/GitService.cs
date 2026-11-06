@@ -444,6 +444,7 @@ public static partial class GitService
             if (line.Length < 4) continue;
             var status = line[..2];
             var path = line[3..].Trim().Trim('"');
+            string? originalPath = null;
 
             var kind = status.Trim() switch
             {
@@ -454,6 +455,13 @@ public static partial class GitService
                 "??" => GitChangeKind.Untracked,
                 _ => GitChangeKind.Modified
             };
+
+            // A rename is reported as "old -> new"; the change lives at the new path.
+            if (kind == GitChangeKind.Renamed && path.IndexOf(" -> ", StringComparison.Ordinal) is var arrow and > 0)
+            {
+                originalPath = path[..arrow].Trim('"');
+                path = path[(arrow + 4)..].Trim('"');
+            }
 
             var fullPath = Path.Combine(repoRoot, path.Replace('/', Path.DirectorySeparatorChar));
 
@@ -467,6 +475,7 @@ public static partial class GitService
                 FullPath = fullPath,
                 RepoRoot = repoRoot,
                 RepoRelativePath = path,
+                OriginalRepoRelativePath = originalPath,
                 Kind = kind,
                 StatusCode = status
             });
