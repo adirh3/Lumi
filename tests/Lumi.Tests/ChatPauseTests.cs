@@ -98,8 +98,25 @@ public sealed class ChatPauseTests
     {
         var hooks = ChatViewModel.BuildSessionHooks();
         var before = hooks.OnPreToolUse!(new PreToolUseHookInput(), new HookInvocation());
+        Assert.True(before.IsCompletedSuccessfully);
         Assert.Null((await before)!.PermissionDecision);
-        Assert.Null(hooks.OnPostToolUse);
+
+        // The only post-tool hook adds image guidance; it answers at once, so a tool never waits on it.
+        using var imageResult = JsonDocument.Parse(JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["textResultForLlm"] = "Image generated successfully.\nsaved_to: "
+                                   + Path.Combine(Path.GetTempPath(), "images", "image.png"),
+        }));
+        var image = hooks.OnPostToolUse!(
+            new PostToolUseHookInput { ToolName = "image_generation", ToolResult = imageResult.RootElement.Clone() },
+            new HookInvocation());
+        var other = hooks.OnPostToolUse!(
+            new PostToolUseHookInput { ToolName = "powershell", ToolResult = imageResult.RootElement.Clone() },
+            new HookInvocation());
+        Assert.True(image.IsCompletedSuccessfully);
+        Assert.NotNull((await image)?.AdditionalContext);
+        Assert.True(other.IsCompletedSuccessfully);
+        Assert.Null(await other);
         Assert.Null(hooks.OnPostToolUseFailure);
     }
 
