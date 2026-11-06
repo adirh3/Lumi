@@ -253,9 +253,10 @@ public sealed class ChatSessionStore : IDisposable
         if (_isDisposed)
             return;
 
+        var idleTimeout = TimeSpan.FromMinutes(_dataStore.Data.Settings.IdleSessionTimeoutMinutes);
         foreach (var surface in _surfaces.ToArray())
-            surface.ReleaseIdleSessionRuntimes(utcNow);
-        await _copilotService.ReleaseIdleSuggestionSessionAsync(utcNow);
+            surface.ReleaseIdleSessionRuntimes(utcNow, idleTimeout);
+        await _copilotService.ReleaseIdleSuggestionSessionAsync(utcNow, idleTimeout);
     }
 
     private async void OnIdleSessionTimer(object? sender, EventArgs args)

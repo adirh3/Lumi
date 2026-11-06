@@ -179,15 +179,22 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task IdleTimeout_ReleasesHostedAndCachedRuntimeWithoutLosingTheChat(bool hosted)
+    [InlineData(true, 60)]
+    [InlineData(false, 60)]
+    [InlineData(true, 5)]
+    [InlineData(false, 120)]
+    public async Task IdleTimeout_ReleasesHostedAndCachedRuntimeWithoutLosingTheChat(bool hosted, int timeoutMinutes)
     {
         var chat = new Chat { Title = "idle-timeout", CopilotSessionId = "sid-idle-timeout" };
         chat.Messages.Add(new ChatMessage { Role = "user", Content = "keep this transcript" });
         var store = new DataStore(new AppData
         {
-            Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+            Settings = new UserSettings
+            {
+                AutoSaveChats = false,
+                EnableMemoryAutoSave = false,
+                IdleSessionTimeoutMinutes = timeoutMinutes
+            },
             Chats = [chat]
         });
         using var registry = new ChatSurfaceRegistry();
@@ -211,9 +218,10 @@ public sealed class ChatViewModelLeakTests
         if (!hosted)
             sessions.Release(vm);
 
-        await sessions.ReleaseIdleSessionsAsync(lastActivity + CopilotService.IdleSessionTimeout - TimeSpan.FromTicks(1));
+        var timeout = TimeSpan.FromMinutes(timeoutMinutes);
+        await sessions.ReleaseIdleSessionsAsync(lastActivity + timeout - TimeSpan.FromTicks(1));
         Assert.False(SessionWasDisposed(native));
-        await sessions.ReleaseIdleSessionsAsync(lastActivity + CopilotService.IdleSessionTimeout);
+        await sessions.ReleaseIdleSessionsAsync(lastActivity + timeout);
         await DrainSessionReleaseAsync(vm, chat.Id);
 
         Assert.True(SessionWasDisposed(native));
@@ -225,6 +233,97 @@ public sealed class ChatViewModelLeakTests
         Assert.Equal("keep this transcript", Assert.Single(chat.Messages).Content);
         Assert.Same(runtime, GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id]);
         Assert.Same(vm, await sessions.AcquireChatAsync(chat));
+    }
+
+    [Fact]
+    public async Task IdleTimeout_ChangesApplyToAnExistingSession()
+    {
+        var chat = new Chat { CopilotSessionId = "sid-changed-idle-timeout" };
+        var store = CreateDataStore();
+        store.Data.Chats.Add(chat);
+        using var registry = new ChatSurfaceRegistry();
+        using var sessions = new ChatSessionStore(store, TestCopilot.Shared, registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            });
+        using var settings = new SettingsViewModel(store, TestCopilot.Shared, new BrowserService(), new UpdateService());
+        var vm = await sessions.AcquireChatAsync(chat);
+        var native = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = native;
+        SetPrivateField(vm, "_activeSession", native);
+        var lastActivity = DateTimeOffset.UtcNow;
+        GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id] =
+            new ChatRuntimeState { Chat = chat, LastSessionActivityUtc = lastActivity };
+
+        await sessions.ReleaseIdleSessionsAsync(lastActivity + TimeSpan.FromMinutes(45));
+        Assert.False(SessionWasDisposed(native));
+
+        settings.IdleSessionTimeoutMinutes = 120;
+        await sessions.ReleaseIdleSessionsAsync(lastActivity + TimeSpan.FromMinutes(61));
+        Assert.False(SessionWasDisposed(native));
+
+        settings.IdleSessionTimeoutMinutes = 30;
+        await sessions.ReleaseIdleSessionsAsync(lastActivity + TimeSpan.FromMinutes(45));
+        await DrainSessionReleaseAsync(vm, chat.Id);
+        Assert.True(SessionWasDisposed(native));
+        Assert.Equal("sid-changed-idle-timeout", chat.CopilotSessionId);
+    }
+
+    [Fact]
+    public async Task IdleTimeout_AppliesToTheSuggestionHelperAndProtectsItsRequest()
+    {
+        var service = TestCopilot.Shared;
+        var sessionField = typeof(CopilotService).GetField("_suggestionSession", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var lastUseField = typeof(CopilotService).GetField("_suggestionSessionLastUsedUtc", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var signatureField = typeof(CopilotService).GetField("_suggestionSessionModelSignature", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var previousLastUse = lastUseField.GetValue(service);
+        var previousSignature = signatureField.GetValue(service);
+        Assert.Null(sessionField.GetValue(service));
+
+        // A disposed sentinel needs no SDK transport, but still exercises the helper's release path.
+        var helper = CreateDetachedSession("");
+        SetPrivateField(helper, "_isDisposed", 1);
+        var lastUse = DateTimeOffset.UtcNow;
+        sessionField.SetValue(service, helper);
+        lastUseField.SetValue(service, lastUse);
+        signatureField.SetValue(service, "fixture");
+        try
+        {
+            var store = CreateDataStore();
+            using var registry = new ChatSurfaceRegistry();
+            using var sessions = new ChatSessionStore(store, service, registry,
+                static (_, _) => Task.CompletedTask);
+            using var settings = new SettingsViewModel(store, service, new BrowserService(), new UpdateService());
+
+            settings.IdleSessionTimeoutMinutes = 120;
+            await sessions.ReleaseIdleSessionsAsync(lastUse + TimeSpan.FromMinutes(61));
+            Assert.Same(helper, sessionField.GetValue(service));
+
+            settings.IdleSessionTimeoutMinutes = 30;
+            var gate = GetField<SemaphoreSlim>(service, "_suggestionGate");
+            await gate.WaitAsync();
+            try
+            {
+                await sessions.ReleaseIdleSessionsAsync(lastUse + TimeSpan.FromMinutes(30));
+                Assert.Same(helper, sessionField.GetValue(service));
+            }
+            finally
+            {
+                gate.Release();
+            }
+
+            await sessions.ReleaseIdleSessionsAsync(lastUse + TimeSpan.FromMinutes(30));
+            Assert.Null(sessionField.GetValue(service));
+            Assert.Null(signatureField.GetValue(service));
+        }
+        finally
+        {
+            sessionField.SetValue(service, null);
+            lastUseField.SetValue(service, previousLastUse);
+            signatureField.SetValue(service, previousSignature);
+        }
     }
 
     [Theory]
@@ -281,9 +380,9 @@ public sealed class ChatViewModelLeakTests
                 vm.IsWorkspacePanelOpen = true;
                 break;
         }
-        runtime.LastSessionActivityUtc = DateTimeOffset.UtcNow - TimeSpan.FromHours(1);
+        runtime.LastSessionActivityUtc = DateTimeOffset.UtcNow - TimeSpan.FromHours(2);
 
-        vm.ReleaseIdleSessionRuntimes(DateTimeOffset.UtcNow);
+        vm.ReleaseIdleSessionRuntimes(DateTimeOffset.UtcNow, TimeSpan.FromHours(1));
 
         Assert.False(SessionWasDisposed(native));
         Assert.True(vm.HasLiveCopilotRuntimeForCurrentChat());
@@ -348,7 +447,8 @@ public sealed class ChatViewModelLeakTests
             GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id] = new ChatRuntimeState
             {
                 Chat = chat,
-                LastSessionActivityUtc = DateTimeOffset.UtcNow - CopilotService.IdleSessionTimeout - TimeSpan.FromMinutes(1)
+                LastSessionActivityUtc = DateTimeOffset.UtcNow
+                    - TimeSpan.FromMinutes(UserSettings.DefaultIdleSessionTimeoutMinutes) - TimeSpan.FromMinutes(1)
             };
             var timer = GetField<Avalonia.Threading.DispatcherTimer>(sessions, "_idleSessionTimer");
             timer.Interval = TimeSpan.FromMilliseconds(10);

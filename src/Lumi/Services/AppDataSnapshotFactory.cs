@@ -49,6 +49,7 @@ internal static class AppDataSnapshotFactory
                 ShowReasoning = settings.ShowReasoning,
                 ExpandReasoningWhileStreaming = settings.ExpandReasoningWhileStreaming,
                 AutoGenerateTitles = settings.AutoGenerateTitles,
+                IdleSessionTimeoutMinutes = settings.IdleSessionTimeoutMinutes,
                 SuggestFollowUps = settings.SuggestFollowUps,
                 PersonalSkillDirectories = [.. settings.PersonalSkillDirectories],
                 DefaultApprovalMode = settings.DefaultApprovalMode,

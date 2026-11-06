@@ -665,14 +665,16 @@ sets `EnableSessionTelemetry = false` on created, resumed and helper sessions. T
 local session journals, chat persistence, model requests and provider-side usage/accounting.
 Lumi does not configure an OpenTelemetry exporter.
 
-Lumi owns a 30-minute idle policy, checked once a minute by its existing chat-session store.
+Lumi checks for idle sessions once a minute and releases them after one hour by default. Change
+**Settings → Chat → Idle session timeout (minutes)** to keep them warm for a shorter or longer time;
+the new timeout applies on the next check.
 Copilot's automatic idle timeout is disabled: Lumi explicitly releases an unused native session
 and clears its local handle while retaining the saved session ID, transcript, draft and selection.
 This includes visible idle chats as well as cached chats. Active/background work, queued sends,
 questions, approvals, pending session operations and a visible app or canvas protect their sessions.
 When further work needs the session, Lumi resumes the saved ID through its normal setup path.
 Model-only changes on a closed session are saved for that next use rather than loading its history.
-The warm suggestion helper is also released after 30 minutes unused, under its request gate, and
+The warm suggestion helper uses the same timeout, is released under its request gate, and is
 recreated on demand. One-shot helpers keep their existing dispose-after-use lifetime.
 Idle release does not stop the shared Copilot process or clear the displayed transcript.
 Foreground sends, background sends and resends restore an expired native session using its saved

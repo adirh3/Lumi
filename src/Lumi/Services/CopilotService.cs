@@ -66,7 +66,6 @@ public class ByokOnlyRequestBlockedException : InvalidOperationException
 
 public class CopilotService : IAsyncDisposable
 {
-    internal static readonly TimeSpan IdleSessionTimeout = TimeSpan.FromMinutes(30);
     internal const string DisableClientTelemetryArgument = "--disable-client-telemetry";
 
     private static readonly MethodInfo? RemoveSessionFromClientMethod = typeof(CopilotSession).GetMethod(
@@ -2164,7 +2163,7 @@ public class CopilotService : IAsyncDisposable
         return _suggestionSession;
     }
 
-    internal async Task ReleaseIdleSuggestionSessionAsync(DateTimeOffset utcNow)
+    internal async Task ReleaseIdleSuggestionSessionAsync(DateTimeOffset utcNow, TimeSpan idleTimeout)
     {
         if (!await _suggestionGate.WaitAsync(0).ConfigureAwait(false))
             return;
@@ -2172,7 +2171,7 @@ public class CopilotService : IAsyncDisposable
         try
         {
             if (_suggestionSession is null
-                || utcNow - _suggestionSessionLastUsedUtc < IdleSessionTimeout)
+                || utcNow - _suggestionSessionLastUsedUtc < idleTimeout)
                 return;
 
             var session = _suggestionSession;

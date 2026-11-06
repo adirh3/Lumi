@@ -64,6 +64,29 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void IdleSessionTimeout_DefaultsToOneHourForExistingSettings()
+    {
+        var settings = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings);
+
+        Assert.Equal(60, new UserSettings().IdleSessionTimeoutMinutes);
+        Assert.NotNull(settings);
+        Assert.Equal(60, settings.IdleSessionTimeoutMinutes);
+    }
+
+    [Fact]
+    public void IdleSessionTimeout_SurvivesSnapshotAndJsonRoundTrip()
+    {
+        var data = new AppData { Settings = new UserSettings { IdleSessionTimeoutMinutes = 180 } };
+        var snapshot = InvokeCreateIndexSnapshot(data);
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData);
+
+        Assert.Equal(180, snapshot.Settings.IdleSessionTimeoutMinutes);
+        Assert.NotNull(restored);
+        Assert.Equal(180, restored.Settings.IdleSessionTimeoutMinutes);
+    }
+
+    [Fact]
     public void McpToolTimeout_DefaultsToThreeMinutesForExistingSettings()
     {
         var settings = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings);

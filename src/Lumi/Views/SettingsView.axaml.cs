@@ -442,6 +442,7 @@ public partial class SettingsView : UserControl, IDisposable
         [Loc.Setting_ShowToolCalls] = vm => vm.RevertShowToolCallsCommand.Execute(null),
         [Loc.Setting_ShowReasoning] = vm => vm.RevertShowReasoningCommand.Execute(null),
         [Loc.Setting_ExpandReasoningWhileStreaming] = vm => vm.RevertExpandReasoningWhileStreamingCommand.Execute(null),
+        ["IdleSessionTimeoutSetting"] = vm => vm.RevertIdleSessionTimeoutCommand.Execute(null),
         [Loc.Setting_PersonalSkillFolders] = vm => vm.RevertPersonalSkillDirectoriesCommand.Execute(null),
         [Loc.Get("Permissions_DefaultMode")] = vm => vm.RevertDefaultApprovalModeCommand.Execute(null),
         [Loc.Get("Permissions_OnItsOwn")] = vm => vm.RevertAwayApprovalBehaviorCommand.Execute(null),

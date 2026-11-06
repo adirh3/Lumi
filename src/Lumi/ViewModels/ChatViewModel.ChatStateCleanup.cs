@@ -1274,7 +1274,7 @@ public partial class ChatViewModel
         ReleaseChatRuntimeState(chat, unloadMessages: false, expectedMessageCount: -1);
     }
 
-    internal void ReleaseIdleSessionRuntimes(DateTimeOffset utcNow)
+    internal void ReleaseIdleSessionRuntimes(DateTimeOffset utcNow, TimeSpan idleTimeout)
     {
         if (_isDisposed || IsLoadingChat || IsContextPanelBusy
             || Volatile.Read(ref _modelSelectionSyncOperations) > 0
@@ -1287,7 +1287,7 @@ public partial class ChatViewModel
                 continue;
 
             var runtime = GetOrCreateRuntimeState(chatId);
-            if (utcNow - runtime.LastSessionActivityUtc < CopilotService.IdleSessionTimeout)
+            if (utcNow - runtime.LastSessionActivityUtc < idleTimeout)
                 continue;
 
             // Only the native runtime goes cold: keep the displayed transcript, draft and saved ID.

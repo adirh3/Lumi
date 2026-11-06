@@ -18,7 +18,6 @@ public sealed class CopilotProcessEnvironmentTests
         Assert.Equal(expectedPath, connection.Path);
         Assert.Contains("--disable-client-telemetry", connection.Args!);
         Assert.Equal(0, options.SessionIdleTimeoutSeconds);
-        Assert.Equal(TimeSpan.FromMinutes(30), CopilotService.IdleSessionTimeout);
         Assert.Equal(CopilotLogLevel.Error, options.LogLevel);
 #pragma warning disable GHCP001 // Preserve the SDK extension launcher without opting into telemetry forwarding.
         Assert.NotNull(options.ExtensionLaunchProvider);

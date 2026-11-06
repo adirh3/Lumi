@@ -1802,6 +1802,13 @@ public class UserSettings
     public bool ExpandReasoningWhileStreaming { get; set; } = true;
     public bool AutoGenerateTitles { get; set; } = true;
 
+    public const int DefaultIdleSessionTimeoutMinutes = 60;
+    public const int MinIdleSessionTimeoutMinutes = 1;
+    public const int MaxIdleSessionTimeoutMinutes = 525_600;
+
+    /// <summary>How long unused chat and suggestion sessions stay warm, in minutes.</summary>
+    public int IdleSessionTimeoutMinutes { get; set; } = DefaultIdleSessionTimeoutMinutes;
+
     /// <summary>Suggest follow-up prompts after Lumi replies. Each suggestion uses the background model.</summary>
     public bool SuggestFollowUps { get; set; } = true;
 

@@ -147,6 +147,32 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _expandReasoningWhileStreaming;
     [ObservableProperty] private bool _autoGenerateTitles;
     [ObservableProperty] private bool _suggestFollowUps;
+    private decimal? _idleSessionTimeoutMinutes;
+
+    public decimal? IdleSessionTimeoutMinutes
+    {
+        get => _idleSessionTimeoutMinutes;
+        set
+        {
+            if (value is not { } minutes
+                || minutes < UserSettings.MinIdleSessionTimeoutMinutes
+                || minutes > UserSettings.MaxIdleSessionTimeoutMinutes
+                || decimal.Truncate(minutes) != minutes)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), string.Format(
+                    Loc.SettingValidation_IdleSessionTimeout,
+                    UserSettings.MinIdleSessionTimeoutMinutes,
+                    UserSettings.MaxIdleSessionTimeoutMinutes));
+            }
+
+            if (SetProperty(ref _idleSessionTimeoutMinutes, value))
+            {
+                _dataStore.Data.Settings.IdleSessionTimeoutMinutes = (int)minutes;
+                Save();
+                NotifyModified();
+            }
+        }
+    }
 
     // ── AI & Models ──
     [ObservableProperty]
@@ -672,6 +698,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _expandReasoningWhileStreaming = s.ExpandReasoningWhileStreaming;
         _autoGenerateTitles = s.AutoGenerateTitles;
         _suggestFollowUps = s.SuggestFollowUps;
+        _idleSessionTimeoutMinutes = s.IdleSessionTimeoutMinutes;
         InitializePersonalSkillDirectories(s);
         InitializePermissions(s);
         InitializePhoneNotifications(s);
@@ -2198,6 +2225,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsShowToolCallsModified => ShowToolCalls != _defaults.ShowToolCalls;
     public bool IsShowReasoningModified => ShowReasoning != _defaults.ShowReasoning;
     public bool IsExpandReasoningWhileStreamingModified => ExpandReasoningWhileStreaming != _defaults.ExpandReasoningWhileStreaming;
+    public bool IsIdleSessionTimeoutModified => IdleSessionTimeoutMinutes != _defaults.IdleSessionTimeoutMinutes;
 
     public bool IsDefaultModelSelectionModified => PreferredModel != _defaults.PreferredModel
         || ReasoningEffort != _defaults.ReasoningEffort
@@ -2236,6 +2264,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsShowToolCallsModified));
         OnPropertyChanged(nameof(IsShowReasoningModified));
         OnPropertyChanged(nameof(IsExpandReasoningWhileStreamingModified));
+        OnPropertyChanged(nameof(IsIdleSessionTimeoutModified));
         OnPropertyChanged(nameof(IsDefaultApprovalModeModified));
         OnPropertyChanged(nameof(IsAwayApprovalBehaviorModified));
         OnPropertyChanged(nameof(IsAppearanceCustomized));
@@ -2291,6 +2320,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertShowToolCalls() => ShowToolCalls = _defaults.ShowToolCalls;
     [RelayCommand] private void RevertShowReasoning() => ShowReasoning = _defaults.ShowReasoning;
     [RelayCommand] private void RevertExpandReasoningWhileStreaming() => ExpandReasoningWhileStreaming = _defaults.ExpandReasoningWhileStreaming;
+    [RelayCommand] private void RevertIdleSessionTimeout() => IdleSessionTimeoutMinutes = _defaults.IdleSessionTimeoutMinutes;
 
     [RelayCommand]
     private void RevertDefaultModelSelection()
@@ -2485,6 +2515,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ExpandReasoningWhileStreaming = defaults.ExpandReasoningWhileStreaming;
         AutoGenerateTitles = defaults.AutoGenerateTitles;
         SuggestFollowUps = defaults.SuggestFollowUps;
+        IdleSessionTimeoutMinutes = defaults.IdleSessionTimeoutMinutes;
         SetPersonalSkillDirectories(defaults.PersonalSkillDirectories);
         ResetPermissions(defaults);
         PreferredModel = defaults.PreferredModel;

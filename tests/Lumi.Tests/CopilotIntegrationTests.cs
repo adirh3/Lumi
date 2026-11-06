@@ -951,8 +951,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
             if (lumiOwnsRelease)
             {
+                var idleTimeout = TimeSpan.FromMinutes(store.Data.Settings.IdleSessionTimeoutMinutes);
                 viewModel.ReleaseIdleSessionRuntimes(
-                    DateTimeOffset.UtcNow + CopilotService.IdleSessionTimeout + TimeSpan.FromSeconds(1));
+                    DateTimeOffset.UtcNow + idleTimeout + TimeSpan.FromSeconds(1), idleTimeout);
                 Assert.False(viewModel.HasLiveCopilotRuntimeForCurrentChat());
                 Assert.Equal(sessionId, chat.CopilotSessionId);
             }
@@ -1181,8 +1182,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
             Assert.False(string.IsNullOrWhiteSpace(sessionId));
             if (lumiOwnsRelease)
             {
+                var idleTimeout = TimeSpan.FromMinutes(store.Data.Settings.IdleSessionTimeoutMinutes);
                 viewModel.ReleaseIdleSessionRuntimes(
-                    DateTimeOffset.UtcNow + CopilotService.IdleSessionTimeout + TimeSpan.FromSeconds(1));
+                    DateTimeOffset.UtcNow + idleTimeout + TimeSpan.FromSeconds(1), idleTimeout);
                 Assert.False(viewModel.HasLiveCopilotRuntimeForCurrentChat());
             }
             else
@@ -2458,21 +2460,22 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var lastUse = (DateTimeOffset)typeof(CopilotService).GetField(
             "_suggestionSessionLastUsedUtc", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_service)!;
-        await _service.ReleaseIdleSuggestionSessionAsync(lastUse + CopilotService.IdleSessionTimeout - TimeSpan.FromTicks(1));
+        var idleTimeout = TimeSpan.FromMinutes(12);
+        await _service.ReleaseIdleSuggestionSessionAsync(lastUse + idleTimeout - TimeSpan.FromTicks(1), idleTimeout);
         Assert.Same(replacement, sessionField.GetValue(_service));
         var gate = (SemaphoreSlim)typeof(CopilotService).GetField(
             "_suggestionGate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_service)!;
         await gate.WaitAsync();
         try
         {
-            await _service.ReleaseIdleSuggestionSessionAsync(lastUse + CopilotService.IdleSessionTimeout);
+            await _service.ReleaseIdleSuggestionSessionAsync(lastUse + idleTimeout, idleTimeout);
             Assert.Same(replacement, sessionField.GetValue(_service));
         }
         finally
         {
             gate.Release();
         }
-        await _service.ReleaseIdleSuggestionSessionAsync(lastUse + CopilotService.IdleSessionTimeout);
+        await _service.ReleaseIdleSuggestionSessionAsync(lastUse + idleTimeout, idleTimeout);
         Assert.Null(sessionField.GetValue(_service));
         Assert.NotEmpty((await SuggestAsync(
             "The garden needs watering.", "How should I care for these plants?"))!);
