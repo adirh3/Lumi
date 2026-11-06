@@ -162,6 +162,7 @@ internal enum ChatImportState
 /// A user, assistant, system or error message's place in a transcript, without its body. A user
 /// message also comes with its author, how its text starts and whether it is a form's receipt: what
 /// tells a message of the user's own from a job's wake (see <c>TranscriptBuilder.ShowsAsUserMessage</c>).
+/// A receipt also comes with what it says it did, which the transcript rail previews.
 /// </summary>
 internal readonly record struct ChatOutlineEntry(
     long Seq,
@@ -171,7 +172,9 @@ internal readonly record struct ChatOutlineEntry(
     int TextLength,
     string? Author = null,
     string? TextStart = null,
-    bool IsReceipt = false);
+    bool IsReceipt = false,
+    string? ReceiptTitle = null,
+    string? ReceiptSummary = null);
 
 /// <summary>The newest exchange of a chat, read to become its live tail.</summary>
 internal sealed record ChatTailRead(

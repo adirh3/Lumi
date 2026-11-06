@@ -222,58 +222,74 @@ public partial class ChatView
             if (message is not null)
                 FlashMessage(message);
 
-            // Realizing the target and its neighbours re-measures them, shifting the target after the
-            // first scroll; re-measure and correct until it settles on the landing line. Older exchanges
-            // around the target are read and built once the viewport realizes them, re-measuring what is
-            // above it again: realize the viewport now, wait for them, then land once more.
-            _chatShell.PreserveViewport();
-            if (!await LandAsync())
-                return;
-            if (vm.HasTranscriptHistory)
-            {
-                (_transcript as TranscriptItemsControl)?.RealizeCurrentViewportNow();
-                for (var wait = 0; wait < 40 && (vm.TranscriptHistory.HasPendingWork || TranscriptRealizationScheduler.Instance.HasPendingWork); wait++)
-                {
-                    await Task.Delay(16);
-                    if (version != _userNavVersion)
-                        return;
-                }
-
-                if (!await LandAsync())
-                    return;
-            }
-
-            _userNavLandingOffset = _chatShell.VerticalOffset;
-
-            async Task<bool> LandAsync()
-            {
-                for (var attempt = 0; attempt < 4; attempt++)
-                {
-                    // Realizing again replaces the turn's controls, so find the message each time.
-                    if (_chatShell is null || GetLandingY(turn) is not { } y)
-                        return false;
-
-                    var before = _chatShell.VerticalOffset;
-                    var desired = Math.Max(0, before + y - UserMessageLandingInset);
-                    if (Math.Abs(desired - before) < 1)
-                        break;
-
-                    _chatShell.ScrollToVerticalOffset(desired);
-                    if (Math.Abs(_chatShell.VerticalOffset - before) < 1)
-                        break; // clamped at an edge
-
-                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Loaded);
-                    if (version != _userNavVersion)
-                        return false;
-                }
-
-                return true;
-            }
+            await LandOnReadingLineAsync(vm, version, () => GetLandingY(turn));
         }
         finally
         {
             if (version == _userNavVersion)
                 _userNavInFlight = false;
+        }
+    }
+
+    /// <summary>
+    /// Scrolls what <paramref name="getLandingY"/> finds (its top in the transcript's viewport) onto the
+    /// reading line, and records where the jump left the transcript so Ctrl+↑/↓ go on from it. Returns
+    /// false when a newer jump took over, or the target is gone.
+    /// </summary>
+    private async Task<bool> LandOnReadingLineAsync(ChatViewModel vm, int version, Func<double?> getLandingY)
+    {
+        if (_chatShell is null)
+            return false;
+
+        // Realizing the target and its neighbours re-measures them, shifting the target after the
+        // first scroll; re-measure and correct until it settles on the landing line. Older exchanges
+        // around the target are read and built once the viewport realizes them, re-measuring what is
+        // above it again: realize the viewport now, wait for them, then land once more.
+        _chatShell.PreserveViewport();
+        if (!await LandAsync())
+            return false;
+        if (vm.HasTranscriptHistory)
+        {
+            (_transcript as TranscriptItemsControl)?.RealizeCurrentViewportNow();
+            for (var wait = 0; wait < 40 && (vm.TranscriptHistory.HasPendingWork || TranscriptRealizationScheduler.Instance.HasPendingWork); wait++)
+            {
+                await Task.Delay(16);
+                if (version != _userNavVersion)
+                    return false;
+            }
+
+            if (!await LandAsync())
+                return false;
+        }
+
+        if (_chatShell is null)
+            return false;
+        _userNavLandingOffset = _chatShell.VerticalOffset;
+        return true;
+
+        async Task<bool> LandAsync()
+        {
+            for (var attempt = 0; attempt < 4; attempt++)
+            {
+                // Realizing again replaces the turn's controls, so find the target each time.
+                if (_chatShell is null || getLandingY() is not { } y)
+                    return false;
+
+                var before = _chatShell.VerticalOffset;
+                var desired = Math.Max(0, before + y - UserMessageLandingInset);
+                if (Math.Abs(desired - before) < 1)
+                    break;
+
+                _chatShell.ScrollToVerticalOffset(desired);
+                if (Math.Abs(_chatShell.VerticalOffset - before) < 1)
+                    break; // clamped at an edge
+
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Loaded);
+                if (version != _userNavVersion)
+                    return false;
+            }
+
+            return true;
         }
     }
 

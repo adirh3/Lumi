@@ -94,7 +94,7 @@ public partial class ChatView : UserControl
 
     // ── Reply jump state ──
     private SelectableTextBlock? _replyHighlightedTextBlock;
-    private StrataChatMessage? _replyFlashMessage;
+    private Control? _replyFlashMessage;
     private DispatcherTimer? _replyFlashTimer;
 
     /// <summary>A match against a TranscriptItem's raw content, with the occurrence index within that item.</summary>
@@ -2175,11 +2175,12 @@ public partial class ChatView : UserControl
     }
 
     /// <summary>
-    /// Briefly glows a jumped-to message (a reply source or a user message reached by keyboard). Any
+    /// Briefly glows a jumped-to message (a reply source or a user message reached by keyboard), or a card
+    /// the transcript rail landed (a question, form, approval or receipt). Any
     /// reply-quote highlight goes with the glow: left in place it would linger as a selection that the
     /// message's copy and reply actions would act on.
     /// </summary>
-    private void FlashMessage(StrataChatMessage message)
+    private void FlashMessage(Control message)
     {
         _replyFlashTimer?.Stop();
         _replyFlashMessage?.Classes.Remove("reply-flash");
@@ -2575,7 +2576,7 @@ public partial class ChatView : UserControl
             var vm = _subscribedVm;
             var version = _searchVersion;
             var ordinal = _searchHits.Take(_currentHitIndex).Count(candidate => ReferenceEquals(candidate.Segment, segment));
-            var turns = await vm.BuildExchangeForSearchAsync(segment);
+            var turns = await vm.BuildExchangeWithFoldedStepsAsync(segment);
             if (turns is null || version != _searchVersion || !ReferenceEquals(vm, _subscribedVm))
                 return;
 

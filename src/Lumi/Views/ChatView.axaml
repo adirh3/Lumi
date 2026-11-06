@@ -2633,6 +2633,13 @@
       </Setter>
       <Setter Property="BoxShadow" Value="inset 0 0 0 2 #E6818CF8" />
     </Style>
+    <!-- Cards the transcript rail lands (questions, forms, approvals, receipts) glow the same way. -->
+    <Style Selector="sc|StrataQuestionCard.reply-flash /template/ Border#PART_Root, sc|StrataApprovalCard.reply-flash /template/ Border#PART_Card, sc|StrataInteractiveBlock.reply-flash /template/ Border#PART_Card, sc|StrataActionReceipt.reply-flash /template/ Border#PART_Bubble">
+      <Setter Property="Transitions">
+        <Transitions />
+      </Setter>
+      <Setter Property="BoxShadow" Value="inset 0 0 0 2 #E6818CF8" />
+    </Style>
 
     <!-- Voice typing cards: a quiet inset in the composer, a tile for what it's about, then words and actions. -->
     <Style Selector="Border.voice-card">
@@ -3429,6 +3436,7 @@
                              SelectedAnswer="{Binding SelectedAnswer, Mode=TwoWay}"
                              IsAnswered="{Binding IsAnswered, Mode=TwoWay}"
                              IsExpired="{Binding IsExpired}"
+                             IsExpanded="{Binding IsExpanded}"
                              Margin="0,4" />
     </DataTemplate>
 

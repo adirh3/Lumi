@@ -486,10 +486,11 @@ public partial class ChatViewModel
     }
 
     /// <summary>
-    /// Builds an older exchange with the steps of its collapsed rows, so search hits inside it can be
-    /// found and revealed. Returns its turns, or null when it is no longer part of the chat.
+    /// Builds an older exchange with the steps of its collapsed rows, so what they fold (a search hit, a
+    /// question the transcript rail jumps to) can be found and revealed. Returns its turns, or null when it
+    /// is no longer part of the chat.
     /// </summary>
-    internal async Task<IReadOnlyList<TranscriptTurn>?> BuildExchangeForSearchAsync(TranscriptHistorySegment segment)
+    internal async Task<IReadOnlyList<TranscriptTurn>?> BuildExchangeWithFoldedStepsAsync(TranscriptHistorySegment segment)
     {
         var turns = await _history.EnsureHydratedAsync(segment).ConfigureAwait(true);
         if (turns is null)

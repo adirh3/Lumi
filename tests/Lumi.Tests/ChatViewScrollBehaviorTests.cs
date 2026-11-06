@@ -1448,7 +1448,7 @@ public sealed class ChatViewScrollBehaviorTests
             // Pointing at a mark previews it; clicking it lands that message just below the header, its
             // exchange built from storage first, and Ctrl+↑/↓ go on from there.
             var mark = rail.Marks[2];
-            Assert.True(ChatViewModel.StandsInForUserMessage(Assert.IsType<TranscriptTurn>(mark.Tag)));
+            Assert.True(ChatViewModel.StandsInForUserMessage(Assert.IsType<TranscriptRailTarget>(mark.Tag).Turn));
             var markPoint = new Point(stripX, origin.Y + rail.GetMarkY(mark));
             window.MouseMove(markPoint);
             await PumpAsync();
@@ -1483,6 +1483,74 @@ public sealed class ChatViewScrollBehaviorTests
             window.MouseMove(new Point(origin.X + 40, origin.Y + 40));
             await WaitForAsync(() => !rail.IsOpen && rail.Marks.Count == 0);
         });
+    }
+
+    [Fact]
+    public async Task TranscriptRail_MapsQuestionsAndReceiptsAndLandsAFoldedQuestion()
+    {
+        using var session = HeadlessTestSession.Start();
+        await WithStoredHistoryAsync(session, async (window, view, viewModel, scrollViewer) =>
+        {
+            var shell = view.FindControl<StrataChatShell>("ChatShell")!;
+            var rail = Assert.IsType<StrataTranscriptRail>(shell.TranscriptRail);
+            var origin = rail.TranslatePoint(default, window)!.Value;
+            var stripX = origin.X + rail.Bounds.Width - 6;
+            window.MouseMove(new Point(stripX, origin.Y + rail.Bounds.Height / 2));
+            await WaitForAsync(() => rail.IsOpen);
+
+            // Besides the user's messages, the rail maps the question Lumi asked (a card, with the answer) and
+            // the form's receipt (the user's own), in transcript order — while only in storage too.
+            var texts = rail.Marks.Select(static mark => mark.Text).ToList();
+            var question = Assert.Single(rail.Marks, static mark => mark.Kind == StrataTranscriptMarkKind.Card);
+            Assert.Equal("Which color should the header be?", question.Text);
+            Assert.Equal("Question", question.Label);
+            Assert.Equal("You answered: Blue", question.Detail);
+            Assert.Equal(texts.IndexOf("Question 2") + 1, texts.IndexOf(question.Text));
+            var receipt = Assert.Single(rail.Marks, static mark => mark.Label == "Form submitted");
+            Assert.Equal(StrataTranscriptMarkKind.Message, receipt.Kind);
+            Assert.Equal("Destination: Paris", receipt.Text);
+            Assert.False(string.IsNullOrEmpty(receipt.Detail));
+            Assert.Equal(texts.IndexOf("Question 4") + 1, texts.IndexOf(receipt.Text));
+            Assert.Equal(14, rail.Marks.Count);
+            Assert.True(TranscriptHistory.IsPlaceholder(Assert.IsType<TranscriptRailTarget>(question.Tag).Turn));
+
+            // Picking the question builds its exchange, opens the "worked for" row that folds it, and lands its
+            // card on the reading line, glowing.
+            var inFlight = typeof(ChatView).GetField("_userNavInFlight", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var markPoint = new Point(stripX, origin.Y + rail.GetMarkY(question));
+            window.MouseMove(markPoint);
+            await PumpAsync();
+            Assert.Same(question, rail.FocusedMark);
+            // It previews as a card, captioned with what it is.
+            Assert.Contains(":card", rail.Classes);
+            Assert.Equal("Question", rail.GetVisualDescendants().OfType<TextBlock>().Single(static text => text.Name == "PART_PreviewLabel").Text);
+            window.MouseDown(markPoint, MouseButton.Left);
+            window.MouseUp(markPoint, MouseButton.Left);
+            await WaitUntilAsync(() => !(bool)inFlight.GetValue(view)!, 10_000);
+            await SettleAsync(viewModel);
+
+            var card = view.FindControl<TranscriptItemsControl>("Transcript")!.ItemsPanelRoot!
+                .GetVisualDescendants().OfType<StrataQuestionCard>()
+                .Single(static control => control.Question == "Which color should the header be?");
+            Assert.Contains("reply-flash", card.Classes);
+            Assert.Contains(viewModel.TranscriptTurns.SelectMany(static turn => turn.Items).OfType<TurnSummaryItem>(),
+                static summary => summary.IsExpanded && summary.InnerItems.OfType<QuestionItem>().Any());
+            Assert.InRange(card.TranslatePoint(default, scrollViewer)!.Value.Y, shell.ReadingLineInset - 8, shell.ReadingLineInset + 8);
+
+            // Ctrl+↑ then goes back to the message the question answered, not past it.
+            var target = typeof(ChatView).GetField("_userNavTarget", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var shortcut = new KeyEventArgs
+            {
+                RoutedEvent = InputElement.KeyDownEvent,
+                Key = Key.Up,
+                KeyModifiers = OperatingSystem.IsMacOS() ? KeyModifiers.Meta | KeyModifiers.Alt : KeyModifiers.Control,
+            };
+            window.RaiseEvent(shortcut);
+            Assert.True(shortcut.Handled);
+            await WaitUntilAsync(() => !(bool)inFlight.GetValue(view)!, 10_000);
+            var landed = Assert.IsType<TranscriptTurn>(target.GetValue(view));
+            Assert.Equal("Question 2", Assert.Single(landed.Items.OfType<UserMessageItem>()).Content);
+        }, withInputs: true);
     }
 
     [Fact]
@@ -1690,7 +1758,8 @@ public sealed class ChatViewScrollBehaviorTests
     /// </summary>
     private static async Task WithStoredHistoryAsync(
         HeadlessTestSession session,
-        Func<Window, ChatView, ChatViewModel, ScrollViewer, Task> test)
+        Func<Window, ChatView, ChatViewModel, ScrollViewer, Task> test,
+        bool withInputs = false)
     {
         var directory = Path.Combine(TestProfile.Root, "stored-history", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -1711,7 +1780,35 @@ public sealed class ChatViewScrollBehaviorTests
                     }
 
                     chat.Messages.Add(new ChatMessage { Role = "user", Content = $"Question {i}" });
-                    chat.Messages.Add(new ChatMessage { Role = "assistant", Content = $"Answer {i}: " + new string('a', 2400) });
+                    if (withInputs && i == 2)
+                    {
+                        // Lumi asks the user something on the way to its answer.
+                        chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "Let me check one thing." });
+                        chat.Messages.Add(new ChatMessage
+                        {
+                            Role = "tool", ToolName = "ask_question", ToolCallId = "call-color", ToolStatus = "Completed",
+                            Content = """{"question":"Which color should the header be?","options":"Blue,Green"}""",
+                            QuestionId = "q-color", QuestionText = "Which color should the header be?", QuestionOptions = "Blue,Green",
+                            ToolOutput = "User answered: Blue",
+                        });
+                    }
+
+                    var answer = new ChatMessage { Role = "assistant", Content = $"Answer {i}: " + new string('a', 2400) };
+                    chat.Messages.Add(answer);
+                    if (withInputs && i == 4)
+                    {
+                        // The user submits a form from the answer: an exchange that starts with its receipt.
+                        chat.Messages.Add(new ChatMessage
+                        {
+                            Role = "user", Author = "You", Content = "Submitted the trip form.",
+                            InteractionReceipt = new InteractionReceipt
+                            {
+                                SourceMessageId = answer.Id, BlockId = "trip", Title = "Form submitted",
+                                Summary = "Destination: Paris", Detail = "Destination: Paris", Action = "submit",
+                            },
+                        });
+                        chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "Paris it is: " + new string('b', 2400) });
+                    }
                 }
 
                 using (var writer = new ChatStore(databasePath))

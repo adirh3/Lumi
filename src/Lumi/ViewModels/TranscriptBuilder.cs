@@ -610,6 +610,29 @@ public class TranscriptBuilder
     private static bool IsTerminalToolStatus(string? status)
         => status is "Completed" or "Failed" or "Stopped";
 
+    /// <summary>A stored <c>ask_question</c> call as its card shows it.</summary>
+    /// <param name="Id">The card's question id (see <see cref="QuestionItem.StableIdFor"/>).</param>
+    internal readonly record struct StoredQuestion(string Id, string Question, string? Answer, bool IsAnswered, bool IsExpired);
+
+    /// <summary>
+    /// Reads a stored <c>ask_question</c> call as its card shows it, from first-class fields, or the call's
+    /// JSON for older data. The transcript rail reads stored questions the same way.
+    /// </summary>
+    internal static StoredQuestion ReadStoredQuestion(ChatMessage message)
+    {
+        var answer = message.ToolOutput;
+        if (!string.IsNullOrEmpty(answer) && answer.StartsWith("User answered: ", StringComparison.Ordinal))
+            answer = answer["User answered: ".Length..];
+
+        var isAnswered = !string.IsNullOrEmpty(answer) && message.ToolStatus is not ("Failed" or "Stopped");
+        return new StoredQuestion(
+            message.QuestionId ?? "replay_" + message.Id,
+            message.QuestionText ?? ToolDisplayHelper.ExtractJsonField(message.Content, "question") ?? "",
+            answer,
+            isAnswered,
+            !isAnswered && IsTerminalToolStatus(message.ToolStatus));
+    }
+
     public void ProcessMessageToTranscript(ChatMessageViewModel msgVm)
     {
         if (!_processedMessageIds.Add(msgVm.Message.Id))
@@ -703,8 +726,7 @@ public class TranscriptBuilder
             {
                 // Prefer first-class fields on ChatMessage; fall back to JSON parsing for older data
                 var msg = msgVm.Message;
-                var question = msg.QuestionText
-                    ?? ToolDisplayHelper.ExtractJsonField(msgVm.Content, "question") ?? "";
+                var stored = ReadStoredQuestion(msg);
                 var opts = msg.QuestionOptions
                     ?? ToolDisplayHelper.ExtractJsonField(msgVm.Content, "options") ?? "";
                 var optionsList = ParseOptionsList(opts);
@@ -713,21 +735,14 @@ public class TranscriptBuilder
                 var multiSelect = msg.QuestionAllowMultiSelect
                     ?? string.Equals(ToolDisplayHelper.ExtractJsonField(msgVm.Content, "allowMultiSelect"), "true", StringComparison.OrdinalIgnoreCase);
 
-                var answer = msg.ToolOutput;
-                if (!string.IsNullOrEmpty(answer) && answer.StartsWith("User answered: ", StringComparison.Ordinal))
-                    answer = answer["User answered: ".Length..];
-
-                var qid = msg.QuestionId ?? ("replay_" + msg.Id);
-
                 CloseCurrentToolGroup();
-                var isAnswered = !string.IsNullOrEmpty(answer) && msg.ToolStatus is not ("Failed" or "Stopped");
-                var isExpired = !isAnswered && IsTerminalToolStatus(msg.ToolStatus);
-                var card = new QuestionItem(qid, question, optionsList, freeText && !isAnswered && !isExpired, _submitQuestionAnswerAction, multiSelect && !isAnswered && !isExpired);
-                if (isAnswered && answer is not null)
+                var isOpen = !stored.IsAnswered && !stored.IsExpired;
+                var card = new QuestionItem(stored.Id, stored.Question, optionsList, freeText && isOpen, _submitQuestionAnswerAction, multiSelect && isOpen);
+                if (stored is { IsAnswered: true, Answer: { } answer })
                 {
                     card.ApplyAnswer(answer);
                 }
-                else if (isExpired)
+                else if (stored.IsExpired)
                 {
                     card.IsExpired = true;
                 }

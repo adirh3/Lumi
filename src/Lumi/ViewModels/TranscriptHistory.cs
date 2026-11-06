@@ -70,6 +70,12 @@ internal sealed class TranscriptHistorySegment
     /// <inheritdoc cref="FirstMessageStart"/>
     public DateTimeOffset? FirstMessageAt { get; init; }
 
+    /// <summary>
+    /// The exchange's receipts, questions and forms in order, from storage: what the transcript rail maps
+    /// for it while only the placeholder shows.
+    /// </summary>
+    public IReadOnlyList<TranscriptRailMarks.StoredInputMark> RailInputs { get; init; } = [];
+
     /// <summary>The built turns while hydrated (possibly none), or null while only the placeholder shows.</summary>
     public List<TranscriptTurn>? Turns { get; set; }
 
@@ -207,9 +213,11 @@ internal sealed class TranscriptHistory
         var outlineTask = _dataStore.ReadChatOutlineAsync(chat, cancellationToken);
         var factsTask = _dataStore.ReadChatHistoryByKindAsync(
             chat, [ChatMessageKinds.Skill, ChatMessageKinds.Deliverable], cancellationToken);
+        var questionsTask = _dataStore.ReadChatHistoryByKindAsync(chat, [ChatMessageKinds.Question], cancellationToken);
         var tailEarlierTask = ReadEarlierToolCallsAsync(_dataStore, chat, [.. chat.Messages], window.TailStartSeq);
         var outline = await outlineTask.ConfigureAwait(true);
         var factRows = await factsTask.ConfigureAwait(true);
+        var questions = await questionsTask.ConfigureAwait(true);
         var tailEarlier = await tailEarlierTask.ConfigureAwait(true);
         if (generation != _generation)
             return false;
@@ -218,7 +226,7 @@ internal sealed class TranscriptHistory
         _tailStartSeq = window.TailStartSeq;
         _tailEarlierToolCalls = tailEarlier;
         _facts = TranscriptHistoryFacts.Create(outline, factRows);
-        BuildSegments(outline, window.TailStartSeq);
+        BuildSegments(outline, window.TailStartSeq, questions);
         return _segments.Count > 0;
     }
 
@@ -378,6 +386,10 @@ internal sealed class TranscriptHistory
                     messages[0].Role, messages[0].Author, messages[0].Content, messages[0].InteractionReceipt is not null),
                 FirstMessageStart = ChatStore.OutlineTextStart(messages[0].Content),
                 FirstMessageAt = messages[0].Timestamp,
+                RailInputs = messages
+                    .Select(TranscriptRailMarks.Describe)
+                    .OfType<TranscriptRailMarks.StoredInputMark>()
+                    .ToList(),
                 Turns = turns,
                 Messages = messages,
                 LaterRunSteps = [],
@@ -985,8 +997,15 @@ internal sealed class TranscriptHistory
 
     // ── Layout ──────────────────────────────────────────────────────────────
 
-    private void BuildSegments(IReadOnlyList<ChatOutlineEntry> outline, long tailStartSeq)
+    private void BuildSegments(IReadOnlyList<ChatOutlineEntry> outline, long tailStartSeq, IReadOnlyList<ChatMessage> questions)
     {
+        // Questions and forms, in order, for the rail to map before their exchanges are built.
+        var inputs = questions
+            .Select(TranscriptRailMarks.Describe)
+            .OfType<TranscriptRailMarks.StoredInputMark>()
+            .OrderBy(static input => input.Seq)
+            .ToList();
+        var nextInput = 0;
         var starts = new List<int>();
         for (var i = 0; i < outline.Count; i++)
         {
@@ -1010,6 +1029,13 @@ internal sealed class TranscriptHistory
             var item = new HistoryPlaceholderItem(key, height);
             var placeholder = new TranscriptTurn("turn:" + key) { MeasuredHeight = height };
             placeholder.Items.Add(item);
+            var railInputs = new List<TranscriptRailMarks.StoredInputMark>();
+            if (TranscriptRailMarks.Describe(outline[first]) is { } receipt)
+                railInputs.Add(receipt);
+            while (nextInput < inputs.Count && inputs[nextInput].Seq < startSeq)
+                nextInput++;
+            while (nextInput < inputs.Count && inputs[nextInput].Seq < endSeq)
+                railInputs.Add(inputs[nextInput++]);
             var segment = new TranscriptHistorySegment
             {
                 StartSeq = startSeq,
@@ -1022,6 +1048,7 @@ internal sealed class TranscriptHistory
                     outline[first].Role, outline[first].Author, outline[first].TextStart, outline[first].IsReceipt),
                 FirstMessageStart = outline[first].TextStart,
                 FirstMessageAt = outline[first].Timestamp,
+                RailInputs = railInputs,
             };
             Own(placeholder, segment);
             _segments.Add(segment);

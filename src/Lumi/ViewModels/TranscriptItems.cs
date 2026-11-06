@@ -1838,6 +1838,8 @@ public partial class QuestionItem : TranscriptItem
     private bool _isSubmitting;
 
     public string QuestionId { get; }
+
+    internal static string StableIdFor(string questionId) => $"question:{questionId}";
     [ObservableProperty] private string _question;
     [ObservableProperty] private string _options;
     [ObservableProperty] private IList<string>? _optionsList;
@@ -1847,9 +1849,12 @@ public partial class QuestionItem : TranscriptItem
     [ObservableProperty] private bool _isAnswered;
     [ObservableProperty] private bool _isExpired;
 
+    /// <summary>Whether the reader opened the answered card back to its whole question and options.</summary>
+    [ObservableProperty] private bool _isExpanded;
+
     public QuestionItem(string questionId, string question, IList<string> optionsList, bool allowFreeText,
         Action<string, string>? submitAction = null, bool allowMultiSelect = false)
-        : base($"question:{questionId}")
+        : base(StableIdFor(questionId))
     {
         QuestionId = questionId;
         _question = question;
@@ -1973,8 +1978,19 @@ public partial class TurnSummaryItem : TranscriptItem
 
     private Action<TurnSummaryItem>? _deferredItemsLoader;
 
+    /// <summary>
+    /// While the row's steps are not built, the questions, forms and approvals among them as the transcript
+    /// rail maps them, by the id of the item that shows each once built.
+    /// </summary>
+    internal IReadOnlyList<(string ItemId, TranscriptRailMarks.InputMark Mark)> DeferredRailInputs { get; private set; } = [];
+
     internal void DeferInnerItems(Action<TurnSummaryItem> loader)
     {
+        DeferredRailInputs = InnerItems
+            .Select(static item => (item.StableId, Mark: TranscriptRailMarks.Describe(item)))
+            .Where(static input => input.Mark is not null)
+            .Select(static input => (input.StableId, input.Mark!))
+            .ToList();
         InnerItems.Clear();
         _deferredItemsLoader = loader;
         OnPropertyChanged(nameof(HasDeferredItems));
@@ -1983,6 +1999,7 @@ public partial class TurnSummaryItem : TranscriptItem
     internal void RestoreDeferredItems(IEnumerable<TranscriptItem> items)
     {
         _deferredItemsLoader = null;
+        DeferredRailInputs = [];
         // A new collection rather than adds, so the open row's list shows them a page at a time
         // like any row that opens.
         _innerItems = new ObservableCollection<TranscriptItem>(items);
