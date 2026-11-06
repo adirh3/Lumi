@@ -2413,6 +2413,7 @@
   "Mg_Import": "Import",
   "Mg_Unsaved": "Unsaved changes",
   "Mg_NotSavedYet": "Not saved yet",
+  "Mg_NameFirst": "Give it a name first",
   "Mg_Discard": "Discard",
   "Mg_SaveChanges": "Save changes",
   "Mg_Saved": "Saved",

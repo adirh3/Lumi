@@ -110,6 +110,30 @@ public sealed class ManagementPagesViewModelTests : IDisposable
     }
 
     [Fact]
+    public void NewItemsWithoutANameSayTheNameComesFirst()
+    {
+        var store = Store(new AppData());
+        var skills = new SkillsViewModel(store);
+        var agents = new AgentsViewModel(store);
+        var projects = new ProjectsViewModel(store);
+        skills.NewSkillCommand.Execute(null);
+        agents.NewAgentCommand.Execute(null);
+        projects.NewProjectCommand.Execute(null);
+
+        Assert.Equal(Loc.Mg_NameFirst, skills.SaveBarText);
+        Assert.Equal(Loc.Mg_NameFirst, agents.SaveBarText);
+        Assert.Equal(Loc.Mg_NameFirst, projects.SaveBarText);
+
+        skills.EditName = "Tone";
+        agents.EditName = "Helper";
+        projects.EditName = "Home";
+
+        Assert.Equal(Loc.Mg_NotSavedYet, skills.SaveBarText);
+        Assert.Equal(Loc.Mg_NotSavedYet, agents.SaveBarText);
+        Assert.Equal(Loc.Mg_NotSavedYet, projects.SaveBarText);
+    }
+
+    [Fact]
     public void Skills_EditsShowTheSaveBar_AndDiscardRestoresWhatIsStored()
     {
         var skill = new Skill { Name = "Tone", Description = "Friendly", Content = "Be kind." };

@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using Avalonia;
+using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
+using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -74,6 +76,79 @@ internal static class ManagementPage
             observed = observe is null ? view.DataContext as INotifyPropertyChanged : observe(view.DataContext);
             if (observed is not null)
                 observed.PropertyChanged += handler;
+        };
+    }
+
+    /// <summary>
+    /// Saves when the item has a name; otherwise points at the empty name field, so a Create that
+    /// can't happen yet says why instead of doing nothing.
+    /// </summary>
+    public static void SaveOrAskForName(Control view, string nameInputName, bool canSave, Action save)
+    {
+        if (canSave)
+            save();
+        else
+            AskForName(view, nameInputName);
+    }
+
+    public static void AskForName(Control view, string nameInputName)
+    {
+        if (view.FindControl<TextBox>(nameInputName) is not { } input)
+            return;
+
+        input.Focus();
+        if (ManagementMotion.IsEnabledFor(input))
+            _ = NameNudge.RunAsync(input);
+    }
+
+    private static readonly Animation NameNudge = new()
+    {
+        Duration = TimeSpan.FromMilliseconds(380),
+        Children =
+        {
+            NudgeFrame(0, 0), NudgeFrame(0.15, -7), NudgeFrame(0.35, 6), NudgeFrame(0.55, -4),
+            NudgeFrame(0.75, 2), NudgeFrame(1, 0)
+        }
+    };
+
+    private static KeyFrame NudgeFrame(double cue, double x)
+        => new() { Cue = new Cue(cue), Setters = { new Setter(TranslateTransform.XProperty, x) } };
+
+    /// <summary>A new, unnamed item opens with its name field focused, so the name is what gets typed first.</summary>
+    public static void FocusNameWhenNew(Control view, string nameInputName, string isNewProperty, Func<object?, bool> isNew)
+    {
+        INotifyPropertyChanged? observed = null;
+        var wasNew = false;
+
+        void Check()
+        {
+            var now = isNew(view.DataContext);
+            if (now && !wasNew)
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (isNew(view.DataContext)
+                        && view.FindControl<TextBox>(nameInputName) is { IsEffectivelyVisible: true } input
+                        && string.IsNullOrWhiteSpace(input.Text))
+                        input.Focus();
+                }, DispatcherPriority.Loaded);
+            wasNew = now;
+        }
+
+        PropertyChangedEventHandler handler = (_, e) =>
+        {
+            if (e.PropertyName == isNewProperty)
+                Check();
+        };
+
+        view.DataContextChanged += (_, _) =>
+        {
+            if (observed is not null)
+                observed.PropertyChanged -= handler;
+            observed = view.DataContext as INotifyPropertyChanged;
+            if (observed is not null)
+                observed.PropertyChanged += handler;
+            wasNew = false;
+            Check();
         };
     }
 

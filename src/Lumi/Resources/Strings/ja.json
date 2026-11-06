@@ -2359,6 +2359,7 @@
   "Mg_Import": "インポート",
   "Mg_Unsaved": "未保存の変更",
   "Mg_NotSavedYet": "未保存",
+  "Mg_NameFirst": "先に名前を付けてください",
   "Mg_Discard": "破棄",
   "Mg_SaveChanges": "変更を保存",
   "Mg_Saved": "保存済み",

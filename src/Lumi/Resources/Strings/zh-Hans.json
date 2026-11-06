@@ -2359,6 +2359,7 @@
   "Mg_Import": "导入",
   "Mg_Unsaved": "未保存的更改",
   "Mg_NotSavedYet": "尚未保存",
+  "Mg_NameFirst": "请先命名",
   "Mg_Discard": "放弃",
   "Mg_SaveChanges": "保存更改",
   "Mg_Saved": "已保存",

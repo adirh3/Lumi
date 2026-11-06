@@ -348,7 +348,7 @@
                 </Panel>
               </Button>
               <StackPanel Spacing="2" VerticalAlignment="Center">
-                <TextBox x:Name="LumiNameInput" Classes="mg-title-input" Text="{Binding EditName}"
+                <TextBox x:Name="LumiNameInput" Classes="mg-title-input" Classes.needs-name="{Binding !CanSave}" Text="{Binding EditName}"
                          PlaceholderText="{loc:Str Lumis_NamePlaceholder}" />
                 <TextBox Classes="mg-lede-input" Text="{Binding EditDescription}"
                          PlaceholderText="{loc:Str Lumis_DescriptionPlaceholder}" />
@@ -659,7 +659,7 @@
           <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
             <Button Classes="subtle mg-button" Content="{Binding DiscardButtonText}" Command="{Binding DiscardChangesCommand}" />
             <Button x:Name="SaveLumiButton" Classes="accent mg-button" Content="{Binding SaveButtonText}"
-                    Command="{Binding SaveAgentCommand}" IsEnabled="{Binding CanSave}" />
+                    Command="{Binding SaveAgentCommand}" Click="OnSaveClick" />
           </StackPanel>
         </Grid>
       </Border>

@@ -16,6 +16,8 @@ public partial class SkillsView : UserControl
         if (this.FindControl<TextBlock>("SkillSaveHint") is { } hint)
             hint.Text = ManagementPage.SaveHint;
         ManagementPage.ResetScrollOn(this, "SkillDetailScroll", nameof(SkillsViewModel.SelectedSkill));
+        ManagementPage.FocusNameWhenNew(this, "SkillNameInput", nameof(SkillsViewModel.IsNewSkill),
+            static dc => dc is SkillsViewModel { IsNewSkill: true });
     }
 
     private void InitializeComponent()
@@ -23,13 +25,18 @@ public partial class SkillsView : UserControl
         AvaloniaXamlLoader.Load(this);
     }
 
+    private void OnSaveClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is SkillsViewModel { CanSave: false })
+            ManagementPage.AskForName(this, "SkillNameInput");
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (ManagementPage.IsSaveGesture(e)
-            && DataContext is SkillsViewModel { IsEditing: true } vm
-            && vm.CanSave)
+            && DataContext is SkillsViewModel { IsEditing: true } vm)
         {
-            vm.SaveSkillCommand.Execute(null);
+            ManagementPage.SaveOrAskForName(this, "SkillNameInput", vm.CanSave, () => vm.SaveSkillCommand.Execute(null));
             e.Handled = true;
             return;
         }

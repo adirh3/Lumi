@@ -105,7 +105,7 @@ public partial class ProjectsViewModel : ObservableObject
     public bool ShowSaveBar => IsEditing && (HasUnsavedChanges || IsNewProject) && !IsConfirmingDelete;
     public bool CanSave => !string.IsNullOrWhiteSpace(EditName);
     public string SaveButtonText => IsNewProject ? Loc.Projects_Create : Loc.Mg_SaveChanges;
-    public string SaveBarText => IsNewProject ? Loc.Mg_NotSavedYet : Loc.Mg_Unsaved;
+    public string SaveBarText => !CanSave ? Loc.Mg_NameFirst : IsNewProject ? Loc.Mg_NotSavedYet : Loc.Mg_Unsaved;
     public string DiscardButtonText => IsNewProject ? Loc.Common_Cancel : Loc.Mg_Discard;
     public string DetailTitle => string.IsNullOrWhiteSpace(EditName) ? Loc.Projects_NewTitle : EditName;
     public string DetailInitial => ManagementText.Initial(EditName);

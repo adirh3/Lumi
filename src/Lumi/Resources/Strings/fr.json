@@ -2359,6 +2359,7 @@
   "Mg_Import": "Importer",
   "Mg_Unsaved": "Modifications non enregistrées",
   "Mg_NotSavedYet": "Pas encore enregistré",
+  "Mg_NameFirst": "Donnez-lui d'abord un nom",
   "Mg_Discard": "Abandonner",
   "Mg_SaveChanges": "Enregistrer les modifications",
   "Mg_Saved": "Enregistré",

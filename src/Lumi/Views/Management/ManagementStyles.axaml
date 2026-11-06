@@ -774,6 +774,11 @@
   <Style Selector="TextBox.mg-title-input /template/ Border#FocusAccentBar, TextBox.mg-lede-input /template/ Border#FocusAccentBar">
     <Setter Property="IsVisible" Value="False" />
   </Style>
+  <!-- An empty name reads as a field to fill, not as a greyed title: nothing can be saved without it. -->
+  <Style Selector="TextBox.mg-title-input.needs-name /template/ Border#PART_Border">
+    <Setter Property="Background" Value="{DynamicResource Mg.InputBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+  </Style>
   <Style Selector="TextBox.mg-title-input:pointerover /template/ Border#PART_Border, TextBox.mg-lede-input:pointerover /template/ Border#PART_Border">
     <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
     <Setter Property="BorderBrush" Value="Transparent" />
@@ -781,7 +786,7 @@
   <Style Selector="TextBox.mg-title-input:focus-within /template/ Border#PART_Border, TextBox.mg-lede-input:focus-within /template/ Border#PART_Border">
     <Setter Property="Background" Value="{DynamicResource Mg.InputBackground}" />
     <Setter Property="BorderBrush" Value="{DynamicResource Mg.SelectedBorder}" />
-    <Setter Property="BoxShadow" Value="0 0 0 3 #14818CF8" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 Transparent" />
   </Style>
 
   <!-- Regular form fields: one calm ring instead of Strata's stacked focus treatments. -->

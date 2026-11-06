@@ -223,7 +223,7 @@
                 <TextBlock Classes="mg-initial" Text="{Binding DetailInitial}" />
               </Border>
               <StackPanel Spacing="2" VerticalAlignment="Center">
-                <TextBox x:Name="ProjectNameInput" Classes="mg-title-input" Text="{Binding EditName}"
+                <TextBox x:Name="ProjectNameInput" Classes="mg-title-input" Classes.needs-name="{Binding !CanSave}" Text="{Binding EditName}"
                          PlaceholderText="{loc:Str Projects_NamePlaceholder}" />
                 <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="0,8,0,0">
                   <Border Name="ProjectCodingIndicator" Classes="mg-chip accent" IsVisible="{Binding IsCodingProject}"
@@ -644,7 +644,7 @@
           <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
             <Button Classes="subtle mg-button" Content="{Binding DiscardButtonText}" Command="{Binding DiscardChangesCommand}" />
             <Button x:Name="SaveProjectButton" Classes="accent mg-button" Content="{Binding SaveButtonText}"
-                    Command="{Binding SaveProjectCommand}" IsEnabled="{Binding CanSave}" />
+                    Command="{Binding SaveProjectCommand}" Click="OnSaveClick" />
           </StackPanel>
         </Grid>
       </Border>

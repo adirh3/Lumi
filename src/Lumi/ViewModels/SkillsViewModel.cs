@@ -158,7 +158,7 @@ public partial class SkillsViewModel : ObservableObject
     public bool ShowSaveBar => IsEditing && (HasUnsavedChanges || IsNewSkill) && !IsConfirmingDelete;
     public bool CanSave => !string.IsNullOrWhiteSpace(EditName);
     public string SaveButtonText => IsNewSkill ? Loc.Skills_Create : Loc.Mg_SaveChanges;
-    public string SaveBarText => IsNewSkill ? Loc.Mg_NotSavedYet : Loc.Mg_Unsaved;
+    public string SaveBarText => !CanSave ? Loc.Mg_NameFirst : IsNewSkill ? Loc.Mg_NotSavedYet : Loc.Mg_Unsaved;
     public string DiscardButtonText => IsNewSkill ? Loc.Common_Cancel : Loc.Mg_Discard;
     public string DetailTitle => string.IsNullOrWhiteSpace(EditName) ? Loc.Skills_NewTitle : EditName;
     public bool HasAnySkills => _dataStore.Data.Skills.Count > 0;

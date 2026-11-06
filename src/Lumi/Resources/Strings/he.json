@@ -2401,6 +2401,7 @@
   "Mg_Import": "ייבוא",
   "Mg_Unsaved": "שינויים שלא נשמרו",
   "Mg_NotSavedYet": "עדיין לא נשמר",
+  "Mg_NameFirst": "צריך לתת שם קודם",
   "Mg_Discard": "ביטול שינויים",
   "Mg_SaveChanges": "שמירת שינויים",
   "Mg_Saved": "נשמר",

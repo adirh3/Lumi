@@ -182,7 +182,7 @@ public partial class AgentsViewModel : ObservableObject
     public bool ShowSaveBar => IsEditing && (HasUnsavedChanges || IsNewAgent) && !IsConfirmingDelete;
     public bool CanSave => !string.IsNullOrWhiteSpace(EditName);
     public string SaveButtonText => IsNewAgent ? Loc.Lumis_Create : Loc.Mg_SaveChanges;
-    public string SaveBarText => IsNewAgent ? Loc.Mg_NotSavedYet : Loc.Mg_Unsaved;
+    public string SaveBarText => !CanSave ? Loc.Mg_NameFirst : IsNewAgent ? Loc.Mg_NotSavedYet : Loc.Mg_Unsaved;
     public string DiscardButtonText => IsNewAgent ? Loc.Common_Cancel : Loc.Mg_Discard;
     public string DetailTitle => string.IsNullOrWhiteSpace(EditName) ? Loc.Lumis_NewTitle : EditName;
     public string DeleteConfirmText => string.Format(CultureInfo.CurrentCulture, Loc.Mg_DeleteConfirm, DetailTitle);

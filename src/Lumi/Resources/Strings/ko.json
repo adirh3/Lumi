@@ -2359,6 +2359,7 @@
   "Mg_Import": "가져오기",
   "Mg_Unsaved": "저장하지 않은 변경 사항",
   "Mg_NotSavedYet": "아직 저장되지 않음",
+  "Mg_NameFirst": "먼저 이름을 지정하세요",
   "Mg_Discard": "버리기",
   "Mg_SaveChanges": "변경 사항 저장",
   "Mg_Saved": "저장됨",

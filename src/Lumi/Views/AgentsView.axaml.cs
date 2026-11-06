@@ -16,6 +16,8 @@ public partial class AgentsView : UserControl
         if (this.FindControl<TextBlock>("LumiSaveHint") is { } hint)
             hint.Text = ManagementPage.SaveHint;
         ManagementPage.ResetScrollOn(this, "LumiDetailScroll", nameof(AgentsViewModel.SelectedAgent));
+        ManagementPage.FocusNameWhenNew(this, "LumiNameInput", nameof(AgentsViewModel.IsNewAgent),
+            static dc => dc is AgentsViewModel { IsNewAgent: true });
     }
 
     private void InitializeComponent()
@@ -23,13 +25,18 @@ public partial class AgentsView : UserControl
         AvaloniaXamlLoader.Load(this);
     }
 
+    private void OnSaveClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is AgentsViewModel { CanSave: false })
+            ManagementPage.AskForName(this, "LumiNameInput");
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (ManagementPage.IsSaveGesture(e)
-            && DataContext is AgentsViewModel { IsEditing: true } vm
-            && vm.CanSave)
+            && DataContext is AgentsViewModel { IsEditing: true } vm)
         {
-            vm.SaveAgentCommand.Execute(null);
+            ManagementPage.SaveOrAskForName(this, "LumiNameInput", vm.CanSave, () => vm.SaveAgentCommand.Execute(null));
             e.Handled = true;
             return;
         }

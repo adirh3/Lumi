@@ -18,6 +18,8 @@ public partial class ProjectsView : UserControl
         if (this.FindControl<TextBlock>("ProjectSaveHint") is { } hint)
             hint.Text = ManagementPage.SaveHint;
         ManagementPage.ResetScrollOn(this, "ProjectDetailScroll", nameof(ProjectsViewModel.SelectedProject));
+        ManagementPage.FocusNameWhenNew(this, "ProjectNameInput", nameof(ProjectsViewModel.IsNewProject),
+            static dc => dc is ProjectsViewModel { IsNewProject: true });
     }
 
     private void InitializeComponent()
@@ -25,13 +27,18 @@ public partial class ProjectsView : UserControl
         AvaloniaXamlLoader.Load(this);
     }
 
+    private void OnSaveClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is ProjectsViewModel { CanSave: false })
+            ManagementPage.AskForName(this, "ProjectNameInput");
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (ManagementPage.IsSaveGesture(e)
-            && DataContext is ProjectsViewModel { IsEditing: true } vm
-            && vm.CanSave)
+            && DataContext is ProjectsViewModel { IsEditing: true } vm)
         {
-            vm.SaveProjectCommand.Execute(null);
+            ManagementPage.SaveOrAskForName(this, "ProjectNameInput", vm.CanSave, () => vm.SaveProjectCommand.Execute(null));
             e.Handled = true;
             return;
         }
