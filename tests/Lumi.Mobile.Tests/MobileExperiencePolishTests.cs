@@ -26,6 +26,121 @@ namespace Lumi.Mobile.Tests;
 [Collection("Headless mobile UI")]
 public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHelper output)
 {
+    [Theory]
+    [InlineData(360, false)]
+    [InlineData(360, true)]
+    [InlineData(884, false)]
+    public Task FollowUpsArePillsATapSendsAndAHoldOpensForEditing(double width, bool native) =>
+        RunUiAsync(width, async (shell, view, window) =>
+        {
+            if (width == 884)
+            {
+                view.Posture = Lumi.Mobile.Layout.FoldPosture.BookVerticalHinge;
+                view.HingeSize = 24;
+                view.HingePosition = 430;
+            }
+            const string suggestion = "Explain how the keyboard insets work when I switch between apps";
+            void ApplySuggestions() => shell.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = shell.Chat.ChatId,
+                Suggestions = [suggestion, "Show me what changed", "Check the unfolded layout"]
+            });
+            shell.Chat.ApplyTranscript(new RemoteTranscript
+            {
+                ChatId = shell.Chat.ChatId,
+                Turns = [new RemoteTranscriptTurn
+                {
+                    Id = "suggestion-turn",
+                    Items = [new RemoteTranscriptItem
+                    {
+                        Id = "suggestion-answer", Kind = RemoteProtocol.ItemKinds.Assistant, Text = "The change is ready."
+                    }]
+                }]
+            });
+            ApplySuggestions();
+            await Task.Delay(320);
+            Pump(window);
+
+            // One row of compact pills on the composer: no heading or hint competing with the chat.
+            var row = Required<ScrollViewer>(view, "FollowUpSuggestions");
+            var composer = Required<StrataChatComposer>(view, "Composer");
+            Assert.True(row.IsEffectivelyVisible);
+            Assert.DoesNotContain(row.GetVisualDescendants().OfType<TextBlock>(),
+                text => text.IsEffectivelyVisible && !text.Classes.Contains("follow-up-text"));
+            Assert.InRange(composer.TranslatePoint(default, view)!.Value.Y
+                           - row.TranslatePoint(new Point(0, row.Bounds.Height), view)!.Value.Y, 0, 8);
+            var buttons = Required<ItemsControl>(view, "FollowUpSuggestionItems")
+                .GetVisualDescendants().OfType<Button>().ToArray();
+            Assert.Equal(3, buttons.Length);
+            foreach (var button in buttons)
+            {
+                Assert.Equal(48, button.Bounds.Height, precision: 1);
+                var pill = button.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("follow-up-pill"));
+                Assert.Equal(36, pill.Bounds.Height, precision: 1);
+                // Content scrolls beneath the pills, so each frosts it as the other floating glass does.
+                var frost = Assert.Single(button.GetVisualDescendants().OfType<StrataBackdropBlur>());
+                Assert.Contains("floating-frost", frost.Classes);
+                Assert.Equal(pill.Bounds.Size, frost.Bounds.Size);
+                Assert.True(button.Bounds.Width <= 288);
+                var label = button.GetVisualDescendants().OfType<TextBlock>().Single();
+                Assert.Equal(Avalonia.Media.TextWrapping.NoWrap, label.TextWrapping);
+                Assert.Equal(Avalonia.Media.TextTrimming.CharacterEllipsis, label.TextTrimming);
+                Assert.Equal("Tap to send. Long-press to edit first.", AutomationProperties.GetHelpText(button));
+            }
+            // The first pill lines up with the composer, and on a phone the row runs to the screen's edge
+            // so the next pill peeks in.
+            Assert.Equal(composer.TranslatePoint(default, view)!.Value.X,
+                buttons[0].TranslatePoint(default, view)!.Value.X, precision: 1);
+            if (width < 600)
+            {
+                Assert.True(row.Extent.Width > row.Viewport.Width);
+                Assert.Equal(view.Bounds.Width, row.TranslatePoint(new Point(row.Bounds.Width, 0), view)!.Value.X, precision: 1);
+            }
+
+            // Holding one puts its words in the composer to finish first; nothing is sent.
+            Assert.Null(shell.Chat.ErrorText);
+            Assert.True(InputElement.GetIsHoldingEnabled(buttons[0]));
+            var center = buttons[0].TranslatePoint(
+                new Point(buttons[0].Bounds.Width / 2, buttons[0].Bounds.Height / 2), window)!.Value;
+            window.MouseDown(center, MouseButton.Left);
+            var held = (HoldingRoutedEventArgs)Activator.CreateInstance(
+                typeof(HoldingRoutedEventArgs),
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+                binder: null, [HoldingState.Started, new Point(20, 18), PointerType.Touch, null], culture: null)!;
+            buttons[0].RaiseEvent(held);
+            window.MouseUp(center, MouseButton.Left);
+            await Task.Delay(120);
+            Pump(window);
+            Assert.Null(shell.Chat.ErrorText);
+            Assert.Equal(suggestion, shell.Chat.PromptText);
+            Assert.False(row.IsEffectivelyVisible);
+            Assert.False(composer.IsCompact);
+            if (native)
+                Assert.True(Assert.IsType<NativeComposerEditorHost>(composer.EditorContent).IsInputFocused);
+            else
+                Assert.True(composer.IsKeyboardFocusWithin);
+
+            // Emptying the draft brings the row back from its start, and a tap sends the pill as it reads.
+            shell.Chat.PromptText = "";
+            await Task.Delay(320);
+            Pump(window);
+            Assert.True(row.IsEffectivelyVisible);
+            Assert.Equal(0, row.Offset.X);
+            buttons = Required<ItemsControl>(view, "FollowUpSuggestionItems")
+                .GetVisualDescendants().OfType<Button>().ToArray();
+            var send = buttons[1];
+            Assert.Same(shell.Chat.SendFollowUpCommand, send.Command);
+            send.BringIntoView();
+            await Task.Delay(60);
+            Pump(window);
+            Tap(window, send);
+            // The test shell has no PC, so the send fails at once and keeps the words for a retry; the
+            // attempt itself is what a tap must make.
+            Assert.False(string.IsNullOrEmpty(shell.Chat.ErrorText));
+            Assert.Equal("Show me what changed", shell.Chat.PromptText);
+            Assert.False(row.IsEffectivelyVisible);
+        }, nativeFactory: native ? new FocusEditorFactory() : null);
+
     [Fact]
     public Task NavigationIsAQuietListWithTwoLineRowsAndPlacesInTheThumbZone() =>
         RunUiAsync(320, async (shell, view, window) =>

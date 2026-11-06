@@ -22,6 +22,49 @@ namespace Lumi.Mobile.Tests;
 public sealed class MobileLocalizationTests
 {
     [Theory]
+    [InlineData("en", "Suggested replies", "Tap to send. Long-press to edit first.", FlowDirection.LeftToRight)]
+    [InlineData("he", "תשובות מוצעות", "הקישו לשליחה. לחיצה ארוכה לעריכה לפני השליחה.", FlowDirection.RightToLeft)]
+    public async Task FollowUpsTranslateOnlyTheirChromeNotTheSuggestedMessage(
+        string language, string title, string help, FlowDirection direction)
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            using var cultures = new CultureScope();
+            var store = new MemorySettingsStore();
+            store.Settings.Language = language;
+            await using var shell = new MobileShellViewModel(store: store, post: action => action());
+            const string suggestion = "Show the original diff";
+            shell.Chat.Reset(Guid.NewGuid(), "Original chat");
+            shell.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = shell.Chat.ChatId, Suggestions = [suggestion]
+            });
+            var view = new ChatDetailView { DataContext = shell };
+            var window = new Window { Width = 360, Height = 780, Content = view };
+            try
+            {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                var row = view.FindControl<ScrollViewer>("FollowUpSuggestions")!;
+                Assert.Equal(direction, row.FlowDirection);
+                Assert.Equal(title, Avalonia.Automation.AutomationProperties.GetName(row));
+                var pill = Assert.Single(row.GetVisualDescendants().OfType<Button>());
+                Assert.Equal(suggestion, Avalonia.Automation.AutomationProperties.GetName(pill));
+                Assert.Equal(help, Avalonia.Automation.AutomationProperties.GetHelpText(pill));
+                Assert.Equal([suggestion], row.GetVisualDescendants().OfType<TextBlock>().Select(text => text.Text));
+                shell.Chat.SelectFollowUpCommand.Execute(suggestion);
+                Assert.Equal(suggestion, shell.Chat.PromptText);
+                Assert.Equal([suggestion], shell.Chat.Suggestions);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
     [InlineData("en", "Copy")]
     [InlineData("he", "העתקה")]
     [InlineData("es", "Copiar")]

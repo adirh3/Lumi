@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="FollowUpSuggestions" xml:space="preserve"><value>Respuestas sugeridas</value></data>
+  <data name="FollowUpHelp" xml:space="preserve"><value>Toca para enviar. Mantén pulsado para editar antes.</value></data>
   <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
   <resheader name="version"><value>2.0</value></resheader>
   <data name="EditMessage" xml:space="preserve"><value>Editar mensaje</value></data>

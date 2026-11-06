@@ -230,6 +230,29 @@ public sealed class RemoteProjectionTests
     }
 
     [Fact]
+    public void InactiveChatStatusCarriesSavedFollowUpsWithoutOpeningTheDesktopChat()
+    {
+        var answer = new ChatMessage { Role = "assistant", Content = "The change is ready." };
+        var chat = new Chat
+        {
+            Messages = [answer],
+            FollowUpSuggestionAssistantMessageId = answer.Id,
+            FollowUpSuggestions = ["Show the diff", "Run the tests"]
+        };
+        var dataStore = new DataStore(new AppData { Chats = [chat] });
+        using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared);
+        Assert.Equal(chat.FollowUpSuggestions, RemoteProjector.BuildStatus(dataStore, viewModel, chat).Suggestions);
+        Assert.Null(viewModel.CurrentChat);
+        chat.Messages.Clear();
+        Assert.Equal(chat.FollowUpSuggestions, RemoteProjector.BuildStatus(dataStore, viewModel, chat).Suggestions);
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "A newer request" });
+        Assert.Empty(RemoteProjector.BuildStatus(dataStore, viewModel, chat).Suggestions);
+        chat.Messages.Clear();
+        dataStore.Data.Settings.SuggestFollowUps = false;
+        Assert.Empty(RemoteProjector.BuildStatus(dataStore, viewModel, chat).Suggestions);
+    }
+
+    [Fact]
     public void InactiveChatStatus_UsesPersistedModelInsteadOfNull()
     {
         var chat = new Chat

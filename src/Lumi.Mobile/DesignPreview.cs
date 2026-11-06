@@ -229,6 +229,7 @@ public static class DesignPreview
                 ChatId = open.Id,
                 ProjectId = lumi.Id,
                 ProjectName = lumi.Name,
+                Suggestions = ["Check the unfolded layout", "Show me what changed", "Explain how the keyboard insets work when I switch between apps"],
                 SkillNames = ["Fold layout check"],
                 McpNames = ["Avalonia MCP", "DotSight", "avalonia-mcp", "memory", "lumi-mcp", "workiq"]
             },

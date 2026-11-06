@@ -6,6 +6,7 @@
              xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:proto="using:Lumi.Remote.Protocol"
              xmlns:behaviors="using:Lumi.Mobile.Behaviors"
+             xmlns:input="using:Avalonia.Input"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:sa="using:StrataTheme.Animation"
              x:Class="Lumi.Mobile.Views.ChatDetailView"
@@ -204,6 +205,83 @@
       <Setter Property="StrokeThickness" Value="2" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+
+    <!--
+      ══ Follow-up suggestions ══
+      The desktop's chips at thumb size: one row of glass pills resting on the composer, each the reply
+      arrow and one line of what to say next. A tap sends it, as the desktop's chip does; holding it puts
+      the words in the composer to finish first. The row runs to the screen's edges, so the next pill
+      peeks in and says the row scrolls. A pill is 36 dp drawn inside its 48 dp target.
+    -->
+    <Style Selector="Button.follow-up">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MaxWidth" Value="288" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.follow-up /template/ Border#PART_Surface,
+                     Button.follow-up:pointerover /template/ Border#PART_Surface,
+                     Button.follow-up:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="none" />
+      <Setter Property="RenderTransform" Value="none" />
+    </Style>
+    <Style Selector="Button.follow-up /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <!-- Each pill frosts what passes beneath it, as the working pill above the composer does. -->
+    <Style Selector="Panel.follow-up-glass">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.14" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.follow-up:pressed Panel.follow-up-glass">
+      <Setter Property="RenderTransform" Value="scale(0.96)" />
+    </Style>
+    <Style Selector="Border.follow-up-pill">
+      <Setter Property="Height" Value="36" />
+      <Setter Property="CornerRadius" Value="18" />
+      <Setter Property="Padding" Value="12,0,15,0" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <!-- The pressed glass's lower shadow: the resting one reaches past the target and the row clips it. -->
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlassPressed}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.follow-up:pressed Border.follow-up-pill">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
+    </Style>
+    <Style Selector="Path.follow-up-glyph">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Data" Value="M3 1.5V5.5A3.5 3.5 0 0 0 6.5 9H12M9 6L12 9L9 12" />
+      <Setter Property="Stroke" Value="{DynamicResource Brush.AccentText}" />
+      <Setter Property="StrokeThickness" Value="1.6" />
+      <Setter Property="StrokeLineCap" Value="Round" />
+      <Setter Property="StrokeJoin" Value="Round" />
+    </Style>
+    <Style Selector="TextBlock.follow-up-text">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
 
     <!-- The setups' heading, as the desktop words it ("Start with"). The row beneath runs to the screen's
@@ -1331,6 +1409,45 @@
                                     IsActive="{Binding Chat.IsWorking}"
                                     IsVisible="{Binding Chat.IsWorking}"
                                     AutomationProperties.Name="{Binding Chat.WorkingStatusText}" />
+          <!-- What to say next, on the composer where the thumb already is. The row reaches past the
+               composer's 12 dp sides to the screen's edges, its first pill in line with the composer. -->
+          <ScrollViewer x:Name="FollowUpSuggestions"
+                        Margin="-12,0,-12,2"
+                        HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
+                        IsVisible="{Binding Chat.ShowFollowUpSuggestions}"
+                        AutomationProperties.Name="{loc:Str FollowUpSuggestions}">
+            <ItemsControl x:Name="FollowUpSuggestionItems" Margin="12,0"
+                          ItemsSource="{Binding Chat.Suggestions}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Orientation="Horizontal" Spacing="8" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                  <Button Classes="follow-up"
+                          behaviors:TouchScrollClickGuard.IsEnabled="True"
+                          input:InputElement.IsHoldingEnabled="True"
+                          Holding="OnFollowUpHolding"
+                          ContextRequested="OnFollowUpContextRequested"
+                          Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).Chat.SendFollowUpCommand}"
+                          CommandParameter="{Binding}"
+                          AutomationProperties.Name="{Binding}"
+                          AutomationProperties.HelpText="{loc:Str FollowUpHelp}">
+                    <Panel Classes="follow-up-glass">
+                      <sc:StrataBackdropBlur Classes="floating-frost" CornerRadius="18" />
+                      <Border Classes="follow-up-pill">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                          <Path Classes="follow-up-glyph" />
+                          <TextBlock Grid.Column="1" Classes="follow-up-text" Text="{Binding}" />
+                        </Grid>
+                      </Border>
+                    </Panel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
           <sc:StrataChatComposer x:Name="Composer"
                                FlowDirection="LeftToRight"
                                Classes="mobile"

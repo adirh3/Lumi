@@ -339,6 +339,49 @@ public sealed class RemoteCommandRouterSurfaceTests
     });
 
     [Fact]
+    public Task AnExternalSendRetiresTheSavedSuggestionsOfTheReplyItMovesPast() => RunAsync(async () =>
+    {
+        // A phone shows a chat's saved suggestions even while the PC has its transcript unloaded, so a
+        // message from a phone or a job must retire them just as one typed on the desktop does.
+        var answer = new ChatMessage { Role = "assistant", Content = "The change is ready." };
+        var chat = new Chat
+        {
+            Title = "Existing", LastModelUsed = "auto", MessageCount = 2,
+            FollowUpSuggestionAssistantMessageId = answer.Id,
+            FollowUpSuggestions = ["Show the diff", "Run the tests"]
+        };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "previous" });
+        chat.Messages.Add(answer);
+        var dataStore = new DataStore(new AppData { Settings = TestSettings(), Chats = [chat] });
+        using var main = new MainViewModel(
+            dataStore,
+            TestCopilot.Shared,
+            new UpdateService(),
+            initializeCopilotOnStartup: false);
+        await main.OpenChatByIdAsync(chat.Id);
+        using var cancellation = new CancellationTokenSource();
+
+        try
+        {
+            await main.ChatVM.SendExternalMessageAsync(
+                chat,
+                "continue",
+                "Lumi Mobile",
+                cancellation.Token,
+                onAccepted: () => cancellation.Cancel(),
+                remoteDeviceId: "phone-1",
+                remoteRequestId: "request-3");
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is triggered at the acceptance boundary so no model request starts.
+        }
+
+        Assert.Empty(chat.FollowUpSuggestions);
+        Assert.Null(chat.FollowUpSuggestionAssistantMessageId);
+    });
+
+    [Fact]
     public Task OpeningAChatMarksItReadWithoutChangingTheDesktopSurface() => RunAsync(async () =>
     {
         MainViewModel? main = null;

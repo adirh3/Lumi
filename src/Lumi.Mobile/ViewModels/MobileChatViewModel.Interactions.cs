@@ -19,6 +19,7 @@ public sealed partial class MobileChatViewModel
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowThinking))]
     [NotifyPropertyChangedFor(nameof(WorkingStatusText))]
+    [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isAwaitingInput;
     public bool SupportsInteractiveResponses => _sink.SupportsInteractiveResponses;
     public bool CanSubmitInteractions => SupportsInteractiveResponses && ChatId != Guid.Empty && !IsBusy && !IsLoading;

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="FollowUpSuggestions" xml:space="preserve"><value>추천 답장</value></data>
+  <data name="FollowUpHelp" xml:space="preserve"><value>탭하여 보내기. 길게 눌러 먼저 편집.</value></data>
   <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
   <resheader name="version"><value>2.0</value></resheader>
   <data name="EditMessage" xml:space="preserve"><value>메시지 편집</value></data>

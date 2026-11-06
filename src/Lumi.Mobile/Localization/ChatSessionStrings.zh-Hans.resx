@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="FollowUpSuggestions" xml:space="preserve"><value>建议回复</value></data>
+  <data name="FollowUpHelp" xml:space="preserve"><value>点按即可发送。长按可先编辑。</value></data>
   <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
   <resheader name="version"><value>2.0</value></resheader>
   <data name="EditMessage" xml:space="preserve"><value>编辑消息</value></data>

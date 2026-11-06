@@ -16,6 +16,55 @@ namespace Lumi.Tests;
 public sealed class RemoteEventHubObserverTests
 {
     [Fact]
+    public async Task SuggestionsGeneratedForAnInactiveChatReachItsPhoneWithoutReloadingTheTranscript()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            var chat = Chat("Phone chat");
+            var answer = new ChatMessage { Role = "assistant", Content = "The change is ready." };
+            chat.Messages.Add(answer);
+            var desktopChat = Chat("Desktop chat");
+            var dataStore = new DataStore(new AppData { Chats = [chat, desktopChat] });
+            using var main = new MainViewModel(
+                dataStore, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+            main.ChatVM.CurrentChat = desktopChat;
+            using var hub = new RemoteEventHub(dataStore, main, () => []);
+            Dispatcher.UIThread.RunJobs();
+            var stream = new RecordingStream();
+            using var client = hub.AddClient(stream, "suggestions-fixture",
+                subscription: new RemoteEventSubscription { ChatId = chat.Id, IsForeground = true });
+            using var cancellation = new CancellationTokenSource();
+            var writer = client.RunAsync(cancellation.Token);
+            try
+            {
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                var baseline = stream.Text.Length;
+                chat.FollowUpSuggestionAssistantMessageId = answer.Id;
+                chat.FollowUpSuggestions = ["Show the diff", "Run the tests"];
+                main.ChatEvents.PublishSuggestions(chat.Id, chat.FollowUpSuggestions);
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                var wire = stream.Text[baseline..];
+                Assert.Contains($"event: {RemoteProtocol.Events.ChatStatus}", wire);
+                var frame = wire.Split("\n\n").Single(part =>
+                    part.StartsWith($"event: {RemoteProtocol.Events.ChatStatus}\n", StringComparison.Ordinal));
+                var json = frame.Split('\n').Single(line => line.StartsWith("data: ", StringComparison.Ordinal))[6..];
+                var status = JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteChatStatus)!;
+                Assert.Equal(chat.FollowUpSuggestions, status.Suggestions);
+                Assert.DoesNotContain($"event: {RemoteProtocol.Events.TranscriptInvalidated}", wire);
+                Assert.Same(desktopChat, main.ChatVM.CurrentChat);
+            }
+            finally
+            {
+                cancellation.Cancel();
+                Pump(writer);
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task DesktopReadAndActivityTransitionsReachPagedListSubscribersWithoutOpeningAChat()
     {
         using var session = HeadlessTestSession.Start();

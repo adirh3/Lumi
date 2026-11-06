@@ -1,5 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <root>
+  <data name="FollowUpSuggestions" xml:space="preserve"><value>返信の候補</value></data>
+  <data name="FollowUpHelp" xml:space="preserve"><value>タップで送信。長押しで編集してから送信。</value></data>
   <resheader name="resmimetype">
     <value>text/microsoft-resx</value>
   </resheader>

@@ -817,6 +817,12 @@ around the send button still while Lumi works.
 
 ### Mobile conversations
 
+After a reply, Lumi's suggested replies from your PC sit as a row of pills on the composer; swipe
+sideways for more. Tap one to send it as it reads, just as clicking a suggestion does on the desktop,
+or long-press it to put its words in the composer and edit them first. Suggestions step aside while
+you write, attach files, read an older transcript window, answer a question, or Lumi is working. They
+follow the desktop's **AI Features → Follow-up suggestions** setting.
+
 Long-press your message to open **Copy**, **Edit**, or **Select text**; long-press
 Lumi's message for **Copy** or **Select text**. As in other phone apps, the page dims
 around the pressed message and a compact menu floats beside it; touch anywhere else

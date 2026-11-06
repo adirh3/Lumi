@@ -1,5 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <root>
+  <data name="FollowUpSuggestions" xml:space="preserve"><value>ردود مقترحة</value></data>
+  <data name="FollowUpHelp" xml:space="preserve"><value>انقر للإرسال. اضغط مطولاً للتحرير أولاً.</value></data>
   <resheader name="resmimetype">
     <value>text/microsoft-resx</value>
   </resheader>

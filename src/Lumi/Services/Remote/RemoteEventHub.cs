@@ -392,6 +392,7 @@ internal sealed class RemoteEventHub : IDisposable
         _main.ChatGroups.CollectionChanged += OnChatGroupsChanged;
         _main.ChatDeleted += OnChatDeleted;
         _main.ChatActivityOrReadStateChanged += OnChatActivityOrReadStateChanged;
+        _main.ChatEvents.SuggestionsSettled += OnSuggestionsSettled;
         _dataStore.ChatContentChanged += OnChatContentChanged;
         _dataStore.IndexSaved += OnLibraryChanged;
         _publishedFavoriteModels = FavoriteModelsSignature();
@@ -407,6 +408,7 @@ internal sealed class RemoteEventHub : IDisposable
         _main.ChatGroups.CollectionChanged -= OnChatGroupsChanged;
         _main.ChatDeleted -= OnChatDeleted;
         _main.ChatActivityOrReadStateChanged -= OnChatActivityOrReadStateChanged;
+        _main.ChatEvents.SuggestionsSettled -= OnSuggestionsSettled;
         _dataStore.ChatContentChanged -= OnChatContentChanged;
         _dataStore.IndexSaved -= OnLibraryChanged;
 
@@ -746,6 +748,16 @@ internal sealed class RemoteEventHub : IDisposable
 
         MarkChatListDirtyIfChanged(chatId);
         MarkTranscriptDirty(chatId);
+    }
+
+    private void OnSuggestionsSettled(Guid chatId, IReadOnlyList<string> suggestions)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => OnSuggestionsSettled(chatId, suggestions));
+            return;
+        }
+        MarkStatusDirty(chatId);
     }
 
     private void MarkChatListDirtyIfChanged(Guid? chatId)

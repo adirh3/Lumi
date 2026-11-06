@@ -11,6 +11,76 @@ namespace Lumi.Mobile.Tests;
 public sealed class MobileStateCorrectnessTests
 {
     [Fact]
+    public async Task FollowUpsSendOnTapEditOnHoldAndBelongToAnIdleLatestChat()
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        var id = Guid.NewGuid();
+        chat.Reset(id, "Suggestions");
+        chat.ApplyStatus(new RemoteChatStatus
+        {
+            ChatId = id, Suggestions = ["Show the diff", "Run the tests", " ", "Show the diff"]
+        });
+        Assert.Equal(["Show the diff", "Run the tests"], chat.Suggestions);
+        Assert.True(chat.ShowFollowUpSuggestions);
+
+        // Holding one puts its words in the composer to finish first, and sends nothing.
+        chat.SelectFollowUpCommand.Execute("Show the diff");
+        Assert.Equal("Show the diff", chat.PromptText);
+        Assert.Empty(sink.Commands);
+        Assert.False(chat.ShowFollowUpSuggestions);
+        // Neither gesture replaces a draft.
+        chat.SelectFollowUpCommand.Execute("Run the tests");
+        await chat.SendFollowUpCommand.ExecuteAsync("Run the tests");
+        Assert.Equal("Show the diff", chat.PromptText);
+        Assert.Empty(sink.Commands);
+        chat.PromptText = "";
+
+        // Only what the PC suggested can be sent this way.
+        await chat.SendFollowUpCommand.ExecuteAsync("Something the PC never suggested");
+        Assert.Empty(sink.Commands);
+        Assert.Empty(chat.PromptText);
+
+        chat.IsBusy = true;
+        Assert.False(chat.ShowFollowUpSuggestions);
+        chat.IsBusy = false;
+        chat.IsStreaming = true;
+        Assert.False(chat.ShowFollowUpSuggestions);
+        chat.IsStreaming = false;
+        chat.IsAwaitingInput = true;
+        Assert.False(chat.ShowFollowUpSuggestions);
+        chat.IsAwaitingInput = false;
+        chat.IsLatestWindow = false;
+        Assert.False(chat.ShowFollowUpSuggestions);
+        chat.IsLatestWindow = true;
+        chat.IsLoading = true;
+        Assert.False(chat.ShowFollowUpSuggestions);
+        chat.IsLoading = false;
+        chat.Attachments.Add(new PendingAttachment("notes.txt", "notes.txt"));
+        Assert.False(chat.ShowFollowUpSuggestions);
+        await chat.SendFollowUpCommand.ExecuteAsync("Run the tests");
+        Assert.Empty(chat.PromptText);
+        Assert.Empty(sink.Commands);
+        chat.Attachments.Clear();
+        Assert.True(chat.ShowFollowUpSuggestions);
+
+        // A tap sends it as it reads, as the desktop's chip does, and the row steps aside.
+        await chat.SendFollowUpCommand.ExecuteAsync("Run the tests");
+        var send = Assert.Single(sink.Commands, command => command.Action == RemoteProtocol.Actions.SendMessage);
+        Assert.Equal(id.ToString(), send.Get("chatId"));
+        Assert.Equal("Run the tests", send.Get("message"));
+        Assert.Empty(chat.PromptText);
+        Assert.False(chat.ShowFollowUpSuggestions);
+
+        chat.Reset(Guid.NewGuid(), "Another chat");
+        Assert.False(chat.ShowFollowUpSuggestions);
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = id, Suggestions = ["Stale suggestion"] });
+        Assert.Empty(chat.Suggestions);
+        chat.Reset(Guid.Empty, "New chat");
+        Assert.False(chat.ShowFollowUpSuggestions);
+    }
+
+    [Fact]
     public async Task FusionIsOneModelRowAndItsEffortChangesTheNativeSelectionNotReasoning()
     {
         var sink = new RecordingSink();

@@ -59,6 +59,8 @@ public partial class ChatDetailView : UserControl
     private MobileEntrance? _transcriptEntrance;
     private MobileEntrance[]? _welcomeEntrances;
     private MobileEntrance? _workingEntrance;
+    private MobileEntrance? _followUpEntrance;
+    private bool _followUpsShown;
     private bool _wasWorking;
     private int _chatEntranceVersion;
     private bool _awaitingChatEntrance;
@@ -121,6 +123,8 @@ public partial class ChatDetailView : UserControl
         DisposeWelcomeEntrances();
         _workingEntrance?.Dispose();
         _workingEntrance = null;
+        _followUpEntrance?.Dispose();
+        _followUpEntrance = null;
         _awaitingChatEntrance = false;
         _chatEntranceQueued = false;
         _transcriptContentChanged = false;
@@ -307,6 +311,80 @@ public partial class ChatDetailView : UserControl
     }
 
     private void OnComposerActionRequested(object? sender, RoutedEventArgs e) => ReleaseComposerFocus();
+
+    /// <summary>
+    /// Holding a suggestion puts its words in the composer to finish first. A tap sends it, so holding,
+    /// the phone's way of asking for more, is the one gesture that can mean "let me change it".
+    /// </summary>
+    private void OnFollowUpHolding(object? sender, HoldingRoutedEventArgs e)
+    {
+        if (e.HoldingState != HoldingState.Started
+            || sender is not Button { CommandParameter: string suggestion } button
+            || TouchScrollClickGuard.WasDragged(button))
+            return;
+
+        TouchScrollClickGuard.ConsumeHold(button);
+        EditFollowUp(suggestion);
+        e.Handled = true;
+    }
+
+    /// <summary>A mouse or trackpad on a tablet asks with a secondary click.</summary>
+    private void OnFollowUpContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        if (sender is Button { CommandParameter: string suggestion })
+            EditFollowUp(suggestion);
+        e.Handled = true;
+    }
+
+    private void EditFollowUp(string suggestion)
+    {
+        if (_shell?.Chat is not { } chat)
+            return;
+
+        chat.SelectFollowUpCommand.Execute(suggestion);
+        if (chat.PromptText != suggestion)
+            return;
+
+        var chatId = chat.ChatId;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_shell?.Chat != chat || chat.ChatId != chatId || chat.PromptText != suggestion
+                || !this.IsAttachedToVisualTree())
+                return;
+            if (_nativeComposerEditor is { } editor)
+                editor.FocusAtEnd();
+            else if (_sharedComposerInput is { } input)
+            {
+                input.Focus();
+                input.CaretIndex = input.Text?.Length ?? 0;
+            }
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>New suggestions rise onto the composer from its start, as a finished reply settles.</summary>
+    private void OnFollowUpSuggestionsChanged()
+    {
+        var shown = _shell?.Chat.ShowFollowUpSuggestions == true;
+        if (shown == _followUpsShown)
+            return;
+
+        _followUpsShown = shown;
+        if (this.FindControl<ScrollViewer>("FollowUpSuggestions") is not { } row)
+            return;
+        if (!shown)
+        {
+            _followUpEntrance?.Stop();
+            return;
+        }
+
+        row.Offset = default;
+        if (this.IsAttachedToVisualTree() && IsEffectivelyVisible
+            && _shell is { IsChatPage: true, HasPageOverlay: false })
+        {
+            _followUpEntrance ??= new MobileEntrance(row, offsetY: 8, duration: TimeSpan.FromMilliseconds(240));
+            _followUpEntrance.Play();
+        }
+    }
 
     private void OnSurfacePointerPressed(object? sender, PointerPressedEventArgs e)
     {
@@ -650,6 +728,7 @@ public partial class ChatDetailView : UserControl
 
         _shell = shell;
         _wasWorking = shell.Chat.IsWorking;
+        _followUpsShown = shell.Chat.ShowFollowUpSuggestions;
         shell.PropertyChanged += OnShellPropertyChanged;
         shell.Chat.Turns.CollectionChanged += OnTurnsChanged;
         shell.Chat.PropertyChanged += OnChatPropertyChanged;
@@ -687,6 +766,8 @@ public partial class ChatDetailView : UserControl
         DisposeWelcomeEntrances();
         _workingEntrance?.Dispose();
         _workingEntrance = null;
+        _followUpEntrance?.Dispose();
+        _followUpEntrance = null;
 
         _shell = null;
         UpdateNativeComposerVisibility();
@@ -1099,6 +1180,9 @@ public partial class ChatDetailView : UserControl
 
     private void OnChatPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MobileChatViewModel.ShowFollowUpSuggestions))
+            OnFollowUpSuggestionsChanged();
+
         if (e.PropertyName == nameof(MobileChatViewModel.IsWorking))
         {
             var isWorking = _shell?.Chat.IsWorking == true;

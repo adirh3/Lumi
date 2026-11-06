@@ -3769,6 +3769,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             MarkTurnUnattended(targetChat.Id);
         else
             MarkTurnAttended(targetChat.Id);
+        // As in SendMessage: the saved suggestions answered the reply this message moves past.
+        ClearPersistedSuggestions(targetChat);
         var userMsg = new ChatMessage
         {
             Role = "user",
@@ -6861,7 +6863,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return userIndex > assistantIndex ? null : chat.Messages[assistantIndex];
     }
 
-    private static Guid? GetLatestSuggestionEligibleAssistantMessageId(Chat chat)
+    internal static Guid? GetLatestSuggestionEligibleAssistantMessageId(Chat chat)
         => GetLatestSuggestionEligibleAssistantMessage(chat)?.Id;
 
     private static List<string> NormalizeFollowUpSuggestions(IEnumerable<string>? suggestions)
@@ -7285,6 +7287,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // For regenerates (same content): reuse the existing session as-is.
 
         // Re-add the user message as a fresh entry
+        ClearPersistedSuggestions(CurrentChat);
         var newUserMsg = new ChatMessage
         {
             Role = "user",

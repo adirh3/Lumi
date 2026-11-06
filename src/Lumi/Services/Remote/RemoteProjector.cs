@@ -308,11 +308,15 @@ internal static class RemoteProjector
             AvailableMcps = isActive ? BuildChips(chatVm.AvailableMcpChips) : [],
             AvailableProjects = isActive ? BuildChips(chatVm.AvailableProjectChips) : [],
             HasComposerCatalogs = isActive,
-            Suggestions = isActive
+            Suggestions = !dataStore.Data.Settings.SuggestFollowUps ? [] : isActive
                 ? new[] { chatVm.SuggestionA, chatVm.SuggestionB, chatVm.SuggestionC }
                     .Where(suggestion => !string.IsNullOrWhiteSpace(suggestion))
                     .ToList()
-                : []
+                : chat.FollowUpSuggestionAssistantMessageId is { } assistantId
+                  && (chat.Messages.Count == 0
+                      || ChatViewModel.GetLatestSuggestionEligibleAssistantMessageId(chat) == assistantId)
+                    ? [.. chat.FollowUpSuggestions]
+                    : []
         });
     }
 

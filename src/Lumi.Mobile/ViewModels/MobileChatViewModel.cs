@@ -64,18 +64,22 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSubmitInteractions))]
+    [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private Guid _chatId;
     [ObservableProperty] private string _title = "";
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
     [NotifyPropertyChangedFor(nameof(HasUnsentWork))]
+    [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private string _promptText = "";
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
     [NotifyPropertyChangedFor(nameof(CanSubmitInteractions))]
+    [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isBusy;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
+    [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isStreaming;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
@@ -83,6 +87,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
     [NotifyPropertyChangedFor(nameof(CanSubmitInteractions))]
+    [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isLoading;
     [ObservableProperty] private string? _statusText;
     [ObservableProperty] private string? _errorText;
@@ -97,6 +102,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [ObservableProperty] private bool _hasLaterMessages;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
+    [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isLatestWindow = true;
     [ObservableProperty] private bool _hasNewerActivity;
 
@@ -338,6 +344,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
     [NotifyPropertyChangedFor(nameof(HasUnsentWork))]
+    [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isUploading;
 
     [ObservableProperty]
@@ -524,7 +531,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
         SkillChips.CollectionChanged += (_, e) => PushChipAdditions(e, "addSkills");
         McpChips.CollectionChanged += (_, e) => PushChipAdditions(e, "addMcps");
         InitializeComposerContext();
-        Attachments.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasUnsentWork));
+        Attachments.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasUnsentWork));
+            OnPropertyChanged(nameof(ShowFollowUpSuggestions));
+        };
+        Suggestions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowFollowUpSuggestions));
         SendCommand.PropertyChanged += OnSendActivityChanged;
         StopAndSendCommand.PropertyChanged += OnSendActivityChanged;
     }
@@ -532,7 +544,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private void OnSendActivityChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(SendCommand.IsRunning))
+        {
             OnPropertyChanged(nameof(HasUnsentWork));
+            OnPropertyChanged(nameof(ShowFollowUpSuggestions));
+        }
     }
 
     private void PushChipAdditions(NotifyCollectionChangedEventArgs e, string key)
@@ -550,6 +565,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public ObservableCollection<TranscriptTurnViewModel> Turns { get; } = [];
 
     public ObservableCollection<string> Suggestions { get; } = [];
+
+    public bool ShowFollowUpSuggestions =>
+        HasChat && Suggestions.Count > 0 && !IsWorking && !IsLoading && IsLatestWindow && !IsAwaitingInput
+        && PromptText.Length == 0 && !HasAttachments && !IsUploading
+        && !SendCommand.IsRunning && !StopAndSendCommand.IsRunning;
 
     /// <summary>The three static starters shown when the desktop has nothing more specific.</summary>
     private static ChatStarter[] DefaultStarters =>
@@ -2620,7 +2640,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(EffortMax));
         OnPropertyChanged(nameof(EffortLabel));
 
-        Sync(Suggestions, status.Suggestions);
+        Sync(Suggestions, status.Suggestions
+            .Where(suggestion => !string.IsNullOrWhiteSpace(suggestion))
+            .Distinct(StringComparer.Ordinal)
+            .Take(3)
+            .ToList());
         OnPropertyChanged(nameof(Starters));
     }
 
@@ -3842,6 +3866,25 @@ public sealed partial class MobileChatViewModel : ObservableObject
     {
         if (!string.IsNullOrWhiteSpace(suggestion))
             PromptText = suggestion!;
+    }
+
+    /// <summary>Holding a suggestion: its words go in the composer to finish before sending.</summary>
+    [RelayCommand]
+    private void SelectFollowUp(string? suggestion)
+    {
+        if (ShowFollowUpSuggestions && suggestion is not null && Suggestions.Contains(suggestion))
+            PromptText = suggestion;
+    }
+
+    /// <summary>Tapping a suggestion sends it as it reads, as the desktop's chip does.</summary>
+    [RelayCommand]
+    private Task SendFollowUpAsync(string? suggestion)
+    {
+        if (!ShowFollowUpSuggestions || suggestion is null || !Suggestions.Contains(suggestion))
+            return Task.CompletedTask;
+
+        PromptText = suggestion;
+        return SendCommand.CanExecute(null) ? SendCommand.ExecuteAsync(null) : Task.CompletedTask;
     }
 
     [RelayCommand]
