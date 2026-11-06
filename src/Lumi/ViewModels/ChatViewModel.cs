@@ -3442,7 +3442,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
            || (_runtimeStates.TryGetValue(chatId, out var runtime) && runtime.IsStopping)
            || HasPendingQuestion(chatId)
            || HasPendingPermissionRequest(chatId)
-           || (_queuedBusySendPrompts.TryGetValue(chatId, out var queued) && queued.Count > 0);
+           || (_queuedBusySendPrompts.TryGetValue(chatId, out var queued) && queued.Count > 0)
+           || HasWaitingSends(chatId);
 
     internal sealed class ExternalSendReservation : IDisposable
     {

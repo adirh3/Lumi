@@ -2672,6 +2672,209 @@ public sealed class DeferredSendQueueTests
         Assert.Equal(expected, message.IsSteerInProgress);
     }
 
+    [Fact]
+    public async Task Queue_WhileTheReplyRuns_WaitsAboveTheComposer_AndSendsAfterTheReply()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            host.Runtime.PendingSessionUserMessageCount = 1;
+
+            host.ViewModel.PromptText = "and then  write\nthe tests";
+            await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
+
+            Assert.Equal("", host.ViewModel.PromptText);
+            Assert.Equal(0, rpc.SendCount);
+            Assert.Empty(host.QueuedPrompts());
+            Assert.Empty(host.Chat.Messages);
+            var queued = Assert.Single(host.ViewModel.QueuedSends);
+            Assert.Equal("and then write the tests", queued.Text);
+            Assert.True(host.ViewModel.HasQueuedSends);
+
+            // The reply keeps writing while the message waits; it stays above the queued message.
+            host.Chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "the answer" });
+            rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
+            await rpc.SendReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(1, rpc.SendCount);
+            Assert.NotEqual("immediate", rpc.LastSendMode);
+            Assert.Equal(["the answer", "and then  write\nthe tests"], host.Chat.Messages.Select(message => message.Content));
+            Assert.Equal(MessageSteerState.None, host.Chat.Messages[1].SteerDelivery);
+            Assert.Empty(host.ViewModel.QueuedSends);
+            Assert.False(host.ViewModel.HasQueuedSends);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Queue_WhenNothingRuns_IsAnOrdinarySend()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+
+            host.ViewModel.PromptText = "just send it";
+            await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
+            await rpc.SendReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Empty(host.ViewModel.QueuedSends);
+            Assert.Equal(1, rpc.SendCount);
+            Assert.Equal("just send it", Assert.Single(host.Chat.Messages).Content);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SteerNow_OnAQueuedMessage_SteersItIntoTheRunningReply()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        host.AttachSession(rpc);
+        host.MarkRuntimeBusy(turnInProgress: true);
+        host.Runtime.PendingSessionUserMessageCount = 1;
+
+        host.ViewModel.PromptText = "actually, steer this";
+        await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
+        await Assert.Single(host.ViewModel.QueuedSends).SteerNowCommand.ExecuteAsync(null);
+
+        Assert.Empty(host.ViewModel.QueuedSends);
+        Assert.Equal(1, rpc.SendCount);
+        Assert.Equal("immediate", rpc.LastSendMode);
+        Assert.Equal(MessageSteerState.Steering, Assert.Single(host.ViewModel.Messages).SteerState);
+    }
+
+    [Fact]
+    public async Task Steer_WhileAMessageIsQueued_GoesIntoTheRunningReplyFirst()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        host.AttachSession(rpc);
+        host.MarkRuntimeBusy(turnInProgress: true);
+        host.Runtime.PendingSessionUserMessageCount = 1;
+
+        host.ViewModel.PromptText = "for later";
+        await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
+        await host.SendCoreAsync("for now");
+
+        Assert.Equal("immediate", rpc.LastSendMode);
+        Assert.Equal("for now", Assert.Single(host.Chat.Messages).Content);
+        Assert.Equal("for later", Assert.Single(host.ViewModel.QueuedSends).Text);
+    }
+
+    [Fact]
+    public async Task RemovingAQueuedMessage_DropsIt_AndAFailedReplyKeepsTheRestAsUndelivered()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        host.AttachSession(rpc);
+        host.MarkRuntimeBusy(turnInProgress: true);
+
+        host.ViewModel.PromptText = "drop me";
+        await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
+        host.ViewModel.PromptText = "keep me";
+        await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
+        host.ViewModel.QueuedSends[0].RemoveCommand.Execute(null);
+
+        Assert.Equal("keep me", Assert.Single(host.ViewModel.QueuedSends).Text);
+        Assert.True(host.ViewModel.OwnsLiveChat(host.Chat.Id));
+
+        host.FailQueued();
+
+        Assert.Empty(host.ViewModel.QueuedSends);
+        var message = Assert.Single(host.Chat.Messages);
+        Assert.Equal("keep me", message.Content);
+        Assert.Equal(MessageSteerState.Failed, message.SteerDelivery);
+        Assert.Equal(0, rpc.SendCount);
+    }
+
+    [Fact]
+    public async Task Pause_HoldsQueuedMessagesDurably_AfterEarlierDeferredSends()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        host.AttachSession(rpc);
+        host.MarkRuntimeBusy(turnInProgress: true);
+        host.Runtime.PendingSessionUserMessageCount = 1;
+        host.ViewModel.PromptText = "queued for after";
+        await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
+        host.QueuePrompt("deferred earlier");
+
+        host.ViewModel.SetChatPaused(host.Chat, true);
+
+        Assert.Empty(host.ViewModel.QueuedSends);
+        Assert.Equal(["deferred earlier", "queued for after"], host.QueuedPrompts());
+        Assert.All(host.Chat.Messages, message =>
+        {
+            Assert.True(message.IsPendingPausedSend);
+            Assert.Equal(MessageSteerState.Queued, message.SteerDelivery);
+        });
+    }
+
+    [Fact]
+    public async Task DeletingAChat_DropsItsQueuedMessages_WithoutWritingThemIntoIt()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        host.AttachSession(rpc);
+        host.MarkRuntimeBusy(turnInProgress: true);
+        host.ViewModel.PromptText = "never sent";
+        await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
+
+        host.CleanupSession();
+
+        Assert.Empty(host.ViewModel.QueuedSends);
+        Assert.Empty(host.Chat.Messages);
+        Assert.False(host.ViewModel.OwnsLiveChat(host.Chat.Id));
+    }
+
+    [Fact]
+    public async Task EditingAQueuedMessage_PutsItBackInTheComposer_KeepingTheDraftAfterIt()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        host.AttachSession(rpc);
+        host.MarkRuntimeBusy(turnInProgress: true);
+        var file = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "queued-note.txt");
+        host.ViewModel.AddAttachment(file);
+        host.ViewModel.PromptText = "queued words";
+        await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
+        host.ViewModel.PromptText = "draft in progress";
+
+        host.ViewModel.QueuedSends[0].EditCommand.Execute(null);
+
+        Assert.Empty(host.ViewModel.QueuedSends);
+        Assert.Equal("queued words" + Environment.NewLine + Environment.NewLine + "draft in progress", host.ViewModel.PromptText);
+        Assert.Equal([file], host.ViewModel.PendingAttachments);
+        Assert.Empty(host.Chat.Messages);
+        Assert.Equal(0, rpc.SendCount);
+    }
+
+    [Fact]
+    public async Task QueuedMessages_AreNumberedInSendingOrder()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        host.AttachSession(rpc);
+        host.MarkRuntimeBusy(turnInProgress: true);
+        foreach (var prompt in new[] { "one", "two", "three" })
+        {
+            host.ViewModel.PromptText = prompt;
+            await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
+        }
+
+        host.ViewModel.QueuedSends[0].RemoveCommand.Execute(null);
+
+        Assert.Equal([("two", 1), ("three", 2)], host.ViewModel.QueuedSends.Select(item => (item.Text, item.Position)));
+    }
+
     private sealed class DeferredSendHost : IDisposable
     {
         private DeferredSendHost(ChatViewModel viewModel, Chat chat)

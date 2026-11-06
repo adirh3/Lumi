@@ -197,6 +197,7 @@ public partial class ChatViewModel
         _retiredPermissionRequests.Clear();
         ClearPendingQuestionTracking();
         _queuedBusySendPrompts.Clear();
+        _waitingSends.Clear();
         _inProgressMessages.Clear();
         DisposeVoice();
         _modelSelectionSaveCts?.Cancel();
@@ -265,7 +266,8 @@ public partial class ChatViewModel
         if (IsChatRuntimeActive(chatId)
             || _ctsSources.ContainsKey(chatId)
             || _inProgressMessages.ContainsKey(chatId)
-            || (_queuedBusySendPrompts.TryGetValue(chatId, out var queued) && queued.Count > 0))
+            || (_queuedBusySendPrompts.TryGetValue(chatId, out var queued) && queued.Count > 0)
+            || HasWaitingSends(chatId))
             return true;
 
         return HasPendingQuestion(chatId);
@@ -299,6 +301,7 @@ public partial class ChatViewModel
                      .Concat(_ctsSources.Keys)
                      .Concat(_inProgressMessages.Keys)
                      .Concat(_queuedBusySendPrompts.Keys)
+                     .Concat(_waitingSends.Keys)
                      .Distinct())
         {
             if (OwnsLiveChat(chatId))
@@ -383,15 +386,32 @@ public partial class ChatViewModel
         string? authorOverride = null,
         IReadOnlyCollection<string>? explicitAttachmentPaths = null)
     {
-        if (string.IsNullOrWhiteSpace(prompt))
-            return null;
-
         var chat = CurrentChat?.Id == chatId
             ? CurrentChat
             : _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
         if (chat is null)
             return null;
 
+        var message = BuildQueuedSend(chat, prompt, authorOverride, explicitAttachmentPaths);
+        if (message is not null)
+            AddQueuedSendToTranscript(chat, message);
+        return message;
+    }
+
+    /// <summary>
+    /// Captures a send that has to wait — its text with the composer's attachments, skills, agent, reply and
+    /// the chats it brings in — without showing it yet.
+    /// </summary>
+    private ChatMessage? BuildQueuedSend(
+        Chat chat,
+        string prompt,
+        string? authorOverride = null,
+        IReadOnlyCollection<string>? explicitAttachmentPaths = null)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return null;
+
+        var chatId = chat.Id;
         var message = new ChatMessage
         {
             Role = "user",
@@ -421,6 +441,14 @@ public partial class ChatViewModel
             PendingAttachmentItems.Clear();
         }
 
+        return message;
+    }
+
+    /// <summary>Shows a waiting send at the end of the transcript with its "Queued…" pill.</summary>
+    private void AddQueuedSendToTranscript(Chat chat, ChatMessage message)
+    {
+        var chatId = chat.Id;
+
         // An assistant message that is still streaming lives only in _inProgressMessages until the turn
         // finalizes — and finalization APPENDS it. Persist it now so this follow-up cannot land ahead of
         // the answer it is replying to. Same instance, so later deltas keep mutating it in place, and
@@ -439,8 +467,6 @@ public partial class ChatViewModel
         QueueSaveChat(chat, saveIndex: true, touchIndex: true);
         ChatUpdated?.Invoke();
         UserMessageSent?.Invoke();
-
-        return message;
     }
 
     private bool TryDequeueBusySend(Guid chatId, out ChatMessage message)
@@ -463,7 +489,7 @@ public partial class ChatViewModel
     /// </summary>
     private async Task DrainQueuedBusySendAsync(Guid chatId)
     {
-        if (!_queuedBusySendPrompts.ContainsKey(chatId))
+        if (!HasPendingSends(chatId))
             return;
 
         if (_dataStore.Data.Chats.Find(chat => chat.Id == chatId)?.IsPaused == true
@@ -484,7 +510,9 @@ public partial class ChatViewModel
             return;
 
         // Dequeue only once the send is certain, so the message cannot lose its place in the queue.
-        if (!TryDequeueBusySend(chatId, out var message))
+        // Deferred sends go first; a message queued to follow the reply enters the transcript only now.
+        if (!TryDequeueBusySend(chatId, out var message)
+            && !TryTakeWaitingSend(CurrentChat, out message))
             return;
 
         await SendMessageCore(message.Content, consumeComposerPrompt: false, message);
@@ -503,7 +531,7 @@ public partial class ChatViewModel
         Dispatcher.UIThread.Post(() =>
         {
             if (_isDisposed
-                || !_queuedBusySendPrompts.ContainsKey(chatId)
+                || !HasPendingSends(chatId)
                 || !_drainingBusySends.Add(chatId))
             {
                 return;
@@ -557,6 +585,7 @@ public partial class ChatViewModel
     /// </summary>
     private void FailQueuedBusySends(Guid chatId)
     {
+        FailWaitingSends(chatId);
         if (!_queuedBusySendPrompts.Remove(chatId, out var pending))
             return;
 

@@ -142,6 +142,36 @@
       </Setter>
     </ControlTheme>
 
+    <!-- A message queued above the composer: a plain row whose look comes from Border#QueuedSendsPanel's
+         styles, so the list's own selection chrome never shows. -->
+    <ControlTheme x:Key="QueuedSendRow" TargetType="ListBoxItem">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="6,4,4,4" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="FocusAdorner" Value="{x:Null}" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}">
+            <Border.Transitions>
+              <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.12" />
+              </Transitions>
+            </Border.Transitions>
+            <ContentPresenter Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+      <Style Selector="^:pointerover">
+        <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
+      </Style>
+      <Style Selector="^:selected:focus-within">
+        <Setter Property="Background" Value="{DynamicResource Brush.GlassAccentTint}" />
+      </Style>
+    </ControlTheme>
+
     <!-- Title menu rows: airy, with quiet icons, a check for the current choice and glass submenus. -->
     <ControlTheme x:Key="ChatTitleMenuItem" TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
       <Setter Property="Padding" Value="10,0" />
@@ -2118,6 +2148,202 @@
       <Setter Property="VerticalContentAlignment" Value="Center" />
       <Setter Property="ToolTip.Placement" Value="Top" />
       <Setter Property="ToolTip.VerticalOffset" Value="-6" />
+    </Style>
+
+    <!-- ── Queued messages: the glass of the pause bar, one row per message ── -->
+    <Style Selector="Border#QueuedSendsPanel">
+      <Setter Property="Margin" Value="0,0,0,8" />
+      <Setter Property="Padding" Value="8,8,8,6" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BoxShadow" Value="0 10 26 -12 #4D000000, 0 2 6 -2 #1A000000" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel sc|StrataLineIcon.queue-glyph">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="1.9" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel TextBlock.queue-title">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Border.queue-count">
+      <Setter Property="MinWidth" Value="17" />
+      <Setter Property="Height" Value="17" />
+      <Setter Property="Padding" Value="5,0" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassAccentTint}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Border.queue-count > TextBlock">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel TextBlock.queue-subtitle">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+
+    <!-- Key hints: how to reach the rows, then, while a row has the keyboard, what each key does. -->
+    <Style Selector="Border#QueuedSendsPanel StackPanel.queue-hint">
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel StackPanel.queue-hint > TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel StackPanel.queue-hint-keys">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel:focus-within StackPanel.queue-hint-keys">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel:focus-within StackPanel.queue-hint-select">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Border.queue-key">
+      <Setter Property="MinWidth" Value="18" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="Padding" Value="5,0" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassWell}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Border.queue-key > TextBlock">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+
+    <!-- Rows: the place in line, the message on one line, its files, and what can be done with it. -->
+    <Style Selector="Border#QueuedSendsPanel ListBox#QueuedSendsList">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MaxHeight" Value="176" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Border.queue-position">
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Border.queue-position > TextBlock">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel ListBoxItem:selected:focus-within Border.queue-position">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel ListBoxItem:selected:focus-within Border.queue-position > TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel TextBlock.queue-text">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel StackPanel.queue-attachments">
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel StackPanel.queue-attachments sc|StrataLineIcon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="1.8" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel StackPanel.queue-attachments > TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+
+    <!-- Actions rest quietly and come forward with the row under the pointer or the keyboard. -->
+    <Style Selector="Border#QueuedSendsPanel StackPanel.queue-actions">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Opacity" Value="0.7" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel ListBoxItem:pointerover StackPanel.queue-actions,
+                     Border#QueuedSendsPanel ListBoxItem:focus-within StackPanel.queue-actions">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Button.queue-steer,
+                     Border#QueuedSendsPanel Button.queue-icon">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Button.queue-steer">
+      <Setter Property="Padding" Value="9,0,10,0" />
+      <Setter Property="CornerRadius" Value="13" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassAccentTint}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Button.queue-icon">
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="13" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Button.queue-steer sc|StrataLineIcon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="1.9" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Button.queue-icon sc|StrataLineIcon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="StrokeThickness" Value="1.8" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Button.queue-steer TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Button.queue-steer /template/ Border#PART_Surface,
+                     Border#QueuedSendsPanel Button.queue-icon /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Button.queue-steer:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
+    </Style>
+    <Style Selector="Border#QueuedSendsPanel Button.queue-icon:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
 
     <Style Selector="Border#ChatPauseStatusPanel.pause-bar">
@@ -4734,6 +4960,89 @@
         </Button>
       </lc:FitRowPanel>
 
+      <!-- Messages queued to follow the reply (Ctrl+Enter, or right-click send): they wait here rather than
+           in the transcript, so the reply still streaming never shows beneath them, and each one enters
+           the transcript as the next turn once the reply finishes. Alt+↑ from the composer selects them
+           (ChatView.QueuedSends.cs). Rows carry no tooltips: they leave the list under the pointer. -->
+      <Border x:Name="QueuedSendsPanel"
+              TextOptions.TextRenderingMode="Antialias"
+              IsVisible="{Binding HasQueuedSends}">
+        <StackPanel Spacing="2">
+          <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="7" Margin="6,0,4,2">
+            <sc:StrataLineIcon Classes="queue-glyph" Data="{x:Static sc:StrataIcons.Clock}" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <TextBlock Classes="queue-title" Text="{loc:Str Chat_QueuedTitle}" />
+              <Border Classes="queue-count">
+                <TextBlock Text="{Binding QueuedSends.Count}" />
+              </Border>
+              <TextBlock Classes="queue-subtitle" Text="{loc:Str Chat_QueuedSubtitle}" />
+            </StackPanel>
+            <!-- How to reach the rows from the composer; once there, what each key does. -->
+            <StackPanel Grid.Column="3" Classes="queue-hint queue-hint-select" Orientation="Horizontal" Spacing="5">
+              <Border Classes="queue-key"><TextBlock Text="{loc:Str Chat_QueuedSelectKey}" /></Border>
+              <TextBlock Text="{loc:Str Chat_QueuedSelectHint}" />
+            </StackPanel>
+            <StackPanel Grid.Column="3" Classes="queue-hint queue-hint-keys" Orientation="Horizontal" Spacing="5">
+              <Border Classes="queue-key"><TextBlock Text="↵" /></Border>
+              <TextBlock Text="{loc:Str Chat_QueuedSteerNow}" />
+              <Border Classes="queue-key" Margin="5,0,0,0"><TextBlock Text="E" /></Border>
+              <TextBlock Text="{loc:Str Chat_QueuedEdit}" />
+              <Border Classes="queue-key" Margin="5,0,0,0"><TextBlock Text="Del" /></Border>
+              <TextBlock Text="{loc:Str Chat_QueuedRemove}" />
+            </StackPanel>
+          </Grid>
+          <ListBox x:Name="QueuedSendsList"
+                   ItemsSource="{Binding QueuedSends}"
+                   ItemContainerTheme="{StaticResource QueuedSendRow}"
+                   AutomationProperties.Name="{loc:Str Chat_QueuedTitle}">
+            <ListBox.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Spacing="2" />
+              </ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:QueuedSendItem">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="9">
+                  <Border Classes="queue-position">
+                    <TextBlock Text="{Binding Position}" />
+                  </Border>
+                  <TextBlock Grid.Column="1" Classes="queue-text" Text="{Binding Text}" />
+                  <StackPanel Grid.Column="2" Classes="queue-attachments" Orientation="Horizontal" Spacing="3"
+                              IsVisible="{Binding HasAttachments}">
+                    <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Paperclip}" />
+                    <TextBlock Text="{Binding AttachmentCount}" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="3" Classes="queue-actions" Orientation="Horizontal" Spacing="2">
+                    <Button Classes="subtle queue-steer"
+                            Command="{Binding SteerNowCommand}"
+                            AutomationProperties.Name="{loc:Str Chat_QueuedSteerNow}"
+                            AutomationProperties.HelpText="{loc:Str Chat_QueuedSteerNowHelp}"
+                            AutomationProperties.AcceleratorKey="Enter">
+                      <StackPanel Orientation="Horizontal" Spacing="5">
+                        <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Bolt}" />
+                        <TextBlock Text="{loc:Str Chat_QueuedSteerNow}" />
+                      </StackPanel>
+                    </Button>
+                    <Button Classes="subtle queue-icon"
+                            Command="{Binding EditCommand}"
+                            AutomationProperties.Name="{loc:Str Chat_QueuedEdit}"
+                            AutomationProperties.AcceleratorKey="E">
+                      <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pencil}" />
+                    </Button>
+                    <Button Classes="subtle queue-icon"
+                            Command="{Binding RemoveCommand}"
+                            AutomationProperties.Name="{loc:Str Chat_QueuedRemove}"
+                            AutomationProperties.AcceleratorKey="Delete">
+                      <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Cross}" />
+                    </Button>
+                  </StackPanel>
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </StackPanel>
+      </Border>
+
       <!-- Paused: the chat holds where it stopped, its draft kept in the composer below. -->
       <Border x:Name="ChatPauseStatusPanel"
               TextOptions.TextRenderingMode="Antialias"
@@ -4819,6 +5128,7 @@
                              SendCommand="{Binding SendMessageCommand}"
                              StopCommand="{Binding StopGenerationCommand}"
                              StopAndSendCommand="{Binding StopAndSendMessageCommand}"
+                             QueueCommand="{Binding QueueMessageCommand}"
                              AttachCommand="{Binding RequestAttachFilesCommand}"
                              VoiceCommand="{Binding ToggleVoiceCommand}"
                              AgentRemovedCommand="{Binding RemoveAgentCommand}"

@@ -738,7 +738,8 @@ control, and the title bar stays clear. A paused chat gets a pause marker in the
 sidebar and a paused bar of the composer's glass above the composer, with **Resume**
 and **Cancel task**: its badge breathes slowly while the chat holds, and the Strata
 line runs along its foot while it is still pausing. Your draft stays editable.
-Messages submitted while paused are visibly queued until the chat resumes.
+Messages submitted while paused are visibly queued until the chat resumes, and so
+are messages queued above the composer before the pause (see below).
 That queue survives app restarts, retaining message order, attachments, and replies.
 The **… Chat actions** menu beside **New Chat** offers **Pause all chats** when
 chats are active and **Resume all chats** when chats are paused, across projects
@@ -762,6 +763,21 @@ a restart reattaches to that original SDK session and continues its history.
 If the original session cannot be restored, Lumi reports the failure instead of
 silently creating a replacement. Sends from another chat or device are rejected
 with a clear paused-chat message until resumed.
+
+### Steer or queue while Lumi works
+
+While Lumi is replying, **Enter** steers the message into the running reply. **Ctrl+Enter**
+(**Cmd+Enter** on macOS; **Ctrl+Shift+Enter** when Ctrl+Enter is the send key) queues it
+instead, and right-clicking the send button offers **Send to steer**, **Add to queue** and
+**Stop & send** (**Alt+Enter**). The menu lists each choice with its shortcut. Queued messages wait,
+numbered in sending order, in a strip above the composer, not in the transcript, so the
+reply still being written never appears beneath them. Each one offers **Steer now**,
+**Edit** (back into the composer, ahead of anything already typed there) and **Remove**.
+From the composer, **Alt+↑** (**⌥↑** on macOS) selects the newest queued message; then
+**Enter** steers it now, **E** edits it, **Delete** removes it, **↑**/**↓** move between them
+and **Esc** returns to the composer. When the reply finishes, the oldest enters the
+transcript and is sent as the next turn. If the reply fails, queued messages enter the transcript
+marked **Not delivered**, so their text is kept.
 
 ### Background work
 

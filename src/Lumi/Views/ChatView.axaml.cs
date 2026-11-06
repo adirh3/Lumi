@@ -274,6 +274,7 @@ public partial class ChatView : UserControl
         AddHandler(KeyDownEvent, OnEmptyComposerScrollKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyDownEvent, OnTranscriptScrollKeyDown, RoutingStrategies.Bubble);
         AddHandler(KeyDownEvent, OnComposerReplyKeyDown, RoutingStrategies.Bubble);
+        InitializeQueuedSends();
         SizeChanged += OnChatViewSizeChanged;
 
         // The pending-reply card rises into the composer like the other composer chrome.

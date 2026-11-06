@@ -1311,6 +1311,7 @@ public partial class ChatViewModel
         ResetContextDetailsForChatChange(value);
         IsSessionActive = value?.IsSessionActive == true;
         NotifyChatPausePropertiesChanged();
+        SyncQueuedSends();
         // A message waiting for a connector sign-in belongs to its own chat.
         ApplyMcpSignInWaitAction();
         BackgroundActivityText = Loc.Get("Chat_BackgroundActivity");

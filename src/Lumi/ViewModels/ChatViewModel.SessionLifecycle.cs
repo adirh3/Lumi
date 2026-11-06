@@ -3111,7 +3111,9 @@ public partial class ChatViewModel
                 _publishedTerminalChatEventTurns.Remove(key);
             }
         }
-        // The chat is gone, so nothing can ever deliver a send that was still deferred for it.
+        // The chat is gone, so nothing can ever deliver a send that was still deferred for it. Its queued
+        // messages were never in its transcript, and it is being deleted, so they are not written into it.
+        DiscardWaitingSends(chatId);
         FailQueuedBusySends(chatId);
         RemoveSuggestionTracking(chatId);
         DisposeBrowserService(chatId);

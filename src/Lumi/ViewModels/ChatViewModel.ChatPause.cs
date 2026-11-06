@@ -192,6 +192,8 @@ public partial class ChatViewModel
         else
             chat.IsPausePending = false;
 
+        if (paused)
+            HoldWaitingSendsForPause(chat);
         if (_queuedBusySendPrompts.TryGetValue(chat.Id, out var queued))
         {
             foreach (var message in queued)
