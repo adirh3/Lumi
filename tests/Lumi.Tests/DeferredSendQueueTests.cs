@@ -2010,6 +2010,120 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task ChildModelChange_DoesNotOverwriteTheParentComposerOrStreamingModel()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.ViewModel.UpdateModelCapabilities(
+            [
+                new ModelInfo { Id = "claude-opus-5.5", SupportedReasoningEfforts = ["low", "max"] },
+                new ModelInfo { Id = "gpt-6.1-sol", SupportedReasoningEfforts = ["low", "max"] }
+            ]);
+            host.ViewModel.ApplyModelSelection("claude-opus-5.5", "max");
+            host.Chat.LastModelUsed = "claude-opus-5.5";
+            host.Chat.LastReasoningEffortUsed = "max";
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            rpc.Emit(new SessionModelChangeEvent
+            {
+                Data = new SessionModelChangeData { NewModel = "claude-opus-5.5", ReasoningEffort = "max" }
+            });
+            rpc.Emit(new AssistantTurnStartEvent { Data = new AssistantTurnStartData { TurnId = "parent-turn" } });
+            rpc.Emit(new AssistantMessageDeltaEvent
+            {
+                Data = new AssistantMessageDeltaData { MessageId = "parent-answer", DeltaContent = "Parent reply" }
+            });
+            Dispatcher.UIThread.RunJobs();
+            var answer = Assert.Single(host.ViewModel.Messages, message => message.Role == "assistant").Message;
+            Assert.Equal("claude-opus-5.5", answer.Model);
+
+            rpc.Emit(new SessionModelChangeEvent
+            {
+                AgentId = "independent-sol-reviewer",
+                Data = new SessionModelChangeData { NewModel = "gpt-6.1-sol", ReasoningEffort = "low" }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal("claude-opus-5.5", host.ViewModel.SelectedModel);
+            Assert.Equal("claude-opus-5.5", host.Chat.LastModelUsed);
+            Assert.Equal("claude-opus-5.5", host.Runtime.ActiveModelId);
+            Assert.Equal("max", host.Chat.LastReasoningEffortUsed);
+            Assert.Equal("claude-opus-5.5", answer.Model);
+            Assert.DoesNotContain("gpt-6.1-sol", host.ViewModel.AvailableModels);
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData("start", false)]
+    [InlineData("start", true)]
+    [InlineData("resume", false)]
+    [InlineData("resume", true)]
+    [InlineData("change", false)]
+    public async Task SessionModelEvents_OnlyTheRootUpdatesTheChatSelection(string eventType, bool child)
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.ViewModel.UpdateModelCapabilities(
+            [
+                new ModelInfo { Id = "claude-opus-5.5", SupportedReasoningEfforts = ["low", "max"] },
+                new ModelInfo { Id = "gpt-6.1-sol", SupportedReasoningEfforts = ["low", "max"] }
+            ]);
+            host.ViewModel.ApplyModelSelection("claude-opus-5.5", "max");
+            host.Chat.LastModelUsed = "claude-opus-5.5";
+            host.Chat.LastReasoningEffortUsed = "max";
+            host.AttachSession(rpc, subscribe: true);
+            host.Runtime.ActiveModelId = "claude-opus-5.5";
+
+            SessionEvent modelEvent = eventType switch
+            {
+                "start" => new SessionStartEvent
+                {
+                    Data = new SessionStartData
+                    {
+                        Version = 1,
+                        StartTime = DateTimeOffset.UtcNow,
+                        SessionId = rpc.Session.SessionId,
+                        Producer = "copilot-agent",
+                        CopilotVersion = "1.0.105",
+                        SelectedModel = "gpt-6.1-sol",
+                        ReasoningEffort = "low"
+                    }
+                },
+                "resume" => new SessionResumeEvent
+                {
+                    Data = new SessionResumeData
+                    {
+                        EventCount = 0,
+                        ResumeTime = DateTimeOffset.UtcNow,
+                        SelectedModel = "gpt-6.1-sol",
+                        ReasoningEffort = "low"
+                    }
+                },
+                _ => new SessionModelChangeEvent
+                {
+                    Data = new SessionModelChangeData { NewModel = "gpt-6.1-sol", ReasoningEffort = "low" }
+                }
+            };
+            modelEvent.AgentId = child ? "reviewer" : null;
+            rpc.Emit(modelEvent);
+            Dispatcher.UIThread.RunJobs();
+
+            var expectedModel = child ? "claude-opus-5.5" : "gpt-6.1-sol";
+            Assert.Equal(expectedModel, host.ViewModel.SelectedModel);
+            Assert.Equal(expectedModel, host.Chat.LastModelUsed);
+            Assert.Equal(expectedModel, host.Runtime.ActiveModelId);
+            Assert.Equal(child ? "max" : "low", host.Chat.LastReasoningEffortUsed);
+            Assert.Equal(!child, host.ViewModel.AvailableModels.Contains("gpt-6.1-sol"));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task ChildLifecycleEvents_DoNotStopTheParentOrConfirmItsSteer()
     {
         using var ui = HeadlessTestSession.Start();

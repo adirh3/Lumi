@@ -131,6 +131,10 @@ effective tier only if the failed request is still selected, and adds a
 non-blocking warning without terminating the assistant or its background work.
 Transient Fusion phase answers are not saved as final replies; only the native
 committed assistant message enters the transcript.
+Only root-agent session start, resume and model-change events update the chat's
+model selection, active model and streaming reply label. A delegated agent can
+use a different model; its events must not change the parent's composer or saved
+model preference.
 Image-only entries and the unauthenticated built-in ID inventory are not chat
 models. Provider availability and account policies still apply; Lumi does not
 add unavailable models or override the SDK's client identity.

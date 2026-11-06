@@ -2649,7 +2649,7 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case SessionStartEvent start:
+                case SessionStartEvent start when IsRootAgentEvent(evt):
                     Dispatcher.UIThread.Post(() =>
                     {
                     var effectiveModel = !string.IsNullOrWhiteSpace(start.Data.SelectedModel)
@@ -2692,7 +2692,7 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case SessionResumeEvent resume:
+                case SessionResumeEvent resume when IsRootAgentEvent(evt):
                     Dispatcher.UIThread.Post(() =>
                     {
                     var effectiveModel = !string.IsNullOrWhiteSpace(resume.Data.SelectedModel)
@@ -2727,7 +2727,7 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case SessionModelChangeEvent modelChange:
+                case SessionModelChangeEvent modelChange when IsRootAgentEvent(evt):
                     Dispatcher.UIThread.Post(() =>
                     {
                     if (!string.IsNullOrWhiteSpace(modelChange.Data.NewModel))
