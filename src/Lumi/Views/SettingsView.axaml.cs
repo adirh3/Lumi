@@ -505,6 +505,8 @@ public partial class SettingsView : UserControl, IDisposable
             UpdateHotkeyButtonText();
         else if (args.PropertyName == nameof(SettingsViewModel.IsMobileSetupReady))
             RevealMobileSetup();
+        else if (args.PropertyName == nameof(SettingsViewModel.PendingRevealSetting))
+            RevealPendingSetting();
         else if (args.PropertyName == nameof(SettingsViewModel.IsAddingApprovalRule) && vm.IsAddingApprovalRule)
             RevealApprovalRuleBuilder();
         else if (args.PropertyName is nameof(SettingsViewModel.IsCookieImportInProgress)
@@ -568,6 +570,34 @@ public partial class SettingsView : UserControl, IDisposable
         _mainScrollViewer?.ScrollToHome();
         if (index == 2)
             RevealMobileSetup();
+        RevealPendingSetting();
+    }
+
+    /// <summary>
+    /// Scrolls to the setting another part of Lumi sent the user to (<see cref="SettingsViewModel.ShowSetting"/>), with
+    /// its header at the top, once its page has been laid out.
+    /// </summary>
+    private void RevealPendingSetting()
+    {
+        if (DataContext is not SettingsViewModel { PendingRevealSetting: not null })
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_isDisposed || !IsEffectivelyVisible
+                || DataContext is not SettingsViewModel { PendingRevealSetting: { } name } vm
+                || vm.IsSearching)
+                return;
+
+            vm.PendingRevealSetting = null;
+            if (FindSettingsControl<Control>(name) is not { } target)
+                return;
+
+            if (_mainScrollViewer?.Content is Visual content && target.TranslatePoint(default, content) is { } top)
+                _mainScrollViewer.Offset = new Vector(_mainScrollViewer.Offset.X, Math.Max(0, top.Y - 28));
+            else
+                target.BringIntoView();
+        }, DispatcherPriority.Loaded);
     }
 
     private void RevealMobileSetup()

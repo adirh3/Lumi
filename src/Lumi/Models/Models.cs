@@ -1766,6 +1766,12 @@ public class UserSettings
     public bool OfferCopiedCapabilities { get; set; } = !OperatingSystem.IsMacOS();
     public string DismissedUpdateBannerToken { get; set; } = "";
 
+    /// <summary>
+    /// The newest version whose What's new the user has seen (or that was current when they set Lumi up), as
+    /// major.minor.patch. Empty in profiles from before What's new, which count from 1.0.
+    /// </summary>
+    public string LastSeenWhatsNewVersion { get; set; } = "";
+
     // ── Appearance ──
     public bool IsDarkTheme { get; set; } = true;
 

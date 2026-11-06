@@ -22,6 +22,7 @@ public sealed record ResponseDetailOption(ResponseDetailLevel Value, string Disp
 
 public partial class SettingsViewModel : ObservableObject, IDisposable
 {
+    public const int MobilePageIndex = 2;
     public const int AiModelsPageIndex = 5;
     public const int AboutPageIndex = 7;
 
@@ -638,6 +639,26 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void ReplayWelcome() => ReplayWelcomeRequested?.Invoke();
+
+    /// <summary>Raised when the user asks for What's new from About; the shell opens it.</summary>
+    public event Action? WhatsNewRequested;
+
+    [RelayCommand]
+    private void ShowWhatsNew() => WhatsNewRequested?.Invoke();
+
+    /// <summary>
+    /// A setting another part of Lumi sent the user to, by its control's name. The Settings view scrolls to it once its
+    /// page shows, then clears it.
+    /// </summary>
+    [ObservableProperty] private string? _pendingRevealSetting;
+
+    /// <summary>Opens a Settings page, scrolled to <paramref name="settingName"/> when it names one of its settings.</summary>
+    public void ShowSetting(int pageIndex, string? settingName = null)
+    {
+        SearchQuery = "";
+        SelectedPageIndex = pageIndex;
+        PendingRevealSetting = settingName;
+    }
 
     public BrowserService BrowserService => _browserService;
 

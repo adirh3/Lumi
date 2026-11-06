@@ -3368,6 +3368,13 @@
     <views:SearchOverlay x:Name="SearchOverlay"
                          DataContext="{Binding SearchOverlayVM}" />
 
+    <!-- ═══ What's new after an update (its view exists only while it shows) ═══ -->
+    <ContentControl x:Name="WhatsNewHost"
+                    IsVisible="False"
+                    ZIndex="190"
+                    HorizontalContentAlignment="Stretch"
+                    VerticalContentAlignment="Stretch" />
+
     <!-- ═══ Chat Tags Dialog ═══ -->
     <sc:StrataDialog x:Name="ChatTagsDialog"
                      Title="{loc:Str ChatTags_DialogTitle}"

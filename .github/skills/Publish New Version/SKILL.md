@@ -12,7 +12,7 @@ Use this when the user asks to publish or release a new version of Lumi. For unp
 `release.yml` builds the commit `main` points to when it's dispatched, and refuses production releases from any other ref. [docs/testing.md](../../../docs/testing.md) describes its QA gate.
 
 1. `validate_release_inputs` checks the version.
-2. In parallel: **Extended UI QA** on Windows x64/ARM64, Linux x64/ARM64 and both kinds of Mac, `build-pwa`, and `build-android`. `build-android` uses the `android-production` environment, which waits for a maintainer's approval. The user asking for the release is that approval (step 6).
+2. In parallel: **Extended UI QA** on Windows x64/ARM64, Linux x64/ARM64 and both kinds of Mac, `build-pwa`, and `build-android`. `build-android` uses the `android-production` environment, which waits for a maintainer's approval. The user asking for the release is that approval (step 7).
 3. Once those pass, `create-release` creates one **draft** GitHub release. Both `release-windows` architectures merge their Velopack packages onto it; then `release-linux` and `release-macos` merge theirs, and `publish-android` attaches the APK. `publish-android` also appends an `## Android` installation note to the release notes, unless they already contain `## Android`.
 4. `publish-release` makes the draft public after everything else has passed. Until then, nothing is public.
 
@@ -35,13 +35,15 @@ A full run takes about 35 to 50 minutes.
      - **🔧 Improvements**: polish, performance and refactors users notice
    - Write one concise, user-friendly sentence per entry, grouping related commits. Use Lumi's user-facing names (connectors, agents, AI accounts), not code names. Check claims against commit bodies or the code.
    - End with an `## Android` section: the APK name (`Lumi-X.Y.Z-android-arm64.apk`), and the note that early preview builds signed with the Android debug certificate can't update in place (revoke the paired phone in the preview app, uninstall it, install the APK and pair again). With that heading present, the pipeline doesn't append its own note.
-5. **Commit and push the bump.**
+5. **Update What's new** for X.Y.Z with the [Update Whats New](../Update%20Whats%20New/SKILL.md) skill, from the notes you just wrote: the highlights users see once when Lumi updates, in all ten languages, or an empty entry when the release has nothing worth showing. Every released version needs its entry in `WhatsNewCatalog`: `WhatsNewScheduleTests.TheCatalogDescribesTheVersionBeingBuilt` fails without it. Run that skill's tests before committing.
+6. **Commit and push the bump** with everything What's new changed. Check `git status`: a new destination also changes `src/Lumi/ViewModels/MainViewModel.WhatsNew.cs` (and the view that names the row it opens), and a new icon changes `Strata`, which is committed and pushed in its own repository first.
    ```powershell
-   git add src/Lumi/Lumi.csproj
+   git add src/Lumi/Lumi.csproj src/Lumi/Services/WhatsNew src/Lumi/Resources/Strings src/Lumi/ViewModels/MainViewModel.WhatsNew.cs
+   git status --short   # stage anything else What's new changed, such as a view or Strata
    git commit -m "bump version to X.Y.Z"
    git push origin main
    ```
-6. **Start the release and approve Android.**
+7. **Start the release and approve Android.**
    ```powershell
    gh workflow run release.yml --ref main -f version=X.Y.Z
    gh run list --workflow=release.yml -L 1 --json databaseId,headSha,status
@@ -50,17 +52,17 @@ A full run takes about 35 to 50 minutes.
    '{"environment_ids":[<id>],"state":"approved","comment":"Release X.Y.Z"}' |
      gh api --method POST repos/adirh3/Lumi/actions/runs/<run-id>/pending_deployments --input -
    ```
-7. **Attach the notes while the release is a draft**, after `create-release` creates it and before `publish-release` runs. Windows, Linux and macOS packaging leaves several minutes.
+8. **Attach the notes while the release is a draft**, after `create-release` creates it and before `publish-release` runs. Windows, Linux and macOS packaging leaves several minutes.
    ```powershell
    gh api repos/adirh3/Lumi/releases --jq '.[] | select(.tag_name == "vX.Y.Z") | {id, draft}'
    gh release edit vX.Y.Z --notes-file <notes.md>
    ```
    No output means the draft doesn't exist yet. (Indexing an empty list, as in `[...] | .[0] | {id}`, returns an object of nulls, not "nothing".) Don't replace the notes after publishing: the release would be public without them, and replacing them would drop any note the pipeline added.
-8. **Monitor.** Poll `gh run view <run-id> --json status,conclusion,jobs` instead of `gh run watch`, whose output is huge. If a job fails:
+9. **Monitor.** Poll `gh run view <run-id> --json status,conclusion,jobs` instead of `gh run watch`, whose output is huge. If a job fails:
    - Nothing is public until `publish-release`. Find the failing test in the job's log: `gh api repos/adirh3/Lumi/actions/jobs/<job-id>/logs`. (`gh run view --log-failed` can return nothing for the Extended UI QA jobs.)
    - The headed QA step deliberately runs a control with autosave turned off, so `[qa] FAIL persist-checkpoint` and `LUMI_QA_FAIL` lines in its log are expected. Judge the step by its conclusion.
    - If the failure matches a known flaky test, re-run the failed jobs once the run has finished (`gh run rerun <run-id> --failed`). Jobs that passed, including the approved Android build, are kept. Tell the user it happened. If it fails again, or isn't a known flake, stop and report it. Never weaken or skip a check to get a release out.
-9. **Verify.**
+10. **Verify.**
    ```powershell
    gh api repos/adirh3/Lumi/releases/tags/vX.Y.Z --jq '{draft, prerelease, assets: (.assets | length)}'
    gh api repos/adirh3/Lumi/releases/latest --jq .tag_name

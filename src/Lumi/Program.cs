@@ -30,6 +30,16 @@ class Program
 
     /// <summary>When true, the onboarding flow is shown even if the user is already onboarded (debug only).</summary>
     public static bool ForceOnboarding { get; private set; }
+
+    /// <summary>
+    /// When true, What's new opens after Lumi starts whatever the profile has seen, without recording it
+    /// (--whats-new, or --whats-new-from with the version it counts from, else 1.0).
+    /// </summary>
+    public static bool ForceWhatsNew { get; private set; }
+
+    /// <summary>The version a forced What's new counts from (--whats-new-from 1.0.1).</summary>
+    public static string? WhatsNewFrom { get; private set; }
+
     internal static CrashReportData? PendingCrashReport { get; private set; }
     internal static SingleInstanceCoordinator? SingleInstance { get; private set; }
     internal static bool IsMemoryCheck
@@ -88,6 +98,14 @@ class Program
         }
 
         ForceOnboarding = args.Contains("--onboarding", StringComparer.OrdinalIgnoreCase);
+        ForceWhatsNew = args.Contains("--whats-new", StringComparer.OrdinalIgnoreCase);
+        var whatsNewFromIndex = Array.FindIndex(args, value =>
+            value.Equals("--whats-new-from", StringComparison.OrdinalIgnoreCase));
+        if (whatsNewFromIndex >= 0 && whatsNewFromIndex + 1 < args.Length)
+        {
+            ForceWhatsNew = true;
+            WhatsNewFrom = args[whatsNewFromIndex + 1];
+        }
 
 #if DEBUG || MEMORY_CHECK
         try

@@ -343,6 +343,7 @@ public partial class App : Application
             );
             _backgroundJobService = vm.BackgroundJobService;
             _mainViewModel = vm;
+            vm.PrepareWhatsNew(updateService.IsInstalled, Program.ForceWhatsNew, Program.WhatsNewFrom);
 
             void DisposeUiState(bool hideWindows)
             {
@@ -555,6 +556,9 @@ public partial class App : Application
                 {
                     // Defer non-critical setup until first frame is shown.
                     MainWindow.ApplyLaunchAtStartup(launchAtStartup);
+
+                    // What's new after an update waits for Lumi's arrival to settle.
+                    DispatcherTimer.RunOnce(vm.ShowPendingWhatsNew, TimeSpan.FromMilliseconds(1100), DispatcherPriority.Normal);
 
                     if (minimizeToTray)
                         SetupTrayIcon(true);

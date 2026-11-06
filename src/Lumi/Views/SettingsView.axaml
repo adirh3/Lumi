@@ -2288,6 +2288,14 @@
                     <TextBlock Text="{loc:Str Update_CheckNow}" />
                   </StackPanel>
                 </Button>
+                <Button x:Name="AboutWhatsNewButton"
+                        Classes="mg-button motion-action"
+                        Command="{Binding ShowWhatsNewCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource St.Icon.AiFeatures}" />
+                    <TextBlock Text="{loc:Str Update_WhatsNew}" />
+                  </StackPanel>
+                </Button>
                 <Button Classes="mg-button motion-action"
                         Command="{Binding OpenReleasePageCommand}">
                   <StackPanel Orientation="Horizontal" Spacing="7">

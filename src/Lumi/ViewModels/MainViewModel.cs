@@ -675,6 +675,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SettingsVM.PresenceAnimationChanged += ApplyPresenceAnimationSetting;
         SettingsVM.PresenceBrightnessChanged += ApplyPresenceBrightnessSetting;
         SettingsVM.ReplayWelcomeRequested += ReplayWelcome;
+        SettingsVM.WhatsNewRequested += OpenWhatsNew;
+        WhatsNewVM.Closed += OnWhatsNewClosed;
+        WhatsNewVM.ActionRequested += destination => OpenWhatsNewDestination(destination);
         SettingsVM.SettingsChanged += () =>
         {
             RefreshChatList();

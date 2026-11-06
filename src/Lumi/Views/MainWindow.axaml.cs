@@ -64,6 +64,7 @@ public partial class MainWindow : Window
 
     private Panel? _onboardingPanel;
     private ContentControl? _onboardingHost;
+    private ContentControl? _whatsNewHost;
     private DockPanel? _mainPanel;
     private Border? _acrylicFallback;
     private Border? _windowContentRoot;
@@ -278,6 +279,7 @@ public partial class MainWindow : Window
 
         _onboardingPanel = this.FindControl<Panel>("OnboardingPanel");
         _onboardingHost = this.FindControl<ContentControl>("OnboardingHost");
+        _whatsNewHost = this.FindControl<ContentControl>("WhatsNewHost");
         _mainPanel = this.FindControl<DockPanel>("MainPanel");
         _acrylicFallback = this.FindControl<Border>("AcrylicFallback");
         _windowContentRoot = this.FindControl<Border>("WindowContentRoot");
@@ -824,6 +826,17 @@ public partial class MainWindow : Window
         var alt = (e.KeyModifiers & KeyModifiers.Alt) != 0;
         var noMods = e.KeyModifiers == KeyModifiers.None;
 
+        // ── What's new is open: Escape closes it, and nothing behind it takes shortcuts ──
+        if (vm.WhatsNewVM.IsOpen)
+        {
+            if (e.Key == Key.Escape && noMods)
+            {
+                vm.WhatsNewVM.DismissCommand.Execute(null);
+                e.Handled = true;
+            }
+            return;
+        }
+
         // ── Rename dialog: Enter to confirm, Escape to cancel ──
         if (_renameOverlay?.IsVisible == true)
         {
@@ -978,7 +991,7 @@ public partial class MainWindow : Window
 
     private bool CanHandleHistoryNavigationInput(MainViewModel vm, object? source)
     {
-        if (_renameOverlay?.IsVisible == true || vm.SearchOverlayVM.IsOpen)
+        if (_renameOverlay?.IsVisible == true || vm.SearchOverlayVM.IsOpen || vm.WhatsNewVM.IsOpen)
             return false;
 
         if (source is Visual visual && visual.FindAncestorOfType<BrowserView>() is not null)
@@ -1103,6 +1116,12 @@ public partial class MainWindow : Window
             UpdateOnboarding(vm.IsOnboarded);
             ShowPage(vm.SelectedNavIndex);
             UpdateNavHighlight(vm.SelectedNavIndex);
+            vm.WhatsNewVM.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(WhatsNewViewModel.IsOpen))
+                    UpdateWhatsNew(vm);
+            };
+            UpdateWhatsNew(vm);
 
             // Attach ListBox handlers once layout is ready
             Dispatcher.UIThread.Post(() =>
@@ -1260,6 +1279,47 @@ public partial class MainWindow : Window
                 QueueChatListSync(vm, shouldRevealChats);
             };
         }
+    }
+
+    /// <summary>
+    /// Builds What's new only while it shows: its view is created when it opens and let go once it has faded away.
+    /// Closing it returns the keyboard to the chat.
+    /// </summary>
+    private void UpdateWhatsNew(MainViewModel vm)
+    {
+        if (_whatsNewHost is null)
+            return;
+
+        var animate = vm.SettingsVM.ShowAnimations;
+        if (vm.WhatsNewVM.IsOpen)
+        {
+            if (_whatsNewHost.Content is not WhatsNewView { IsClosing: false } view)
+            {
+                view = new WhatsNewView { Name = "WhatsNewOverlay", DataContext = vm.WhatsNewVM };
+                _whatsNewHost.Content = view;
+            }
+
+            _whatsNewHost.IsVisible = true;
+            view.PlayEntrance(animate);
+            return;
+        }
+
+        if (_whatsNewHost.Content is not WhatsNewView open)
+        {
+            _whatsNewHost.IsVisible = false;
+            return;
+        }
+
+        open.PlayExit(animate, () =>
+        {
+            if (!ReferenceEquals(_whatsNewHost.Content, open))
+                return;
+
+            _whatsNewHost.Content = null;
+            _whatsNewHost.IsVisible = false;
+            if (vm.SelectedNavIndex == 0)
+                _chatView?.FocusComposer();
+        });
     }
 
     private void UpdateOnboarding(bool isOnboarded)

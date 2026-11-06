@@ -32,6 +32,7 @@ internal static class AppDataSnapshotFactory
                 NotificationsEnabled = settings.NotificationsEnabled,
                 OfferCopiedCapabilities = settings.OfferCopiedCapabilities,
                 DismissedUpdateBannerToken = settings.DismissedUpdateBannerToken,
+                LastSeenWhatsNewVersion = settings.LastSeenWhatsNewVersion,
                 IsDarkTheme = settings.IsDarkTheme,
                 FollowSystemTheme = settings.FollowSystemTheme,
                 AccentColor = settings.AccentColor,

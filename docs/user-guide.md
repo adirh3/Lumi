@@ -840,6 +840,19 @@ The existing **Show Animations** setting disables the new message/section entran
 focus motion (the composer then stays at full size and the line appears at once), and keeps the ring
 around the send button still while Lumi works.
 
+### What's new after an update
+
+The first time Lumi opens after an update, a **What's new** card shows what came out since the version
+you last saw, however many updates you skipped (on your first update with it, everything since Lumi 1.0).
+The release's headline leads — this time Lumi on your phone, with **Connect your phone** to set it up, or
+**Phone settings** when a phone is already paired — and the other highlights follow, each with a link to
+where it lives, such as the image settings or the Jobs page. **Got it**, ✕, Escape or a click outside the
+card closes it, and it doesn't come back for that version. **Release notes** opens the full notes on
+GitHub, and Settings → About → **What's new** shows the latest highlights again whenever you like. A new
+install starts with the welcome tour instead, and builds you run from source never show it on their own
+(`--whats-new`, or `--whats-new-from 1.0.1` to start from a version, previews it without changing what
+you've seen).
+
 ### Mobile conversations
 
 After a reply, Lumi's suggested replies from your PC sit as a row of pills on the composer; swipe

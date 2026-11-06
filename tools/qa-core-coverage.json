@@ -40,6 +40,7 @@
     "Lumi.Tests.AppDataSnapshotFactoryTests.DiscoverFields_SurviveSnapshotAndJsonRoundTrip",
     "Lumi.Tests.AppDataSnapshotFactoryTests.IdleSessionTimeout_DefaultsToOneHourForExistingSettings",
     "Lumi.Tests.AppDataSnapshotFactoryTests.IdleSessionTimeout_SurvivesSnapshotAndJsonRoundTrip",
+    "Lumi.Tests.AppDataSnapshotFactoryTests.LastSeenWhatsNewVersion_SurvivesIndexSnapshotsAndJsonRoundTrip",
     "Lumi.Tests.AppDataSnapshotFactoryTests.LazyMcpInitialization_DefaultsOffForExistingSettings",
     "Lumi.Tests.AppDataSnapshotFactoryTests.LazyMcpInitialization_SurvivesSnapshotAndJsonRoundTrip",
     "Lumi.Tests.AppDataSnapshotFactoryTests.McpToolTimeout_DefaultsToThreeMinutesForExistingSettings",

@@ -64,6 +64,22 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void LastSeenWhatsNewVersion_SurvivesIndexSnapshotsAndJsonRoundTrip()
+    {
+        var existing = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!;
+        Assert.Equal("", existing.LastSeenWhatsNewVersion);
+
+        var data = new AppData { Settings = new UserSettings { LastSeenWhatsNewVersion = "1.0.2" } };
+        var snapshot = InvokeCreateIndexSnapshot(data);
+        var restored = JsonSerializer.Deserialize(
+            JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData),
+            AppDataJsonContext.Default.AppData)!;
+
+        Assert.Equal("1.0.2", snapshot.Settings.LastSeenWhatsNewVersion);
+        Assert.Equal("1.0.2", restored.Settings.LastSeenWhatsNewVersion);
+    }
+
+    [Fact]
     public void IdleSessionTimeout_DefaultsToOneHourForExistingSettings()
     {
         var settings = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings);

@@ -1,0 +1,790 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:conv="using:Lumi.Converters"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.WhatsNewView"
+             x:DataType="vm:WhatsNewViewModel"
+             x:CompileBindings="True"
+             Focusable="True"
+             KeyboardNavigation.TabNavigation="Cycle"
+             AutomationProperties.Name="{loc:Str WhatsNew_Title}">
+
+  <!--
+    What's new after an update: a glass card over a dimmed Lumi. Lumi's mark and the version head it, the Strata line
+    draws beneath, the release's spotlight leads (Lumi on your phone, pictured as a phone receiving Lumi's
+    notifications), and the other highlights follow as tiles whose actions open where they live. Got it, ✕, Escape or
+    a click outside the card closes it.
+  -->
+
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="Wn.CardFill" Color="{DynamicResource Color.SurfaceOverlay}" Opacity="0.86" />
+          <BoxShadows x:Key="Wn.CardShadow">0 48 120 -28 #E0000000, 0 18 44 -14 #8C000000, inset 0 1 0 0 #14FFFFFF</BoxShadows>
+          <SolidColorBrush x:Key="Wn.TileFill" Color="#FFFFFF" Opacity="0.035" />
+          <SolidColorBrush x:Key="Wn.FooterFill" Color="#FFFFFF" Opacity="0.02" />
+          <x:Double x:Key="Wn.AuroraOpacity">0.36</x:Double>
+          <x:Double x:Key="Wn.WashOpacity">0.2</x:Double>
+          <SolidColorBrush x:Key="Wn.PhoneCard" Color="#23242A" Opacity="0.92" />
+          <SolidColorBrush x:Key="Wn.PhoneText" Color="#F2F3F7" />
+          <SolidColorBrush x:Key="Wn.Skeleton" Color="#FFFFFF" Opacity="0.2" />
+          <SolidColorBrush x:Key="Wn.SkeletonStrong" Color="#FFFFFF" Opacity="0.52" />
+          <BoxShadows x:Key="Wn.MarkGlow">0 16 38 -12 #B36366F1</BoxShadows>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="Wn.CardFill" Color="{DynamicResource Color.SurfaceOverlay}" Opacity="0.92" />
+          <BoxShadows x:Key="Wn.CardShadow">0 40 100 -26 #70101828, 0 14 36 -12 #38101828, inset 0 1 0 0 #FFFFFFFF</BoxShadows>
+          <SolidColorBrush x:Key="Wn.TileFill" Color="#000000" Opacity="0.025" />
+          <SolidColorBrush x:Key="Wn.FooterFill" Color="#000000" Opacity="0.015" />
+          <x:Double x:Key="Wn.AuroraOpacity">0.2</x:Double>
+          <x:Double x:Key="Wn.WashOpacity">0.11</x:Double>
+          <SolidColorBrush x:Key="Wn.PhoneCard" Color="#FFFFFF" Opacity="0.92" />
+          <SolidColorBrush x:Key="Wn.PhoneText" Color="#1B1B1F" />
+          <SolidColorBrush x:Key="Wn.Skeleton" Color="#000000" Opacity="0.12" />
+          <SolidColorBrush x:Key="Wn.SkeletonStrong" Color="#000000" Opacity="0.38" />
+          <BoxShadows x:Key="Wn.MarkGlow">0 14 32 -12 #804F46E5</BoxShadows>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+
+      <!-- Lumi's accent, its companions and hairlines, so the card follows the chosen palette. -->
+      <SolidColorBrush x:Key="Wn.Accent" Color="{DynamicResource Color.AccentDefault}" />
+      <SolidColorBrush x:Key="Wn.Rose" Color="{DynamicResource Color.AccentRose}" />
+      <SolidColorBrush x:Key="Wn.Violet" Color="{DynamicResource Color.AccentViolet}" />
+      <SolidColorBrush x:Key="Wn.Rim" Color="{DynamicResource Color.TextPrimary}" Opacity="0.12" />
+      <SolidColorBrush x:Key="Wn.Hairline" Color="{DynamicResource Color.TextPrimary}" Opacity="0.08" />
+      <SolidColorBrush x:Key="Wn.Hover" Color="{DynamicResource Color.TextPrimary}" Opacity="0.07" />
+      <SolidColorBrush x:Key="Wn.IconFill" Color="{DynamicResource Color.AccentDefault}" Opacity="0.14" />
+      <SolidColorBrush x:Key="Wn.IconRim" Color="{DynamicResource Color.AccentDefault}" Opacity="0.24" />
+      <SolidColorBrush x:Key="Wn.ChipFill" Color="{DynamicResource Color.AccentDefault}" Opacity="0.16" />
+      <SolidColorBrush x:Key="Wn.SpotlightRim" Color="{DynamicResource Color.AccentDefault}" Opacity="0.3" />
+
+      <!-- Masks: only their alpha counts, so the accent shows through without grey fringes. -->
+      <RadialGradientBrush x:Key="Wn.MaskTopStart" Center="8%,0%" GradientOrigin="8%,0%" RadiusX="64%" RadiusY="100%">
+        <GradientStop Offset="0" Color="#FF000000" />
+        <GradientStop Offset="0.5" Color="#5C000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </RadialGradientBrush>
+      <RadialGradientBrush x:Key="Wn.MaskTopEnd" Center="100%,0%" GradientOrigin="100%,0%" RadiusX="50%" RadiusY="90%">
+        <GradientStop Offset="0" Color="#CC000000" />
+        <GradientStop Offset="0.55" Color="#33000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </RadialGradientBrush>
+      <LinearGradientBrush x:Key="Wn.MaskFadeEnd" StartPoint="0%,0%" EndPoint="100%,100%">
+        <GradientStop Offset="0" Color="#FF000000" />
+        <GradientStop Offset="0.75" Color="#00000000" />
+      </LinearGradientBrush>
+      <RadialGradientBrush x:Key="Wn.MaskCornerEnd" Center="100%,100%" GradientOrigin="100%,100%" RadiusX="62%" RadiusY="100%">
+        <GradientStop Offset="0" Color="#FF000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </RadialGradientBrush>
+      <RadialGradientBrush x:Key="Wn.MaskPhoneGlow" Center="100%,100%" GradientOrigin="100%,100%" RadiusX="95%" RadiusY="75%">
+        <GradientStop Offset="0" Color="#FF000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </RadialGradientBrush>
+      <LinearGradientBrush x:Key="Wn.LineFeather" StartPoint="0%,50%" EndPoint="100%,50%">
+        <GradientStop Offset="0" Color="#00000000" />
+        <GradientStop Offset="0.12" Color="#FF000000" />
+        <GradientStop Offset="0.88" Color="#FF000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="Wn.PhoneShade" StartPoint="50%,0%" EndPoint="50%,100%">
+        <GradientStop Offset="0" Color="#26000000" />
+        <GradientStop Offset="0.45" Color="#00000000" />
+        <GradientStop Offset="1" Color="#59000000" />
+      </LinearGradientBrush>
+
+      <!-- Scroll edges fade where there is more to read (WhatsNewView.UpdateEdgeFades). -->
+      <LinearGradientBrush x:Key="Wn.FadeAbove" StartPoint="50%,0%" EndPoint="50%,100%">
+        <GradientStop Offset="0" Color="#00000000" />
+        <GradientStop Offset="0.06" Color="#FF000000" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="Wn.FadeBelow" StartPoint="50%,0%" EndPoint="50%,100%">
+        <GradientStop Offset="0.92" Color="#FF000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="Wn.FadeAboveBelow" StartPoint="50%,0%" EndPoint="50%,100%">
+        <GradientStop Offset="0" Color="#00000000" />
+        <GradientStop Offset="0.06" Color="#FF000000" />
+        <GradientStop Offset="0.92" Color="#FF000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </LinearGradientBrush>
+
+      <!-- Glyphs of the card itself, on StrataLineIcon's 24-unit grid. -->
+      <StreamGeometry x:Key="Wn.Glyph.Close">M7 7l10 10 M17 7 7 17</StreamGeometry>
+      <StreamGeometry x:Key="Wn.Glyph.Arrow">M5 12h13 M13 6.5l5.5 5.5-5.5 5.5</StreamGeometry>
+      <StreamGeometry x:Key="Wn.Glyph.Chevron">M10 7l5 5-5 5</StreamGeometry>
+      <StreamGeometry x:Key="Wn.Glyph.Check">M5 12.5l4.5 4.5L19 7.5</StreamGeometry>
+      <StreamGeometry x:Key="Wn.Glyph.Lock">M8 10.5V8a4 4 0 0 1 8 0v2.5 M6.5 10.5h11A1.5 1.5 0 0 1 19 12v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18.5V12a1.5 1.5 0 0 1 1.5-1.5z</StreamGeometry>
+      <StreamGeometry x:Key="Wn.Glyph.External">M13.5 4.5h6v6 M19.5 4.5l-8 8 M17 13.5v4.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 5 18v-9a1.5 1.5 0 0 1 1.5-1.5h4.5</StreamGeometry>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <!-- ── The card ── -->
+    <Style Selector="Border.wn-card">
+      <Setter Property="Background" Value="{DynamicResource Wn.CardFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Wn.Rim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="24" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Wn.CardShadow}" />
+    </Style>
+
+    <Style Selector="Border.wn-mark">
+      <Setter Property="Width" Value="56" />
+      <Setter Property="Height" Value="56" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Wn.MarkGlow}" />
+    </Style>
+
+    <Style Selector="Border.wn-version">
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Padding" Value="9,3" />
+      <Setter Property="CornerRadius" Value="999" />
+      <Setter Property="Background" Value="{DynamicResource Wn.ChipFill}" />
+    </Style>
+    <Style Selector="Border.wn-version TextBlock">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <Style Selector="TextBlock.wn-title">
+      <Setter Property="FontSize" Value="26" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="-0.4" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.wn-subtitle">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="LineHeight" Value="20" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style Selector="Border.wn-stratum">
+      <Setter Property="Height" Value="1.5" />
+      <Setter Property="CornerRadius" Value="1" />
+      <Setter Property="Background" Value="{DynamicResource Brush.StratumLine}" />
+      <Setter Property="OpacityMask" Value="{StaticResource Wn.LineFeather}" />
+      <Setter Property="Opacity" Value="0.6" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+
+    <Style Selector="TextBlock.wn-section">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="0.3" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Margin" Value="2,0,0,0" />
+    </Style>
+
+    <!-- ── Plain buttons: the close glyph and text links ── -->
+    <Style Selector="Button.wn-close, Button.wn-link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+    </Style>
+    <Style Selector="Button.wn-close /template/ Border#PART_Aurora, Button.wn-link /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.wn-close /template/ Border#PART_Surface, Button.wn-link /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="none" />
+    </Style>
+
+    <Style Selector="Button.wn-close">
+      <Setter Property="Width" Value="34" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="17" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.wn-close:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.wn-close:pointerover /template/ Border#PART_Surface, Button.wn-close:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Wn.Hover}" />
+      <Setter Property="BoxShadow" Value="none" />
+    </Style>
+
+    <Style Selector="Button.wn-link">
+      <Setter Property="Padding" Value="6,3" />
+      <Setter Property="Margin" Value="-6,0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.wn-link.quiet">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="Margin" Value="-8,0,0,0" />
+    </Style>
+    <Style Selector="Button.wn-link:pointerover /template/ Border#PART_Surface, Button.wn-link:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Wn.Hover}" />
+      <Setter Property="BoxShadow" Value="none" />
+    </Style>
+    <Style Selector="Button.wn-link.quiet:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.wn-link sc|StrataLineIcon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="2.2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Button.wn-done">
+      <Setter Property="MinWidth" Value="120" />
+      <Setter Property="MinHeight" Value="38" />
+      <Setter Property="Padding" Value="22,0" />
+      <Setter Property="CornerRadius" Value="19" />
+      <Setter Property="FontSize" Value="13.5" />
+    </Style>
+
+    <!-- ── The spotlight ── -->
+    <Style Selector="Border.wn-spotlight">
+      <Setter Property="CornerRadius" Value="20" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Wn.SpotlightRim}" />
+      <Setter Property="Background" Value="{DynamicResource Wn.TileFill}" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+
+    <Style Selector="Border.wn-eyebrow">
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Padding" Value="8,4,10,4" />
+      <Setter Property="CornerRadius" Value="999" />
+      <Setter Property="Background" Value="{DynamicResource Wn.ChipFill}" />
+    </Style>
+    <Style Selector="Border.wn-eyebrow TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.wn-eyebrow sc|StrataLineIcon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Border.wn-connected">
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Padding" Value="8,4,10,4" />
+      <Setter Property="CornerRadius" Value="999" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SuccessSubtle}" />
+    </Style>
+    <Style Selector="Border.wn-connected TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.wn-connected sc|StrataLineIcon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="2.4" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="TextBlock.wn-spotlight-title">
+      <Setter Property="FontSize" Value="21" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="-0.3" />
+      <Setter Property="LineHeight" Value="27" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.wn-spotlight-body">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="LineHeight" Value="21" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style Selector="Border.wn-point-icon">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Background" Value="{DynamicResource Wn.IconFill}" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+    </Style>
+    <Style Selector="Border.wn-point-icon sc|StrataLineIcon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="StrokeThickness" Value="1.9" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="TextBlock.wn-point">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="LineHeight" Value="19" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Button.wn-cta">
+      <Setter Property="MinHeight" Value="40" />
+      <Setter Property="Padding" Value="18,0,16,0" />
+      <Setter Property="CornerRadius" Value="20" />
+      <Setter Property="FontSize" Value="13.5" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+    <Style Selector="Button.wn-cta sc|StrataLineIcon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="StrokeThickness" Value="2.2" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="TextBlock.wn-note">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="LineHeight" Value="17" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="sc|StrataLineIcon.wn-note-icon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Margin" Value="0,2,0,0" />
+    </Style>
+
+    <!-- A spotlight about something else than the phone wears its icon large. -->
+    <Style Selector="Border.wn-hero-icon">
+      <Setter Property="Width" Value="112" />
+      <Setter Property="Height" Value="112" />
+      <Setter Property="CornerRadius" Value="32" />
+      <Setter Property="Background" Value="{DynamicResource Wn.IconFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Wn.IconRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.wn-hero-icon sc|StrataLineIcon">
+      <Setter Property="Width" Value="48" />
+      <Setter Property="Height" Value="48" />
+      <Setter Property="StrokeThickness" Value="1.6" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <!-- ── The phone: a lock screen receiving Lumi's notifications ── -->
+    <Style Selector="Border.wn-phone">
+      <Setter Property="Width" Value="156" />
+      <Setter Property="Height" Value="284" />
+      <Setter Property="Padding" Value="5" />
+      <Setter Property="CornerRadius" Value="32" />
+      <Setter Property="Background" Value="#0B0C10" />
+      <Setter Property="BorderBrush" Value="#3DFFFFFF" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BoxShadow" Value="0 28 54 -18 #B3000000, 0 8 18 -8 #66000000" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="RenderTransform" Value="rotate(3deg)" />
+    </Style>
+    <Style Selector="Border.wn-phone-screen">
+      <Setter Property="CornerRadius" Value="27" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="Border.wn-phone-island">
+      <Setter Property="Width" Value="44" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="CornerRadius" Value="7" />
+      <Setter Property="Background" Value="#000000" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,8,0,0" />
+    </Style>
+    <Style Selector="TextBlock.wn-phone-time">
+      <Setter Property="FontSize" Value="34" />
+      <Setter Property="FontWeight" Value="Light" />
+      <Setter Property="Foreground" Value="#F7FFFFFF" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="FlowDirection" Value="LeftToRight" />
+    </Style>
+    <Style Selector="Border.wn-phone-note">
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Padding" Value="9,8" />
+      <Setter Property="Background" Value="{DynamicResource Wn.PhoneCard}" />
+      <Setter Property="BoxShadow" Value="0 8 18 -10 #80000000" />
+    </Style>
+    <Style Selector="Border.wn-phone-note.quiet">
+      <Setter Property="Opacity" Value="0.7" />
+    </Style>
+    <Style Selector="Border.wn-phone-note TextBlock">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Wn.PhoneText}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.wn-skel">
+      <Setter Property="Height" Value="5" />
+      <Setter Property="CornerRadius" Value="2.5" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Wn.Skeleton}" />
+    </Style>
+    <Style Selector="Border.wn-skel.strong">
+      <Setter Property="Height" Value="6" />
+      <Setter Property="CornerRadius" Value="3" />
+      <Setter Property="Background" Value="{DynamicResource Wn.SkeletonStrong}" />
+    </Style>
+    <Style Selector="Border.wn-phone-chip">
+      <Setter Property="CornerRadius" Value="999" />
+      <Setter Property="Padding" Value="8,5" />
+      <Setter Property="Background" Value="{DynamicResource Wn.ChipFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Wn.IconRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.wn-phone-chip Border.wn-skel">
+      <Setter Property="Height" Value="4" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Opacity" Value="0.8" />
+    </Style>
+    <Style Selector="Border.wn-phone-home">
+      <Setter Property="Width" Value="50" />
+      <Setter Property="Height" Value="4" />
+      <Setter Property="CornerRadius" Value="2" />
+      <Setter Property="Background" Value="#D9FFFFFF" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,0,0,7" />
+    </Style>
+
+    <!-- ── Highlights ── -->
+    <Style Selector="Border.wn-tile">
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Padding" Value="16,15,16,14" />
+      <Setter Property="Background" Value="{DynamicResource Wn.TileFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Wn.Hairline}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.wn-icon">
+      <Setter Property="Width" Value="36" />
+      <Setter Property="Height" Value="36" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Background" Value="{DynamicResource Wn.IconFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Wn.IconRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+    </Style>
+    <Style Selector="Border.wn-icon sc|StrataLineIcon">
+      <Setter Property="Width" Value="18" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="StrokeThickness" Value="1.9" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="TextBlock.wn-tile-title">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LineHeight" Value="19" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.wn-tile-body">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="LineHeight" Value="18" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- ── Footer ── -->
+    <Style Selector="Border.wn-footer">
+      <Setter Property="Padding" Value="24,12,18,14" />
+      <Setter Property="Background" Value="{DynamicResource Wn.FooterFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Wn.Hairline}" />
+      <Setter Property="BorderThickness" Value="0,1,0,0" />
+    </Style>
+
+    <!-- A narrow window: one column of tiles and no phone (WhatsNewView.ApplyWidth). -->
+    <Style Selector="Grid#WhatsNewRoot.compact Panel#WhatsNewSpotlightArt">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+
+    <Style Selector="ScrollViewer#WhatsNewScroll.fade-above">
+      <Setter Property="OpacityMask" Value="{StaticResource Wn.FadeAbove}" />
+    </Style>
+    <Style Selector="ScrollViewer#WhatsNewScroll.fade-below">
+      <Setter Property="OpacityMask" Value="{StaticResource Wn.FadeBelow}" />
+    </Style>
+    <Style Selector="ScrollViewer#WhatsNewScroll.fade-above.fade-below">
+      <Setter Property="OpacityMask" Value="{StaticResource Wn.FadeAboveBelow}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid x:Name="WhatsNewRoot">
+    <!-- Lumi, dimmed. A click here closes What's new. -->
+    <Border x:Name="WhatsNewScrim"
+            Background="{DynamicResource Brush.OverlayScrim}"
+            PointerPressed="OnScrimPointerPressed" />
+
+    <Panel x:Name="WhatsNewCardHost"
+           MaxWidth="780"
+           MaxHeight="800"
+           Margin="28,52,28,28"
+           HorizontalAlignment="Stretch"
+           VerticalAlignment="Center"
+           TextOptions.TextRenderingMode="Antialias">
+      <sc:StrataBackdropBlur CornerRadius="24" BlurRadius="22" Saturation="1.4" />
+      <!-- Takes focus as What's new opens (never a Tab stop), so a key typed as it arrives presses no button. -->
+      <Border x:Name="WhatsNewCard"
+              Classes="wn-card"
+              Focusable="True"
+              KeyboardNavigation.IsTabStop="False"
+              AutomationProperties.Name="{loc:Str WhatsNew_Title}"
+              PointerPressed="OnCardPointerPressed">
+        <Border CornerRadius="23" ClipToBounds="True">
+          <Grid RowDefinitions="Auto,Auto,*,Auto">
+
+            <!-- A Strata aurora pooled behind the header, in the accent and its rose companion. -->
+            <Panel Grid.Row="0" Grid.RowSpan="3" Height="260" VerticalAlignment="Top" IsHitTestVisible="False"
+                   Opacity="{DynamicResource Wn.AuroraOpacity}">
+              <Border Background="{DynamicResource Wn.Accent}" OpacityMask="{StaticResource Wn.MaskTopStart}" />
+              <Border Background="{DynamicResource Wn.Rose}" OpacityMask="{StaticResource Wn.MaskTopEnd}" Opacity="0.75" />
+            </Panel>
+
+            <!-- Header -->
+            <Grid x:Name="WhatsNewHeader" Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="28,26,18,0">
+              <Border Classes="wn-mark">
+                <Image Source="{DynamicResource Image.LumiMark}"
+                       RenderOptions.BitmapInterpolationMode="HighQuality" />
+              </Border>
+              <StackPanel Grid.Column="1" Spacing="6" Margin="18,0,12,0" VerticalAlignment="Center">
+                <Border Classes="wn-version">
+                  <TextBlock x:Name="WhatsNewVersion" Text="{Binding VersionText}" />
+                </Border>
+                <TextBlock Classes="wn-title" Text="{loc:Str WhatsNew_Title}" />
+                <TextBlock x:Name="WhatsNewSubtitle" Classes="wn-subtitle" Text="{Binding Subtitle}" />
+              </StackPanel>
+              <!-- No tooltip: the button leaves the tree as soon as What's new closes. -->
+              <Button x:Name="WhatsNewCloseButton"
+                      Grid.Column="2"
+                      Classes="wn-close"
+                      VerticalAlignment="Top"
+                      Command="{Binding DismissCommand}"
+                      AutomationProperties.Name="{loc:Str WhatsNew_Close}">
+                <sc:StrataLineIcon Data="{StaticResource Wn.Glyph.Close}" Width="15" Height="15" StrokeThickness="2" />
+              </Button>
+            </Grid>
+
+            <!-- The Strata line, drawn across as the card arrives. -->
+            <Border x:Name="WhatsNewStratum" Grid.Row="1" Classes="wn-stratum" Margin="28,22,28,0" />
+
+            <!-- Body -->
+            <ScrollViewer x:Name="WhatsNewScroll"
+                          Grid.Row="2"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto">
+              <StackPanel x:Name="WhatsNewSections" Margin="28,20,28,24" Spacing="22">
+
+                <!-- The release's spotlight -->
+                <ContentControl x:Name="WhatsNewSpotlight"
+                                Content="{Binding Spotlight}"
+                                IsVisible="{Binding HasSpotlight}">
+                  <ContentControl.ContentTemplate>
+                    <DataTemplate x:DataType="vm:WhatsNewItemViewModel">
+                      <Border Classes="wn-spotlight">
+                        <Panel>
+                          <Border Background="{DynamicResource Wn.Accent}" Opacity="{DynamicResource Wn.WashOpacity}"
+                                  OpacityMask="{StaticResource Wn.MaskFadeEnd}" IsHitTestVisible="False" />
+                          <Border Background="{DynamicResource Wn.Rose}" Opacity="{DynamicResource Wn.WashOpacity}"
+                                  OpacityMask="{StaticResource Wn.MaskCornerEnd}" IsHitTestVisible="False" />
+                          <Grid x:Name="WhatsNewSpotlightLayout" ColumnDefinitions="*,Auto" Margin="24,22,22,22">
+                            <StackPanel Spacing="16" VerticalAlignment="Center">
+                              <StackPanel Spacing="9">
+                                <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="6">
+                                  <Border Classes="wn-eyebrow" IsVisible="{Binding HasEyebrow}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                      <sc:StrataLineIcon Data="{Binding Icon, Converter={x:Static conv:WhatsNewIconConverter.Instance}}" />
+                                      <TextBlock Text="{Binding Eyebrow}" />
+                                    </StackPanel>
+                                  </Border>
+                                  <Border x:Name="WhatsNewPhoneConnected" Classes="wn-connected" IsVisible="{Binding IsConnected}">
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                      <sc:StrataLineIcon Data="{StaticResource Wn.Glyph.Check}" />
+                                      <TextBlock Text="{Binding ConnectedText}" />
+                                    </StackPanel>
+                                  </Border>
+                                </WrapPanel>
+                                <TextBlock Classes="wn-spotlight-title" Text="{Binding Title}" />
+                                <TextBlock Classes="wn-spotlight-body" Text="{Binding Body}" />
+                              </StackPanel>
+
+                              <ItemsControl ItemsSource="{Binding Points}" IsVisible="{Binding HasPoints}">
+                                <ItemsControl.ItemsPanel>
+                                  <ItemsPanelTemplate>
+                                    <StackPanel Spacing="10" />
+                                  </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:WhatsNewPointViewModel">
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="11">
+                                      <Border Classes="wn-point-icon">
+                                        <sc:StrataLineIcon Data="{Binding Icon, Converter={x:Static conv:WhatsNewIconConverter.Instance}}" />
+                                      </Border>
+                                      <TextBlock Grid.Column="1" Classes="wn-point" Text="{Binding Text}" />
+                                    </Grid>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+
+                              <StackPanel Spacing="10" IsVisible="{Binding HasAction}">
+                                <Button x:Name="WhatsNewSpotlightAction"
+                                        Classes="accent wn-cta"
+                                        Command="{Binding ActCommand}"
+                                        AutomationProperties.Name="{Binding ActionLabel}">
+                                  <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{Binding ActionLabel}" VerticalAlignment="Center" />
+                                    <sc:StrataLineIcon Data="{StaticResource Wn.Glyph.Arrow}" />
+                                  </StackPanel>
+                                </Button>
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7" IsVisible="{Binding HasNote}">
+                                  <sc:StrataLineIcon Classes="wn-note-icon" Data="{StaticResource Wn.Glyph.Lock}" />
+                                  <TextBlock Grid.Column="1" Classes="wn-note" Text="{Binding Note}" />
+                                </Grid>
+                              </StackPanel>
+                            </StackPanel>
+
+                            <!-- Its picture: the phone, or the spotlight's own icon. -->
+                            <Panel x:Name="WhatsNewSpotlightArt" Grid.Column="1" Margin="26,0,6,0" VerticalAlignment="Center">
+                              <Border x:Name="WhatsNewPhone" Classes="wn-phone" IsVisible="{Binding IsPhone}">
+                                <Border Classes="wn-phone-screen">
+                                  <Panel>
+                                    <Border Background="{DynamicResource Brush.AccentGradient}" />
+                                    <Border Background="{DynamicResource Wn.Rose}" OpacityMask="{StaticResource Wn.MaskPhoneGlow}" Opacity="0.85" />
+                                    <Border Background="{StaticResource Wn.PhoneShade}" />
+                                    <Border Classes="wn-phone-island" />
+                                    <StackPanel Margin="9,30,9,0" Spacing="7" VerticalAlignment="Top">
+                                      <TextBlock Classes="wn-phone-time" Text="9:41" Margin="0,0,0,8" />
+                                      <Border x:Name="WhatsNewPhoneNotification" Classes="wn-phone-note">
+                                        <StackPanel Spacing="6">
+                                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+                                            <Image Source="{DynamicResource Image.LumiMark}" Width="16" Height="16"
+                                                   RenderOptions.BitmapInterpolationMode="HighQuality" />
+                                            <TextBlock Grid.Column="1" Text="{loc:Str App_Name}" />
+                                            <Border Grid.Column="2" Classes="wn-skel" Width="12" />
+                                          </Grid>
+                                          <Border Classes="wn-skel strong" Width="84" />
+                                          <Border Classes="wn-skel" Width="104" />
+                                          <Border Classes="wn-skel" Width="70" />
+                                          <StackPanel Orientation="Horizontal" Spacing="5" Margin="0,3,0,0">
+                                            <Border Classes="wn-phone-chip">
+                                              <Border Classes="wn-skel" Width="22" />
+                                            </Border>
+                                            <Border Classes="wn-phone-chip">
+                                              <Border Classes="wn-skel" Width="30" />
+                                            </Border>
+                                          </StackPanel>
+                                        </StackPanel>
+                                      </Border>
+                                      <!-- The entrance animates the wrapper, so the card keeps its dimmed look. -->
+                                      <Panel x:Name="WhatsNewPhoneNotificationEarlier">
+                                        <Border Classes="wn-phone-note quiet">
+                                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                                            <Image Source="{DynamicResource Image.LumiMark}" Width="14" Height="14" VerticalAlignment="Top"
+                                                   RenderOptions.BitmapInterpolationMode="HighQuality" />
+                                            <StackPanel Grid.Column="1" Spacing="5">
+                                              <Border Classes="wn-skel strong" Width="58" />
+                                              <Border Classes="wn-skel" Width="88" />
+                                            </StackPanel>
+                                          </Grid>
+                                        </Border>
+                                      </Panel>
+                                    </StackPanel>
+                                    <Border Classes="wn-phone-home" />
+                                  </Panel>
+                                </Border>
+                              </Border>
+                              <Border Classes="wn-hero-icon" IsVisible="{Binding !IsPhone}">
+                                <sc:StrataLineIcon Data="{Binding Icon, Converter={x:Static conv:WhatsNewIconConverter.Instance}}" />
+                              </Border>
+                            </Panel>
+                          </Grid>
+                        </Panel>
+                      </Border>
+                    </DataTemplate>
+                  </ContentControl.ContentTemplate>
+                </ContentControl>
+
+                <!-- The other highlights -->
+                <StackPanel x:Name="WhatsNewHighlightsSection" Spacing="12" IsVisible="{Binding HasHighlights}">
+                  <TextBlock Classes="wn-section" Text="{loc:Str WhatsNew_AlsoNew}" IsVisible="{Binding HasSpotlight}" />
+                  <ItemsControl x:Name="WhatsNewHighlights" ItemsSource="{Binding Highlights}">
+                    <!-- Two tiles a row, each row as tall as its taller tile (WhatsNewView.LayoutTiles). -->
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" ItemSpacing="12" LineSpacing="12" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:WhatsNewItemViewModel">
+                        <Border Classes="wn-tile">
+                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="13">
+                            <Border Classes="wn-icon">
+                              <sc:StrataLineIcon Data="{Binding Icon, Converter={x:Static conv:WhatsNewIconConverter.Instance}}" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="4">
+                              <TextBlock Classes="wn-tile-title" Text="{Binding Title}" />
+                              <TextBlock Classes="wn-tile-body" Text="{Binding Body}" />
+                              <Button Classes="wn-link"
+                                      Margin="-6,4,0,0"
+                                      IsVisible="{Binding HasAction}"
+                                      Command="{Binding ActCommand}"
+                                      AutomationProperties.Name="{Binding ActionLabel}">
+                                <StackPanel Orientation="Horizontal" Spacing="3">
+                                  <TextBlock Text="{Binding ActionLabel}" VerticalAlignment="Center" />
+                                  <sc:StrataLineIcon Data="{StaticResource Wn.Glyph.Chevron}" />
+                                </StackPanel>
+                              </Button>
+                            </StackPanel>
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </StackPanel>
+            </ScrollViewer>
+
+            <!-- Footer -->
+            <Border Grid.Row="3" Classes="wn-footer">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <Button x:Name="WhatsNewReleaseNotesButton"
+                        Classes="wn-link quiet"
+                        VerticalAlignment="Center"
+                        Command="{Binding OpenReleaseNotesCommand}"
+                        AutomationProperties.Name="{loc:Str WhatsNew_ReleaseNotes}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <TextBlock Text="{loc:Str WhatsNew_ReleaseNotes}" VerticalAlignment="Center" />
+                    <sc:StrataLineIcon Data="{StaticResource Wn.Glyph.External}" />
+                  </StackPanel>
+                </Button>
+                <Button x:Name="WhatsNewDismissButton"
+                        Grid.Column="2"
+                        Classes="accent wn-done"
+                        Command="{Binding DismissCommand}"
+                        Content="{loc:Str WhatsNew_GotIt}" />
+              </Grid>
+            </Border>
+          </Grid>
+        </Border>
+      </Border>
+    </Panel>
+  </Grid>
+</UserControl>
