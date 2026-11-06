@@ -22,6 +22,37 @@ public sealed class RemoteTransportTests
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
 
+    [Theory]
+    [InlineData(true, "tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale")]
+    [InlineData(true, "/opt/homebrew/bin/tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        "/opt/homebrew/bin/tailscale")]
+    [InlineData(true, "tailscale", "", "tailscale")]
+    [InlineData(false, "tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale", "tailscale")]
+    public void TailscaleDiscoveryFindsMacAppWithoutReplacingAnExistingCli(
+        bool isMacOS, string executable, string installedPath, string expected)
+    {
+        Assert.Equal(expected, LumiRemoteServer.ResolveTailscaleExecutable(
+            executable, isMacOS, "/Users/test", path => path == installedPath));
+    }
+
+    [Fact]
+    public void TailscaleDiscoveryFindsMacUserApp()
+    {
+        var userProfile = Path.Combine(Path.GetTempPath(), "lumi-tailscale-user");
+        var installedPath = Path.Combine(userProfile, "Applications", "Tailscale.app", "Contents", "MacOS", "Tailscale");
+
+        Assert.Equal(installedPath, LumiRemoteServer.ResolveTailscaleExecutable(
+            "tailscale", true, userProfile, path => path == installedPath));
+    }
+
+    [Fact]
+    public void TailscaleDiscoveryPrefersSystemAppOverUserApp()
+    {
+        Assert.Equal("/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+            LumiRemoteServer.ResolveTailscaleExecutable("tailscale", true, "/Users/test", _ => true));
+    }
+
     [Fact]
     public async Task PairingErrorResponsesIdentifyLumiRatherThanItsGateway()
     {

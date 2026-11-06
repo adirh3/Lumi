@@ -3141,7 +3141,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         var addresses = new HashSet<IPAddress>();
         try
         {
-            using var process = Process.Start(new ProcessStartInfo
+            var startInfo = new ProcessStartInfo
             {
                 FileName = "tailscale",
                 Arguments = "ip",
@@ -3149,13 +3149,27 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true
-            });
+            };
+            UnixShellPath.ApplyTo(startInfo);
+            startInfo.FileName = ResolveTailscaleExecutable(
+                startInfo.FileName,
+                OperatingSystem.IsMacOS(),
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                File.Exists);
+            using var process = Process.Start(startInfo);
             if (process is null)
                 return addresses;
 
             if (!process.WaitForExit(2000))
             {
                 process.Kill(entireProcessTree: true);
+                Trace.TraceInformation("[Remote] Tailscale address verification timed out.");
+                return addresses;
+            }
+            if (process.ExitCode != 0)
+            {
+                Trace.TraceInformation(
+                    $"[Remote] Tailscale address verification failed: {process.StandardError.ReadToEnd().Trim()}");
                 return addresses;
             }
             var output = process.StandardOutput.ReadToEnd();
@@ -3175,6 +3189,24 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         }
 
         return addresses;
+    }
+
+    internal static string ResolveTailscaleExecutable(
+        string executable,
+        bool isMacOS,
+        string userProfile,
+        Func<string, bool> fileExists)
+    {
+        if (!isMacOS || executable != "tailscale")
+            return executable;
+
+        // The macOS app includes its CLI even when no tailscale command is installed on PATH.
+        var bundledCli = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
+        if (fileExists(bundledCli))
+            return bundledCli;
+
+        bundledCli = Path.Combine(userProfile, "Applications", "Tailscale.app", "Contents", "MacOS", "Tailscale");
+        return fileExists(bundledCli) ? bundledCli : executable;
     }
 
     internal static List<string> GetLocalAddresses()

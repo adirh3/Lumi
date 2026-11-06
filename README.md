@@ -131,7 +131,9 @@ The desktop must stay running, awake and reachable: the phone is a companion,
 not a standalone AI host.
 
 Use Tailscale or an explicitly configured local-network connection for native
-Android. **Microsoft Dev Tunnel mode is for the PWA only**, requires the owner's
+Android. On macOS, Lumi also detects Tailscale directly from `Tailscale.app` in
+`/Applications` or `~/Applications`; installing its command on PATH is not required.
+**Microsoft Dev Tunnel mode is for the PWA only**, requires the owner's
 Microsoft sign-in, and is not the native Android transport. See the
 [mobile reference](docs/user-guide.md#mobile-conversations) and
 [Dev Tunnel setup](docs/user-guide.md#private-mobile-web-app-with-microsoft-dev-tunnels);
