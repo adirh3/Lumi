@@ -476,6 +476,31 @@
       </Button>
     </DataTemplate>
 
+    <!-- A file going back puts back (the edit bar's card) or put back (a receipt's card): what the agent
+         did to it as its icon, where it is, and what going back does to it. -->
+    <DataTemplate x:Key="RewindFileRowTemplate" x:DataType="vm:RewindFileItem">
+      <Border Classes="rewind-file" Classes.kept="{Binding IsKept}"
+              AutomationProperties.Name="{Binding FilePath}">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+          <sc:StrataLineIcon Classes="rewind-file-icon"
+                             Data="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}" />
+          <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+            <TextBlock Classes="rewind-file-name" Text="{Binding FileName}" />
+            <TextBlock Classes="rewind-file-dir" Text="{Binding DirectoryHint}"
+                       IsVisible="{Binding DirectoryHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </StackPanel>
+          <StackPanel Grid.Column="2" Spacing="1" VerticalAlignment="Center">
+            <TextBlock Classes="rewind-file-status" Text="{Binding Status}" />
+            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right"
+                        IsVisible="{Binding HasLines}">
+              <TextBlock Classes="diff-added" Text="{Binding LinesAdded}" IsVisible="{Binding HasLinesAdded}" />
+              <TextBlock Classes="diff-removed" Text="{Binding LinesRemoved}" IsVisible="{Binding HasLinesRemoved}" />
+            </StackPanel>
+          </StackPanel>
+        </Grid>
+      </Border>
+    </DataTemplate>
+
     <!-- ── Launchpad buttons: a quiet surface of their own, free of Strata's control chrome ── -->
     <ControlTheme x:Key="LaunchpadRowButton" TargetType="Button">
       <Setter Property="Background" Value="Transparent" />
@@ -805,6 +830,74 @@
     </Style>
     <Style Selector="#Transcript Button.transcript-chip:pointerover sc|StrataLineIcon.chip-chevron">
       <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!-- Going back to an earlier message: the receipt under the message an edit sent in its place says what
+         happened to the files Lumi had changed, smaller than a step's chip; warning colours when they weren't
+         all put back. -->
+    <Style Selector="#Transcript Button.transcript-chip.rewind-receipt">
+      <Setter Property="Height" Value="27" />
+      <Setter Property="Padding" Value="9,0,10,0" />
+    </Style>
+    <!-- The chip's own label: its card is a flyout, which sits under the chip in the logical tree. -->
+    <Style Selector="#Transcript Button.transcript-chip.rewind-receipt TextBlock.rewind-receipt-label">
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="#Transcript Button.transcript-chip.rewind-receipt sc|StrataLineIcon.chip-icon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Margin" Value="0,0,6,0" />
+    </Style>
+    <Style Selector="#Transcript Button.transcript-chip.rewind-receipt.problem TextBlock.rewind-receipt-label">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+    </Style>
+    <Style Selector="#Transcript Button.transcript-chip.rewind-receipt.problem sc|StrataLineIcon.chip-icon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+    </Style>
+
+    <!-- The cards that list a rewind's files: the edit bar's preview and the receipt's details. -->
+    <Style Selector="StackPanel.rewind-card TextBlock.rewind-note">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="StackPanel.rewind-card TextBlock.rewind-error">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+    <Style Selector="StackPanel.rewind-card Border.rewind-file">
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="StackPanel.rewind-card Border.rewind-file.kept">
+      <Setter Property="Opacity" Value="0.72" />
+    </Style>
+    <Style Selector="StackPanel.rewind-card sc|StrataLineIcon.rewind-file-icon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="StackPanel.rewind-card TextBlock.rewind-file-name">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="1" />
+    </Style>
+    <Style Selector="StackPanel.rewind-card TextBlock.rewind-file-dir">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="1" />
+    </Style>
+    <Style Selector="StackPanel.rewind-card TextBlock.rewind-file-status">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="StackPanel.rewind-card TextBlock.diff-added, StackPanel.rewind-card TextBlock.diff-removed">
+      <Setter Property="FontSize" Value="11" />
     </Style>
 
     <!-- An app a tool opened (an MCP App or a canvas): a file card's glass that opens into the
@@ -2522,6 +2615,137 @@
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="False" />
     </Style>
 
+    <!-- ── Editing an earlier message ──
+         The edit bar rests on the composer like the paused bar: what sending the edit does, the files it can
+         put back, and how to leave it. The composer below is the editor (its send button becomes Update), and
+         what sending replaces fades back in the transcript. Selectors name their own classes, because the
+         bar's Review card is a flyout, which sits under the bar in the logical tree. -->
+    <Style Selector="Border#ComposerEditBar.edit-bar">
+      <Setter Property="Margin" Value="0,0,0,8" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BoxShadow" Value="0 10 26 -12 #4D000000, 0 2 6 -2 #1A000000" />
+    </Style>
+    <Style Selector="Border#ComposerEditBar Border.edit-badge">
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="Border#ComposerEditBar sc|StrataLineIcon.edit-badge-glyph">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="StrokeThickness" Value="1.9" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="TextBlock#ComposerEditTitle">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock#ComposerEditDescription">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="LineHeight" Value="16" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Border#ComposerEditBar TextBlock.edit-bar-note">
+      <Setter Property="Margin" Value="0,8,0,0" />
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="LineHeight" Value="16" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Button#CancelEditButton">
+      <Setter Property="Height" Value="30" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="12,0,7,0" />
+      <Setter Property="CornerRadius" Value="15" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button#CancelEditButton TextBlock.edit-cancel-label">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button#CancelEditButton:pointerover TextBlock.edit-cancel-label">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button#CancelEditButton Border.edit-key">
+      <Setter Property="MinWidth" Value="18" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="Padding" Value="5,0" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassWell}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Button#CancelEditButton TextBlock.edit-key-label">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <!-- The files the edit can put back: a pill, chosen by default, beside Review, which opens their list. -->
+    <Style Selector="Border#ComposerEditBar Border.edit-files">
+      <Setter Property="Margin" Value="0,8,0,0" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="Padding" Value="9,0,3,0" />
+      <Setter Property="CornerRadius" Value="15" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassWell}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border#ComposerEditBar Border.edit-files.chosen">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Border#ComposerEditBar CheckBox.edit-files-toggle">
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="7,0,0,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border#ComposerEditBar TextBlock.edit-files-label">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border#ComposerEditBar Border.edit-files.chosen TextBlock.edit-files-label">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Border#ComposerEditBar Border.edit-files-divider">
+      <Setter Property="Width" Value="1" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Margin" Value="9,0,3,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillBorder}" />
+    </Style>
+    <Style Selector="Border#ComposerEditBar Button.edit-files-review">
+      <Setter Property="Height" Value="24" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="9,0" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border#ComposerEditBar TextBlock.edit-files-review-label">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
     <!-- ── Ctrl+F search bar ── -->
     <Style Selector="Border#SearchBar">
       <Setter Property="IsVisible" Value="False" />
@@ -2826,6 +3050,10 @@
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
       <Setter Property="BorderThickness" Value="2" />
       <Setter Property="BoxShadow" Value="0 0 0 2 #20818CF8" />
+    </Style>
+    <!-- While an earlier message is edited, what sending the edit replaces fades back. -->
+    <Style Selector="#Transcript vm|TranscriptTurnControl.replaced-by-edit">
+      <Setter Property="Opacity" Value="0.38" />
     </Style>
 
     <!-- ── Reply to ────────────────────────────────────────────────────
@@ -3216,9 +3444,10 @@
                 CornerRadius="999"
                 Background="{DynamicResource Brush.AccentSubtle}">
           <StackPanel Orientation="Horizontal" Spacing="5">
-            <PathIcon Width="10" Height="10"
-                      Foreground="{DynamicResource Brush.AccentDefault}"
-                      Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
+            <sc:StrataLineIcon Width="11" Height="11" StrokeThickness="2"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource Brush.AccentDefault}"
+                               Data="{x:Static sc:StrataIcons.Pencil}" />
             <TextBlock Text="{loc:Str Chat_EditSourceMarker}"
                        FontSize="11"
                        FontWeight="SemiBold"
@@ -3252,6 +3481,53 @@
                   Content="{loc:Str Steer_SendNow}"
                   ToolTip.Tip="{loc:Str Steer_SendNowTooltip}" />
         </StackPanel>
+
+        <!-- What going back did to the files Lumi had changed: under the message an edit sent in place of the
+             edited one. It opens into the files put back, those left as they were and why. -->
+        <ContentControl Content="{Binding Source.FileRewind}"
+                        IsVisible="{Binding Source.HasFileRewind}"
+                        HorizontalAlignment="Right">
+          <ContentControl.DataTemplates>
+            <DataTemplate DataType="vm:FileRewindReceipt">
+              <Button x:Name="FileRewindChip"
+                      Classes="transcript-chip rewind-receipt"
+                      Classes.problem="{Binding IsProblem}"
+                      AutomationProperties.Name="{Binding Summary}">
+                <Button.Flyout>
+                  <Flyout Placement="BottomEdgeAlignedRight"
+                          FlyoutPresenterTheme="{StaticResource ChatHeaderCardPresenter}">
+                    <StackPanel x:Name="FileRewindCard" Classes="rewind-card" Width="380">
+                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="10,10,10,0">
+                        <Border Classes="header-card-tile">
+                          <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                                             Foreground="{DynamicResource Brush.TextSecondary}"
+                                             Data="{x:Static conv:TranscriptIconConverter.Rewind}" />
+                        </Border>
+                        <TextBlock Grid.Column="1" Classes="header-card-title" Text="{Binding Summary}"
+                                   TextWrapping="Wrap" />
+                      </Grid>
+                      <TextBlock Classes="rewind-note" Margin="10,8,10,0" Text="{Binding Explanation}"
+                                 IsVisible="{Binding HasExplanation}" />
+                      <TextBlock Classes="rewind-error" Margin="10,6,10,0" Text="{Binding Error}"
+                                 IsVisible="{Binding HasError}" />
+                      <ScrollViewer Margin="0,8,0,0" MaxHeight="320" HorizontalScrollBarVisibility="Disabled"
+                                    IsVisible="{Binding HasRows}">
+                        <ItemsControl ItemsSource="{Binding Rows}"
+                                      ItemTemplate="{StaticResource RewindFileRowTemplate}" />
+                      </ScrollViewer>
+                    </StackPanel>
+                  </Flyout>
+                </Button.Flyout>
+                <StackPanel Orientation="Horizontal">
+                  <sc:StrataLineIcon Classes="chip-icon" Data="{x:Static conv:TranscriptIconConverter.Rewind}" />
+                  <TextBlock Classes="rewind-receipt-label" Text="{Binding Summary}" VerticalAlignment="Center" />
+                  <sc:StrataLineIcon Classes="chip-chevron" Data="{x:Static sc:StrataIcons.ChevronDown}" />
+                </StackPanel>
+              </Button>
+            </DataTemplate>
+          </ContentControl.DataTemplates>
+        </ContentControl>
       </StackPanel>
     </DataTemplate>
 
@@ -4788,7 +5064,8 @@
               <vm:TranscriptItemsControl.ItemTemplate>
                 <DataTemplate DataType="vm:TranscriptTurn">
                   <vm:TranscriptTurnControl Turn="{Binding}"
-                                            IsViewportManaged="True" />
+                                            IsViewportManaged="True"
+                                            Classes.replaced-by-edit="{Binding IsReplacedByEdit}" />
                 </DataTemplate>
               </vm:TranscriptItemsControl.ItemTemplate>
               <vm:TranscriptItemsControl.ItemsPanel>
@@ -5182,6 +5459,104 @@
           </Grid>
           <Border x:Name="ModelSwitchProgressLine" />
         </Panel>
+      </Border>
+
+      <!-- Editing an earlier message: what sending the edit does, and the files it can put back. The composer
+           below is the editor, and its send button (✓) updates and resends; Cancel or Esc leaves the message
+           as it was. -->
+      <Border x:Name="ComposerEditBar"
+              TextOptions.TextRenderingMode="Antialias"
+              Classes="edit-bar"
+              IsVisible="{Binding IsEditingMessage}"
+              AutomationProperties.Name="{loc:Str Chat_EditTitle}"
+              AutomationProperties.HelpText="{Binding EditingMessageStatusText}">
+        <!-- Esc cancels from the bar's own controls too, as its Cancel keycap says; the composer handles its own. -->
+        <Border.KeyBindings>
+          <KeyBinding Gesture="Escape" Command="{Binding CancelComposerEditCommand}" />
+        </Border.KeyBindings>
+        <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="11" Margin="10,9,9,9">
+          <Border Classes="edit-badge">
+            <sc:StrataLineIcon Classes="edit-badge-glyph" Data="{x:Static sc:StrataIcons.Pencil}" />
+          </Border>
+          <StackPanel Grid.Column="1" Spacing="2" MinWidth="0" VerticalAlignment="Center">
+            <TextBlock x:Name="ComposerEditTitle" Text="{loc:Str Chat_EditTitle}" />
+            <TextBlock x:Name="ComposerEditDescription" Text="{Binding EditingMessageStatusText}" />
+          </StackPanel>
+          <Button x:Name="CancelEditButton"
+                  Grid.Column="2"
+                  Classes="subtle"
+                  Command="{Binding CancelComposerEditCommand}"
+                  AutomationProperties.Name="{loc:Str Chat_EditCancel}"
+                  AutomationProperties.AcceleratorKey="Escape">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBlock Classes="edit-cancel-label" Text="{loc:Str Common_Cancel}" />
+              <Border Classes="edit-key">
+                <TextBlock Classes="edit-key-label" Text="Esc" />
+              </Border>
+            </StackPanel>
+          </Button>
+
+          <!-- The edit can also put back the files Lumi changed since this message: offered with their list,
+               chosen by default, before anything changes. -->
+          <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" MinWidth="0">
+            <ContentControl x:Name="EditRewindFiles"
+                            Content="{Binding EditFileRewind}"
+                            IsVisible="{Binding EditFileRewind, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            HorizontalAlignment="Left">
+              <ContentControl.DataTemplates>
+                <DataTemplate DataType="vm:FileRewindOffer">
+                  <Border Classes="edit-files" Classes.chosen="{Binding IsChosen}">
+                    <StackPanel Orientation="Horizontal">
+                      <CheckBox x:Name="EditRewindFilesToggle"
+                                Classes="edit-files-toggle"
+                                IsChecked="{Binding IsChosen}"
+                                AutomationProperties.Name="{Binding Label}">
+                        <TextBlock Classes="edit-files-label" Text="{Binding Label}" />
+                      </CheckBox>
+                      <Border Classes="edit-files-divider" />
+                      <Button x:Name="EditRewindReviewButton"
+                              Classes="subtle edit-files-review"
+                              AutomationProperties.Name="{loc:Str Rewind_PreviewTitle}">
+                        <TextBlock Classes="edit-files-review-label" Text="{loc:Str Rewind_Review}" />
+                        <Button.Flyout>
+                          <!-- Lifted clear of the bar, so the list floats above it rather than across it. -->
+                          <Flyout Placement="TopEdgeAlignedLeft"
+                                  VerticalOffset="-47"
+                                  FlyoutPresenterTheme="{StaticResource ChatHeaderCardPresenter}">
+                            <StackPanel x:Name="EditRewindFlyout" Classes="rewind-card" Width="380">
+                              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="10,10,10,0">
+                                <Border Classes="header-card-tile">
+                                  <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                                     HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                     Foreground="{DynamicResource Brush.TextSecondary}"
+                                                     Data="{x:Static conv:TranscriptIconConverter.Rewind}" />
+                                </Border>
+                                <TextBlock Grid.Column="1" Classes="header-card-title" Text="{loc:Str Rewind_PreviewTitle}" />
+                              </Grid>
+                              <TextBlock Classes="rewind-note" Margin="10,8,10,8" Text="{loc:Str Rewind_PreviewNote}" />
+                              <ScrollViewer MaxHeight="320" HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl ItemsSource="{Binding Rows}"
+                                              ItemTemplate="{StaticResource RewindFileRowTemplate}" />
+                              </ScrollViewer>
+                            </StackPanel>
+                          </Flyout>
+                        </Button.Flyout>
+                      </Button>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ContentControl.DataTemplates>
+            </ContentControl>
+            <TextBlock x:Name="EditRewindChecking"
+                       Classes="edit-bar-note"
+                       Text="{loc:Str Rewind_Checking}"
+                       IsVisible="{Binding IsCheckingEditFiles}" />
+            <TextBlock x:Name="EditRewindNote"
+                       Classes="edit-bar-note"
+                       Text="{Binding EditRewindNote}"
+                       IsVisible="{Binding HasEditRewindNote}" />
+          </StackPanel>
+        </Grid>
       </Border>
 
       <sc:StrataChatComposer x:Name="Composer"
@@ -5584,50 +5959,6 @@
               </Button>
             </Grid>
           </Border>
-          <Grid x:Name="ComposerEditStatus"
-                ColumnDefinitions="Auto,*"
-                MinWidth="0"
-                IsVisible="{Binding IsEditingMessage}"
-                Margin="2,4,2,2">
-            <Border Grid.Column="0"
-                    Width="28" Height="28"
-                    Margin="0,1,8,0"
-                    CornerRadius="8"
-                    Background="{DynamicResource Brush.AccentSubtle}">
-              <PathIcon Width="13" Height="13"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Foreground="{DynamicResource Brush.AccentDefault}"
-                        Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
-            </Border>
-            <StackPanel Grid.Column="1" MinWidth="0" Spacing="6">
-              <TextBlock Text="{loc:Str Chat_EditTitle}"
-                         FontSize="12"
-                         FontWeight="SemiBold"
-                         Foreground="{DynamicResource Brush.TextPrimary}" />
-              <TextBlock Text="{Binding EditingMessageStatusText}"
-                         MinWidth="0"
-                         FontSize="11"
-                         Foreground="{DynamicResource Brush.TextSecondary}"
-                         TextWrapping="Wrap" />
-              <WrapPanel Orientation="Horizontal">
-                <Button Content="{loc:Str Chat_EditSubmit}"
-                        Classes="accent"
-                        Command="{Binding SendMessageCommand}"
-                        Margin="0,0,6,0"
-                        Padding="10,5"
-                        MinHeight="0"
-                        FontSize="11.5"
-                        FontWeight="SemiBold" />
-                <Button Content="{loc:Str Common_Cancel}"
-                        Classes="subtle"
-                        Command="{Binding CancelComposerEditCommand}"
-                        Padding="10,5"
-                        MinHeight="0"
-                        FontSize="11.5" />
-              </WrapPanel>
-            </StackPanel>
-          </Grid>
           </StackPanel>
         </sc:StrataChatComposer.StatusContent>
         <sc:StrataChatComposer.ModelItemTemplate>

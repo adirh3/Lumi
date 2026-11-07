@@ -48,7 +48,7 @@ public sealed class ChatPauseControlsTests
     }
 
     [Fact]
-    public void PauseNotice_PreservesComposerAndEditingStatusContent()
+    public void PauseNoticeAndEditBar_RestOnTheComposer()
     {
         var view = LoadView("ChatView.axaml");
         var notice = Named(view, "ChatPauseStatusPanel");
@@ -72,15 +72,20 @@ public sealed class ChatPauseControlsTests
         Assert.Equal("{Binding PromptText, Mode=TwoWay}", Attribute(composer, "PromptText"));
         Assert.Equal("{Binding ComposerPlaceholder}", Attribute(composer, "Placeholder"));
 
-        var editingStatus = composer.Element(composer.Name.Namespace + "StrataChatComposer.StatusContent");
-        Assert.NotNull(editingStatus);
-        var editBanner = Named(view, "ComposerEditStatus");
-        Assert.Contains(editingStatus.Descendants(), element => ReferenceEquals(element, editBanner));
-        Assert.Equal("{Binding IsEditingMessage}", Attribute(editBanner, "IsVisible"));
-        Assert.Contains(editingStatus.Descendants(Avalonia + "Button"),
-            button => Attribute(button, "Command") == "{Binding CancelComposerEditCommand}");
-        Assert.Contains(editingStatus.Descendants(Avalonia + "Button"),
-            button => Attribute(button, "Command") == "{Binding SendMessageCommand}");
+        // Editing an earlier message: a bar on the composer like the paused one, left with Cancel (or Esc).
+        // The composer is the editor, and its send button sends the edit.
+        var editBar = Named(view, "ComposerEditBar");
+        Assert.Same(composer.Parent, editBar.Parent);
+        Assert.Contains(composer.ElementsBeforeSelf(), element => ReferenceEquals(element, editBar));
+        Assert.Equal("{Binding IsEditingMessage}", Attribute(editBar, "IsVisible"));
+        var cancelEdit = Named(view, "CancelEditButton");
+        Assert.Equal("{Binding CancelComposerEditCommand}", Attribute(cancelEdit, "Command"));
+        Assert.Equal("{loc:Str Chat_EditCancel}", Attribute(cancelEdit, "AutomationProperties.Name"));
+        Assert.Equal("{Binding IsEditingMessage}", Attribute(composer, "IsEditing"));
+        Assert.Equal("{Binding CancelComposerEditCommand}", Attribute(composer, "CancelEditCommand"));
+        Assert.Equal("{Binding SendMessageCommand}", Attribute(composer, "SendCommand"));
+        Assert.DoesNotContain(view.Descendants(),
+            element => (string?)element.Attribute(Xaml + "Name") == "ComposerEditStatus");
     }
 
     [Fact]

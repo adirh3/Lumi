@@ -36,6 +36,18 @@ public sealed class TranscriptTurn : ObservableObject
         set => SetProperty(ref _measuredHeight, value);
     }
 
+    private bool _isReplacedByEdit;
+
+    /// <summary>
+    /// True while an earlier message is being edited and sending the edit would replace this turn: the
+    /// transcript shows it faded back.
+    /// </summary>
+    public bool IsReplacedByEdit
+    {
+        get => _isReplacedByEdit;
+        set => SetProperty(ref _isReplacedByEdit, value);
+    }
+
     /// <summary>When the message that started this turn's work was sent; "Worked for" counts from here.</summary>
     internal DateTimeOffset? RequestedAt { get; set; }
 

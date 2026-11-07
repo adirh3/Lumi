@@ -386,6 +386,79 @@ public sealed class ChatViewModelEditTests
         Assert.Equal("Unsaved first edit", viewModel.PromptText);
     }
 
+    [Fact]
+    public void EditingAnEarlierMessage_FadesWhatSendingItReplaces()
+    {
+        var first = new ChatMessage { Role = "user", Content = "First" };
+        var second = new ChatMessage { Role = "user", Content = "Second" };
+        var third = new ChatMessage { Role = "user", Content = "Third" };
+        var chat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Messages =
+            [
+                first, new ChatMessage { Role = "assistant", Content = "First reply" },
+                second, new ChatMessage { Role = "assistant", Content = "Second reply" },
+                third, new ChatMessage { Role = "assistant", Content = "Third reply" },
+            ]
+        };
+        using var viewModel = new ChatViewModel(new DataStore(new AppData { Chats = [chat] }), TestCopilot.Shared)
+        {
+            CurrentChat = chat
+        };
+        foreach (var message in chat.Messages)
+            viewModel.Messages.Add(new ChatMessageViewModel(message));
+
+        InvokeBeginComposerEdit(viewModel, second);
+
+        // The edited message keeps its place; its reply and everything after it fade.
+        var turns = viewModel.TranscriptTurns.ToList();
+        var edited = turns.FindIndex(turn => Shows(turn, second));
+        Assert.True(edited > 0);
+        Assert.All(turns.Take(edited + 1), turn => Assert.False(turn.IsReplacedByEdit));
+        Assert.All(turns.Skip(edited + 1), turn => Assert.True(turn.IsReplacedByEdit));
+        Assert.Contains(turns.Skip(edited + 1), turn => Shows(turn, third));
+
+        viewModel.CancelComposerEditCommand.Execute(null);
+
+        Assert.False(viewModel.IsEditingMessage);
+        Assert.All(viewModel.TranscriptTurns, turn => Assert.False(turn.IsReplacedByEdit));
+
+        static bool Shows(TranscriptTurn turn, ChatMessage message)
+            => turn.Items.OfType<UserMessageItem>().Any(item => item.Message.Id == message.Id);
+    }
+
+    [Fact]
+    public void EditingAMessageOfAnOlderExchangeNotBuilt_FadesEverythingAfterItsPlaceholder()
+    {
+        TranscriptTurn[] turns = [Placeholder(startSeq: 1), Placeholder(startSeq: 5), Placeholder(startSeq: 9), new("turn:live")];
+        var message = new ChatMessage { Role = "user", Content = "Older", StorageSeq = 5 };
+
+        ChatViewModel.MarkTurnsReplacedByEdit(turns, message);
+
+        Assert.Equal([false, false, true, true], turns.Select(static turn => turn.IsReplacedByEdit));
+
+        ChatViewModel.MarkTurnsReplacedByEdit(turns, edited: null);
+
+        Assert.All(turns, turn => Assert.False(turn.IsReplacedByEdit));
+
+        static TranscriptTurn Placeholder(long startSeq)
+        {
+            var turn = new TranscriptTurn($"history:{startSeq}");
+            var item = new HistoryPlaceholderItem($"placeholder:{startSeq}", height: 120);
+            turn.Items.Add(item);
+            turn.HistorySegment = new TranscriptHistorySegment
+            {
+                StartSeq = startSeq,
+                EndSeq = startSeq + 3,
+                ExchangeIndex = (int)startSeq,
+                Placeholder = turn,
+                PlaceholderItem = item
+            };
+            return turn;
+        }
+    }
+
     private static object CaptureSnapshot(ChatViewModel viewModel)
     {
         var method = typeof(ChatViewModel).GetMethod(

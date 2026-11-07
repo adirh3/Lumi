@@ -108,6 +108,7 @@ public sealed class LightweightSessionOptions
             SkillProvider = skillProvider,
             EnableSessionStore = true,
             EnableSessionTelemetry = false,
+            EnableFileChangeTracking = true,
             ExcludedTools = ExcludedBuiltInTools(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
@@ -131,6 +132,11 @@ public sealed class LightweightSessionOptions
     /// <summary>
     /// Builds a <see cref="ResumeSessionConfig"/> for resuming an existing session.
     /// </summary>
+    /// <remarks>
+    /// File-change tracking (what lets an edit put back the files the agent changed) only starts
+    /// with a session's first turn: a session resumed after untracked turns stays untracked, and a
+    /// tracked one keeps tracking.
+    /// </remarks>
     public static ResumeSessionConfig BuildForResume(
         string? systemPrompt,
         string? model,
@@ -164,6 +170,7 @@ public sealed class LightweightSessionOptions
             SkillProvider = skillProvider,
             EnableSessionStore = true,
             EnableSessionTelemetry = false,
+            EnableFileChangeTracking = true,
             ExcludedTools = ExcludedBuiltInTools(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
@@ -183,6 +190,22 @@ public sealed class LightweightSessionOptions
 
         return config;
     }
+
+    /// <summary>
+    /// Builds the bare <see cref="ResumeSessionConfig"/> of a handle resumed only to read a session (to
+    /// fork it, or to see which files an edit can put back): no prompt, tools or connectors, and no
+    /// capability discovery, which would start every discovered MCP server for a handle thrown away at once.
+    /// </summary>
+    /// <param name="provider">
+    /// The account the session's chat uses. Without one, a profile that uses only its own accounts
+    /// refuses the resume.
+    /// </param>
+    public static ResumeSessionConfig BuildForReadOnlyResume(GitHub.Copilot.ProviderConfig? provider = null)
+        => BuildForResume(
+            systemPrompt: null, model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null, customAgents: null, tools: null, reasoningEffort: null,
+            userInputHandler: null, onPermission: null, hooks: null,
+            provider: provider, enableCapabilityDiscovery: false);
 
     /// <summary>
     /// Builds a lightweight single-purpose <see cref="SessionConfig"/> for helper flows.

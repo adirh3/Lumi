@@ -28,6 +28,35 @@ public sealed class SessionConfigBuilderTests
     [InlineData("create")]
     [InlineData("resume")]
     [InlineData("lightweight")]
+    public void FileChangeTracking_IsOnForChatSessionsOnly(string sessionKind)
+    {
+        var config = BuildWithTools(sessionKind, []);
+
+        // A chat's session captures the files its agent changes, so an edit can put them back; a
+        // helper session changes no files.
+        Assert.Equal(sessionKind != "lightweight", config.EnableFileChangeTracking == true);
+    }
+
+    [Fact]
+    public void ReadOnlyResume_CarriesTheChatsAccountAndNothingElse()
+    {
+        var provider = new ProviderConfig { Type = "openai", BaseUrl = "https://models.example.test/v1" };
+
+        var config = SessionConfigBuilder.BuildForReadOnlyResume(provider);
+
+        // A profile that uses only its own accounts refuses a resume without the chat's account.
+        Assert.Same(provider, config.Provider);
+        Assert.Null(config.SystemMessage);
+        Assert.True(config.Tools is null or { Count: 0 });
+        Assert.True(config.McpServers is null or { Count: 0 });
+        Assert.False(config.EnableConfigDiscovery);
+        Assert.True(config.EnableFileChangeTracking);
+    }
+
+    [Theory]
+    [InlineData("create")]
+    [InlineData("resume")]
+    [InlineData("lightweight")]
     public async Task LumiTools_PreloadWithoutChangingTheirContract(string sessionKind)
     {
         using var cts = new CancellationTokenSource();

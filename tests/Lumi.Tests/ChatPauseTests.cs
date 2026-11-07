@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Text.Json;
 using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.VisualTree;
 using Avalonia.Threading;
 using Lumi.Localization;
@@ -300,6 +302,47 @@ public sealed class ChatPauseTests
                     .GetVisualDescendants().OfType<TextBlock>().Single();
                 Assert.Equal(12, cancelText.FontSize);
                 Assert.Equal(12, resumeText.FontSize);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task EditBar_EscapeOnItsOwnControls_CancelsTheEdit()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            Loc.Load("en");
+            var message = new ChatMessage { Role = "user", Content = "Say hello." };
+            var chat = new Chat();
+            chat.Messages.Add(message);
+            using var vm = new ChatViewModel(new DataStore(CreateData(chat)), TestCopilot.Shared)
+            {
+                CurrentChat = chat
+            };
+            var view = new ChatView { DataContext = vm };
+            var window = new Window { Width = 900, Height = 700, Content = view };
+            window.Show();
+            try
+            {
+                typeof(ChatViewModel).GetMethod("BeginComposerEdit", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(vm, [message]);
+                vm.EditFileRewind = FileRewindOffer.From(
+                    new RewindFilesPreview([new RewindFile("notes.md", RewindFileChange.Created)]));
+                Dispatcher.UIThread.RunJobs();
+                Assert.True(vm.IsEditingMessage);
+
+                // Ticking the bar's checkbox leaves focus on the bar, outside the composer and its own Esc.
+                var toggle = view.GetVisualDescendants().OfType<CheckBox>().Single(box => box.Name == "EditRewindFilesToggle");
+                Assert.True(toggle.Focus());
+                window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+                Dispatcher.UIThread.RunJobs();
+
+                Assert.False(vm.IsEditingMessage);
             }
             finally
             {

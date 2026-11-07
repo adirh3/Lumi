@@ -1379,6 +1379,168 @@ public sealed partial class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task SendingAnEdit_TakesItAtOnce_WhileTheEditBarIsStillReadingItsFiles()
+    {
+        var abortReply = new TaskCompletionSource<AbortResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var eventsReply = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc { AbortReply = abortReply, EventsReply = eventsReply };
+        var original = new ChatMessage { Role = "user", Content = "Say hello." };
+        host.Chat.Messages.Add(original);
+        host.ViewModel.Messages.Add(new ChatMessageViewModel(original));
+        host.AttachSession(rpc);
+        host.BeginEdit(original);
+        // The edit bar reads the session for the files going back would put back, and that read hangs.
+        Assert.True(await rpc.EventsRequests.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        host.MarkTurnEndedWithBackgroundWorkPending();
+        host.ViewModel.PromptText = "Say hello twice.";
+        Assert.True(host.ViewModel.IsEditingMessage);
+        var sending = host.ViewModel.SendMessageCommand.ExecuteAsync(null);
+
+        // Sending takes the edit before it waits for anything, so nothing typed or cancelled afterwards changes
+        // what it sends, and it goes ahead without the read.
+        Assert.False(host.ViewModel.IsEditingMessage);
+        Assert.Equal("", host.ViewModel.PromptText);
+        await rpc.AbortReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        abortReply.SetResult(new AbortResult { Success = false, Error = "The session could not be interrupted." });
+        eventsReply.SetResult(new { events = Array.Empty<object>() });
+        await sending.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task EditingAMessage_ReadsItsFiles_WithTheModelTheEditIsSentWith()
+    {
+        var eventsReply = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc { EventsReply = eventsReply };
+        // The chat's session runs on the person's own account, which the message was sent with...
+        var ownModel = AddOwnAccount(host, out var ownSignature);
+        var original = new ChatMessage { Role = "user", Content = "Say hello.", Model = ownModel };
+        host.Chat.Messages.Add(original);
+        host.ViewModel.Messages.Add(new ChatMessageViewModel(original));
+        host.AttachSession(rpc);
+        host.RecordProviderSignature(ownSignature);
+        // ...and the chat has moved to a Copilot model since, as it reads after a restart: nothing has
+        // queued a new session for it.
+        host.Chat.LastModelUsed = "gpt-6-luna";
+
+        host.BeginEdit(original);
+
+        // The edit is sent with the message's own model, which goes back in that session: the bar reads its files.
+        Assert.Equal(ownModel, host.ViewModel.SelectedModel);
+        Assert.True(await rpc.EventsRequests.WaitAsync(TimeSpan.FromSeconds(10)));
+        eventsReply.SetResult(new { events = Array.Empty<object>() });
+    }
+
+    [Fact]
+    public async Task EditingAfterPickingAModelOfAnotherAccount_OffersNoFiles_SinceSendingStartsANewSession()
+    {
+        var eventsReply = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc { EventsReply = eventsReply };
+        var ownModel = AddOwnAccount(host, out var ownSignature);
+        var original = new ChatMessage { Role = "user", Content = "Say hello.", Model = ownModel };
+        host.Chat.Messages.Add(original);
+        host.ViewModel.Messages.Add(new ChatMessageViewModel(original));
+        host.AttachSession(rpc);
+        host.RecordProviderSignature(ownSignature);
+        // Picking a Copilot model queues a new session for the chat's next send, an edit's included.
+        host.ViewModel.SelectedModel = "gpt-6-luna";
+
+        host.BeginEdit(original);
+
+        // The edit goes back to the message's own model, but sending it starts that new session, which has
+        // nothing to put back: the bar offers no files.
+        Assert.True(host.ViewModel.IsEditingMessage);
+        Assert.Equal(ownModel, host.ViewModel.SelectedModel);
+        Assert.False(await rpc.EventsRequests.WaitAsync(TimeSpan.FromMilliseconds(500)));
+        eventsReply.SetResult(new { events = Array.Empty<object>() });
+    }
+
+    [Fact]
+    public async Task PickingAModelWhileEditing_TheOfferFollowsWhetherTheEditGoesBackInTheChatsSession()
+    {
+        var eventsReply = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc { EventsReply = eventsReply };
+        var ownModel = AddOwnAccount(host, out _);
+        var original = new ChatMessage { Role = "user", Content = "Say hello.", Model = "claude-sonnet-5" };
+        host.Chat.Messages.Add(original);
+        host.ViewModel.Messages.Add(new ChatMessageViewModel(original));
+        host.AttachSession(rpc);
+        host.BeginEdit(original);
+        Assert.True(await rpc.EventsRequests.WaitAsync(TimeSpan.FromSeconds(10)));
+        var offer = FileRewindOffer.From(new RewindFilesPreview([new RewindFile("notes.md", RewindFileChange.Created)]))!;
+        offer.IsChosen = false;
+        host.ViewModel.EditFileRewind = offer;
+
+        // Another model of the same account: the offer stays, with the person's choice in it.
+        host.ViewModel.SelectedModel = "gpt-6-luna";
+        Assert.Same(offer, host.ViewModel.EditFileRewind);
+        Assert.False(offer.IsChosen);
+
+        // A model of another account starts a new session, which has nothing to put back.
+        host.ViewModel.SelectedModel = ownModel;
+        Assert.Null(host.ViewModel.EditFileRewind);
+
+        // Back on the chat's account, the bar reads the files again.
+        host.ViewModel.SelectedModel = "claude-sonnet-5";
+        Assert.True(await rpc.EventsRequests.WaitAsync(TimeSpan.FromSeconds(10)));
+        eventsReply.SetResult(new { events = Array.Empty<object>() });
+    }
+
+    [Fact]
+    public async Task Rewind_PutsTheFilesBack_OnlyForTheTurnOfTheSessionThePersonPreviewed()
+    {
+        using var rpc = new AbortRpc();
+        var previewed = new RewindFilesPreview([new RewindFile("notes.md", RewindFileChange.Created)])
+        {
+            SessionId = rpc.Session.SessionId,
+            TurnEventId = "turn-1"
+        };
+
+        var asPreviewed = await SessionRewind.RewindAsync(rpc.Session, "turn-1", previewed, CancellationToken.None);
+
+        Assert.Equal("conversation-and-files", rpc.RewindModes[^1]);
+        Assert.Equal(RewindFilesStatus.Restored, asPreviewed.Files!.Status);
+        Assert.Equal(RewindFileChange.Created, Assert.Single(asPreviewed.Files.Restored).Change);
+
+        // Since the preview the chat moved to another session, or the edit goes back to another turn: the
+        // preview no longer says what putting files back would do, so only the conversation goes back.
+        var replaced = await SessionRewind.RewindAsync(
+            rpc.Session, "turn-1", previewed with { SessionId = "replaced-session" }, CancellationToken.None);
+        Assert.Equal("conversation", rpc.RewindModes[^1]);
+        var otherTurn = await SessionRewind.RewindAsync(rpc.Session, "turn-2", previewed, CancellationToken.None);
+        Assert.Equal("conversation", rpc.RewindModes[^1]);
+        Assert.All([replaced, otherTurn], result =>
+        {
+            Assert.True(result.HistoryRewound);
+            Assert.Equal(RewindFilesStatus.Unavailable, result.Files!.Status);
+            Assert.Empty(result.Files.Restored);
+        });
+    }
+
+    /// <summary>Adds one of the person's own accounts with a model: its token, and the signature of a session on it.</summary>
+    private static string AddOwnAccount(DeferredSendHost host, out string? sessionSignature)
+    {
+        var endpoint = new ByokEndpoint
+        {
+            Id = "own-endpoint",
+            Name = "Own account",
+            BaseUrl = "http://localhost:11434/v1",
+            ProviderType = "openai",
+            ApiKeyMode = ByokApiKeyMode.None
+        };
+        var model = new ByokModel { Id = "own-model", EndpointId = endpoint.Id, ModelId = "wire-model", DisplayName = "Own model" };
+        host.DataStore.Data.Settings.ByokEndpoints.Add(endpoint);
+        host.DataStore.Data.Settings.ByokModels.Add(model);
+        sessionSignature = ByokConfigHelper.BuildProviderSignature(ByokConfigHelper.BuildProviderConfig(endpoint, model), model);
+        return ByokConfigHelper.BuildModelToken(model);
+    }
+
+    [Fact]
     public async Task RemoteMessageEdit_InterruptionFailureKeepsTheOriginalMessageAndDesktopDraft()
     {
         using var host = DeferredSendHost.Create();
@@ -2921,6 +3083,9 @@ public sealed partial class DeferredSendQueueTests
         public void QueuePrompt(string prompt, Guid? chatId = null, string? authorOverride = null)
             => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null, authorOverride);
 
+        public void BeginEdit(ChatMessage message)
+            => Invoke("BeginComposerEdit", message);
+
         public Task DrainAsync(Guid? chatId = null)
             => (Task)Invoke("DrainQueuedBusySendAsync", chatId ?? Chat.Id)!;
 
@@ -3272,6 +3437,9 @@ public sealed partial class DeferredSendQueueTests
         public bool RejectTaskCancellation { get; init; }
         public TaskCompletionSource<object>? TaskListReply { get; init; }
         public TaskCompletionSource TaskListReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<object>? EventsReply { get; init; }
+        /// <summary>Released once for every read of the session's events.</summary>
+        public SemaphoreSlim EventsRequests { get; } = new(0);
 
         [JsonRpcMethod("session.abort", UseSingleObjectParameterDeserialization = true)]
         public async Task<AbortResult> Abort(object request)
@@ -3286,6 +3454,23 @@ public sealed partial class DeferredSendQueueTests
         {
             DestroyCount++;
             return new { };
+        }
+
+        [JsonRpcMethod("session.getMessages", UseSingleObjectParameterDeserialization = true)]
+        public async Task<object> GetEvents(object request)
+        {
+            EventsRequests.Release();
+            return EventsReply is null ? new { events = Array.Empty<object>() } : await EventsReply.Task;
+        }
+
+        /// <summary>The mode of every history rewind asked of the session, in order.</summary>
+        public List<string> RewindModes { get; } = [];
+
+        [JsonRpcMethod("session.history.rewind", UseSingleObjectParameterDeserialization = true)]
+        public object Rewind(Dictionary<string, object> request)
+        {
+            RewindModes.Add(Assert.IsType<string>(request["mode"]));
+            return new { outcome = "success", restoredFiles = new[] { "notes.md" }, skippedFiles = Array.Empty<object>() };
         }
 
         [JsonRpcMethod("session.tasks.list", UseSingleObjectParameterDeserialization = true)]

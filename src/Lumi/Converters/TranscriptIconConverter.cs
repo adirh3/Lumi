@@ -24,12 +24,20 @@ public sealed class TranscriptIconConverter : IValueConverter
 
     internal static Geometry Resolve(string key) => TryResolve(key) ?? StrataIcons.Cube;
 
+    /// <summary>A file the agent deleted: Strata's new-file page with a minus.</summary>
+    public static Geometry DocumentMinus => Geometry.Parse(
+        "M13.5 3.5h-6A1.5 1.5 0 0 0 6 5v14a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 18 19V8z M13.5 3.5V8H18 M9 14h6");
+
+    /// <summary>Going back to before a message: an undo arrow in Strata's line hand.</summary>
+    public static Geometry Rewind => Geometry.Parse("M9 5 4.5 9.5 9 14 M4.5 9.5h10a5 5 0 0 1 0 10H11");
+
     /// <summary>The key's own icon, or null when it has none and is drawn as the generic tool.</summary>
     internal static Geometry? TryResolve(string key) => key switch
     {
         TranscriptIcons.Read => StrataIcons.Document,
         TranscriptIcons.Create => StrataIcons.DocumentPlus,
         TranscriptIcons.Edit => StrataIcons.Pencil,
+        TranscriptIcons.Delete => DocumentMinus,
         TranscriptIcons.Search => StrataIcons.Search,
         TranscriptIcons.Web => StrataIcons.Globe,
         TranscriptIcons.Page => StrataIcons.Book,

@@ -975,6 +975,16 @@ public partial class ChatViewModel
         var releaseTask = DisposeReleasedSessionAsync(session, proxyLease);
         if (proxyLease is not null)
             TrackMcpProxyRelease(chatId, releaseTask);
+        TrackPendingSessionRelease(chatId, releaseTask);
+        return releaseTask;
+    }
+
+    /// <summary>
+    /// Records a release of <paramref name="chatId"/>'s session still in flight, which a create or
+    /// resume for that chat on this surface waits for (<see cref="AwaitPendingSessionReleaseAsync"/>).
+    /// </summary>
+    private void TrackPendingSessionRelease(Guid chatId, Task releaseTask)
+    {
         _sessionReleaseTasks[chatId] = releaseTask;
         _ = releaseTask.ContinueWith(
             _ => Dispatcher.UIThread.Post(() =>
@@ -986,7 +996,6 @@ public partial class ChatViewModel
                 }
             }),
             TaskScheduler.Default);
-        return releaseTask;
     }
 
     // Routes every dropped session through CopilotService so the release is registered by server

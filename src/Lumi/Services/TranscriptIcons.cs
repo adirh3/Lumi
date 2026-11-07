@@ -9,6 +9,7 @@ public static class TranscriptIcons
     public const string Read = "read";
     public const string Create = "create";
     public const string Edit = "edit";
+    public const string Delete = "delete";
     public const string Search = "search";
     public const string Web = "web";
     public const string Page = "page";

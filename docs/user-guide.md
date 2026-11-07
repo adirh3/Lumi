@@ -806,6 +806,25 @@ and **Esc** returns to the composer. When the reply finishes, the oldest enters 
 transcript and is sent as the next turn. If the reply fails, queued messages enter the transcript
 marked **Not delivered**, so their text is kept.
 
+### Edit an earlier message
+
+**Edit** on one of your messages puts it back in the composer, where you can change its text,
+attachments, skills or model. A bar above the composer says what sending does, and everything
+after the message fades, since sending replaces it. The send button turns into a check: press it
+(or Enter) to update and resend, or press **Cancel** (or Esc) to leave the message as it was.
+
+When Lumi changed files since that message, the bar also offers **Undo Lumi's changes to N
+files**, on by default: each file goes back to how it was before the message, so the new request
+starts from there. **Review** lists the files and what will happen to each (restored, removed or
+brought back) before anything changes; untick the offer to leave your files as they are.
+
+Lumi puts back its own changes from copies the chat's session saved, not from git. A file you
+changed yourself since Lumi did is left as it is. After sending, the message shows what happened,
+such as **Undid changes to 3 files · 1 kept**; click it for each file. The offer appears in chats
+started with this version, and not while Lumi still works in the background or once you switch to a
+model from another account, which continues the chat in a new session without those copies. Very large files have
+no saved copy and are left as they are. Editing from the phone changes only the conversation.
+
 ### Background work
 
 Running connectors can report Markdown progress, such as Work IQ's search updates. Their

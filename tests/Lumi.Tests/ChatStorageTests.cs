@@ -393,6 +393,32 @@ public sealed class ChatStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task UserMessagesBeforeAMessage_CountStoredHistoryAndTheLiveTail_AsTheCutWillLeaveThem()
+    {
+        var dataStore = OpenDataStore(out _);
+        var chat = CreateChat(dataStore, exchanges: 4, toolsPerExchange: 2);
+        await dataStore.SaveChatAsync(chat);
+        CloseStores();
+
+        var reopened = OpenDataStore(out _);
+        var stored = reopened.Data.Chats.Single();
+        await reopened.LoadChatMessagesAsync(stored);
+        var history = await ReadHistoryAsync(reopened, stored, 1, reopened.GetTranscriptWindow(stored).TailStartSeq);
+
+        Assert.Equal(1, await reopened.CountUserMessagesBeforeAsync(stored, history.First(static message => message.Content == "question 1")));
+        var inTail = stored.Messages.First(static message => message.Role == "user");
+        Assert.Equal("question 3", inTail.Content);
+        Assert.Equal(3, await reopened.CountUserMessagesBeforeAsync(stored, inTail));
+
+        // An edit maps the message onto its session turn by this count, and the session is rewound once
+        // the chat is cut: both must agree.
+        var cut = history.First(static message => message.Content == "question 2");
+        var before = await reopened.CountUserMessagesBeforeAsync(stored, cut);
+        await reopened.TruncateChatHistoryAsync(stored, cut);
+        Assert.Equal(before, reopened.CountUserMessages(stored));
+    }
+
+    [Fact]
     public async Task AttachedHistoryEdits_AreSavedWithTheChat()
     {
         var dataStore = OpenDataStore(out _);

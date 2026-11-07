@@ -937,24 +937,23 @@ public class CopilotService : IAsyncDisposable
     /// <para>The caller must ensure no other surface currently holds this session: the handle is
     /// released on the way out, which reaps the session's host process. Releasing never deletes the
     /// session's persisted data, so the chat can always be resumed again normally afterwards.</para>
+    ///
+    /// <para><paramref name="provider"/> is the account the session's chat uses. Without one, a
+    /// profile that uses only its own accounts refuses the resume.</para>
     /// </remarks>
     public async Task<TResult?> UseResumedSessionReadOnlyAsync<TResult>(
         string sessionId,
         Func<CopilotSession, CancellationToken, Task<TResult?>> operation,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        ProviderConfig? provider = null)
     {
         ArgumentNullException.ThrowIfNull(operation);
         if (_client is null || string.IsNullOrWhiteSpace(sessionId) || !SessionStateExists(sessionId))
             return default;
 
-        // A bare read-only resume must stay cheap (it runs under a short fork budget), so capability
-        // discovery stays off: it would otherwise start every discovered MCP server for a handle
-        // that is thrown away immediately.
-        var config = SessionConfigBuilder.BuildForResume(
-            systemPrompt: null, model: null, workingDirectory: null, mcpPlan: null,
-            skillDirectories: null, customAgents: null, tools: null, reasoningEffort: null,
-            userInputHandler: null, onPermission: null, hooks: null,
-            enableCapabilityDiscovery: false);
+        // A bare read-only resume must stay cheap (it runs under a short budget), so it carries no
+        // prompt, tools or connectors and skips capability discovery.
+        var config = SessionConfigBuilder.BuildForReadOnlyResume(provider);
 
         // Deliberately NOT ConfigureAwait(false): the release in the finally must run on the same
         // (UI) thread as the resume, or it publishes into the pending-release registry off-thread

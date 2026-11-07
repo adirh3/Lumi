@@ -23,6 +23,59 @@ public enum MessageSteerState
     Failed
 }
 
+/// <summary>What the turns going back discards did to a file the agent changed.</summary>
+public enum RewindFileChange
+{
+    Modified,
+    Created,
+    Deleted
+}
+
+/// <summary>
+/// A file the agent changed after a message: going back to before that message puts it back as it
+/// was (deleting a file the agent created, bringing back one it deleted).
+/// </summary>
+public sealed record RewindFile(string Path, RewindFileChange Change, long LinesAdded = 0, long LinesRemoved = 0);
+
+/// <summary>Why going back left a file the agent changed as it is.</summary>
+public enum RewindKeptReason
+{
+    /// <summary>The file changed after the agent last wrote it, so the person's own edits stay.</summary>
+    ChangedSince,
+    /// <summary>The runtime kept no faithful copy of the file from before (it was too large, say).</summary>
+    NoCopy
+}
+
+public sealed record RewindKeptFile(RewindFile File, RewindKeptReason Reason);
+
+public enum RewindFilesStatus
+{
+    /// <summary>The files in <see cref="RewindFilesOutcome.Restored"/> were put back; any kept were left as they are.</summary>
+    Restored,
+    /// <summary>Work was still running in the session, so no file was touched.</summary>
+    Busy,
+    /// <summary>The session can't put files back (it didn't track them), so no file was touched.</summary>
+    Unavailable,
+    /// <summary>Putting the files back failed and was undone: every file is as it was.</summary>
+    Failed,
+    /// <summary>Putting the files back failed part way and could not be fully undone.</summary>
+    Incomplete
+}
+
+/// <summary>
+/// What going back to an earlier message did to the files the agent changed after it. Session-only:
+/// it is kept on the message sent in place of the edited one for its receipt, never saved.
+/// </summary>
+public sealed record RewindFilesOutcome(
+    RewindFilesStatus Status,
+    IReadOnlyList<RewindFile> Restored,
+    IReadOnlyList<RewindKeptFile> Kept,
+    string? Error = null)
+{
+    public static RewindFilesOutcome NotRestored(RewindFilesStatus status, string? error = null)
+        => new(status, [], [], error);
+}
+
 public enum SessionFailureDisposition
 {
     Fatal,
@@ -311,6 +364,13 @@ public class ChatMessage
     /// </summary>
     [JsonIgnore]
     public bool CanSendNowWhenQueued { get; set; }
+
+    /// <summary>
+    /// Session-only (not serialized): what going back did to the files the agent changed, on the
+    /// message an edit sent in place of the edited one, so its receipt survives transcript rebuilds.
+    /// </summary>
+    [JsonIgnore]
+    public RewindFilesOutcome? FileRewind { get; set; }
 
     /// <summary>An explicit external send selection belongs to its queued message, not later composer edits.</summary>
     [JsonIgnore]

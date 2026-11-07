@@ -440,6 +440,24 @@ public partial class DataStore
               + chat.Messages.Count(static message => message.Role == "user" && !string.IsNullOrWhiteSpace(message.Content))
             : HistoryCountsOf(chat).UserMessages + chat.Messages.Count(static message => message.Role == "user");
 
+    /// <summary>
+    /// User messages before <paramref name="message"/> in the chat, stored or in its live tail: where its
+    /// turn falls among the chat's user turns. It is what <see cref="CountUserMessages"/> counts once the
+    /// chat is cut back to before the message.
+    /// </summary>
+    internal async Task<int> CountUserMessagesBeforeAsync(Chat chat, ChatMessage message)
+    {
+        var index = chat.Messages.FindIndex(candidate => candidate.Id == message.Id);
+        if (index >= 0)
+            return HistoryCountsOf(chat).UserMessages
+                   + chat.Messages.Take(index).Count(static candidate => candidate.Role == "user");
+
+        if (_chatStore is null || message.StorageSeq <= 0)
+            throw new InvalidOperationException("The message is not part of the chat.");
+        var counts = await _chatStore.CountConversationAsync(chat.Id, message.StorageSeq).ConfigureAwait(true);
+        return counts.UserMessages;
+    }
+
     /// <summary>Assistant messages with text in the whole chat: its stored history and its live tail.</summary>
     internal int CountAnsweredAssistantMessages(Chat chat)
         => HistoryCountsOf(chat).AnsweredAssistantMessages

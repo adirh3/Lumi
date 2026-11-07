@@ -1874,6 +1874,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(ComposerPlaceholder));
         UpdateUserMessageEditState();
+        if (!value)
+            ClearEditFileRewind();
     }
 
     partial void OnStatusTextChanged(string value)
@@ -4201,19 +4203,45 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ApplyMessageAgentSelection(userMessage, syncToChatAndSession: false);
         ApplyMessageModelSelection(userMessage);
         ApplyMessageMcpSelection(userMessage, syncToChat: false);
+        OfferEditFileRewind(CurrentChat, userMessage);
 
         FocusComposerAtEndRequested?.Invoke();
     }
 
     private void UpdateUserMessageEditState()
     {
-        var editingMessageId = IsEditingMessage ? _editingUserMessage?.Id : null;
+        var editing = IsEditingMessage ? _editingUserMessage : null;
         foreach (var userItem in TranscriptTurns
                      .SelectMany(static turn => turn.Items)
                      .OfType<UserMessageItem>())
         {
-            userItem.UpdateEditState(editingMessageId, IsBusy);
+            userItem.UpdateEditState(editing?.Id, IsBusy);
         }
+
+        MarkTurnsReplacedByEdit(TranscriptTurns, editing);
+    }
+
+    /// <summary>
+    /// Marks the turns that sending an edit of <paramref name="edited"/> would replace: every turn after its
+    /// own, since each user message starts a turn of its own. Its turn is found by the message or, while its
+    /// older exchange shows only a placeholder, by where that exchange starts in storage. With no edit, none.
+    /// </summary>
+    internal static void MarkTurnsReplacedByEdit(IEnumerable<TranscriptTurn> turns, ChatMessage? edited)
+    {
+        var replaced = false;
+        foreach (var turn in turns)
+        {
+            turn.IsReplacedByEdit = replaced;
+            if (!replaced && edited is not null && StartsWith(turn, edited))
+                replaced = true;
+        }
+
+        static bool StartsWith(TranscriptTurn turn, ChatMessage message)
+            => turn.Items.Any(item => item is UserMessageItem user && user.Message.Id == message.Id)
+               || (message.StorageSeq > 0
+                   && TranscriptHistory.IsPlaceholder(turn)
+                   && turn.HistorySegment is TranscriptHistorySegment segment
+                   && segment.StartSeq == message.StorageSeq);
     }
 
     private ComposerEditSnapshot CaptureComposerEditSnapshot()
@@ -4378,6 +4406,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(PromptText))
             return;
 
+        // The files the bar offers as the edit is sent; an offer that only appears later isn't taken. Ending the
+        // edit below stops a read of them still running before it can resume the chat's session, and a read that
+        // already resumed it is a pending release, which the resend waits for.
+        var restoreFiles = EditFileRewind is { IsChosen: true } offer ? offer.Preview : null;
+
         var prompt = PromptText.Trim();
         var selectedReasoningEffort = GetPersistedReasoningEffortPreference();
         var attachments = TakePendingAttachments() ?? [];
@@ -4414,7 +4447,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             edited,
             wasEdited: true,
             attachments,
-            requiresSessionReconfiguration);
+            requiresSessionReconfiguration,
+            restoreFiles: restoreFiles);
 
         // An edit that came back unsent (ReturnEditToComposer) is still measured, and cancelled,
         // against the composer and session it started from.
@@ -7152,7 +7186,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         string? remoteDeviceId = null,
         string? remoteRequestId = null,
         Action? onAccepted = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        RewindFilesPreview? restoreFiles = null)
     {
         if (CurrentChat is null) return;
         var targetChat = CurrentChat;
@@ -7414,7 +7449,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var historyRewound = false;
             if (wasEdited)
             {
-                historyRewound = await TryRewindEditedHistoryAsync(CurrentChat, retainedUserCount, cts.Token);
+                var rewind = await TryRewindEditedHistoryAsync(CurrentChat, retainedUserCount, restoreFiles, cts.Token);
+                historyRewound = rewind.HistoryRewound;
+                if (rewind.Files is { } files)
+                    ShowFileRewind(newUserMsg, files);
                 if (historyRewound)
                 {
                     shouldReplayPrompt = false;
@@ -7686,54 +7724,62 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Rewinds the live Copilot session's server-side history to just before an edited user
-    /// turn using the SDK <see cref="GitHub.Copilot.Rpc.HistoryApi.TruncateAsync"/> API, so the
-    /// edit can be resent as a normal turn without recreating the session or replaying the
-    /// transcript as text. Truncation drops the target user event and everything after it,
-    /// from both the live session and the persisted session log.
+    /// Rewinds the live Copilot session's server-side history to just before an edited user turn
+    /// (<see cref="SessionRewind"/>), so the edit can be resent as a normal turn without recreating the
+    /// session or replaying the transcript as text. The rewind drops the turn's user event and
+    /// everything after it, from both the live session and the persisted session log; with
+    /// <paramref name="restoreFiles"/> it first puts back the files the agent changed in those turns.
     /// </summary>
     /// <param name="chat">The chat whose backend session should be rewound.</param>
     /// <param name="retainedUserCount">User messages that remain before the edited turn (stored history
     /// included): the edited turn is the Nth user turn (0-based) where N is this count.</param>
+    /// <param name="restoreFiles">The files the edit bar offered to put back, or null to leave files as they are.</param>
     /// <param name="ct">Cancellation token for the rewind operation.</param>
-    /// <returns><c>true</c> if the history was truncated and the caller may resend the edit as a
-    /// normal turn; <c>false</c> if the caller should fall back to recreating the session and
-    /// replaying the transcript.</returns>
-    private async Task<bool> TryRewindEditedHistoryAsync(
+    /// <returns>Whether the history was rewound, so the caller may resend the edit as a normal turn
+    /// (otherwise it falls back to recreating the session and replaying the transcript), and, when
+    /// files were asked for, what happened to them.</returns>
+    private async Task<SessionRewindResult> TryRewindEditedHistoryAsync(
         Chat chat,
         int retainedUserCount,
+        RewindFilesPreview? restoreFiles,
         CancellationToken ct)
     {
+        // A session that can't be found or lined up leaves every file as it is.
+        var notRewound = new SessionRewindResult(false,
+            restoreFiles is null ? null : RewindFilesOutcome.NotRestored(RewindFilesStatus.Unavailable));
+
         // No persisted session means there is nothing server-side to rewind.
         if (string.IsNullOrWhiteSpace(chat.CopilotSessionId))
-            return false;
+            return notRewound;
 
         try
         {
             var session = await GetOrResumeSessionAsync(chat, ct);
             if (session is null)
-                return false;
-            var events = await session.GetEventsAsync(ct);
+                return notRewound;
 
             // The edited turn is the (retainedUserCount)-th genuine user turn (0-based).
             // SelectEditTruncationTarget skips SDK/CLI-injected user messages (e.g. a
-            // system-sourced priming message) that have no local counterpart, so we truncate
+            // system-sourced priming message) that have no local counterpart, so we rewind
             // exactly the edited turn instead of an earlier one. A null result means the local
             // and server user turns don't line up — fall back to the safe replay path.
-            var target = PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(events, retainedUserCount);
+            var target = await FindSessionTurnAsync(session, retainedUserCount, ct);
             if (target is null)
-                return false;
+                return notRewound;
 
-            // Truncating at the target user event drops it and everything after, leaving exactly
-            // the retained history; the edit is then resent as a normal turn.
-            await session.Rpc.History.TruncateAsync(target.Id.ToString(), ct);
-            return true;
+            // Rewinding to the target user event drops it and everything after, leaving exactly
+            // the retained history; the edit is then resent as a normal turn. The files go back only
+            // as the edit bar previewed them: for this same turn of this same session.
+            return await SessionRewind.RewindAsync(session, target, restoreFiles, ct);
         }
-        catch
+        catch (Exception ex)
         {
-            // Older CLI without the API, event-lookup mismatch, or a transport failure —
+            // Older CLI without the API, a transport failure or a session that can't be resumed —
             // let the caller fall back to recreating the session and replaying the transcript.
-            return false;
+            return notRewound with
+            {
+                Files = restoreFiles is null ? null : RewindFilesOutcome.NotRestored(RewindFilesStatus.Failed, ex.Message)
+            };
         }
     }
 
@@ -7843,6 +7889,20 @@ public partial class ChatMessageViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanSendNow))]
     private bool _canSendNowWhenQueued;
 
+    /// <summary>What going back did to the files the agent changed, under the message an edit sent in place of the edited one.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFileRewind))]
+    private FileRewindReceipt? _fileRewind;
+
+    public bool HasFileRewind => FileRewind is not null;
+
+    /// <summary>Shows what going back did to the files, kept on the message so it survives transcript rebuilds.</summary>
+    public void ShowFileRewind(RewindFilesOutcome outcome)
+    {
+        Message.FileRewind = outcome;
+        FileRewind = FileRewindReceipt.From(outcome);
+    }
+
     /// <summary>True when this message carries a delivery badge (queued / steering / steered / failed).</summary>
     public bool HasSteerBadge => SteerState is not MessageSteerState.None;
 
@@ -7904,6 +7964,7 @@ public partial class ChatMessageViewModel : ObservableObject
         _linkedChatTitle = message.LinkedChatTitle;
         _steerState = message.SteerDelivery;
         _canSendNowWhenQueued = message.CanSendNowWhenQueued;
+        _fileRewind = FileRewindReceipt.From(message.FileRewind);
     }
 
     public void NotifyContentChanged()
