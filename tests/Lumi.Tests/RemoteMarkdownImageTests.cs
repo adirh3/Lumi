@@ -66,6 +66,48 @@ public sealed class RemoteMarkdownImageTests
             authorizedPaths));
     }
 
+    [Fact]
+    public void TableImagesWithEncodedSpacesKeepTheirIndexesAndRequireAuthorizedFiles()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "wallpapers with spaces", "portrait.png");
+        var other = Path.Combine(Path.GetTempPath(), "wallpapers with spaces", "private.png");
+        var authorizedPaths = RemoteMarkdownImageFiles.BuildAuthorizedPaths(
+        [
+            new ChatMessage
+            {
+                Role = "tool",
+                ToolName = "announce_file",
+                Content = JsonSerializer.Serialize(new { filePath = path })
+            }
+        ]);
+        var markdown = $"| First | Second |\n|---|---|\n| ![Wallpaper]({path.Replace(" ", "%20")}) | ![Private]({other.Replace(" ", "%20")}) |";
+
+        var image = Assert.Single(RemoteMarkdownImageFiles.BuildDescriptors(markdown, authorizedPaths)!);
+        Assert.Equal(0, image.Index);
+        Assert.Equal("portrait.png", image.FileName);
+        Assert.True(RemoteMarkdownImageFiles.TryResolveReferencedPath(markdown, 0, authorizedPaths, out var resolved));
+        Assert.Equal(path, resolved);
+        Assert.False(RemoteMarkdownImageFiles.TryResolveReferencedPath(markdown, 1, authorizedPaths, out _));
+    }
+
+    [Fact]
+    public void FileUrisAreDecodedOnlyOnceAndLiteralAuthorizedPathsTakePrecedence()
+    {
+        var literal = Path.Combine(Path.GetTempPath(), "wallpaper%20portrait.png");
+        var decoded = Path.Combine(Path.GetTempPath(), "wallpaper portrait.png");
+        var authorizedPaths = new HashSet<string> { literal, decoded };
+
+        foreach (var target in new[] { literal, new Uri(literal).AbsoluteUri })
+        {
+            Assert.True(RemoteMarkdownImageFiles.TryResolveReferencedPath(
+                $"![Wallpaper]({target})", 0, authorizedPaths, out var resolved));
+            Assert.Equal(literal, resolved);
+        }
+
+        Assert.False(RemoteMarkdownImageFiles.TryResolveReferencedPath(
+            $"![Wallpaper]({new Uri(literal).AbsoluteUri})", 0, new HashSet<string> { decoded }, out _));
+    }
+
     [Theory]
     [InlineData("Completed", true)]
     [InlineData("Failed", false)]

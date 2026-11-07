@@ -131,7 +131,12 @@ internal static class RemoteMarkdownImageFiles
         IReadOnlySet<string> authorizedPaths,
         out string path)
     {
-        return TryResolveLocalPath(target, out path)
+        if (TryResolveLocalPath(target, out path) && authorizedPaths.Contains(path))
+            return true;
+
+        return Path.IsPathFullyQualified(target)
+               && target.Contains('%')
+               && TryResolveLocalPath(Uri.UnescapeDataString(target), out path)
                && authorizedPaths.Contains(path);
     }
 

@@ -170,7 +170,7 @@ public static class DebugAgentHarness
         var shortlistPath = Path.Combine(root, "TV-Shortlist.csv");
         var dealSummaryPath = Path.Combine(root, "Deal-Summary.md");
         var researchNotesPath = Path.Combine(root, "OLED-Research-Notes.md");
-        var fixtureImagePath = Path.Combine(root, "lumi-markdown-image.png");
+        var fixtureImagePath = Path.Combine(root, "lumi markdown image.png");
 
         File.WriteAllText(attachmentPath, "# Debug fixture attachment\n\nThis file exists so attachment chips can resolve size and icon metadata.\n");
         File.WriteAllText(editedPath, "public class FixtureWidget\n{\n    public string State => \"before\";\n}\n");
@@ -456,6 +456,12 @@ public static class DebugAgentHarness
             ![GitHub mark loaded over HTTPS](https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png)
 
             In-text image: ![Inline Lumi icon]({fixtureImagePath}) with text on both sides.
+
+            Table images with URI-escaped local paths:
+
+            | First | Second | Third | Fourth |
+            |---|---|---|---|
+            | ![First icon]({fixtureImagePath.Replace(" ", "%20")}) | Before ![Second icon]({fixtureImagePath.Replace(" ", "%20")}) after | ![Third icon]({fixtureImagePath.Replace(" ", "%20")}) | ![Fourth icon]({fixtureImagePath.Replace(" ", "%20")}) |
             """;
         firstAssistant.Sources.Add(new SearchSource
         {

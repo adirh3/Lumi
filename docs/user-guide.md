@@ -33,7 +33,7 @@ Quick links: [AI accounts](#ai-accounts), [voice input](#voice-input),
 - **Context awareness** — Lumi assembles context from the active project and its brief, agent, time of day, user name, skills, and memories into every interaction
 - **System tray** — Minimize to tray with global hotkey for instant access. On macOS, clicking the Dock icon or opening Lumi again restores the hidden window and keeps the current chat, draft, and maximized or full-screen state. Quit and operating-system shutdown still exit normally when minimize-to-tray is enabled.
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
-- **Inline images** — Local and online images render directly in chat. Use the expand button in an image's top-right corner to view it full screen; press Esc or the close button to return
+- **Inline images** — Local and online images render directly in chat, including inside Markdown table cells. Local paths can contain spaces or URI-escaped spaces (`%20`). Use the expand button in an image's top-right corner to view it full screen; press Esc or the close button to return
 - **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback
 - **MCP Apps & canvases** — Connector-provided interactive apps and Copilot canvas extensions open in Workspace, with lightweight reopen cards in the transcript. App tool calls reuse the chat's Copilot connection; canvas behavior and data stay with the extension.
 - **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
