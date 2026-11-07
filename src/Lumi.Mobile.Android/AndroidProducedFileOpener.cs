@@ -1,4 +1,5 @@
 using Android.Content;
+using Android.Provider;
 using Android.Webkit;
 using AndroidX.Core.Content;
 using Lumi.Mobile.Services;
@@ -11,6 +12,55 @@ internal sealed class AndroidProducedFileOpener(Context context) : IProducedFile
     private readonly Context _context = context.ApplicationContext ?? context;
 
     public bool CanShare => true;
+
+    /// <summary>From Android 10 a picture goes into the shared Pictures folder without asking for storage access.</summary>
+    public bool CanSaveToPhotos => OperatingSystem.IsAndroidVersionAtLeast(29);
+
+    /// <summary>Saves a picture into Pictures/Lumi, where the gallery and Google Photos find it.</summary>
+    public async Task<bool> TrySaveToPhotosAsync(
+        string downloadedPath,
+        string displayName,
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsAndroidVersionAtLeast(29)
+            || !File.Exists(downloadedPath)
+            || _context.ContentResolver is not { } resolver
+            || MediaStore.Images.Media.GetContentUri(MediaStore.VolumeExternalPrimary) is not { } collection)
+        {
+            return false;
+        }
+
+        var safeName = SafeFileName(displayName);
+        var values = new ContentValues();
+        values.Put(MediaStore.IMediaColumns.DisplayName, safeName);
+        values.Put(MediaStore.IMediaColumns.MimeType, MimeTypeOf(safeName));
+        values.Put(MediaStore.IMediaColumns.RelativePath, Path.Combine(global::Android.OS.Environment.DirectoryPictures ?? "Pictures", "Lumi"));
+        values.Put(MediaStore.IMediaColumns.IsPending, 1);
+        if (resolver.Insert(collection, values) is not { } item)
+            return false;
+
+        try
+        {
+            await using (var source = File.OpenRead(downloadedPath))
+            await using (var destination = resolver.OpenOutputStream(item)
+                                           ?? throw new IOException("The gallery did not open the new picture for writing."))
+            {
+                await source.CopyToAsync(destination, 64 * 1024, cancellationToken);
+                await destination.FlushAsync(cancellationToken);
+            }
+
+            // Until it is no longer pending, the picture is hidden from every other app.
+            values.Clear();
+            values.Put(MediaStore.IMediaColumns.IsPending, 0);
+            resolver.Update(item, values, null, null);
+            return true;
+        }
+        catch
+        {
+            resolver.Delete(item, null, null);
+            throw;
+        }
+    }
 
     public async Task<bool> TryOpenAsync(
         string downloadedPath,
@@ -114,10 +164,7 @@ internal sealed class AndroidProducedFileOpener(Context context) : IProducedFile
                 throw new IOException("The Android cache copy was incomplete.");
 
             var uri = FileProvider.GetUriForFile(_context, $"{_context.PackageName}.files", new Java.IO.File(target));
-            var mimeType = MimeTypeMap.Singleton?.GetMimeTypeFromExtension(
-                               Path.GetExtension(safeName).TrimStart('.').ToLowerInvariant())
-                           ?? "application/octet-stream";
-            return uri is null ? null : new SharedFile(target, uri, mimeType);
+            return uri is null ? null : new SharedFile(target, uri, MimeTypeOf(safeName));
         }
         catch
         {
@@ -126,6 +173,10 @@ internal sealed class AndroidProducedFileOpener(Context context) : IProducedFile
             throw;
         }
     }
+
+    private static string MimeTypeOf(string fileName) =>
+        MimeTypeMap.Singleton?.GetMimeTypeFromExtension(Path.GetExtension(fileName).TrimStart('.').ToLowerInvariant())
+        ?? "application/octet-stream";
 
     private static string SafeFileName(string displayName)
     {

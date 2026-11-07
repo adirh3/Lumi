@@ -118,6 +118,32 @@ internal sealed class BrowserProducedFileOpener : IProducedFileOpener
         BrowserInterop.DownloadUrl(downloadedPath, displayName);
         return true;
     }
+
+    /// <summary>Browsers with the Web Share API hand files to the phone's share sheet.</summary>
+    public bool CanShare => BrowserInterop.CanShareFiles();
+
+    public async Task<bool> TryShareAsync(
+        string downloadedPath,
+        string displayName,
+        CancellationToken cancellationToken)
+    {
+        var ownsUrl = !downloadedPath.StartsWith("blob:", StringComparison.Ordinal);
+        var url = ownsUrl
+            ? BrowserInterop.CreateObjectUrl(
+                await File.ReadAllBytesAsync(downloadedPath, cancellationToken),
+                "application/octet-stream")
+            : downloadedPath;
+        try
+        {
+            // A share sheet the user closes is not a failure.
+            return await BrowserInterop.ShareFile(url, displayName) is "shared" or "cancelled";
+        }
+        finally
+        {
+            if (ownsUrl)
+                BrowserInterop.RevokeObjectUrl(url);
+        }
+    }
 }
 
 internal sealed class BrowserTextSelectionPresenter : ITextSelectionPresenter
@@ -532,6 +558,13 @@ internal static partial class BrowserInterop
 
     [JSImport("revokeObjectUrl", "./browserHost.js")]
     internal static partial void RevokeObjectUrl(string url);
+
+    [JSImport("canShareFiles", "./browserHost.js")]
+    internal static partial bool CanShareFiles();
+
+    [JSImport("shareFile", "./browserHost.js")]
+    [return: JSMarshalAs<JSType.Promise<JSType.String>>]
+    internal static partial Task<string> ShareFile(string url, string fileName);
 
     [JSImport("showTextSelection", "./browserHost.js")]
     internal static partial void ShowTextSelection(string text);

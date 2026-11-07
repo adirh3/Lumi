@@ -29,6 +29,15 @@ public interface IProducedFileOpener
     /// only repeat it.
     /// </summary>
     bool OpensBySaving => false;
+    /// <summary>The platform has a photo library a picture can be saved straight into, without a dialog.</summary>
+    bool CanSaveToPhotos => false;
+
+    /// <summary>Saves a picture with the phone's photos. False when it could not.</summary>
+    Task<bool> TrySaveToPhotosAsync(
+        string downloadedPath,
+        string displayName,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(false);
 }
 
 /// <summary>Renders the pages of a PDF on this device, where the platform has a renderer.</summary>

@@ -10,6 +10,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.Layout;
+using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Behaviors;
 using StrataTheme.Controls;
@@ -57,6 +58,8 @@ public partial class MobileShellView : UserControl
     public MobileShellView()
     {
         InitializeComponent();
+        // Every picture in a chat opens full screen with the phone's own Share and Save.
+        StrataMarkdown.SetImageActionHost(this, new MobileImageActions());
         AddHandler(StrataBottomSheet.PresentationChangedEvent, OnSheetPresentationChanged);
         AddHandler(KeyDownEvent, OnShellKeyDown, RoutingStrategies.Bubble);
         _navigationDrawer = this.FindControl<StrataNavigationDrawer>("NavDrawer");

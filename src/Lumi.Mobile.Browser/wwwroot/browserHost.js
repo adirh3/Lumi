@@ -425,6 +425,42 @@ export function downloadUrl(url, fileName) {
         setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
+const shareTypes = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+    pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json'
+};
+
+function shareTypeOf(fileName) {
+    const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
+    return shareTypes[extension] ?? 'application/octet-stream';
+}
+
+export function canShareFiles() {
+    try {
+        return typeof navigator.share === 'function'
+            && typeof navigator.canShare === 'function'
+            && navigator.canShare({ files: [new File([new Uint8Array(1)], 'lumi.png', { type: 'image/png' })] });
+    } catch {
+        return false;
+    }
+}
+
+// Hands a file to the share sheet: "shared", "cancelled" when the user closed the sheet, "unsupported"
+// when the browser won't share this kind of file, or "failed".
+export async function shareFile(url, fileName) {
+    try {
+        const blob = await (await fetch(url)).blob();
+        const type = blob.type && blob.type !== 'application/octet-stream' ? blob.type : shareTypeOf(fileName);
+        const file = new File([blob], fileName, { type });
+        if (!navigator.canShare?.({ files: [file] }))
+            return 'unsupported';
+        await navigator.share({ files: [file] });
+        return 'shared';
+    } catch (error) {
+        return error?.name === 'AbortError' ? 'cancelled' : 'failed';
+    }
+}
+
 export function publishViewportInsets(callback) {
     const style = getComputedStyle(safeAreaProbe);
     const top = parseFloat(style.paddingTop) || 0;

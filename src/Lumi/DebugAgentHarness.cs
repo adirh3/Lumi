@@ -445,7 +445,7 @@ public static class DebugAgentHarness
 
             ### Inline markdown images
 
-            Use an image's top-right expand button to view it full screen. Press Esc or the close button to return.
+            Click an image to view it full screen, or hover it for Show in folder, Copy image and full screen; right-click for more. In the viewer, arrow keys step between this message's images; Esc, a click beside the image or the close button returns.
 
             Local file:
 
