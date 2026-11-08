@@ -236,12 +236,7 @@ public sealed class ChatCheckoutTests
         finally
         {
             if (Directory.Exists(root))
-            {
-                await WaitForGitCommandsToFinishAsync();
-                foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
-                    File.SetAttributes(file, FileAttributes.Normal);
-                Directory.Delete(root, recursive: true);
-            }
+                await DeleteCheckoutFoldersAsync(root);
         }
     }
 
@@ -295,10 +290,7 @@ public sealed class ChatCheckoutTests
         }
         finally
         {
-            await WaitForGitCommandsToFinishAsync();
-            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
-                File.SetAttributes(file, FileAttributes.Normal);
-            Directory.Delete(root, recursive: true);
+            await DeleteCheckoutFoldersAsync(root);
         }
     }
 
@@ -320,6 +312,28 @@ public sealed class ChatCheckoutTests
 
         await cleanup;
         Assert.Equal(1, gate.CurrentCount);
+    }
+
+    [Fact]
+    public async Task CheckoutCleanupWaitsForAWindowsFileLockToBeReleased()
+    {
+        var root = Path.Combine(TestProfile.Root, "checkout-cleanup", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        using var lockedFile = File.Open(Path.Combine(root, "locked.txt"),
+            FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+        var cleanup = DeleteCheckoutFoldersAsync(root);
+        try
+        {
+            if (OperatingSystem.IsWindows())
+                Assert.False(cleanup.IsCompleted);
+        }
+        finally
+        {
+            lockedFile.Dispose();
+            await cleanup;
+        }
+
+        Assert.False(Directory.Exists(root));
     }
 
     [Theory]
@@ -376,6 +390,30 @@ public sealed class ChatCheckoutTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await gate.WaitAsync(timeout.Token);
         gate.Release();
+    }
+
+    private static async Task DeleteCheckoutFoldersAsync(string root)
+    {
+        await WaitForGitCommandsToFinishAsync();
+        var elapsed = Stopwatch.StartNew();
+        while (Directory.Exists(root))
+        {
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                    File.SetAttributes(file, FileAttributes.Normal);
+                Directory.Delete(root, recursive: true);
+                return;
+            }
+            catch (IOException error) when (OperatingSystem.IsWindows()
+                && (error.HResult & 0xffff) is 32 or 33
+                && elapsed.Elapsed < TimeSpan.FromSeconds(5))
+            {
+                // A canceled read or Git launcher child may release its directory handle after the
+                // queued command completes. Retry cleanup only, never the behavior assertions.
+                await Task.Delay(25);
+            }
+        }
     }
 
     private static Border ProjectChip(StrataChatComposer composer) => composer.GetVisualDescendants()
