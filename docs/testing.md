@@ -234,7 +234,8 @@ starting a duplicate refresh can leave native Git processes using the fixture
 directory during cleanup.
 Mobile loopback tests wait for asynchronous chat-list rebuilding to finish before
 enumerating its rows. Library lifetime tests retain the real Grid scratch buffer
-before arranging the header, rather than assuming the weak pool survived GC.
+and explicitly seed the retained definition, rather than assuming the weak pool
+survived GC or a particular layout algorithm populated one specific slot.
 Adaptive-icon checks keep every pixel inside the safe mask and every background
 pixel opaque; only partially transparent foreground pixels allow one extra
 channel-rounding unit for ARM64's separate-layer compositing.
