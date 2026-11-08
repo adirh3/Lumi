@@ -25,6 +25,8 @@
     <ParameterGroup>
       <Version ParameterType="System.String" Required="true" />
       <AssetName ParameterType="System.String" Required="true" />
+      <ArchiveAssetId ParameterType="System.String" Required="true" />
+      <ManifestAssetId ParameterType="System.String" Required="true" />
       <ArchiveSha256 ParameterType="System.String" Required="true" />
       <ExecutableSha256 ParameterType="System.String" Required="true" />
       <CacheDirectory ParameterType="System.String" Required="true" />
@@ -46,9 +48,13 @@
     <ItemGroup>
       <_LumiCliPin Include="@(LumiCopilotCliPin)"
                    Condition="'%(Identity)' == '$(CopilotCliVersion)/$(_LumiCliRid)'" />
+      <_LumiCliManifestPin Include="@(LumiCopilotCliManifestPin)"
+                           Condition="'%(Identity)' == '$(CopilotCliVersion)'" />
     </ItemGroup>
     <Error Condition="'@(_LumiCliPin->Count())' != '1'"
            Text="No reviewed full CLI pin for $(CopilotCliVersion)/$(_LumiCliRid). Update build/Copilot/CopilotCliPins.props with the SDK upgrade." />
+    <Error Condition="'@(_LumiCliManifestPin->Count())' != '1'"
+           Text="No reviewed full CLI manifest asset for $(CopilotCliVersion). Update build/Copilot/CopilotCliPins.props with the SDK upgrade." />
     <PropertyGroup>
       <_LumiCliDownloadTimeout Condition="'$(CopilotCliDownloadTimeout)' != ''">$(CopilotCliDownloadTimeout)</_LumiCliDownloadTimeout>
       <_LumiCliDownloadTimeout Condition="'$(_LumiCliDownloadTimeout)' == ''">600</_LumiCliDownloadTimeout>
@@ -56,6 +62,8 @@
     <Lumi.Build.AcquireFullCopilotCli
         Version="$(CopilotCliVersion)"
         AssetName="@(_LumiCliPin->'%(AssetName)')"
+        ArchiveAssetId="@(_LumiCliPin->'%(AssetId)')"
+        ManifestAssetId="@(_LumiCliManifestPin->'%(AssetId)')"
         ArchiveSha256="@(_LumiCliPin->'%(ArchiveSha256)')"
         ExecutableSha256="@(_LumiCliPin->'%(ExecutableSha256)')"
         CacheDirectory="$(_LumiCliCache)"

@@ -505,13 +505,25 @@ public sealed class ChatWorkspaceViewTests
             window.Show();
             try
             {
-                // Draining dispatcher jobs alone does not realize the sidebar's list containers.
-                window.UpdateLayout();
-                await PumpAsync();
-                window.UpdateLayout();
+                // Nested sidebar templates can realize across multiple layout/frame opportunities.
+                var groups = window.FindControl<ItemsControl>("ChatGroupsHost")!;
+                ListBoxItem? listItem = null;
+                var deadline = DateTime.UtcNow.AddSeconds(5);
+                while (DateTime.UtcNow < deadline)
+                {
+                    window.UpdateLayout();
+                    await PumpAsync();
+                    window.UpdateLayout();
+                    listItem = groups.GetVisualDescendants().OfType<ListBoxItem>()
+                        .SingleOrDefault(item => ReferenceEquals(item.DataContext, chat));
+                    if (listItem is { IsEffectivelyVisible: true, Bounds.Width: > 0, Bounds.Height: > 0 })
+                        break;
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    await Task.Delay(10);
+                }
 
-                var listItem = Assert.Single(window.GetVisualDescendants()
-                    .OfType<ListBoxItem>(), item => ReferenceEquals(item.DataContext, chat));
+                Assert.NotNull(listItem);
+                Assert.True(listItem.IsEffectivelyVisible);
                 Assert.True(listItem.Bounds.Width > 0 && listItem.Bounds.Height > 0);
                 var topLeft = listItem.TranslatePoint(new Point(0, 0), window)
                     ?? throw new InvalidOperationException("Chat list item is not attached.");

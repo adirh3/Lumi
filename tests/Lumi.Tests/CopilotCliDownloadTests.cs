@@ -43,12 +43,14 @@ public sealed class CopilotCliDownloadTests : IDisposable
     public void PermanentHttpFailureDoesNotRetryOrCreateAnAsset(int status)
     {
         using var server = new DownloadServer(Asset, status, 200);
+        using var fallback = new DownloadServer(Asset, 200);
         var destination = Path.Combine(_directory, "copilot");
 
-        var error = Assert.Throws<HttpRequestException>(() => CreateTask().Download(server.Url, destination, Hash(Asset)));
+        var error = Assert.Throws<HttpRequestException>(() => CreateTask().Download(server.Url, destination, Hash(Asset), fallback.Url));
 
         Assert.Equal((HttpStatusCode)status, error.StatusCode);
         Assert.Equal(1, server.Requests);
+        Assert.Equal(0, fallback.Requests);
         Assert.Empty(_engine.Warnings);
         Assert.Empty(Directory.GetFiles(_directory));
     }
@@ -57,11 +59,13 @@ public sealed class CopilotCliDownloadTests : IDisposable
     public void ChecksumMismatchNeverRetriesOrPublishesUnverifiedBytes()
     {
         using var server = new DownloadServer(Encoding.UTF8.GetBytes("tampered"), 200);
+        using var fallback = new DownloadServer(Asset, 200);
         var destination = Path.Combine(_directory, "copilot");
 
-        Assert.Throws<InvalidDataException>(() => CreateTask().Download(server.Url, destination, Hash(Asset)));
+        Assert.Throws<InvalidDataException>(() => CreateTask().Download(server.Url, destination, Hash(Asset), fallback.Url));
 
         Assert.Equal(1, server.Requests);
+        Assert.Equal(0, fallback.Requests);
         Assert.Empty(_engine.Warnings);
         Assert.Empty(Directory.GetFiles(_directory));
     }
@@ -109,6 +113,74 @@ public sealed class CopilotCliDownloadTests : IDisposable
         Assert.Empty(Directory.GetFiles(_directory));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GatewayTimeoutUsesTheAssetApiWithoutChangingTheDownloadedBytes(bool verifyHash)
+    {
+        using var server = new DownloadServer(Asset, 504);
+        using var fallback = new DownloadServer(Asset, 200);
+        var destination = Path.Combine(_directory, "copilot");
+
+        CreateTask().Download(server.Url, destination, verifyHash ? Hash(Asset) : null, fallback.Url);
+
+        Assert.Equal(1, server.Requests);
+        Assert.Equal(1, fallback.Requests);
+        Assert.Equal("application/octet-stream", fallback.AcceptHeader);
+        Assert.Equal(Asset, File.ReadAllBytes(destination));
+        Assert.Single(_engine.Warnings);
+        Assert.Empty(Directory.GetFiles(_directory, "*.tmp"));
+    }
+
+    [Fact]
+    public void AssetApiBytesMustStillMatchTheCheckedInHash()
+    {
+        using var server = new DownloadServer(Asset, 504);
+        using var fallback = new DownloadServer(Encoding.UTF8.GetBytes("tampered"), 200);
+        var destination = Path.Combine(_directory, "copilot");
+
+        Assert.Throws<InvalidDataException>(() =>
+            CreateTask().Download(server.Url, destination, Hash(Asset), fallback.Url));
+
+        Assert.Equal(1, server.Requests);
+        Assert.Equal(1, fallback.Requests);
+        Assert.Empty(Directory.GetFiles(_directory));
+    }
+
+    [Fact]
+    public void AssetApiFallbackSharesTheThreeAttemptLimit()
+    {
+        using var server = new DownloadServer(Asset, 504);
+        using var fallback = new DownloadServer(Asset, 503);
+        var destination = Path.Combine(_directory, "copilot");
+
+        var error = Assert.Throws<HttpRequestException>(() =>
+            CreateTask().Download(server.Url, destination, Hash(Asset), fallback.Url));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, error.StatusCode);
+        Assert.Equal(1, server.Requests);
+        Assert.Equal(2, fallback.Requests);
+        Assert.Equal(2, _engine.Warnings.Count);
+        Assert.Empty(Directory.GetFiles(_directory));
+    }
+
+    [Fact]
+    public void AssetApiFallbackCannotResetTheDownloadDeadline()
+    {
+        using var server = new DownloadServer(Asset, 504);
+        using var fallback = new DownloadServer(Asset, 503);
+        var destination = Path.Combine(_directory, "copilot");
+        var task = CreateTask();
+        task.DownloadTimeoutSeconds = 5;
+
+        Assert.ThrowsAny<OperationCanceledException>(() =>
+            task.Download(server.Url, destination, Hash(Asset), fallback.Url));
+
+        Assert.Equal(1, server.Requests);
+        Assert.Equal(1, fallback.Requests);
+        Assert.Empty(Directory.GetFiles(_directory));
+    }
+
     private AcquireFullCopilotCli CreateTask() => new() { BuildEngine = _engine, DownloadTimeoutSeconds = 20 };
     private static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
@@ -146,6 +218,7 @@ public sealed class CopilotCliDownloadTests : IDisposable
 
         internal string Url { get; }
         internal int Requests => Volatile.Read(ref _requests);
+        internal string? AcceptHeader { get; private set; }
 
         private async Task ServeAsync(byte[] content, int[] statuses)
         {
@@ -156,7 +229,11 @@ public sealed class CopilotCliDownloadTests : IDisposable
                     using var client = await _listener.AcceptTcpClientAsync(_stop.Token);
                     using var stream = client.GetStream();
                     using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
-                    while (!string.IsNullOrEmpty(await reader.ReadLineAsync(_stop.Token))) { }
+                    while (await reader.ReadLineAsync(_stop.Token) is { Length: > 0 } line)
+                    {
+                        if (line.StartsWith("Accept:", StringComparison.OrdinalIgnoreCase))
+                            AcceptHeader = line["Accept:".Length..].Trim();
+                    }
                     var request = Interlocked.Increment(ref _requests);
                     var status = statuses[Math.Min(request - 1, statuses.Length - 1)];
                     if (status == ResetConnection)

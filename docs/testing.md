@@ -15,6 +15,8 @@ readiness, background-job dispatch/editing, and management create/save/discard/
 delete behaviour. These are component or headless UI tests, not additional
 headed user journeys. No account secrets, live model inference, microphone,
 external website, timing SLA, or screenshot baseline is required by this gate.
+File-rewind preview, outcome, receipt, localization, edit-state and session
+configuration checks are registered in the same CoreQA catalog.
 
 The plugin-resume regression uses the real Copilot runtime with scripted inference
 and a per-test runtime home in both Debug and Release. It calls the SDK directly
@@ -147,8 +149,15 @@ critical path without deleting their broader coverage.
 Builds make at most three attempts to download the official Copilot CLI within
 the original download deadline. Connection failures, HTTP 408/429 and 5xx
 responses are retried with logged backoff; permanent HTTP errors and checksum
-failures still fail immediately. Loopback tests exercise the real build task,
+failures still fail immediately. After a transient failure on the release-download
+route, the remaining attempts use GitHub's official asset API with reviewed asset
+IDs from the same CLI pins. The fallback shares the original attempt limit and
+deadline; manifest, archive and executable verification are unchanged. It needs
+no account token or new dependency. Loopback tests exercise the real build task,
 its request counts, deadline, cleanup and checked bytes as part of CoreQA.
+Native PR jobs cache only the public full-CLI download directory, keyed by
+OS, architecture and the reviewed pins. Every reuse still verifies the manifest,
+archive and executable; no profile, account token or session data enters that cache.
 Tests and headed UI actions themselves are never retried to obtain a pass.
 Scroll-position regressions settle the chat-open reveal before capturing their
 baseline, rather than relaxing their viewport-preservation assertions.
@@ -225,9 +234,25 @@ dispatcher tests in their existing isolated processes.
 Headless pointer tests must flush window layout before locating generated list
 containers and measuring click coordinates. Draining dispatcher queues alone
 does not guarantee that the next layout pass has realized those containers.
+Nested chat-list templates use a bounded wait for the target row to become
+visible and measured before sending pointer input; the click itself is never retried.
 Tests that select a checkout wait for that selection's automatic Git refresh;
 starting a duplicate refresh can leave native Git processes using the fixture
 directory during cleanup.
+Checkout-fixture teardown also waits, with a bounded Windows sharing-violation
+check, for canceled older refreshes to release their native Git directory handles.
+Test assertions and pointer actions are not repeated.
+Mobile loopback tests wait for asynchronous chat-list rebuilding to finish before
+enumerating its rows. Library lifetime tests retain the real Grid scratch buffer
+and explicitly seed the retained definition, rather than assuming the weak pool
+survived GC or a particular layout algorithm populated one specific slot.
+Adaptive-icon checks keep every pixel inside the safe mask and every background
+pixel opaque; only partially transparent foreground pixels allow one extra
+channel-rounding unit for ARM64's separate-layer compositing.
+The real mobile-send animation check warms pixel measurement before sending and
+captures immediately from the presenter observed at preparation, rather than
+spending its short entrance on a whole-view lookup or cold measurement setup.
+Its intermediate-pixel and server-confirmation identity assertions are unchanged.
 
 Add headed scenarios in `QaSmokeHarness`, register their IDs in
 `QaSmokeReport.ScenarioIds`, and assert outcomes rather than incidental control

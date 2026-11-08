@@ -20,6 +20,8 @@ namespace Lumi.Build
     {
         [Required] public string Version { get; set; } = "";
         [Required] public string AssetName { get; set; } = "";
+        [Required] public string ArchiveAssetId { get; set; } = "";
+        [Required] public string ManifestAssetId { get; set; } = "";
         [Required] public string ArchiveSha256 { get; set; } = "";
         [Required] public string ExecutableSha256 { get; set; } = "";
         [Required] public string CacheDirectory { get; set; } = "";
@@ -32,24 +34,27 @@ namespace Lumi.Build
             {
                 if (!Regex.IsMatch(Version, @"^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$")
                     || !Regex.IsMatch(AssetName, @"^copilot-[a-z0-9-]+\.(?:zip|tar\.gz)$")
+                    || !Regex.IsMatch(ArchiveAssetId, @"^[1-9]\d*$")
+                    || !Regex.IsMatch(ManifestAssetId, @"^[1-9]\d*$")
                     || !Regex.IsMatch(ArchiveSha256, @"^[a-fA-F0-9]{64}$")
                     || !Regex.IsMatch(ExecutableSha256, @"^[a-fA-F0-9]{64}$")
                     || DownloadTimeoutSeconds <= 0)
-                    throw new InvalidDataException("Invalid full Copilot CLI version, asset or checksum pin.");
+                    throw new InvalidDataException("Invalid full Copilot CLI version, asset, release asset ID or checksum pin.");
 
                 var cache = Path.GetFullPath(CacheDirectory);
                 Directory.CreateDirectory(cache);
                 using (AcquireCacheLock(Path.Combine(cache, ".acquire.lock")))
                 {
                     var release = "https://github.com/github/copilot-cli/releases/download/v" + Version + "/";
+                    const string assetApi = "https://api.github.com/repos/github/copilot-cli/releases/assets/";
                     var manifest = Path.Combine(cache, "SHA256SUMS.txt");
                     if (!File.Exists(manifest))
-                        Download(release + "SHA256SUMS.txt", manifest, null);
+                        Download(release + "SHA256SUMS.txt", manifest, null, assetApi + ManifestAssetId);
                     VerifyReleaseManifest(manifest);
 
                     var archive = Path.Combine(cache, AssetName);
                     if (!File.Exists(archive))
-                        Download(release + AssetName, archive, ArchiveSha256);
+                        Download(release + AssetName, archive, ArchiveSha256, assetApi + ArchiveAssetId);
                     VerifyHash(archive, ArchiveSha256);
 
                     var executableName = AssetName.EndsWith(".zip", StringComparison.Ordinal)
@@ -110,7 +115,7 @@ namespace Lumi.Build
             }
         }
 
-        internal void Download(string url, string destination, string expectedHash)
+        internal void Download(string url, string destination, string expectedHash, string fallbackUrl = null)
         {
             using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(DownloadTimeoutSeconds)))
             using (var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan })
@@ -122,13 +127,19 @@ namespace Lumi.Build
                     try
                     {
                         Log.LogMessage(MessageImportance.High, "Downloading official Copilot CLI asset ({0}/3): {1}", attempt, url);
-                        using (var response = http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, deadline.Token).GetAwaiter().GetResult())
+                        using (var request = new HttpRequestMessage(HttpMethod.Get, url))
                         {
-                            status = (int)response.StatusCode;
-                            response.EnsureSuccessStatusCode();
-                            using (var input = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult())
-                            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write))
-                                input.CopyToAsync(output, 81920, deadline.Token).GetAwaiter().GetResult();
+                            request.Headers.UserAgent.ParseAdd("Lumi-Build/1.0");
+                            if (url == fallbackUrl)
+                                request.Headers.Accept.ParseAdd("application/octet-stream");
+                            using (var response = http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).GetAwaiter().GetResult())
+                            {
+                                status = (int)response.StatusCode;
+                                response.EnsureSuccessStatusCode();
+                                using (var input = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult())
+                                using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write))
+                                    input.CopyToAsync(output, 81920, deadline.Token).GetAwaiter().GetResult();
+                            }
                         }
                         if (expectedHash != null)
                             VerifyHash(temporary, expectedHash);
@@ -138,6 +149,12 @@ namespace Lumi.Build
                     catch (HttpRequestException error) when (attempt < 3 && !deadline.IsCancellationRequested
                         && (status == null || status == 408 || status == 429 || status >= 500 && status <= 599))
                     {
+                        if (fallbackUrl != null && url != fallbackUrl)
+                        {
+                            Log.LogMessage(MessageImportance.High,
+                                "The release-download route failed; retrying the same pinned asset through GitHub's official asset API.");
+                            url = fallbackUrl;
+                        }
                         Log.LogWarning("Copilot CLI download attempt {0}/3 failed: {1}. Retrying in {2} seconds.",
                             attempt, error.Message, attempt * 2);
                         if (deadline.Token.WaitHandle.WaitOne(TimeSpan.FromSeconds(attempt * 2)))

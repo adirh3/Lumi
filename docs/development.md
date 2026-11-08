@@ -107,7 +107,10 @@ storage are unchanged; AI Models refreshes the shared sign-in display.
 No additional CLI, OAuth app, token store, or Node.js installation is required.
 The [reviewed CLI pins](../build/Copilot/CopilotCliPins.props) must be updated when an
 SDK upgrade changes `CopilotCliVersion`; both downloaded archives and extracted
-executables are verified. `CopilotSkipCliDownload` and `CopilotCliBinaryPath`
+executables are verified. Pins include the official release's archive and
+manifest asset IDs, so a transient release-download failure can use GitHub's
+asset API without changing the version, checksum checks, retry limit or deadline.
+`CopilotSkipCliDownload` and `CopilotCliBinaryPath`
 overrides remain available.
 
 Model discovery reads the native `models.list` RPC rather than the SDK's
