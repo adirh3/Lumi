@@ -15,6 +15,8 @@ readiness, background-job dispatch/editing, and management create/save/discard/
 delete behaviour. These are component or headless UI tests, not additional
 headed user journeys. No account secrets, live model inference, microphone,
 external website, timing SLA, or screenshot baseline is required by this gate.
+File-rewind preview, outcome, receipt, localization, edit-state and session
+configuration checks are registered in the same CoreQA catalog.
 
 The plugin-resume regression uses the real Copilot runtime with scripted inference
 and a per-test runtime home in both Debug and Release. It calls the SDK directly
@@ -228,6 +230,12 @@ does not guarantee that the next layout pass has realized those containers.
 Tests that select a checkout wait for that selection's automatic Git refresh;
 starting a duplicate refresh can leave native Git processes using the fixture
 directory during cleanup.
+Mobile loopback tests wait for asynchronous chat-list rebuilding to finish before
+enumerating its rows. Library lifetime tests retain the real Grid scratch buffer
+before arranging the header, rather than assuming the weak pool survived GC.
+Adaptive-icon checks keep every pixel inside the safe mask and every background
+pixel opaque; only partially transparent foreground pixels allow one extra
+channel-rounding unit for ARM64's separate-layer compositing.
 
 Add headed scenarios in `QaSmokeHarness`, register their IDs in
 `QaSmokeReport.ScenarioIds`, and assert outcomes rather than incidental control

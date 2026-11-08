@@ -149,12 +149,11 @@ public class RemoteClientEndToEndTests
 
         shell.ChatList.SearchText = "Chat 499";
         await WaitAsync(
-            () =>
-            {
-                var visible = shell.ChatList.Groups.SelectMany(group => group.Chats).ToList();
-                return visible.Count == 1 && visible[0].Title == "Chat 499";
-            },
-            "a server-side search result outside the bootstrap page");
+            () => !shell.ChatList.IsRefreshing,
+            "the server-side search to finish rebuilding the chat list");
+        Assert.Null(shell.ChatList.LoadErrorText);
+        var result = Assert.Single(shell.ChatList.Groups.SelectMany(group => group.Chats));
+        Assert.Equal("Chat 499", result.Title);
         Assert.Equal(1, shell.ChatList.MatchingChatCount);
     }
 

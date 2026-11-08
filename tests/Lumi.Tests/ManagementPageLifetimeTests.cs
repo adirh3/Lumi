@@ -458,10 +458,13 @@ public sealed class ManagementPageLifetimeTests
         var header = search.GetVisualAncestors().OfType<Grid>().First();
         var column = header.ColumnDefinitions[0];
         Assert.Equal(420, column.MaxWidth);
-        var slot = (LocalDataStoreSlot)typeof(Grid)
-            .GetField("s_tempDefinitionsDataSlot", BindingFlags.Static | BindingFlags.NonPublic)!
-            .GetValue(null)!;
-        var buffer = Assert.IsAssignableFrom<Array>(Assert.IsType<WeakReference>(Thread.GetData(slot)).Target);
+        // The pool is weak: it may already have been collected after the page's layout. Hold the
+        // buffer before arranging the header again, so this check always exercises retained ownership.
+        var buffer = Assert.IsAssignableFrom<Array>(typeof(Grid)
+            .GetProperty("TempDefinitions", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(header));
+        header.InvalidateArrange();
+        header.Arrange(header.Bounds);
         Assert.Same(column, buffer.GetValue(4));
 
         search.Text = "Library artifact";
