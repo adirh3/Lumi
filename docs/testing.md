@@ -155,6 +155,9 @@ IDs from the same CLI pins. The fallback shares the original attempt limit and
 deadline; manifest, archive and executable verification are unchanged. It needs
 no account token or new dependency. Loopback tests exercise the real build task,
 its request counts, deadline, cleanup and checked bytes as part of CoreQA.
+Native PR jobs cache only the public full-CLI download directory, keyed by
+OS, architecture and the reviewed pins. Every reuse still verifies the manifest,
+archive and executable; no profile, account token or session data enters that cache.
 Tests and headed UI actions themselves are never retried to obtain a pass.
 Scroll-position regressions settle the chat-open reveal before capturing their
 baseline, rather than relaxing their viewport-preservation assertions.
@@ -236,6 +239,9 @@ visible and measured before sending pointer input; the click itself is never ret
 Tests that select a checkout wait for that selection's automatic Git refresh;
 starting a duplicate refresh can leave native Git processes using the fixture
 directory during cleanup.
+Checkout-fixture teardown also waits, with a bounded Windows sharing-violation
+check, for canceled older refreshes to release their native Git directory handles.
+Test assertions and pointer actions are not repeated.
 Mobile loopback tests wait for asynchronous chat-list rebuilding to finish before
 enumerating its rows. Library lifetime tests retain the real Grid scratch buffer
 and explicitly seed the retained definition, rather than assuming the weak pool

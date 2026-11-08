@@ -235,11 +235,7 @@ public sealed class ChatCheckoutTests
         finally
         {
             if (Directory.Exists(root))
-            {
-                foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
-                    File.SetAttributes(file, FileAttributes.Normal);
-                Directory.Delete(root, recursive: true);
-            }
+                await DeleteCheckoutFoldersAsync(root);
         }
     }
 
@@ -293,9 +289,7 @@ public sealed class ChatCheckoutTests
         }
         finally
         {
-            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
-                File.SetAttributes(file, FileAttributes.Normal);
-            Directory.Delete(root, recursive: true);
+            await DeleteCheckoutFoldersAsync(root);
         }
     }
 
@@ -340,6 +334,29 @@ public sealed class ChatCheckoutTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         while (vm.IsRefreshingGitStatus)
             await Task.Delay(10, timeout.Token);
+    }
+
+    private static async Task DeleteCheckoutFoldersAsync(string root)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (Directory.Exists(root))
+        {
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                    File.SetAttributes(file, FileAttributes.Normal);
+                Directory.Delete(root, recursive: true);
+                return;
+            }
+            catch (IOException error) when (OperatingSystem.IsWindows()
+                && (error.HResult & 0xffff) is 32 or 33
+                && elapsed.Elapsed < TimeSpan.FromSeconds(5))
+            {
+                // Disposal cancels older overlapping refreshes too; their native Git handles may
+                // finish releasing after the latest refresh's UI flag is already clear.
+                await Task.Delay(25);
+            }
+        }
     }
 
     private static Border ProjectChip(StrataChatComposer composer) => composer.GetVisualDescendants()
