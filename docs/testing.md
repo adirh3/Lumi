@@ -149,7 +149,11 @@ critical path without deleting their broader coverage.
 Builds make at most three attempts to download the official Copilot CLI within
 the original download deadline. Connection failures, HTTP 408/429 and 5xx
 responses are retried with logged backoff; permanent HTTP errors and checksum
-failures still fail immediately. Loopback tests exercise the real build task,
+failures still fail immediately. After a transient failure on the release-download
+route, the remaining attempts use GitHub's official asset API with reviewed asset
+IDs from the same CLI pins. The fallback shares the original attempt limit and
+deadline; manifest, archive and executable verification are unchanged. It needs
+no account token or new dependency. Loopback tests exercise the real build task,
 its request counts, deadline, cleanup and checked bytes as part of CoreQA.
 Tests and headed UI actions themselves are never retried to obtain a pass.
 Scroll-position regressions settle the chat-open reveal before capturing their
