@@ -75,17 +75,22 @@ public sealed class MobileMotionRenderTests
                     frost.BlurRadius = 0;
 
                 var hiddenBeforePaint = false;
+                ContentPresenter? preparedHost = null;
                 var sinceHidden = new Stopwatch();
                 using var observation = Visual.OpacityProperty.Changed.AddClassHandler<ContentPresenter>((control, _) =>
                 {
                     if (control.DataContext is UserTurnItemViewModel { Text: "Smooth send" } && control.Opacity == 0)
                     {
                         hiddenBeforePaint = true;
+                        preparedHost = control;
                         sinceHidden.Restart();
                     }
                 });
                 model.Chat.PromptText = "Smooth send";
                 await PumpAsync(window, TimeSpan.FromMilliseconds(30));
+                // Warm pixel measurement before the short production entrance, not during its first sample.
+                using (var warmup = window.CaptureRenderedFrame()!)
+                    Measure(warmup);
                 var button = view.GetVisualDescendants().OfType<Button>()
                     .Single(control => control.Name == "PART_SendButton");
                 var tap = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
@@ -102,9 +107,9 @@ public sealed class MobileMotionRenderTests
 
                 var turn = model.Chat.Turns[^1];
                 var user = Assert.Single(turn.Items);
-                var host = view.GetVisualDescendants().OfType<ContentPresenter>()
-                    .Single(control => ReferenceEquals(control.DataContext, user)
-                        && control.GetVisualDescendants().OfType<StrataChatMessage>().Any());
+                var host = Assert.IsType<ContentPresenter>(preparedHost);
+                Assert.Same(user, host.DataContext);
+                Assert.Contains(host.GetVisualDescendants(), control => control is StrataChatMessage);
                 Assert.True(hiddenBeforePaint, "The sent bubble must be hidden before its first paint.");
                 var bubble = host.GetVisualDescendants().OfType<Border>()
                     .Single(control => control.Name == "PART_Bubble");
@@ -117,10 +122,10 @@ public sealed class MobileMotionRenderTests
                 var captureStartedAt = sinceHidden.ElapsedMilliseconds;
                 while (elapsed.ElapsedMilliseconds < 380)
                 {
-                    Thread.Sleep(16);
                     using var frame = window.CaptureRenderedFrame()!;
                     samples.Add(Measure(frame, region));
                     Assert.Equal(bounds, host.Bounds);
+                    Thread.Sleep(16);
                 }
                 Assert.True(samples.Any(sample =>
                     sample.Brightness > samples[^1].Brightness * 0.08

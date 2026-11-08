@@ -238,6 +238,10 @@ before arranging the header, rather than assuming the weak pool survived GC.
 Adaptive-icon checks keep every pixel inside the safe mask and every background
 pixel opaque; only partially transparent foreground pixels allow one extra
 channel-rounding unit for ARM64's separate-layer compositing.
+The real mobile-send animation check warms pixel measurement before sending and
+captures immediately from the presenter observed at preparation, rather than
+spending its short entrance on a whole-view lookup or cold measurement setup.
+Its intermediate-pixel and server-confirmation identity assertions are unchanged.
 
 Add headed scenarios in `QaSmokeHarness`, register their IDs in
 `QaSmokeReport.ScenarioIds`, and assert outcomes rather than incidental control
