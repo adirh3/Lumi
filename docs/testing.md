@@ -227,6 +227,8 @@ dispatcher tests in their existing isolated processes.
 Headless pointer tests must flush window layout before locating generated list
 containers and measuring click coordinates. Draining dispatcher queues alone
 does not guarantee that the next layout pass has realized those containers.
+Nested chat-list templates use a bounded wait for the target row to become
+visible and measured before sending pointer input; the click itself is never retried.
 Tests that select a checkout wait for that selection's automatic Git refresh;
 starting a duplicate refresh can leave native Git processes using the fixture
 directory during cleanup.
