@@ -75,22 +75,35 @@ public sealed class MobileMotionRenderTests
                     frost.BlurRadius = 0;
 
                 var hiddenBeforePaint = false;
+                ContentPresenter? preparedHost = null;
                 var sinceHidden = new Stopwatch();
                 using var observation = Visual.OpacityProperty.Changed.AddClassHandler<ContentPresenter>((control, _) =>
                 {
                     if (control.DataContext is UserTurnItemViewModel { Text: "Smooth send" } && control.Opacity == 0)
                     {
                         hiddenBeforePaint = true;
+                        preparedHost = control;
                         sinceHidden.Restart();
                     }
                 });
                 model.Chat.PromptText = "Smooth send";
                 await PumpAsync(window, TimeSpan.FromMilliseconds(30));
+                using (var warmup = window.CaptureRenderedFrame()!)
+                    Measure(warmup);
                 var button = view.GetVisualDescendants().OfType<Button>()
                     .Single(control => control.Name == "PART_SendButton");
                 var tap = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
-                window.MouseDown(tap, MouseButton.Left);
-                window.MouseUp(tap, MouseButton.Left);
+                // The headless pointer extensions drain/render after each input too. Deliver the same
+                // raw pointer events without those extra frames so observation starts before playback.
+                var platform = window.PlatformImpl!;
+                var headlessWindow = platform.GetType().GetInterfaces()
+                    .Single(type => type.FullName == "Avalonia.Headless.IHeadlessWindow");
+                var mouseDown = headlessWindow.GetMethod("MouseDown")!
+                    .CreateDelegate<Action<Point, MouseButton, RawInputModifiers>>(platform);
+                var mouseUp = headlessWindow.GetMethod("MouseUp")!
+                    .CreateDelegate<Action<Point, MouseButton, RawInputModifiers>>(platform);
+                mouseDown(tap, MouseButton.Left, RawInputModifiers.None);
+                mouseUp(tap, MouseButton.Left, RawInputModifiers.None);
                 send = model.Chat.SendCommand.ExecutionTask;
                 Assert.NotNull(send);
                 Assert.True(model.Chat.ShowThinking);
@@ -102,31 +115,45 @@ public sealed class MobileMotionRenderTests
 
                 var turn = model.Chat.Turns[^1];
                 var user = Assert.Single(turn.Items);
-                var host = view.GetVisualDescendants().OfType<ContentPresenter>()
-                    .Single(control => ReferenceEquals(control.DataContext, user)
-                        && control.GetVisualDescendants().OfType<StrataChatMessage>().Any());
+                var host = Assert.IsType<ContentPresenter>(preparedHost);
+                Assert.Same(user, host.DataContext);
+                Assert.Contains(host.GetVisualDescendants(), control => control is StrataChatMessage);
                 Assert.True(hiddenBeforePaint, "The sent bubble must be hidden before its first paint.");
                 var bubble = host.GetVisualDescendants().OfType<Border>()
                     .Single(control => control.Name == "PART_Bubble");
                 bubble.Background = Brushes.White;
+                Dispatcher.UIThread.RunJobs();
                 var origin = host.TranslatePoint(default, window)!.Value;
                 var region = new Rect(origin, host.Bounds.Size);
                 var bounds = host.Bounds;
+                var compositionVisual = Avalonia.Rendering.Composition.ElementComposition.GetElementVisual(host);
+                Assert.NotNull(compositionVisual);
+                // A queued animation is not yet a rendered one. Await this host's pending batch before
+                // occupying the UI thread, otherwise a fast suite can leave playback uncommitted.
+                await compositionVisual.Compositor.RequestCommitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                var transitionCount = host.Transitions?.Count ?? 0;
                 var samples = new List<(double Brightness, double Y)>();
                 var elapsed = Stopwatch.StartNew();
                 var captureStartedAt = sinceHidden.ElapsedMilliseconds;
+                var dispatcherWorkRan = false;
+                Dispatcher.UIThread.Post(() => dispatcherWorkRan = true, DispatcherPriority.Background);
                 while (elapsed.ElapsedMilliseconds < 380)
                 {
-                    Thread.Sleep(16);
-                    using var frame = window.CaptureRenderedFrame()!;
+                    // CaptureRenderedFrame drains UI jobs and renders extra frames before returning.
+                    // Take this tick's pixels directly so measurement cannot skip the short entrance.
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    using var frame = window.GetLastRenderedFrame()!;
                     samples.Add(Measure(frame, region));
                     Assert.Equal(bounds, host.Bounds);
+                    Thread.Sleep(16);
                 }
+                Assert.False(dispatcherWorkRan, "Frame sampling must not service queued UI work.");
                 Assert.True(samples.Any(sample =>
                     sample.Brightness > samples[^1].Brightness * 0.08
                     && sample.Brightness < samples[^1].Brightness * 0.92),
                     "The actual sent bubble must paint intermediate entrance frames while the UI thread is occupied. " +
-                    $"Region {region}; capture started {captureStartedAt}ms after preparation; visible fractions: {string.Join(", ", samples.Select(sample =>
+                    $"Region {region}; composition visual {compositionVisual is not null}; transitions {transitionCount}; " +
+                    $"capture started {captureStartedAt}ms after preparation; visible fractions: {string.Join(", ", samples.Select(sample =>
                         (sample.Brightness / samples[^1].Brightness).ToString("F2")))}.");
 
                 var detached = false;

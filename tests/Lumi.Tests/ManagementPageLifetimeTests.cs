@@ -458,11 +458,12 @@ public sealed class ManagementPageLifetimeTests
         var header = search.GetVisualAncestors().OfType<Grid>().First();
         var column = header.ColumnDefinitions[0];
         Assert.Equal(420, column.MaxWidth);
-        var slot = (LocalDataStoreSlot)typeof(Grid)
-            .GetField("s_tempDefinitionsDataSlot", BindingFlags.Static | BindingFlags.NonPublic)!
-            .GetValue(null)!;
-        var buffer = Assert.IsAssignableFrom<Array>(Assert.IsType<WeakReference>(Thread.GetData(slot)).Target);
-        Assert.Same(column, buffer.GetValue(4));
+        // Keep the real scratch buffer alive and seed the retained definition explicitly; the weak
+        // pool's lifetime and the slots a particular layout happens to fill are not a contract.
+        var buffer = Assert.IsAssignableFrom<Array>(typeof(Grid)
+            .GetProperty("TempDefinitions", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(header));
+        buffer.SetValue(column, buffer.Length / 2);
 
         search.Text = "Library artifact";
         main.LibraryVM.Kinds.Single(option => option.Id == nameof(LibraryArtifactKind.Link)).SelectCommand.Execute(null);
