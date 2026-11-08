@@ -24,6 +24,9 @@ public enum WhatsNewDestination
 
     /// <summary>The Jobs page.</summary>
     Jobs,
+
+    /// <summary>Settings → Permissions, at Sandbox.</summary>
+    SandboxSettings,
 }
 
 /// <summary>The platforms an item is shown on, for what only some platforms have.</summary>
@@ -106,6 +109,12 @@ public static class WhatsNewCatalog
             {
                 ActionKey = nameof(Loc.WhatsNew_Images_Action),
                 Destination = WhatsNewDestination.ImageSettings,
+            },
+            new(nameof(StrataIcons.Retry), nameof(Loc.WhatsNew_Rewind_Title), nameof(Loc.WhatsNew_Rewind_Body)),
+            new(nameof(StrataIcons.Cube), nameof(Loc.WhatsNew_Sandbox_Title), nameof(Loc.WhatsNew_Sandbox_Body))
+            {
+                ActionKey = nameof(Loc.WhatsNew_Sandbox_Action),
+                Destination = WhatsNewDestination.SandboxSettings,
             },
             new(nameof(StrataIcons.Queue), nameof(Loc.WhatsNew_Queue_Title), nameof(Loc.WhatsNew_Queue_Body)),
             new(nameof(StrataIcons.Question), nameof(Loc.WhatsNew_Rail_Title), nameof(Loc.WhatsNew_Rail_Body)),

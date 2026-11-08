@@ -120,6 +120,10 @@ public partial class MainViewModel
             case WhatsNewDestination.Jobs:
                 SelectedNavIndex = 1;
                 return true;
+            case WhatsNewDestination.SandboxSettings:
+                SettingsVM.ShowSetting(SettingsViewModel.PermissionsPageIndex, "SandboxGroup");
+                SelectedNavIndex = 7;
+                return true;
             default:
                 return false;
         }

@@ -46,11 +46,13 @@ public sealed class WhatsNewScheduleTests
         var selection = WhatsNewSchedule.Select(WhatsNewCatalog.Releases, since!, V102, WhatsNewPlatforms.Windows);
         Assert.Equal(V102, selection.Version);
         Assert.Equal(WhatsNewDestination.PhoneSettings, selection.Spotlight?.Destination);
+        // Eight highlights at most: 1.0.1's last (Jobs) stays in its release notes.
         Assert.Equal(
             [
-                nameof(Loc.WhatsNew_Images_Title), nameof(Loc.WhatsNew_Queue_Title), nameof(Loc.WhatsNew_Rail_Title),
+                nameof(Loc.WhatsNew_Images_Title), nameof(Loc.WhatsNew_Rewind_Title), nameof(Loc.WhatsNew_Sandbox_Title),
+                nameof(Loc.WhatsNew_Queue_Title), nameof(Loc.WhatsNew_Rail_Title),
                 nameof(Loc.WhatsNew_Fusion_Title), nameof(Loc.WhatsNew_FollowUps_Title),
-                nameof(Loc.WhatsNew_Detail_Title), nameof(Loc.WhatsNew_Jobs_Title),
+                nameof(Loc.WhatsNew_Detail_Title),
             ],
             selection.Highlights.Select(item => item.TitleKey));
     }
@@ -241,7 +243,7 @@ public sealed class WhatsNewShellTests
                 Assert.Equal(Loc.WhatsNew_Phone_Connect, phone.ActionLabel);
                 Assert.Equal(Loc.WhatsNew_Phone_Private, phone.Note);
                 Assert.Equal(3, phone.Points.Count);
-                Assert.Equal(7, whatsNew.Highlights.Count);
+                Assert.Equal(WhatsNewSchedule.MaxHighlights, whatsNew.Highlights.Count);
                 Assert.Equal("", data.Settings.LastSeenWhatsNewVersion);
 
                 whatsNew.DismissCommand.Execute(null);
@@ -322,7 +324,7 @@ public sealed class WhatsNewShellTests
             shell.PrepareWhatsNew(isInstalledBuild: true, V102);
             shell.ShowPendingWhatsNew();
             Assert.Equal(Loc.Get("WhatsNew_Since", "1.0.1"), whatsNew.Subtitle);
-            Assert.Equal(3, whatsNew.Highlights.Count);
+            Assert.Equal(5, whatsNew.Highlights.Count);
             whatsNew.Highlights.Single(item => item.Destination == WhatsNewDestination.ImageSettings).ActCommand.Execute(null);
             Assert.False(whatsNew.IsOpen);
             Assert.Equal(7, shell.SelectedNavIndex);
@@ -369,6 +371,26 @@ public sealed class WhatsNewShellTests
                 shell.WhatsNewVM.Highlights.Single(item => item.Destination == WhatsNewDestination.Jobs).ActCommand.Execute(null);
                 Assert.Equal(1, shell.SelectedNavIndex);
             }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task TheSandboxHighlightOpensPermissionsAtTheSandbox()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            using var shell = Shell(UpdatedProfile(lastSeen: "1.0.1"));
+            shell.PrepareWhatsNew(isInstalledBuild: true, V102);
+            shell.ShowPendingWhatsNew();
+
+            shell.WhatsNewVM.Highlights.Single(item => item.Destination == WhatsNewDestination.SandboxSettings)
+                .ActCommand.Execute(null);
+            Assert.False(shell.WhatsNewVM.IsOpen);
+            Assert.Equal(7, shell.SelectedNavIndex);
+            Assert.Equal(SettingsViewModel.PermissionsPageIndex, shell.SettingsVM.SelectedPageIndex);
+            Assert.Equal("SandboxGroup", shell.SettingsVM.PendingRevealSetting);
         }, CancellationToken.None);
     }
 
