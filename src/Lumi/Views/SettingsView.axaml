@@ -1276,6 +1276,48 @@
         </sc:StrataSetting>
       </sc:StrataSettingGroup>
 
+      <!-- The sandbox: what commands reach, beside how freely Lumi acts. Projects follow it unless they
+           choose otherwise in Customize → Projects; chats outside projects aren't sandboxed. -->
+      <sc:StrataSettingGroup x:Name="SandboxGroup" Header="{loc:Str Permissions_SandboxGroup}"
+                             Description="{loc:Str Permissions_SandboxGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Sandbox}"
+                             st:SettingsChrome.SearchText="{loc:Str Permissions_SandboxKeywords}">
+        <sc:StrataSetting x:Name="SandboxDefaultSetting" Header="{loc:Str Permissions_SandboxDefault}"
+                          Description="{Binding SandboxDefaultDescription}"
+                          IsModified="{Binding IsSandboxEnabledModified}">
+          <ToggleSwitch x:Name="SandboxDefaultToggle" OnContent="" OffContent=""
+                        IsChecked="{Binding SandboxEnabled}" IsEnabled="{Binding CanToggleSandboxDefault}"
+                        AutomationProperties.Name="{loc:Str Permissions_SandboxDefault}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting x:Name="SandboxInternetSetting" Header="{loc:Str Projects_SandboxInternet}"
+                          Description="{Binding SandboxInternetDescription}"
+                          IsModified="{Binding IsSandboxAllowInternetModified}">
+          <ToggleSwitch x:Name="SandboxInternetToggle" OnContent="" OffContent=""
+                        IsChecked="{Binding SandboxAllowInternet}" IsEnabled="{Binding SandboxHost.CanReachInternet}"
+                        AutomationProperties.Name="{loc:Str Projects_SandboxInternet}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting x:Name="SandboxFoldersSetting" Classes="stacked-content" Header="{loc:Str Permissions_SandboxFolders}"
+                          Description="{loc:Str Permissions_SandboxFoldersDesc}">
+          <StackPanel Spacing="8">
+            <!-- Rows wear the folder template shared with a project's page (App.axaml). -->
+            <ItemsControl x:Name="SandboxFoldersList" ItemsSource="{Binding SandboxFolders}" IsVisible="{Binding HasSandboxFolders}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+            </ItemsControl>
+            <Button x:Name="AddSandboxFoldersButton" Classes="mg-button" HorizontalAlignment="Left"
+                    Click="OnBrowseSandboxFoldersClick" AutomationProperties.Name="{loc:Str Projects_AddFolder}">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <sc:StrataLineIcon Width="13" Height="13" StrokeThickness="1.9" Data="{x:Static sc:StrataIcons.Plus}"
+                                   VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+                <TextBlock Text="{loc:Str Projects_AddFolder}" />
+              </StackPanel>
+            </Button>
+            <TextBlock Classes="approval-boundary" Text="{loc:Str Projects_SandboxNotCovered}" />
+          </StackPanel>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
       <!-- Rules: your standing answers -->
       <sc:StrataSettingGroup Header="{loc:Str Permissions_RulesGroup}" Description="{loc:Str Permissions_RulesGroupDesc}"
                              st:SettingsChrome.Icon="{StaticResource St.Icon.Rules}"
@@ -1461,6 +1503,7 @@
         <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_CoverNot}">
           <StackPanel Spacing="6">
             <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_CoverNotSandbox}" />
+            <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_CoverSandboxHint}" />
             <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_CoverNotConnectors}" />
           </StackPanel>
         </sc:StrataSetting>

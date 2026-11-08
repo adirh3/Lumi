@@ -116,7 +116,9 @@ public sealed partial class McpProxyRuntime : IAsyncDisposable
             var identity = ComputeRegistrationIdentity(definition.Key, fingerprint);
             var registration = GetOrCreateRegistrationLocked(definition, identity, fingerprint);
             registration.SessionLeaseCount++;
-            var clientToken = definition.UseLazyInitialization ? registration.AddClient() : null;
+            // Each session reaches the server as a client of its own, so releasing its lease cuts that
+            // session off even while other sessions keep the server running.
+            var clientToken = registration.AddClient(definition.UseLazyInitialization);
             return new SessionRegistrationLease(
                 () => ReleaseSessionRegistrationAsync(registration, clientToken),
                 BuildServerConfig(definition, registration, _port, clientToken));

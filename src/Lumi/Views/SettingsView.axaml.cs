@@ -120,6 +120,20 @@ public partial class SettingsView : UserControl, IDisposable
             viewModel.AddPersonalSkillDirectories(folders.Select(folder => folder.Path.LocalPath));
     }
 
+    private async void OnBrowseSandboxFoldersClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel viewModel || TopLevel.GetTopLevel(this) is not { } topLevel)
+            return;
+
+        var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            AllowMultiple = true,
+            Title = Loc.Projects_SandboxSelectFoldersTitle,
+        });
+        if (folders.Count > 0)
+            viewModel.AddSandboxFolders(folders.Select(folder => folder.Path.LocalPath));
+    }
+
     private void OnPersonalSkillFolderKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter || DataContext is not SettingsViewModel viewModel
@@ -453,6 +467,8 @@ public partial class SettingsView : UserControl, IDisposable
         [Loc.Setting_PersonalSkillFolders] = vm => vm.RevertPersonalSkillDirectoriesCommand.Execute(null),
         [Loc.Get("Permissions_DefaultMode")] = vm => vm.RevertDefaultApprovalModeCommand.Execute(null),
         [Loc.Get("Permissions_OnItsOwn")] = vm => vm.RevertAwayApprovalBehaviorCommand.Execute(null),
+        ["SandboxDefaultSetting"] = vm => vm.RevertSandboxEnabledCommand.Execute(null),
+        ["SandboxInternetSetting"] = vm => vm.RevertSandboxAllowInternetCommand.Execute(null),
         [Loc.Setting_GlobalCustomInstructions] = vm => vm.RevertGlobalCustomInstructionsCommand.Execute(null),
         [Loc.Setting_PreferredModel] = vm => vm.RevertDefaultModelSelectionCommand.Execute(null),
         ["ResponseDetailSetting"] = vm => vm.RevertResponseDetailCommand.Execute(null),

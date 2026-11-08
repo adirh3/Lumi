@@ -53,6 +53,8 @@
 
   <!-- Cards -->
   <StreamGeometry x:Key="St.Icon.Rules">M4 5h2v2H4V5zm4 0h12v2H8V5zm-4 6h2v2H4v-2zm4 0h12v2H8v-2zm-4 6h2v2H4v-2zm4 0h12v2H8v-2z</StreamGeometry>
+  <!-- The sandbox: a cube, its three faces set apart. -->
+  <StreamGeometry x:Key="St.Icon.Sandbox">M12 2l9 5-9 5-9-5 9-5z M3 8.7l8.2 4.7V22L3 17.3V8.7z M21 8.7v8.6L12.8 22v-8.6L21 8.7z</StreamGeometry>
   <StreamGeometry x:Key="St.Icon.Remembered">M6 2h12a1 1 0 0 1 1 1v19l-7-4-7 4V3a1 1 0 0 1 1-1zm4.4 11.6L7.8 11l1.4-1.4 1.2 1.2 4.4-4.4 1.4 1.4-5.8 5.8z</StreamGeometry>
   <StreamGeometry x:Key="St.Icon.Away">M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm-1 3v6l5 3 1-1.6-4-2.4V7h-2z</StreamGeometry>
   <StreamGeometry x:Key="St.Icon.Contrast">M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2v16a8 8 0 0 1 0-16z</StreamGeometry>

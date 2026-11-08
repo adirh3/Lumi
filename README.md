@@ -193,7 +193,10 @@ Lumi can run commands, edit files and act through connected services with your
 account's access. Review the tools and connectors you enable. **Approval is not
 a sandbox.** The [permission modes and rules reference](docs/user-guide.md#tool-approvals)
 describes `main`'s controls and defaults; it does not change the behavior of an
-older installed release.
+older installed release. Projects can also run their chats' commands in Copilot's
+local OS sandbox (a default in Settings → Permissions, or a choice per project),
+which limits the folders and network they reach; Lumi's own browser, desktop and
+web tools are not sandboxed (see [Sandbox](docs/user-guide.md#sandbox)).
 
 Keep backups and try unfamiliar workflows on disposable copies of your files.
 Use the approval controls available in your installed release, review requests

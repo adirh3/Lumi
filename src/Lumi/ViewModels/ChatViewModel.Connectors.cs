@@ -285,6 +285,8 @@ public partial class ChatViewModel
             HasExplicitMcpServerSelection = true,
             // The repair chat runs where this chat runs, so it acts with the same freedom.
             ApprovalMode = CurrentChat?.ApprovalMode ?? _draftApprovalMode,
+            SandboxDisabled = CurrentChat?.SandboxDisabled ?? _draftSandboxDisabled,
+            SandboxFolders = AppDataSnapshotFactory.CloneSandboxFolders(CurrentChat?.SandboxFolders ?? []),
         };
 
         var summary = problem.ErrorMessage ?? "";

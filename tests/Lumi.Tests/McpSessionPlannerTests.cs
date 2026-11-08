@@ -44,7 +44,8 @@ public sealed class McpSessionPlannerTests
         using var eager = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null, runtime);
         var eagerConfig = Assert.IsType<McpHttpServerConfig>(eager.Servers["local"]);
         Assert.Equal(new Uri(lazyConfig.Url).AbsolutePath, new Uri(eagerConfig.Url).AbsolutePath);
-        Assert.Empty(new Uri(eagerConfig.Url).Query);
+        // An eager session shares the server's initialization but still has a client of its own to revoke.
+        Assert.StartsWith("?client=", new Uri(eagerConfig.Url).Query);
         data.Settings.UseLazyMcpInitialization = true;
         using var secondLazy = McpSessionPlanner.Build(
             data, @"C:\repo", EmptyCatalog(), new Chat(), null, null, runtime);
@@ -111,7 +112,7 @@ public sealed class McpSessionPlannerTests
 
         // Reusing the same route proves the underlying stdio config, not just the outward
         // HTTP config, has the effective timeout (it is part of the registration fingerprint).
-        Assert.Equal(expectedRegistration.Url, proxied.Url);
+        Assert.Equal(new Uri(expectedRegistration.Url).AbsolutePath, new Uri(proxied.Url).AbsolutePath);
         Assert.Equal(expectedMilliseconds, proxied.Timeout);
     }
 

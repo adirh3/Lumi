@@ -2588,6 +2588,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             contextTier);
         var permissionHandler = BuildApprovalHandler(chat);
         var askLayer = BuildApprovalAskLayer(chat, mcpPlan);
+        // The runtime keeps no sandbox across a resume, so every create and resume sends it.
+        var sandbox = await PrepareSessionSandboxAsync(chat, project, workDir, SandboxReadOnlyRoots(capabilities, project), ct);
 
         SessionConfig buildSessionConfig()
         {
@@ -2597,8 +2599,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
                 modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
             config.ManagedSettings = askLayer;
-#pragma warning disable GHCP001 // Image generation is an experimental Copilot SDK option.
+#pragma warning disable GHCP001 // Image generation and the sandbox are experimental Copilot SDK options.
             config.ImageGeneration = imageGeneration;
+            config.SandboxConfig = sandbox;
 #pragma warning restore GHCP001
             return config;
         }
@@ -2612,8 +2615,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
                 modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
             config.ManagedSettings = askLayer;
-#pragma warning disable GHCP001 // Image generation is an experimental Copilot SDK option.
+#pragma warning disable GHCP001 // Image generation and the sandbox are experimental Copilot SDK options.
             config.ImageGeneration = imageGeneration;
+            config.SandboxConfig = sandbox;
 #pragma warning restore GHCP001
             config.OpenCanvases = EmbeddedAppData.SavedOpenCanvases(chat, _dataStore.GetAppMessages(chat));
             return config;
@@ -2647,6 +2651,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         }))
                     return false;
 
+                if (!await CatchUpSessionSandboxAsync(chat))
+                    return false;
                 await RestorePendingPermissionsAsync(createdSession, chat, sessionCt);
                 // Check MCP server status after session creation and surface errors. Sessions with
                 // remote servers wait for them so the first prompt carries their tools.
@@ -2692,6 +2698,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         }))
                     return false;
 
+                if (!await CatchUpSessionSandboxAsync(chat))
+                    return false;
                 await RestorePendingPermissionsAsync(session, chat, sessionCt);
                 // The SDK does not automatically change the session model on resume —
                 // ResumeSessionConfig.Model only sets a preference for the CLI process,
@@ -2782,6 +2790,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             RecordSessionProviderSignature(chat, currentByokSignature);
             _dataStore.MarkChatChanged(chat);
             await SaveChatAsync(chat, saveIndex: true);
+            if (!await CatchUpSessionSandboxAsync(chat))
+                return false;
             _staleBackgroundJobPromptChats.Remove(chat.Id);
             return true;
         }
@@ -3338,14 +3348,27 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // session with the new project context; an idle session is released immediately for that
         // same-ID resume. No-session chats simply build from the new project on first send.
         InvalidateProjectSession();
-        // The project's approval mode and rules apply at once, as a mode chosen in the picker does.
-        _ = ApplyApprovalPolicyAsync(CurrentChat);
+        // The project's approvals and sandbox apply at once, as a mode chosen in the picker does.
+        ApplyPoliciesToLiveSession(CurrentChat);
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
         RefreshCapabilities();
         RefreshActiveSkillChipsFromState();
         QueueRefreshCodingProjectState();
+    }
+
+    /// <summary>
+    /// A chat this surface runs but isn't showing moved to another project. Like the open chat, its
+    /// session takes the project's approvals and sandbox at once, and its folder and instructions with
+    /// its next turn.
+    /// </summary>
+    public void OnBackgroundChatProjectChanged(Chat chat)
+    {
+        if (!_sessionCache.ContainsKey(chat.Id))
+            return;
+        InvalidateSessionConfiguration(chat);
+        ApplyPoliciesToLiveSession(chat);
     }
 
     /// <summary>Discards the current chat's session so a fresh one is created on the next message.</summary>
@@ -4947,6 +4970,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 HasExplicitMcpServerSelection = _draftMcpSelectionCurated,
                 // Only a mode picked on this draft becomes the chat's own; otherwise it follows its project.
                 ApprovalMode = _draftApprovalMode,
+                SandboxDisabled = _draftSandboxDisabled,
                 SdkAgentName = SelectedSdkAgentName,
                 LastModelUsed = SelectedModel,
                 LastReasoningEffortUsed = selectedReasoningEffort,

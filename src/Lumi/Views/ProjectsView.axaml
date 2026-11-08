@@ -15,6 +15,13 @@
       <ResourceDictionary.MergedDictionaries>
         <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Project.axaml" />
       </ResourceDictionary.MergedDictionaries>
+      <!-- One option of a sandbox choice (your default, on, off), as a segment. -->
+      <DataTemplate x:Key="SandboxChoiceTemplate" x:DataType="vm:SandboxChoice">
+        <Button Classes="mg-segment" Classes.selected="{Binding IsSelected}"
+                Command="{Binding SelectCommand}" IsEnabled="{Binding IsEnabled}">
+          <TextBlock Text="{Binding Label}" />
+        </Button>
+      </DataTemplate>
     </ResourceDictionary>
   </UserControl.Resources>
 
@@ -417,6 +424,108 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <!-- Sandbox: what the commands the project's chats run can reach. Like approvals, the project
+                 follows your default from Settings → Permissions or makes its own choice. -->
+            <Border Name="ProjectSandboxPanel" Classes="mg-section">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                    <sc:StrataLineIcon Width="14" Height="14" StrokeThickness="1.8"
+                                       Data="{x:Static sc:StrataIcons.Cube}"
+                                       Foreground="{DynamicResource Brush.TextSecondary}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="mg-section-title" Text="{loc:Str Projects_Sandbox}" />
+                    <TextBlock Classes="mg-section-caption" Text="{loc:Str Projects_SandboxCaption}" TextWrapping="Wrap" />
+                  </StackPanel>
+                </DockPanel>
+                <Border Classes="mg-segmented" HorizontalAlignment="Left">
+                  <ItemsControl Name="ProjectSandboxChoices" ItemsSource="{Binding SandboxChoices}"
+                                ItemTemplate="{StaticResource SandboxChoiceTemplate}"
+                                AutomationProperties.Name="{loc:Str Projects_Sandbox}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="2" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                  </ItemsControl>
+                </Border>
+                <TextBlock Name="ProjectSandboxHint" Classes="mg-section-caption" Text="{Binding SandboxChoiceHint}" TextWrapping="Wrap" />
+                <TextBlock Classes="mg-section-caption" Text="{loc:Str Projects_SandboxNeedsFolder}" TextWrapping="Wrap"
+                           IsVisible="{Binding ShowSandboxNeedsFolder}" />
+                <Border Name="ProjectSandboxUnavailable" Classes="mg-chip warning" HorizontalAlignment="Left"
+                        IsVisible="{Binding SandboxHost.HasUnavailableText}">
+                  <TextBlock Text="{Binding SandboxHost.UnavailableText}" TextWrapping="Wrap" />
+                </Border>
+                <StackPanel Name="ProjectSandboxDetails" Spacing="14" IsVisible="{Binding IsSandboxOn}">
+                  <Border Classes="mg-inset" Padding="0">
+                    <Border Classes="mg-setting-row">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                          <TextBlock Classes="mg-setting-title" Text="{loc:Str Projects_SandboxInternet}" />
+                          <TextBlock Classes="mg-section-caption" Text="{Binding SandboxInternetDescription}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Border Grid.Column="1" Classes="mg-segmented" VerticalAlignment="Center">
+                          <ItemsControl Name="ProjectSandboxInternetChoices" ItemsSource="{Binding SandboxInternetChoices}"
+                                        ItemTemplate="{StaticResource SandboxChoiceTemplate}"
+                                        AutomationProperties.Name="{loc:Str Projects_SandboxInternet}">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="2" />
+                              </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                          </ItemsControl>
+                        </Border>
+                      </Grid>
+                    </Border>
+                  </Border>
+                  <DockPanel>
+                    <Button Name="BrowseSandboxFoldersButton" DockPanel.Dock="Right" Classes="mg-button" VerticalAlignment="Center"
+                            Margin="12,0,0,0" Click="OnBrowseSandboxFoldersClick"
+                            AutomationProperties.Name="{loc:Str Projects_AddFolder}">
+                      <StackPanel Orientation="Horizontal" Spacing="7">
+                        <PathIcon Data="{StaticResource Icon.Plus}" />
+                        <TextBlock Text="{loc:Str Projects_AddFolder}" />
+                      </StackPanel>
+                    </Button>
+                    <StackPanel Spacing="1" VerticalAlignment="Center">
+                      <TextBlock Classes="mg-setting-title" Text="{loc:Str Projects_SandboxFolders}" />
+                      <TextBlock Classes="mg-section-caption" Text="{loc:Str Projects_SandboxFoldersCaption}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DockPanel>
+                  <StackPanel Spacing="6">
+                    <!-- The folder a chat works in is always theirs to read and change. -->
+                    <Border Name="ProjectSandboxProjectFolder" Classes="mg-inset" Padding="12,9" IsVisible="{Binding HasWorkingDirectory}">
+                      <DockPanel>
+                        <Border DockPanel.Dock="Right" Classes="mg-chip" VerticalAlignment="Center" Margin="8,0,0,0">
+                          <TextBlock Text="{loc:Str Sandbox_ReadWrite}" />
+                        </Border>
+                        <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.FolderOpen}" Width="14" Height="14"
+                                  Foreground="{DynamicResource Brush.TextTertiary}" Margin="0,0,11,0" VerticalAlignment="Center" />
+                        <StackPanel Spacing="1" VerticalAlignment="Center">
+                          <TextBlock Text="{loc:Str Projects_SandboxProjectFolder}" FontSize="13" FontWeight="Medium"
+                                     Foreground="{DynamicResource Brush.TextPrimary}" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Classes="mg-meta mg-mono" Text="{Binding EditWorkingDirectory}" FontSize="11" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                      </DockPanel>
+                    </Border>
+                    <!-- Rows wear the folder template shared with Settings → Permissions (App.axaml). -->
+                    <ItemsControl Name="ProjectSandboxFolders" ItemsSource="{Binding SandboxFolders}" IsVisible="{Binding HasSandboxFolders}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <StackPanel Spacing="6" />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                    <TextBlock Name="ProjectSandboxDefaultFolders" Classes="mg-section-caption" TextWrapping="Wrap"
+                               Text="{Binding SandboxDefaultFoldersNote}" IsVisible="{Binding HasSandboxDefaultFoldersNote}" />
+                  </StackPanel>
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Projects_SandboxNotCovered}" TextWrapping="Wrap" />
+                </StackPanel>
               </StackPanel>
             </Border>
 

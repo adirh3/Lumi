@@ -106,7 +106,7 @@ public partial class ChatViewModel
             if (changed)
             {
                 InvalidateProjectSession();
-                _ = ApplyApprovalPolicyAsync(CurrentChat);
+                ApplyPoliciesToLiveSession(CurrentChat);
             }
         }
         else
@@ -168,7 +168,7 @@ public partial class ChatViewModel
             if (changed)
             {
                 InvalidateProjectSession();
-                _ = ApplyApprovalPolicyAsync(CurrentChat);
+                ApplyPoliciesToLiveSession(CurrentChat);
             }
         }
         else

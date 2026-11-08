@@ -85,7 +85,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             SyncImageGenerationOptions();
         }
         else if (value == PermissionsPageIndex)
+        {
             RefreshApprovalRules();
+            RefreshSandbox();
+        }
     }
 
     // Indexed by page, so Memories (MemoriesPageIndex), Permissions (PermissionsPageIndex) and AI Features
@@ -726,6 +729,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _idleSessionTimeoutMinutes = s.IdleSessionTimeoutMinutes;
         InitializePersonalSkillDirectories(s);
         InitializePermissions(s);
+        InitializeSandbox(s);
         InitializePhoneNotifications(s);
         InitializeAppearanceOptions();
 
@@ -2295,6 +2299,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsIdleSessionTimeoutModified));
         OnPropertyChanged(nameof(IsDefaultApprovalModeModified));
         OnPropertyChanged(nameof(IsAwayApprovalBehaviorModified));
+        OnPropertyChanged(nameof(IsSandboxEnabledModified));
+        OnPropertyChanged(nameof(IsSandboxAllowInternetModified));
         OnPropertyChanged(nameof(IsAppearanceCustomized));
         OnPropertyChanged(nameof(IsDefaultModelSelectionModified));
         OnPropertyChanged(nameof(IsPreferredModelModified));
@@ -2546,6 +2552,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         IdleSessionTimeoutMinutes = defaults.IdleSessionTimeoutMinutes;
         SetPersonalSkillDirectories(defaults.PersonalSkillDirectories);
         ResetPermissions(defaults);
+        ResetSandbox(defaults);
         PreferredModel = defaults.PreferredModel;
         BackgroundModel = defaults.BackgroundModel;
         ResetAiFeatureModels();

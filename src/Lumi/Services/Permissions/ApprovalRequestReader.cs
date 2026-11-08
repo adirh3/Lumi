@@ -31,7 +31,10 @@ public sealed record ApprovalRequestInfo
     public string? Detail { get; init; }
     public string? Diff { get; init; }
     public string? Warning { get; init; }
-    public bool IsEscalation { get; init; }
+
+    /// <summary>The request asks to go past the sandbox; only a person answers it, and only for this once or this folder.</summary>
+    public SandboxEscape? Escape { get; init; }
+    public bool IsEscalation => Escape is not null;
     public bool IsRecognized { get; init; } = true;
 
     /// <summary>An Always-ask rule or managed policy matched: only a one-time answer is offered.</summary>
@@ -56,10 +59,12 @@ public sealed record ApprovalRequestInfo
 public static class ApprovalRequestReader
 {
     /// <param name="connectorName">Maps a runtime connector key back to the name the user knows.</param>
+    /// <param name="escape">A sandbox escape read from the full request, which file reads and writes carry only there.</param>
     public static ApprovalRequestInfo Read(
         PermissionPromptRequest prompt,
         bool alwaysAsk,
-        Func<string, string>? connectorName = null)
+        Func<string, string>? connectorName = null,
+        SandboxEscape? escape = null)
     {
         var info = prompt switch
         {
@@ -92,8 +97,6 @@ public static class ApprovalRequestReader
                 IconKey = TranscriptIcons.Web,
                 Subject = url.Url,
                 Intention = url.Intention,
-                IsEscalation = url.RequestSandboxBypass == true,
-                Warning = url.RequestSandboxBypass == true ? Loc.Get("Approval_SandboxBypass") : null,
                 ToolCallId = url.ToolCallId,
                 IsAlwaysAsk = url.ManagedApprovalRequired == true,
             },
@@ -145,13 +148,23 @@ public static class ApprovalRequestReader
         };
 
         var assisted = AssistedOf(prompt);
+        escape ??= SandboxEscape.Of(null, prompt);
         return info with
         {
+            Escape = escape,
+            Warning = escape is null ? info.Warning : EscapeWarning(escape),
             IsAlwaysAsk = info.IsAlwaysAsk || alwaysAsk,
             Recommendation = assisted?.Recommendation,
             ReviewerReason = ReviewerNote(assisted),
         };
     }
+
+    /// <summary>The runtime says what blocked the call; Lumi only fills in when it doesn't.</summary>
+    private static string EscapeWarning(SandboxEscape escape)
+        => escape.Reason is { Length: > 0 } reason ? reason
+            : Loc.Get(escape.Grant is not null ? "Approval_SandboxFolder"
+                : escape.IsRetry ? "Approval_SandboxRetry"
+                : "Approval_SandboxBypass");
 
     /// <summary>The reviewer's own reason when it held a request; plain words when it couldn't judge it.</summary>
     private static string? ReviewerNote(PermissionAssistedApproval? assisted)
@@ -187,7 +200,6 @@ public static class ApprovalRequestReader
     {
         var identifiers = commands.CommandIdentifiers?.Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()).Distinct().ToList() ?? [];
         var canRemember = commands.CanOfferSessionApproval && identifiers.Count > 0;
-        var escalation = commands.RequestSandboxBypass == true;
         return new ApprovalRequestInfo
         {
             Kind = ApprovalCardKind.Command,
@@ -195,11 +207,7 @@ public static class ApprovalRequestReader
             IconKey = TranscriptIcons.Terminal,
             Subject = commands.FullCommandText,
             Intention = commands.Intention,
-            Warning = escalation
-                ? commands.RequestSandboxBypassReason is { Length: > 0 } reason
-                    ? Loc.Get("Approval_SandboxBypassReason", reason) : Loc.Get("Approval_SandboxBypass")
-                : commands.Warning,
-            IsEscalation = escalation,
+            Warning = commands.Warning,
             ToolCallId = commands.ToolCallId,
             IsAlwaysAsk = commands.ManagedApprovalRequired == true,
             RememberRules = canRemember

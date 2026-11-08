@@ -4049,17 +4049,25 @@
             </Grid>
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding !Request.IsFeedbackOpen}">
               <WrapPanel Orientation="Horizontal">
+                <!-- "Allow", or what allowing a sandbox escape does: run outside it, or retry with fewer limits. -->
                 <Button x:Name="ApprovalAllowButton" Classes="accent"
-                        Content="{loc:Str Approval_Allow}" Command="{Binding Request.AllowOnceCommand}"
-                        IsVisible="{Binding Request.CanAllow}"
+                        Content="{Binding Request.AllowLabel}" Command="{Binding Request.AllowOnceCommand}"
+                        IsVisible="{Binding Request.ShowAllowOnce}"
                         Padding="14,6" MinHeight="0" CornerRadius="10" Margin="0,0,6,4" />
-                <Button x:Name="ApprovalAllowChatButton" Classes="subtle"
+                <!-- A folder the sandbox may reach leads, since the request then runs inside it. -->
+                <Button x:Name="ApprovalAllowChatButton"
+                        Classes.accent="{Binding Request.IsSandboxGrant}"
+                        Classes.subtle="{Binding !Request.IsSandboxGrant}"
                         Content="{loc:Str Approval_AllowChat}" Command="{Binding Request.AllowForChatCommand}"
-                        IsVisible="{Binding Request.CanRemember}"
+                        IsVisible="{Binding Request.ShowAllowForChat}"
                         Padding="12,6" MinHeight="0" CornerRadius="10" Margin="0,0,6,4" />
                 <Button x:Name="ApprovalAllowProjectButton" Classes="subtle"
                         Content="{Binding Request.AllowForProjectShortLabel}" Command="{Binding Request.AllowForProjectCommand}"
-                        IsVisible="{Binding Request.CanRememberForProject}"
+                        IsVisible="{Binding Request.ShowAllowForProject}"
+                        Padding="12,6" MinHeight="0" CornerRadius="10" Margin="0,0,6,4" />
+                <Button x:Name="ApprovalTurnOffSandboxButton" Classes="subtle"
+                        Content="{loc:Str Approval_SandboxTurnOff}" Command="{Binding Request.TurnOffSandboxCommand}"
+                        IsVisible="{Binding Request.CanTurnOffSandbox}"
                         Padding="12,6" MinHeight="0" CornerRadius="10" Margin="0,0,6,4" />
               </WrapPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
@@ -5190,7 +5198,7 @@
                   Padding="10,4" MinHeight="0" CornerRadius="9" FontSize="12" />
           <Button x:Name="ApprovalsAllowAllButton" Grid.Column="3" Classes="accent"
                   Content="{Binding AllowAllApprovalsLabel}" Command="{Binding AllowAllPendingApprovalsCommand}"
-                  IsVisible="{Binding HasSeveralPendingPermissionRequests}"
+                  IsVisible="{Binding CanAllowAllPendingApprovals}"
                   Padding="10,4" MinHeight="0" CornerRadius="9" FontSize="12" />
         </Grid>
       </Border>
@@ -5647,13 +5655,8 @@
             <sc:StrataModePicker.ItemTemplate>
               <DataTemplate x:DataType="vm:ApprovalModeOption">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                  <Border Width="30" Height="30" CornerRadius="10" VerticalAlignment="Top"
-                          Background="{DynamicResource Brush.GlassWell}"
-                          BorderBrush="{DynamicResource Brush.GlassDivider}" BorderThickness="1">
-                    <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.8"
-                                       Data="{Binding Mode, Converter={x:Static conv:ApprovalModeIconConverter.Instance}}"
-                                       Foreground="{DynamicResource Brush.TextSecondary}"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  <Border Classes="mode-picker-tile">
+                    <sc:StrataLineIcon Data="{Binding Mode, Converter={x:Static conv:ApprovalModeIconConverter.Instance}}" />
                   </Border>
                   <StackPanel Grid.Column="1" Spacing="2">
                     <StackPanel Orientation="Horizontal" Spacing="7">
@@ -5677,22 +5680,56 @@
               </DataTemplate>
             </sc:StrataModePicker.ItemTemplate>
             <sc:StrataModePicker.FooterContent>
-              <StackPanel Spacing="8">
-                <TextBlock Text="{Binding ApprovalModeOrigin}" FontSize="12" TextWrapping="Wrap"
-                           Foreground="{DynamicResource Brush.TextTertiary}" />
-                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
-                  <TextBlock Text="{Binding ApprovalRulesSummary}" FontSize="12" VerticalAlignment="Center"
-                             Foreground="{DynamicResource Brush.TextSecondary}" />
-                  <Button x:Name="ApprovalModeFollowDefaultButton" Grid.Column="1" Classes="subtle"
-                          Content="{loc:Str ApprovalMode_FollowDefault}"
-                          Command="{Binding FollowDefaultApprovalModeCommand}"
-                          IsVisible="{Binding HasOwnApprovalMode}"
-                          Padding="9,4" MinHeight="0" CornerRadius="9" FontSize="12" />
-                  <Button x:Name="ApprovalModeManageButton" Grid.Column="2" Classes="subtle"
-                          Content="{loc:Str ApprovalMode_Manage}"
-                          Command="{Binding ManageApprovalsCommand}"
-                          Padding="9,4" MinHeight="0" CornerRadius="9" FontSize="12" />
+              <StackPanel>
+                <!-- Where the mode comes from and the rules that apply here, with where to change them. -->
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <StackPanel Spacing="1" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding ApprovalModeOrigin}" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                    <TextBlock Text="{Binding ApprovalRulesSummary}" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"
+                              VerticalAlignment="Center" Margin="0,0,-8,0">
+                    <Button x:Name="ApprovalModeFollowDefaultButton" Classes="mode-picker-link"
+                            Content="{loc:Str ApprovalMode_FollowDefault}"
+                            Command="{Binding FollowDefaultApprovalModeCommand}"
+                            IsVisible="{Binding HasOwnApprovalMode}" />
+                    <Button x:Name="ApprovalModeManageButton" Classes="mode-picker-link"
+                            Content="{loc:Str ApprovalMode_Manage}"
+                            Command="{Binding ManageApprovalsCommand}" />
+                  </StackPanel>
                 </Grid>
+                <!-- What the chat's commands can reach, beside how freely they run: the project's sandbox, which
+                     a chat can turn off for itself. A row like the modes, so it reads as one more choice. -->
+                <StackPanel x:Name="ApprovalSandboxSection" IsVisible="{Binding HasProjectSandbox}">
+                  <Border Height="1" Margin="-16,12" Background="{DynamicResource Brush.BorderSubtle}" />
+                  <Grid x:Name="ApprovalSandboxRow" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <Border Classes="mode-picker-tile" Classes.on="{Binding IsSandboxOn}">
+                      <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Cube}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                      <TextBlock Text="{loc:Str Sandbox_Title}" FontSize="13" FontWeight="SemiBold"
+                                 Foreground="{DynamicResource Brush.TextPrimary}" />
+                      <TextBlock Text="{Binding SandboxSummary}" FontSize="12" TextWrapping="Wrap"
+                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                      <StackPanel Orientation="Horizontal" Spacing="2" Margin="-8,3,0,-4">
+                        <Button x:Name="ApprovalSandboxSettingsButton" Classes="mode-picker-link"
+                                Content="{loc:Str Sandbox_Settings}"
+                                Command="{Binding ManageSandboxCommand}" />
+                        <Button x:Name="ApprovalSandboxForgetButton" Classes="mode-picker-link"
+                                Content="{Binding ForgetChatSandboxFoldersLabel}"
+                                Command="{Binding ForgetChatSandboxFoldersCommand}"
+                                IsVisible="{Binding HasChatSandboxFolders}"
+                                ToolTip.Tip="{loc:Str Sandbox_ForgetFoldersToolTip}" />
+                      </StackPanel>
+                    </StackPanel>
+                    <ToggleButton x:Name="ApprovalSandboxToggle" Grid.Column="2" Classes="mode-picker-switch"
+                                  IsChecked="{Binding IsSandboxOn}"
+                                  VerticalAlignment="Top" Margin="0,6,0,0"
+                                  AutomationProperties.Name="{loc:Str Sandbox_Title}" />
+                  </Grid>
+                </StackPanel>
               </StackPanel>
             </sc:StrataModePicker.FooterContent>
           </sc:StrataModePicker>

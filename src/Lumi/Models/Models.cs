@@ -958,6 +958,51 @@ public sealed class ApprovalRule
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
 }
 
+/// <summary>What sandboxed commands may do with a folder.</summary>
+public enum SandboxFolderAccess
+{
+    ReadWrite = 0,
+    ReadOnly = 1,
+    /// <summary>Not even readable, inside a folder the sandbox otherwise reaches (such as a secrets folder in the project).</summary>
+    Blocked = 2
+}
+
+/// <summary>A folder the sandbox reaches beyond the project's own folder, or one it blocks.</summary>
+public sealed class SandboxFolder
+{
+    public string Path { get; set; } = "";
+    public SandboxFolderAccess Access { get; set; }
+}
+
+/// <summary>
+/// Settings → Permissions → Sandbox: the sandbox every project follows unless it chooses otherwise, and
+/// the folders it reaches in every sandboxed chat. Chats outside projects aren't sandboxed: they run in
+/// the user's home folder, which no sandbox would usefully contain.
+/// </summary>
+public sealed class SandboxSettings
+{
+    private List<SandboxFolder> _folders = [];
+
+    /// <summary>Projects with a folder sandbox their chats' commands unless they choose otherwise.</summary>
+    public bool Enabled { get; set; }
+    public bool AllowInternet { get; set; } = true;
+    public List<SandboxFolder> Folders { get => _folders; set => _folders = value ?? []; }
+}
+
+/// <summary>
+/// The OS sandbox a project puts around the commands its chats run: they reach the project's folder
+/// and the folders listed here, plus those in <see cref="SandboxSettings"/>, and the internet only when
+/// allowed. A null choice follows the user's default.
+/// </summary>
+public sealed class ProjectSandbox
+{
+    private List<SandboxFolder> _folders = [];
+
+    public bool? Enabled { get; set; }
+    public bool? AllowInternet { get; set; }
+    public List<SandboxFolder> Folders { get => _folders; set => _folders = value ?? []; }
+}
+
 public class Chat : INotifyPropertyChanged
 {
     private string _title = Loc.Sidebar_NewChat;
@@ -977,6 +1022,7 @@ public class Chat : INotifyPropertyChanged
     private List<string> _activeExternalSkillNames = [];
     private List<string> _followUpSuggestions = [];
     private List<ApprovalRule> _approvalRules = [];
+    private List<SandboxFolder> _sandboxFolders = [];
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Title
@@ -1036,6 +1082,12 @@ public class Chat : INotifyPropertyChanged
 
     /// <summary>Approvals remembered for this chat only.</summary>
     public List<ApprovalRule> ApprovalRules { get => _approvalRules; set => _approvalRules = value ?? []; }
+
+    /// <summary>The user turned the project's sandbox off for this chat.</summary>
+    public bool SandboxDisabled { get; set; }
+
+    /// <summary>Folders this chat's sandbox may reach beyond the project's, allowed from approval cards.</summary>
+    public List<SandboxFolder> SandboxFolders { get => _sandboxFolders; set => _sandboxFolders = value ?? []; }
     public bool PauseNeedsContinuation { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
@@ -1283,6 +1335,7 @@ public class Project : INotifyPropertyChanged
     private int _chatCount;
     private List<string> _additionalContextDirectories = [];
     private List<ApprovalRule> _approvalRules = [];
+    private ProjectSandbox _sandbox = new();
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
@@ -1305,6 +1358,9 @@ public class Project : INotifyPropertyChanged
 
     /// <summary>Approval rules for the project's chats, added here or remembered from approval cards.</summary>
     public List<ApprovalRule> ApprovalRules { get => _approvalRules; set => _approvalRules = value ?? []; }
+
+    /// <summary>Whether the project's chats run their commands in the OS sandbox, and what it lets them reach.</summary>
+    public ProjectSandbox Sandbox { get => _sandbox; set => _sandbox = value ?? new(); }
 
     /// <summary>Runtime-only flag indicating at least one chat in this project is actively generating a response.</summary>
     [JsonIgnore]
@@ -1796,6 +1852,7 @@ public static class AiFeatureIds
 public class UserSettings
 {
     private List<ApprovalRule> _approvalRules = [];
+    private SandboxSettings _sandbox = new();
     private Dictionary<string, string> _aiFeatureModels = [];
     private List<string>? _personalSkillDirectories;
 
@@ -1902,6 +1959,9 @@ public class UserSettings
 
     /// <summary>Approval rules for every chat.</summary>
     public List<ApprovalRule> ApprovalRules { get => _approvalRules; set => _approvalRules = value ?? []; }
+
+    /// <summary>The sandbox projects follow unless they choose otherwise.</summary>
+    public SandboxSettings Sandbox { get => _sandbox; set => _sandbox = value ?? new(); }
 
     public AwayApprovalBehavior AwayApprovalBehavior { get; set; } = AwayApprovalBehavior.Wait;
 

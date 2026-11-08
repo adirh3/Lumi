@@ -94,10 +94,19 @@ public partial class ProjectsViewModel : ObservableObject
     /// <summary>Fired when the project's brief is clicked; the shell opens it in Memories.</summary>
     public event Action<Guid>? OpenBriefRequested;
 
-    public ProjectsViewModel(DataStore dataStore, ProjectGitSyncService? projectGitSyncService = null)
+    public ProjectsViewModel(
+        DataStore dataStore,
+        ProjectGitSyncService? projectGitSyncService = null,
+        Func<CancellationToken, Task<GitHub.Copilot.Rpc.SandboxHostSupport?>>? sandboxSupport = null)
     {
         _dataStore = dataStore;
         _projectGitSyncService = projectGitSyncService;
+        SandboxHost = new SandboxHostState(sandboxSupport);
+        SandboxHost.Changed += NotifySandboxPropertiesChanged;
+        SandboxChoices = SandboxChoice.CreateAll(value => EditSandboxEnabled = value);
+        SandboxInternetChoices = SandboxChoice.CreateAll(value => EditSandboxAllowInternet = value);
+        SandboxChoice.Select(SandboxChoices, null);
+        SandboxChoice.Select(SandboxInternetChoices, null);
         RefreshList();
     }
 
@@ -307,6 +316,7 @@ public partial class ProjectsViewModel : ObservableObject
             EditAutoSyncMainBranchDaily = false;
             EditDefaultNewChatsUseWorktree = false;
             EditApprovalMode = null;
+            SyncSandboxEditor(null);
         }
         finally
         {
@@ -394,6 +404,7 @@ public partial class ProjectsViewModel : ObservableObject
             EditAutoSyncMainBranchDaily = project.AutoSyncMainBranchDaily;
             EditDefaultNewChatsUseWorktree = project.DefaultNewChatsUseWorktree;
             EditApprovalMode = project.ApprovalMode;
+            SyncSandboxEditor(project);
         }
         finally
         {
@@ -423,7 +434,7 @@ public partial class ProjectsViewModel : ObservableObject
         if (_syncingEditor)
             return;
 
-        HasUnsavedChanges = IsEditing && CaptureEditor() != _editorBaseline;
+        HasUnsavedChanges = IsEditing && (CaptureEditor() != _editorBaseline || IsSandboxEdited);
         OnPropertyChanged(nameof(IsNewProject));
         OnPropertyChanged(nameof(ShowSaveBar));
         OnPropertyChanged(nameof(CanSave));
@@ -601,6 +612,7 @@ public partial class ProjectsViewModel : ObservableObject
             SelectedProject.AutoSyncMainBranchDaily = EditAutoSyncMainBranchDaily;
             SelectedProject.DefaultNewChatsUseWorktree = EditDefaultNewChatsUseWorktree;
             SelectedProject.ApprovalMode = EditApprovalMode;
+            SelectedProject.Sandbox = SandboxFromEditor();
             if (workingDirectoryChanged)
             {
                 SelectedProject.LastMainBranchSyncAttemptAt = null;
@@ -625,7 +637,8 @@ public partial class ProjectsViewModel : ObservableObject
                 AdditionalContextDirectories = additionalContextDirectories,
                 AutoSyncMainBranchDaily = EditAutoSyncMainBranchDaily,
                 DefaultNewChatsUseWorktree = EditDefaultNewChatsUseWorktree,
-                ApprovalMode = EditApprovalMode
+                ApprovalMode = EditApprovalMode,
+                Sandbox = SandboxFromEditor()
             };
             _dataStore.Data.Projects.Add(project);
             savedProject = project;
@@ -724,6 +737,7 @@ public partial class ProjectsViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(HasWorkingDirectory));
         OnPropertyChanged(nameof(WorkingDirectoryName));
+        NotifySandboxPropertiesChanged();
         if (_syncingEditor)
             return;
 

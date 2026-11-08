@@ -1303,7 +1303,10 @@ public partial class ChatViewModel
     {
         CancelVoice();
         if (value is null)
+        {
             _draftApprovalMode = null;
+            _draftSandboxDisabled = false;
+        }
         RefreshPermissionRequests(showInTranscript: false);
         NotifyPermissionPropertiesChanged();
         OnPropertyChanged(nameof(IsAwaitingInput));
