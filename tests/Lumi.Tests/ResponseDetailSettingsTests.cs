@@ -128,6 +128,36 @@ public sealed class ResponseDetailSettingsTests
     }
 
     [Theory]
+    [InlineData(ResponseDetailLevel.Concise)]
+    [InlineData(ResponseDetailLevel.Balanced)]
+    [InlineData(ResponseDetailLevel.Detailed)]
+    [InlineData((ResponseDetailLevel)999)]
+    public void ResponseDetailMigration_PreservesExplicitChoicesAndUnknownValues(ResponseDetailLevel choice)
+    {
+        var settings = new UserSettings { ResponseDetail = choice };
+
+        Assert.False(DataStore.MigrateResponseDetail(settings));
+        Assert.Equal(choice, settings.ResponseDetail);
+    }
+
+    [Fact]
+    public void SavedModelDefault_MigratesToBalancedAndStaysMigratedAfterReload()
+    {
+        const string savedSettings = """{"responseDetail":0,"reasoningEffort":"high"}""";
+        var legacy = JsonSerializer.Deserialize(savedSettings, AppDataJsonContext.Default.UserSettings)!;
+
+        Assert.True(DataStore.MigrateResponseDetail(legacy));
+        Assert.Equal(ResponseDetailLevel.Balanced, legacy.ResponseDetail);
+        Assert.Equal("medium", SessionConfigBuilder.CreateResponseVerbosity(legacy.ResponseDetail).Value);
+        Assert.Equal("high", legacy.ReasoningEffort);
+
+        var saved = JsonSerializer.Serialize(legacy, AppDataJsonContext.Default.UserSettings);
+        var restored = JsonSerializer.Deserialize(saved, AppDataJsonContext.Default.UserSettings)!;
+        Assert.Equal(ResponseDetailLevel.Balanced, restored.ResponseDetail);
+        Assert.False(DataStore.MigrateResponseDetail(restored));
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(999)]
     public void RemovedOrUnknownDetail_IsRejectedInsteadOfSilentlySelectingAnotherLevel(int value)

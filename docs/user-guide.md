@@ -201,6 +201,7 @@ by adding their names to Lumi's picker.
 
 **Settings > AI & Models > Model > Response detail** chooses **Concise**,
 **Balanced**, or **Detailed** for chat replies, with **Balanced** as the default.
+Older profiles that saved **Model default** are upgraded to **Balanced** automatically.
 The setting affects supported GPT models; other
 models may ignore it. It is separate from reasoning effort and does not change
 automatic AI features such as titles or follow-up suggestions. A reply already

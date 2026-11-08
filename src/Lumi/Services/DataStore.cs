@@ -128,6 +128,10 @@ public partial class DataStore : IChatContentSearch
         _data.Chats = storedChats;
         if (legacyIndexChats.Count > 0)
             Save();
+        if (MigrateResponseDetail(_data.Settings))
+        {
+            Save();
+        }
         // One-time migration: previous Lumi versions auto-injected an "api-key" header for Azure
         // AI Foundry URLs (services.ai.azure.com / *.openai.azure.com). Lumi no longer treats
         // those URLs specially — every BYOK endpoint is now a plain OpenAI-compatible target.
@@ -1671,6 +1675,16 @@ public partial class DataStore : IChatContentSearch
         return data.Skills.RemoveAll(skill =>
             skill.IsBuiltIn
             && skill.Name.Equals("Lumi Feature Manager", StringComparison.OrdinalIgnoreCase)) > 0;
+    }
+
+    internal static bool MigrateResponseDetail(UserSettings settings)
+    {
+        // Older profiles saved ModelDefault as 0 before that choice was removed.
+        if ((int)settings.ResponseDetail != 0)
+            return false;
+
+        settings.ResponseDetail = ResponseDetailLevel.Balanced;
+        return true;
     }
 
     private static AppData Load()
