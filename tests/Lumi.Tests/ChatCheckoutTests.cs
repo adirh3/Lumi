@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Avalonia.Controls;
@@ -236,6 +237,7 @@ public sealed class ChatCheckoutTests
         {
             if (Directory.Exists(root))
             {
+                await WaitForGitCommandsToFinishAsync();
                 foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
                     File.SetAttributes(file, FileAttributes.Normal);
                 Directory.Delete(root, recursive: true);
@@ -293,10 +295,31 @@ public sealed class ChatCheckoutTests
         }
         finally
         {
+            await WaitForGitCommandsToFinishAsync();
             foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
                 File.SetAttributes(file, FileAttributes.Normal);
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task CheckoutCleanupWaitsForTheActiveGitInvocation()
+    {
+        var gate = GitInvocationGate();
+        await gate.WaitAsync();
+        Task cleanup;
+        try
+        {
+            cleanup = WaitForGitCommandsToFinishAsync();
+            Assert.False(cleanup.IsCompleted);
+        }
+        finally
+        {
+            gate.Release();
+        }
+
+        await cleanup;
+        Assert.Equal(1, gate.CurrentCount);
     }
 
     [Theory]
@@ -340,6 +363,19 @@ public sealed class ChatCheckoutTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         while (vm.IsRefreshingGitStatus)
             await Task.Delay(10, timeout.Token);
+    }
+
+    private static SemaphoreSlim GitInvocationGate() => (SemaphoreSlim)typeof(GitService)
+        .GetField("GitInvocationGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+
+    private static async Task WaitForGitCommandsToFinishAsync()
+    {
+        // ViewModel disposal cancels all its refreshes. The shared gate is released only after the
+        // active native process and its output handles finish, unlike the latest refresh's UI flag.
+        var gate = GitInvocationGate();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await gate.WaitAsync(timeout.Token);
+        gate.Release();
     }
 
     private static Border ProjectChip(StrataChatComposer composer) => composer.GetVisualDescendants()

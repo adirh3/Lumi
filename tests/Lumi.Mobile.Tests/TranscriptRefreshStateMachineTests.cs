@@ -271,8 +271,9 @@ public sealed class TranscriptRefreshStateMachineTests
 
             var freshApplied = WaitForPropertyAsync(
                 shell.Chat,
-                nameof(MobileChatViewModel.Title),
-                () => shell.Chat.Title == "FRESH");
+                // ApplyTranscript changes Title before Turns; IsEmpty is notified after population.
+                nameof(MobileChatViewModel.IsEmpty),
+                () => shell.Chat.Title == "FRESH" && !shell.Chat.IsEmpty);
 
             firstResponse.TrySetResult(stale);
 
