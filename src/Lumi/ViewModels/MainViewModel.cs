@@ -540,7 +540,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ChatTagsVM = new ChatTagsViewModel(dataStore);
         SkillsVM = new SkillsViewModel(dataStore);
         AgentsVM = new AgentsViewModel(dataStore);
-        ProjectsVM = new ProjectsViewModel(dataStore, projectGitSyncService);
+        ProjectsVM = new ProjectsViewModel(dataStore, projectGitSyncService, copilotService.GetSandboxHostSupportAsync);
         MemoriesVM = new MemoriesViewModel(dataStore, contextCuratorService);
         if (_contextCuratorService is not null)
             _contextCuratorService.Changed += OnContextCuratorChanged;
@@ -882,6 +882,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.ConnectorsPageRequested += ShowConnectorsPage;
         chatVm.SkillsPageRequested += ShowSkillsPage;
         chatVm.ManageApprovalsRequested += ShowPermissionsPage;
+        chatVm.ManageSandboxRequested += ShowProjectSandbox;
     }
 
     private void DetachChatViewModel(ChatViewModel chatVm)
@@ -904,6 +905,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.ConnectorsPageRequested -= ShowConnectorsPage;
         chatVm.SkillsPageRequested -= ShowSkillsPage;
         chatVm.ManageApprovalsRequested -= ShowPermissionsPage;
+        chatVm.ManageSandboxRequested -= ShowProjectSandbox;
+    }
+
+    /// <summary>The approval picker's "Sandbox settings": the chat's project, at its sandbox.</summary>
+    private void ShowProjectSandbox(Guid projectId)
+    {
+        SelectedNavIndex = 2;
+        ProjectsVM.OpenSandbox(projectId);
     }
 
     private void OnChatOpenChatRequested(Guid chatId) => _ = OpenChatByIdAsync(chatId);
@@ -2651,6 +2660,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// When a chat is moved between projects from the sidebar, any chat surface currently showing
     /// that chat must resync its live project context (composer chip, system prompt/session,
     /// working directory) — otherwise the open chat keeps the stale project until it's reopened.
+    /// A surface still running it in the background brings its session along too.
     /// </summary>
     private void NotifyProjectChangedForOpenSurfaces(Chat chat)
     {
@@ -2658,6 +2668,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             if (surface.CurrentChat is { } current && current.Id == chat.Id)
                 surface.OnCurrentChatProjectChangedExternally();
+            else
+                surface.OnBackgroundChatProjectChanged(chat);
         });
     }
 

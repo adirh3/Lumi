@@ -1227,6 +1227,66 @@ public class CopilotService : IAsyncDisposable
         return await _client.Rpc.Account.GetQuotaAsync(cancellationToken: ct);
     }
 
+    // ── Sandbox API ──
+
+    private readonly Lock _sandboxSupportGate = new();
+    private (CopilotClient Client, Task<GitHub.Copilot.Rpc.SandboxHostSupport?> Query)? _sandboxSupport;
+
+    /// <summary>
+    /// Whether this computer can run Copilot's command sandbox, and which of its features. Asked once
+    /// per runtime, which checks once per process too; null while not connected or unknown.
+    /// </summary>
+    public async Task<GitHub.Copilot.Rpc.SandboxHostSupport?> GetSandboxHostSupportAsync(CancellationToken ct = default)
+    {
+        if (_client is not { } client)
+            return null;
+
+        Task<GitHub.Copilot.Rpc.SandboxHostSupport?> query;
+        lock (_sandboxSupportGate)
+        {
+            if (_sandboxSupport is not { } cached || !ReferenceEquals(cached.Client, client))
+                _sandboxSupport = (client, QuerySandboxHostSupportAsync(client));
+            query = _sandboxSupport.Value.Query;
+        }
+
+        var support = await query.WaitAsync(ct).ConfigureAwait(false);
+        if (support is null)
+        {
+            // A failed answer is asked again next time rather than remembered.
+            lock (_sandboxSupportGate)
+            {
+                if (_sandboxSupport is { } current && ReferenceEquals(current.Query, query))
+                    _sandboxSupport = null;
+            }
+        }
+        return support;
+    }
+
+    /// <summary>The answer <see cref="GetSandboxHostSupportAsync"/> already has, without waiting for one.</summary>
+    public GitHub.Copilot.Rpc.SandboxHostSupport? KnownSandboxHostSupport
+    {
+        get
+        {
+            lock (_sandboxSupportGate)
+                return _sandboxSupport is { Query.IsCompletedSuccessfully: true } cached && ReferenceEquals(cached.Client, _client)
+                    ? cached.Query.Result
+                    : null;
+        }
+    }
+
+    private static async Task<GitHub.Copilot.Rpc.SandboxHostSupport?> QuerySandboxHostSupportAsync(CopilotClient client)
+    {
+        try
+        {
+            return await client.Rpc.Sandbox.GetHostSupportAsync().ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            Trace.TraceWarning("[Sandbox] Could not ask the runtime whether it can sandbox here: {0}", error.Message);
+            return null;
+        }
+    }
+
     // ── Tools API ──
 
     /// <summary>Lists all available tools for the current model.</summary>

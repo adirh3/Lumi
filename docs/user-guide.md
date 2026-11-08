@@ -1625,7 +1625,8 @@ iPhone PWA; a controlled same-phone, same-URL before/after network trace is stil
 
 In **Settings > AI & Models > Connectors**, enable **Fast Connector Initialization**, then
 **Lazy Connector Initialization** (off by default). Changes apply to new sessions; existing
-sessions keep their configuration.
+sessions keep their configuration. Chats in a project whose [sandbox](#sandbox) is on start
+their local connectors directly, in the sandbox, whatever these settings say.
 
 The first connection starts the real local MCP server and learns its initialization
 metadata and complete tool definitions. Saved catalogs have **no age expiry**.
@@ -1725,7 +1726,8 @@ answer; every open chat takes it on at once. **Settings → Permissions → Reme
 forgets them: each time Lumi applies a chat's policy it clears the session's own approvals and
 installs the saved rules again, so a forgotten approval stops applying even in an open chat.
 Always-ask, sandbox-escape
-and unrecognized requests offer only a one-time answer (unrecognized ones can only be denied). A bar
+and unrecognized requests offer only a one-time answer (unrecognized ones can only be denied); **Allow
+all** in the waiting bar leaves sandbox escapes to their own cards. A bar
 above the composer and an amber shield on the chat row show what is waiting; answered cards fold
 into receipts. Stop, session release, disconnect and closing the chat retire waiting requests
 without answering them.
@@ -1737,15 +1739,63 @@ Regenerate or Edit, wait for you.
 
 **Boundaries:** approval decides *whether* an action runs, not what it can reach: this is not a
 sandbox. Once allowed, a command, browser or desktop action, or in-process Lumi tool runs with your
-account's access, and a connector acts on its own service. Existing foreground-consent and
+account's access (unless its project sandboxes commands, below), and a connector acts on its own service. Existing foreground-consent and
 platform-capability checks are unchanged. Lumi tools that only look or talk to you (for example
 `ask_question`, `announce_file`, `lumi_browser_look`, `ui_inspect`) carry the native
 `skip_permission` flag and never ask, though a Never rule still blocks them; connector tools that
 declare themselves read-only don't ask in Ask first. Website and memory rules aren't offered,
-because the runtime's URL rules don't cover Lumi's own browser and fetch tools. Local or cloud
-sandboxing and the Interactive/Plan/Autopilot agent modes are separate runtime features these
-controls don't configure. Application helper sessions (titles, suggestions, memory, daily briefs and onboarding)
+because the runtime's URL rules don't cover Lumi's own browser and fetch tools. Cloud sandboxing
+and the Interactive/Plan/Autopilot agent modes are separate runtime features these controls don't
+configure. Application helper sessions (titles, suggestions, memory, daily briefs and onboarding)
 keep their own restricted tools. GHCP and external-account routing are unchanged.
+
+### Sandbox
+
+Projects can run the commands their chats start inside Copilot's local OS sandbox (Microsoft
+eXecution Container). It needs a recent Windows 11 update, macOS 15 or later (Seatbelt), or Linux with
+bubblewrap 0.5 or later (internet access there also needs slirp4netns, util-linux 2.35 or later,
+iptables and `/dev/net/tun`). It's process containment, not a VM: commands run on this computer with your
+tools, but reach only what the sandbox allows. It works with or without a GitHub account.
+
+**Where it's set:** like approval modes, in two places. **Settings → Permissions → Sandbox** is your
+default: **Sandbox projects by default** (off on a new install), **Internet**, and **Folders in every
+project**. **Customize → Projects → Sandbox** chooses for one project: **Your default**, **On** or
+**Off**, the same for **Internet**, and folders of its own on top of yours. Your default reaches only
+projects with a folder; chats outside projects run in your home folder and are never sandboxed.
+When on, commands reach the project folder (a worktree chat, its own checkout) read and write, plus
+the listed folders, each **Read & write**, **Read only** or **Blocked** (a folder inside one the
+sandbox reaches, such as secrets in the project; Blocked wins wherever it's set). **Internet** lets
+commands download packages and reach online services; local network stays open, since Windows needs
+it for name resolution and git sign-in. Both pages say when this computer can't run the sandbox, or one of
+its features, with the runtime's reason. Lumi also lets commands read the folders of the chat's
+skills, plugins and context folders, and the runtime adds its own: temp, toolchains on `PATH` and
+the git folders of a worktree.
+
+**What it covers:** shell commands, file search and local connectors run contained; Copilot's own
+file tools check the same policy. A sandboxed project's chats don't use **Fast Connector
+Initialization**, which would start local connectors in Lumi's own process, out of the sandbox's
+reach: they start with the chat, in the sandbox. A chat that started before its project's sandbox
+was on starts again at its next message; if it's working, its local connectors stop until then. Lumi's own browser, desktop control and web tools run inside Lumi
+itself and aren't sandboxed, and neither are remote connectors. Signed in to GitHub, sandboxed
+`git` reaches GitHub through the runtime's credential proxy; `gh` may need to run outside the
+sandbox. Secrets in environment variables and files the sandbox can read are not hidden.
+
+**In a chat:** the approval shield's popover shows the sandbox with a switch, so one chat can turn it
+off (until turned on again) without changing the project, and **Sandbox settings** opens the
+project at its sandbox. The shield's tooltip says when commands run in the sandbox.
+
+**When something needs more access**, the runtime asks and only a person answers, in every mode:
+
+| The runtime offers | The card offers |
+|---|---|
+| A folder the sandbox could reach (a file tool outside it) | **Allow for this chat** or **Always in _project_**: the sandbox reaches that folder (read, or read and write) and the request runs inside it. The folder is kept with the chat or the project, so later sessions reach it too; the popover's **Forget** drops a chat's. |
+| Running outside the sandbox (a detached command, a blocked fetch) | **Run outside sandbox** once, or **Turn off sandbox for this chat**. |
+| A retry with fewer limits (a blocked command) | **Retry with fewer limits**: file and process access is recorded instead of blocked, the network policy still applies, and if it is still blocked the runtime runs it outside. |
+
+A command the sandbox blocks without an offer simply fails; the runtime tells the model so, and the
+model says so. Lumi sends the policy with every session create and resume, because the runtime keeps
+none of it across a resume, and applies changes to a live session at once. An organization's managed
+policy can still require the sandbox.
 
 In an isolated Debug profile, `StartDebugPermissionProbeCommand` (on a fresh chat) raises three
 real native requests — a command, a new file and a Lumi tool — without sending a model message.

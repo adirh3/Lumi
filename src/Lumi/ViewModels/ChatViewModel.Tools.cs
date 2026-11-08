@@ -12,6 +12,7 @@ using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Capabilities;
+using Lumi.Services.Permissions;
 using Microsoft.Extensions.AI;
 
 namespace Lumi.ViewModels;
@@ -167,7 +168,7 @@ public partial class ChatViewModel
         return tools.Where(tool => allowedToolNames.Contains(tool.Name)).ToList();
     }
 
-    private McpSessionPlan BuildMcpPlan(
+    internal McpSessionPlan BuildMcpPlan(
         string workDir,
         CapabilitySnapshot capabilities,
         Chat chat,
@@ -177,7 +178,11 @@ public partial class ChatViewModel
         if (CurrentChat?.Id == chat.Id)
             selectedServerNames = ActiveMcpServerNames.ToList();
 
-        var proxyRuntime = McpSessionPlanner.SelectProxyRuntime(_dataStore.Data.Settings, McpProxyRuntime.Shared);
+        // Lumi's proxy starts local connectors in its own process, out of the sandbox's reach, so a
+        // sandboxed project's chats leave them to the runtime, which runs them in the sandbox.
+        var proxyRuntime = SandboxPolicy.IsOnFor(_dataStore.Data.Settings, ApprovalProject(chat))
+            ? null
+            : McpSessionPlanner.SelectProxyRuntime(_dataStore.Data.Settings, McpProxyRuntime.Shared);
 
         return McpSessionPlanner.Build(
             _dataStore.Data,

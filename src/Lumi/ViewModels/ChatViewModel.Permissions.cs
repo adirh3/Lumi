@@ -15,6 +15,19 @@ namespace Lumi.ViewModels;
 internal delegate Task<bool> NativeApprovalDecider(
     PermissionDecision decision, PermissionDecisionContext context, CancellationToken cancellationToken);
 
+/// <summary>How a person can settle a sandbox escape inside the sandbox itself, rather than by running past it.</summary>
+internal enum SandboxAnswer
+{
+    /// <summary>Lets the sandbox reach the path the runtime offered.</summary>
+    GrantPath,
+    /// <summary>Turns the sandbox off for the rest of the session.</summary>
+    TurnOff
+}
+
+/// <summary>Settles one pending sandbox escape in the runtime's sandbox; false when it no longer applies there.</summary>
+internal delegate Task<bool> NativeSandboxDecider(
+    SandboxAnswer answer, PermissionDecisionContext context, CancellationToken cancellationToken);
+
 /// <summary>
 /// Tool approvals. Copilot enforces every decision through its native permission modes, rules and
 /// pending requests; this partial chooses them for each chat, re-applies them whenever a session is
@@ -34,11 +47,14 @@ public partial class ChatViewModel
     public bool HasPendingPermissionRequests => PendingPermissionRequests.Count > 0;
     public bool HasSeveralPendingPermissionRequests => PendingPermissionRequests.Count > 1;
 
+    /// <summary>Approve-all is offered for two or more requests it can answer; sandbox escapes keep their own cards.</summary>
+    public bool CanAllowAllPendingApprovals => PendingPermissionRequests.Count(card => card.CanAllowInBulk) > 1;
+
     public string ApprovalsWaitingText => PendingPermissionRequests.Count > 1
         ? Loc.Get("Approval_WaitingMany", PendingPermissionRequests.Count)
         : Loc.Get("Approval_WaitingOne");
 
-    public string AllowAllApprovalsLabel => Loc.Get("Approval_AllowAll", PendingPermissionRequests.Count);
+    public string AllowAllApprovalsLabel => Loc.Get("Approval_AllowAll", PendingPermissionRequests.Count(card => card.CanAllowInBulk));
 
     /// <summary>The cards wait at the end of the chat.</summary>
     [RelayCommand]
@@ -69,7 +85,8 @@ public partial class ChatViewModel
         _ => StrataTheme.Controls.StrataModeTone.Neutral
     };
 
-    public string ApprovalModeToolTip => Loc.Get("ApprovalMode_ToolTip", CurrentApprovalModeOption.Title);
+    public string ApprovalModeToolTip => Loc.Get(IsSandboxOn ? "ApprovalMode_ToolTipSandboxed" : "ApprovalMode_ToolTip",
+        CurrentApprovalModeOption.Title);
 
     /// <summary>Where the chat's mode comes from, as the mode picker explains it.</summary>
     public string ApprovalModeOrigin
@@ -149,15 +166,23 @@ public partial class ChatViewModel
         OnPropertyChanged(nameof(HasOwnApprovalMode));
         OnPropertyChanged(nameof(ApprovalRuleCount));
         OnPropertyChanged(nameof(ApprovalRulesSummary));
+        NotifySandboxPropertiesChanged();
     }
 
-    /// <summary>Settings or a project's approvals changed: every live session takes them on.</summary>
+    /// <summary>Settings or a project's approvals or sandbox changed: every live session takes them on.</summary>
     internal void OnApprovalPolicyChanged()
     {
         NotifyPermissionPropertiesChanged();
         foreach (var chatId in _sessionCache.Keys.ToList())
             if (_dataStore.Data.Chats.Find(chat => chat.Id == chatId) is { } chat)
-                _ = ApplyApprovalPolicyAsync(chat);
+                ApplyPoliciesToLiveSession(chat);
+    }
+
+    /// <summary>The chat's live session, if it has one, takes on the approvals and sandbox the chat has now.</summary>
+    internal void ApplyPoliciesToLiveSession(Chat chat)
+    {
+        _ = ApplyApprovalPolicyAsync(chat);
+        _ = ApplySandboxPolicyAsync(chat);
     }
 
     // ── Native application ──────────────────────────────
@@ -281,6 +306,7 @@ public partial class ChatViewModel
             }
         OnPropertyChanged(nameof(HasPendingPermissionRequests));
         OnPropertyChanged(nameof(HasSeveralPendingPermissionRequests));
+        OnPropertyChanged(nameof(CanAllowAllPendingApprovals));
         OnPropertyChanged(nameof(ApprovalsWaitingText));
         OnPropertyChanged(nameof(AllowAllApprovalsLabel));
     }
@@ -322,7 +348,8 @@ public partial class ChatViewModel
         }
 
         if (data.PromptRequest is { } prompt)
-            PresentPermissionRequest(chat, session.SessionId, data.RequestId, prompt, managed, decide);
+            PresentPermissionRequest(chat, session.SessionId, data.RequestId, prompt, managed, decide,
+                SandboxEscape.Of(data.PermissionRequest, prompt), NativeSandbox(chat, session, data.RequestId));
     }
 
     /// <summary>Answers one pending request in its own session: false when that session moved on or the runtime no longer has it.</summary>
@@ -330,18 +357,28 @@ public partial class ChatViewModel
         => async (decision, context, ct) => IsPermissionSessionCurrent(chat.Id, session)
             && (await session.Rpc.Permissions.HandlePendingPermissionRequestAsync(requestId, decision, context, ct)).Success;
 
+    /// <summary>Settles one pending sandbox escape in its own session's sandbox.</summary>
+    private NativeSandboxDecider NativeSandbox(Chat chat, CopilotSession session, string requestId)
+        => async (answer, context, ct) => IsPermissionSessionCurrent(chat.Id, session) && answer switch
+        {
+            SandboxAnswer.GrantPath => (await session.Rpc.Sandbox.GrantPathForRequestAsync(requestId, context, ct)).Success,
+            _ => (await session.Rpc.Sandbox.DisableForSessionAsync(requestId, context, ct)).Success
+        };
+
     /// <summary>
     /// A request that needs a decision, in the chat that owns it. Auto-review settles what the reviewer
     /// approved, an unattended turn may skip it, and anything else becomes a card the user answers.
+    /// A sandbox escape is never settled without a person.
     /// </summary>
     internal PermissionRequestViewModel? PresentPermissionRequest(
-        Chat chat, string sessionId, string requestId, PermissionPromptRequest prompt, bool managed, NativeApprovalDecider decide)
+        Chat chat, string sessionId, string requestId, PermissionPromptRequest prompt, bool managed, NativeApprovalDecider decide,
+        SandboxEscape? escape = null, NativeSandboxDecider? sandboxDecide = null)
     {
         var key = (chat.Id, sessionId, requestId);
         if (_isDisposed || _retiredPermissionRequests.Contains(key) || _permissionRequests.ContainsKey(key))
             return null;
 
-        var info = ApprovalRequestReader.Read(prompt, managed, ConnectorNames(chat.Id));
+        var info = ApprovalRequestReader.Read(prompt, managed, ConnectorNames(chat.Id), escape);
         var mode = ResolveApprovalMode(chat).Mode;
         if (mode == ApprovalMode.AutoReview && info is { IsAlwaysAsk: false, IsEscalation: false, IsRecognized: true }
             && info.Recommendation == AssistedApprovalRecommendation.Approve)
@@ -365,7 +402,7 @@ public partial class ChatViewModel
         }
 
         var card = new PermissionRequestViewModel(chat.Id, sessionId, requestId, info, ApprovalProject(chat)?.Name,
-            (vm, choice, feedback, ct) => RespondToApprovalAsync(chat, decide, vm, choice, feedback, ct));
+            (vm, choice, feedback, ct) => RespondToApprovalAsync(chat, decide, sandboxDecide, vm, choice, feedback, ct));
         _permissionRequests.Add(key, card);
         RefreshInputWaitingState(chat);
         RefreshPermissionRequests();
@@ -390,36 +427,52 @@ public partial class ChatViewModel
     }
 
     private async Task<bool> RespondToApprovalAsync(
-        Chat chat, NativeApprovalDecider decide, PermissionRequestViewModel card, ApprovalChoice choice, string? feedback, CancellationToken ct)
+        Chat chat, NativeApprovalDecider decide, NativeSandboxDecider? sandboxDecide,
+        PermissionRequestViewModel card, ApprovalChoice choice, string? feedback, CancellationToken ct)
     {
         if (!_permissionRequests.ContainsKey((chat.Id, card.SessionId, card.RequestId)))
             return false;
 
         _unattendedTurns.Remove(chat.Id);
         var info = card.Info;
-        var remember = choice is ApprovalChoice.AllowForChat or ApprovalChoice.AllowForProject && info.CanRemember;
-        PermissionDecision decision = choice switch
+        var context = DecisionContext(PermissionDecisionSource.HumanResponse, PermissionDecisionOutcome.PromptedUser, PermissionResponseCapability.Interactive);
+        var sandboxAnswer = choice switch
         {
-            ApprovalChoice.Deny => PermissionDecision.Reject(string.IsNullOrWhiteSpace(feedback)
-                ? "The user denied this permission request." : feedback),
-            _ when remember => new PermissionDecisionApproveForSession { Approval = info.SessionApproval },
-            _ => new PermissionDecisionApproveOnce { ApprovedInteractively = true }
+            ApprovalChoice.TurnOffSandbox when card.CanTurnOffSandbox => SandboxAnswer.TurnOff,
+            ApprovalChoice.AllowForChat or ApprovalChoice.AllowForProject when card.IsSandboxGrant => SandboxAnswer.GrantPath,
+            _ => (SandboxAnswer?)null
         };
+        var remember = sandboxAnswer is null && choice is ApprovalChoice.AllowForChat or ApprovalChoice.AllowForProject && info.CanRemember;
 
-        var applied = await decide(decision,
-            DecisionContext(PermissionDecisionSource.HumanResponse, PermissionDecisionOutcome.PromptedUser, PermissionResponseCapability.Interactive),
-            ct);
+        bool applied;
+        if (sandboxAnswer is { } answer)
+            applied = sandboxDecide is not null && await sandboxDecide(answer, context, ct);
+        else
+        {
+            PermissionDecision decision = choice switch
+            {
+                ApprovalChoice.Deny => PermissionDecision.Reject(string.IsNullOrWhiteSpace(feedback)
+                    ? "The user denied this permission request." : feedback),
+                _ when remember => new PermissionDecisionApproveForSession { Approval = info.SessionApproval },
+                _ => new PermissionDecisionApproveOnce { ApprovedInteractively = true }
+            };
+            applied = await decide(decision, context, ct);
+        }
+
         // Saved only once the runtime took the answer, so a failed or late one never leaves a standing rule.
         if (applied && remember)
             Remember(chat, info.RememberRules, choice == ApprovalChoice.AllowForProject);
+        var rememberedSandbox = applied && sandboxAnswer is not null
+            && RememberSandboxAnswer(chat, sandboxAnswer.Value, card.SandboxGrant, choice == ApprovalChoice.AllowForProject);
         CompletePermissionRequest(chat.Id, card.SessionId, card.RequestId, !applied ? ApprovalOutcome.Expired : choice switch
         {
             ApprovalChoice.Deny => ApprovalOutcome.Denied,
             ApprovalChoice.AllowForChat => ApprovalOutcome.AllowedForChat,
             ApprovalChoice.AllowForProject => ApprovalOutcome.AllowedForProject,
+            ApprovalChoice.TurnOffSandbox => ApprovalOutcome.SandboxTurnedOff,
             _ => ApprovalOutcome.Allowed
         });
-        if (applied && remember)
+        if ((applied && remember) || rememberedSandbox)
             ApprovalsRemembered?.Invoke();
         return applied;
     }
@@ -441,7 +494,7 @@ public partial class ChatViewModel
     [RelayCommand]
     private async Task AllowAllPendingApprovals()
     {
-        foreach (var card in PendingPermissionRequests.Where(card => card.CanAllow).ToList())
+        foreach (var card in PendingPermissionRequests.Where(card => card.CanAllowInBulk).ToList())
             await card.RespondAsync(ApprovalChoice.AllowOnce, null);
     }
 
@@ -490,11 +543,14 @@ public partial class ChatViewModel
         try
         {
             var pending = await session.Rpc.Permissions.PendingRequestsAsync(ct);
+            // A file read's or write's escape is only on its full request, which the session's history keeps.
+            var history = pending.Items.Any(SandboxEscape.NeedsHistory) ? await session.GetEventsAsync(ct) : null;
+            var requests = pending.Items.Select(request => (Request: request, Escape: SandboxEscape.OfPending(request, history))).ToList();
             if (!IsPermissionSessionCurrent(chat.Id, session))
                 return;
-            foreach (var request in pending.Items)
+            foreach (var (request, escape) in requests)
                 PresentPermissionRequest(chat, session.SessionId, request.RequestId, request.Request, managed: false,
-                    NativeDecider(chat, session, request.RequestId));
+                    NativeDecider(chat, session, request.RequestId), escape, NativeSandbox(chat, session, request.RequestId));
         }
         catch
         {

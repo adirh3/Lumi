@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:chrome="using:Avalonia.Controls.Chrome"
              xmlns:vm="using:Lumi.ViewModels"
+             xmlns:models="using:Lumi.Models"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:conv="using:Lumi.Converters"
              xmlns:loc="using:Lumi.Localization"
@@ -109,6 +110,45 @@
           </Button>
         </sc:StrataAiToolCall.HeaderAction>
       </sc:StrataAiToolCall>
+    </DataTemplate>
+
+    <!-- A folder in a sandbox's list, with what its commands may do there. Settings → Permissions and a
+         project's page both show these, and both bring the management styles the row wears. -->
+    <DataTemplate DataType="vm:SandboxFolderRow">
+      <Border Classes="mg-inset" Padding="12,8">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Classes="mg-icon-button subtle" Width="26" Height="26" Margin="8,0,0,0"
+                  Command="{Binding RemoveCommand}" AutomationProperties.Name="{loc:Str Projects_RemoveFromList}">
+            <sc:StrataLineIcon Width="11" Height="11" StrokeThickness="1.9" Data="{x:Static sc:StrataIcons.Cross}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+          </Button>
+          <Border DockPanel.Dock="Right" Classes="mg-segmented" VerticalAlignment="Center" Margin="8,0,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <Button Classes="mg-segment" Classes.selected="{Binding IsReadWrite}"
+                      Command="{Binding SetAccessCommand}" CommandParameter="{x:Static models:SandboxFolderAccess.ReadWrite}">
+                <TextBlock Text="{loc:Str Sandbox_ReadWrite}" />
+              </Button>
+              <Button Classes="mg-segment" Classes.selected="{Binding IsReadOnly}"
+                      Command="{Binding SetAccessCommand}" CommandParameter="{x:Static models:SandboxFolderAccess.ReadOnly}">
+                <TextBlock Text="{loc:Str Sandbox_ReadOnly}" />
+              </Button>
+              <Button Classes="mg-segment" Classes.selected="{Binding IsBlocked}"
+                      Command="{Binding SetAccessCommand}" CommandParameter="{x:Static models:SandboxFolderAccess.Blocked}"
+                      IsVisible="{Binding CanBlock}">
+                <TextBlock Text="{loc:Str Sandbox_Blocked}" />
+              </Button>
+            </StackPanel>
+          </Border>
+          <sc:StrataLineIcon DockPanel.Dock="Left" Width="15" Height="15" StrokeThickness="1.7" Margin="0,0,11,0"
+                             VerticalAlignment="Center" Data="{x:Static sc:StrataIcons.Folder}"
+                             Foreground="{DynamicResource Brush.TextTertiary}" />
+          <StackPanel Spacing="1" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Medium"
+                       Foreground="{DynamicResource Brush.TextPrimary}" TextTrimming="CharacterEllipsis" />
+            <TextBlock Classes="mg-meta mg-mono" Text="{Binding Path}" FontSize="11" TextTrimming="CharacterEllipsis" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
     </DataTemplate>
   </Application.DataTemplates>
 

@@ -12,7 +12,9 @@ public enum ApprovalChoice
     AllowOnce,
     AllowForChat,
     AllowForProject,
-    Deny
+    Deny,
+    /// <summary>Answers a sandbox escape by turning the sandbox off for the rest of the chat.</summary>
+    TurnOffSandbox
 }
 
 public enum ApprovalOutcome
@@ -24,7 +26,8 @@ public enum ApprovalOutcome
     Denied,
     ReviewerApproved,
     Skipped,
-    Expired
+    Expired,
+    SandboxTurnedOff
 }
 
 /// <summary>One of the three modes, as the mode picker, Settings and the welcome step show it.</summary>
@@ -80,6 +83,30 @@ public partial class PermissionRequestViewModel : ObservableObject
     public string AllowForProjectShortLabel => Loc.Get("Approval_AlwaysInProject", ProjectName ?? "");
     public string? AlwaysAskNote => IsAlwaysAsk ? Loc.Get("Approval_AlwaysAskNote") : null;
 
+    /// <summary>A sandbox escape the runtime would settle by letting the sandbox reach one more path.</summary>
+    public SandboxPathGrant? SandboxGrant => CanAllow ? Info.Escape?.Grant : null;
+    public bool IsSandboxGrant => SandboxGrant is not null;
+
+    /// <summary>Any other escape may also turn the sandbox off for the rest of the chat.</summary>
+    public bool CanTurnOffSandbox => CanAllow && Info.Escape is { Grant: null };
+
+    /// <summary>"Allow", or what allowing an escape does: run once outside the sandbox, or retry with fewer limits.</summary>
+    public bool ShowAllowOnce => CanAllow && !IsSandboxGrant;
+    public string AllowLabel => Info.Escape switch
+    {
+        { IsRetry: true } => Loc.Get("Approval_SandboxRetryAction"),
+        not null when IsCommand => Loc.Get("Approval_SandboxRunOutside"),
+        not null => Loc.Get("Approval_SandboxAllowOutside"),
+        _ => Loc.Get("Approval_Allow")
+    };
+
+    /// <summary>A folder grant is the safe answer, so it leads; remembered approvals stay a quieter choice.</summary>
+    public bool ShowAllowForChat => CanRemember || IsSandboxGrant;
+    public bool ShowAllowForProject => (CanRemember || IsSandboxGrant) && ProjectName is not null;
+
+    /// <summary>Approve-all leaves escapes to their own card: each one goes past the sandbox.</summary>
+    public bool CanAllowInBulk => CanAllow && !IsEscalation;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsPending))]
     [NotifyPropertyChangedFor(nameof(IsDecided))]
@@ -88,6 +115,7 @@ public partial class PermissionRequestViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(AllowOnceCommand))]
     [NotifyCanExecuteChangedFor(nameof(AllowForChatCommand))]
     [NotifyCanExecuteChangedFor(nameof(AllowForProjectCommand))]
+    [NotifyCanExecuteChangedFor(nameof(TurnOffSandboxCommand))]
     [NotifyCanExecuteChangedFor(nameof(DenyCommand))]
     [NotifyCanExecuteChangedFor(nameof(SendFeedbackCommand))]
     private ApprovalOutcome _outcome;
@@ -96,6 +124,7 @@ public partial class PermissionRequestViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(AllowOnceCommand))]
     [NotifyCanExecuteChangedFor(nameof(AllowForChatCommand))]
     [NotifyCanExecuteChangedFor(nameof(AllowForProjectCommand))]
+    [NotifyCanExecuteChangedFor(nameof(TurnOffSandboxCommand))]
     [NotifyCanExecuteChangedFor(nameof(DenyCommand))]
     [NotifyCanExecuteChangedFor(nameof(SendFeedbackCommand))]
     private bool _isResponding;
@@ -127,8 +156,10 @@ public partial class PermissionRequestViewModel : ObservableObject
 
     public bool HasAnyDetail => HasDiff || HasDetail;
 
-    /// <summary>What remembering covers, stated plainly under the choices.</summary>
-    public string? RememberHint => !CanRemember ? null
+    /// <summary>What remembering covers, stated plainly under the choices; for a folder grant, the folder.</summary>
+    public string? RememberHint => SandboxGrant is { } grant
+        ? Loc.Get(grant.CanWrite ? "Approval_SandboxGrantHintWrite" : "Approval_SandboxGrantHintRead", grant.Path)
+        : !CanRemember ? null
         : Loc.Get(Info.Kind == ApprovalCardKind.Command ? "Approval_RememberHintCommand" : "Approval_RememberHint",
             Info.RememberScope ?? "");
     public bool HasRememberHint => RememberHint is not null;
@@ -142,6 +173,7 @@ public partial class PermissionRequestViewModel : ObservableObject
         ApprovalOutcome.ReviewerApproved => Loc.Get("Approval_Receipt_Reviewer"),
         ApprovalOutcome.Skipped => Loc.Get("Approval_Receipt_Skipped"),
         ApprovalOutcome.Expired => Loc.Get("Approval_Receipt_Expired"),
+        ApprovalOutcome.SandboxTurnedOff => Loc.Get("Approval_Receipt_SandboxOff"),
         _ => null
     };
 
@@ -158,8 +190,9 @@ public partial class PermissionRequestViewModel : ObservableObject
     }
 
     private bool CanAllowNow() => IsPending && !IsResponding && CanAllow;
-    private bool CanRememberNow() => CanAllowNow() && CanRemember;
-    private bool CanRememberForProjectNow() => CanAllowNow() && CanRememberForProject;
+    private bool CanRememberNow() => CanAllowNow() && ShowAllowForChat;
+    private bool CanRememberForProjectNow() => CanAllowNow() && ShowAllowForProject;
+    private bool CanTurnOffSandboxNow() => CanAllowNow() && CanTurnOffSandbox;
     private bool CanDenyNow() => IsPending && !IsResponding;
     private bool CanSendFeedback() => CanDenyNow() && !string.IsNullOrWhiteSpace(Feedback);
 
@@ -171,6 +204,9 @@ public partial class PermissionRequestViewModel : ObservableObject
 
     [RelayCommand(CanExecute = nameof(CanRememberForProjectNow))]
     private Task AllowForProject() => RespondAsync(ApprovalChoice.AllowForProject, null);
+
+    [RelayCommand(CanExecute = nameof(CanTurnOffSandboxNow))]
+    private Task TurnOffSandbox() => RespondAsync(ApprovalChoice.TurnOffSandbox, null);
 
     [RelayCommand(CanExecute = nameof(CanDenyNow))]
     private Task Deny() => RespondAsync(ApprovalChoice.Deny, null);
@@ -206,6 +242,7 @@ public partial class PermissionRequestViewModel : ObservableObject
                 ApprovalChoice.AllowForChat => ApprovalOutcome.AllowedForChat,
                 ApprovalChoice.AllowForProject => ApprovalOutcome.AllowedForProject,
                 ApprovalChoice.Deny => ApprovalOutcome.Denied,
+                ApprovalChoice.TurnOffSandbox => ApprovalOutcome.SandboxTurnedOff,
                 _ => ApprovalOutcome.Allowed
             } : ApprovalOutcome.Expired);
         }

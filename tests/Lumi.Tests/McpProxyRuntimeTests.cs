@@ -1482,7 +1482,7 @@ public sealed class McpProxyRuntimeTests
                 }
             });
 
-            Assert.Equal(firstLease.ServerConfig.Url, secondLease.ServerConfig.Url);
+            Assert.Equal(Route(firstLease), Route(secondLease));
 
             using var http = new HttpClient();
             using var initialize = await PostJsonAsync(http, firstLease.ServerConfig.Url, """
@@ -1497,6 +1497,12 @@ public sealed class McpProxyRuntimeTests
 
             using (var process = System.Diagnostics.Process.GetProcessById(pid))
                 Assert.False(process.HasExited);
+
+            // The released session is cut off, though the other keeps the server running for itself.
+            using (var released = await http.PostAsync(
+                       firstLease.ServerConfig.Url,
+                       new StringContent("""{"jsonrpc":"2.0","id":"released","method":"tools/list","params":{}}""", Encoding.UTF8, "application/json")))
+                Assert.Equal(HttpStatusCode.NotFound, released.StatusCode);
 
             using var list = await PostJsonAsync(http, secondLease.ServerConfig.Url, """
                 {"jsonrpc":"2.0","id":"list","method":"tools/list","params":{}}
@@ -1562,7 +1568,7 @@ public sealed class McpProxyRuntimeTests
             await using var runtime = new McpProxyRuntime();
             using var firstLease = runtime.AcquireSessionRegistration(Definition(firstDirectory));
             using var secondLease = runtime.AcquireSessionRegistration(Definition(secondDirectory));
-            Assert.NotEqual(firstLease.ServerConfig.Url, secondLease.ServerConfig.Url);
+            Assert.NotEqual(Route(firstLease), Route(secondLease));
 
             using var http = new HttpClient();
             using var firstInitialize = await PostJsonAsync(http, firstLease.ServerConfig.Url, """
@@ -1699,17 +1705,17 @@ public sealed class McpProxyRuntimeTests
                 Tools = baseConfig.Tools
             }));
 
-            Assert.Equal(baseline.ServerConfig.Url, normalizedPath.ServerConfig.Url);
-            Assert.Equal(baseline.ServerConfig.Url, normalizedCase.ServerConfig.Url);
-            Assert.NotEqual(embeddedArgumentDelimiter.ServerConfig.Url, splitArguments.ServerConfig.Url);
-            Assert.NotEqual(embeddedEnvironmentDelimiter.ServerConfig.Url, splitEnvironment.ServerConfig.Url);
+            Assert.Equal(Route(baseline), Route(normalizedPath));
+            Assert.Equal(Route(baseline), Route(normalizedCase));
+            Assert.NotEqual(Route(embeddedArgumentDelimiter), Route(splitArguments));
+            Assert.NotEqual(Route(embeddedEnvironmentDelimiter), Route(splitEnvironment));
             Assert.Equal(5, new[]
             {
-                baseline.ServerConfig.Url,
-                changedCommand.ServerConfig.Url,
-                changedArgs.ServerConfig.Url,
-                changedEnvironment.ServerConfig.Url,
-                changedDirectory.ServerConfig.Url
+                Route(baseline),
+                Route(changedCommand),
+                Route(changedArgs),
+                Route(changedEnvironment),
+                Route(changedDirectory)
             }.Distinct(StringComparer.Ordinal).Count());
         }
         finally
@@ -1769,7 +1775,7 @@ public sealed class McpProxyRuntimeTests
                     callStartedPath,
                     "SECOND"));
 
-            Assert.NotEqual(firstLease.ServerConfig.Url, secondLease.ServerConfig.Url);
+            Assert.NotEqual(Route(firstLease), Route(secondLease));
 
             using var http = new HttpClient();
             using var firstInitialize = await PostJsonAsync(http, firstLease.ServerConfig.Url, """
@@ -1814,6 +1820,10 @@ public sealed class McpProxyRuntimeTests
             catch { }
         }
     }
+
+    /// <summary>The server a session reaches, apart from its own client token.</summary>
+    private static string Route(McpProxyRuntime.SessionRegistrationLease lease)
+        => new Uri(lease.ServerConfig.Url).AbsolutePath;
 
     private static async Task<JsonDocument> PostJsonAsync(HttpClient http, string url, string json)
     {

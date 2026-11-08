@@ -108,6 +108,8 @@ public static class ChatForkFactory
             HasExplicitMcpServerSelection = source.HasExplicitMcpServerSelection,
             ApprovalMode = source.ApprovalMode,
             ApprovalRules = AppDataSnapshotFactory.CloneApprovalRules(source.ApprovalRules),
+            SandboxDisabled = source.SandboxDisabled,
+            SandboxFolders = AppDataSnapshotFactory.CloneSandboxFolders(source.SandboxFolders),
             SdkAgentName = source.SdkAgentName,
             WorktreePath = source.WorktreePath,
             LastModelUsed = source.LastModelUsed,

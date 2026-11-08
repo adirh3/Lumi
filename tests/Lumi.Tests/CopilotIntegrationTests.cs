@@ -493,6 +493,125 @@ public class CopilotIntegrationTests : IAsyncLifetime
             return permission;
         }
     }
+
+    /// <summary>
+    /// A project's sandbox, as Lumi builds it, is what the runtime enforces on the commands a chat runs:
+    /// on a created session, live when the chat turns it off and on again, and again after a resume,
+    /// which keeps none of it. A folder a person lets the sandbox reach takes effect at once.
+    /// </summary>
+    [SkippableFact]
+    public async Task Sandbox_LumisPolicy_ContainsCommands_OnCreateChangeAndResume()
+    {
+        SkipIfDisabled();
+        var host = await _service.GetSandboxHostSupportAsync();
+        Skip.If(host is not { Supported: true }, "This computer can't run Copilot's command sandbox.");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(300));
+        var ct = timeout.Token;
+        // Not under the temp folder, which the sandbox always lets commands use.
+        var root = Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "sandbox-fixture-" + Guid.NewGuid().ToString("N"))).FullName;
+        var projectDir = Directory.CreateDirectory(Path.Combine(root, "project")).FullName;
+        var outside = Directory.CreateDirectory(Path.Combine(root, "outside")).FullName;
+        try
+        {
+            // The project follows your default, which sandboxes projects.
+            var project = new Project { Name = "Sandboxed", WorkingDirectory = projectDir };
+            var chat = new Chat { ProjectId = project.Id };
+            var data = new AppData { Chats = [chat] };
+            data.Projects.Add(project);
+            data.Settings.Sandbox.Enabled = true;
+            using var vm = new ChatViewModel(new DataStore(data), _service);
+            var handler = SessionConfigBuilder.BuildPermissionHandler(() => ApprovalMode.FullAccess);
+            // A session is saved, and so resumable, once it has a turn.
+            var model = await _service.GetBackgroundModelIdAsync(ct);
+            GitHub.Copilot.Rpc.SandboxConfig? Policy() => SandboxPolicy.Build(data.Settings, project, chat, projectDir, [], host);
+
+            var config = SessionConfigBuilder.Build("Sandbox integration fixture. Answer in one word.", null, projectDir, null,
+                [], [], [], null, null, handler, ChatViewModel.BuildSessionHooks(), enableCapabilityDiscovery: false);
+            config.SandboxConfig = Policy();
+            var created = await _service.CreateSessionAsync(config, ct);
+            var sessionId = created.SessionId;
+            try
+            {
+                await vm.PrepareSessionPermissionsAsync(created, chat, null, ct);
+                Assert.True(await WritesAsync(created, Path.Combine(projectDir, "inside.txt")));
+                Assert.False(await WritesAsync(created, Path.Combine(outside, "contained.txt")));
+
+                // Turned off for the chat, and on again, while the session lives.
+                chat.SandboxDisabled = true;
+                await UpdateAsync(created);
+                Assert.True(await WritesAsync(created, Path.Combine(outside, "while-off.txt")));
+                chat.SandboxDisabled = false;
+                await UpdateAsync(created);
+                Assert.False(await WritesAsync(created, Path.Combine(outside, "on-again.txt")));
+
+                // A file tool past the sandbox waits for a person; letting the sandbox reach the folder runs it there.
+                var granted = Directory.CreateDirectory(Path.Combine(outside, "granted")).FullName;
+                var requested = new TaskCompletionSource<PermissionRequestedData>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using (created.On<PermissionRequestedEvent>(evt =>
+                       {
+                           if (SandboxEscape.Of(evt.Data.PermissionRequest, evt.Data.PromptRequest) is { Grant: not null })
+                               requested.TrySetResult(evt.Data);
+                       }))
+                {
+                    var target = Path.Combine(granted, "note.txt");
+                    var create = created.Rpc.Tools.ExecuteAsync("create",
+                        JsonSerializer.SerializeToElement(new Dictionary<string, string> { ["path"] = target, ["file_text"] = "granted" }),
+                        "sandbox-create", ct);
+                    var escape = await requested.Task.WaitAsync(TimeSpan.FromSeconds(60), ct);
+                    var grant = SandboxEscape.Of(escape.PermissionRequest, escape.PromptRequest)!.Grant!;
+                    Assert.True(SandboxPolicy.SamePath(granted, grant.Path));
+                    Assert.False(File.Exists(target));
+                    Assert.True((await created.Rpc.Sandbox.GrantPathForRequestAsync(escape.RequestId, cancellationToken: ct)).Success);
+                    await create.WaitAsync(TimeSpan.FromSeconds(30), ct);
+                    Assert.True(File.Exists(target));
+                }
+                Assert.True(await WritesAsync(created, Path.Combine(granted, "shell.txt")));
+                await created.SetModelAsync(model, cancellationToken: ct);
+                await created.SendAndWaitAsync(new MessageOptions { Prompt = "Reply with the single word OK and nothing else." }, TimeSpan.FromMinutes(2), ct);
+            }
+            finally
+            {
+                await created.DisposeAsync();
+            }
+
+            // The runtime keeps no sandbox across a resume; Lumi sends it again.
+            var resume = SessionConfigBuilder.BuildForResume("Sandbox integration fixture. Answer in one word.", model, projectDir, null,
+                [], [], [], null, null, handler, ChatViewModel.BuildSessionHooks(), enableCapabilityDiscovery: false);
+            resume.SandboxConfig = Policy();
+            await using var resumed = await _service.ResumeSessionAsync(sessionId, resume, ct);
+            await vm.PrepareSessionPermissionsAsync(resumed, chat, null, ct);
+            Assert.False(await WritesAsync(resumed, Path.Combine(outside, "after-resume.txt")));
+            Assert.True(await WritesAsync(resumed, Path.Combine(projectDir, "after-resume.txt")));
+
+            async Task UpdateAsync(CopilotSession session)
+                => Assert.True((await session.Rpc.Options.UpdateAsync(
+                    sandboxConfig: Policy() ?? new GitHub.Copilot.Rpc.SandboxConfig { Enabled = false },
+                    sandboxConfigSource: SandboxPolicy.SourceOf(data.Settings, project, chat.SandboxDisabled),
+                    cancellationToken: ct)).Success);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch (IOException) { }
+        }
+
+        async Task<bool> WritesAsync(CopilotSession session, string path)
+        {
+            var command = OperatingSystem.IsWindows()
+                ? $"Set-Content -LiteralPath '{path}' -Value 'x'"
+                : $"printf x > '{path}'";
+            var arguments = JsonSerializer.SerializeToElement(new Dictionary<string, object>
+            {
+                ["command"] = command,
+                ["description"] = "Sandbox probe",
+                ["mode"] = "sync",
+                ["initial_wait"] = 60
+            });
+            await session.Rpc.Tools.ExecuteAsync(OperatingSystem.IsWindows() ? "powershell" : "bash",
+                arguments, "sandbox-" + Guid.NewGuid().ToString("N"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(90));
+            _output.WriteLine($"{path}: {(File.Exists(path) ? "written" : "contained")}");
+            return File.Exists(path);
+        }
+    }
 #pragma warning restore GHCP001
 
     public async Task DisposeAsync()

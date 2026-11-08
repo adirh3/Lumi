@@ -55,6 +55,7 @@ internal static class AppDataSnapshotFactory
                 PersonalSkillDirectories = [.. settings.PersonalSkillDirectories],
                 DefaultApprovalMode = settings.DefaultApprovalMode,
                 ApprovalRules = CloneApprovalRules(settings.ApprovalRules),
+                Sandbox = CloneSandbox(settings.Sandbox),
                 AwayApprovalBehavior = settings.AwayApprovalBehavior,
                 PreferredModel = settings.PreferredModel,
                 BackgroundModel = settings.BackgroundModel,
@@ -170,6 +171,7 @@ internal static class AppDataSnapshotFactory
                      AdditionalContextDirectories = [..p.AdditionalContextDirectories],
                      ApprovalMode = p.ApprovalMode,
                      ApprovalRules = CloneApprovalRules(p.ApprovalRules),
+                     Sandbox = CloneSandbox(p.Sandbox),
                      CreatedAt = p.CreatedAt
                  })
                  .ToList(),
@@ -349,6 +351,23 @@ internal static class AppDataSnapshotFactory
             CreatedAt = rule.CreatedAt
         }).ToList();
 
+    internal static ProjectSandbox CloneSandbox(ProjectSandbox source) => new()
+    {
+        Enabled = source.Enabled,
+        AllowInternet = source.AllowInternet,
+        Folders = CloneSandboxFolders(source.Folders)
+    };
+
+    internal static SandboxSettings CloneSandbox(SandboxSettings source) => new()
+    {
+        Enabled = source.Enabled,
+        AllowInternet = source.AllowInternet,
+        Folders = CloneSandboxFolders(source.Folders)
+    };
+
+    internal static List<SandboxFolder> CloneSandboxFolders(IEnumerable<SandboxFolder> folders) =>
+        folders.Select(static folder => new SandboxFolder { Path = folder.Path, Access = folder.Access }).ToList();
+
     private static RemotePairedDevice CloneRemotePairedDevice(RemotePairedDevice source) =>
         new()
         {
@@ -408,6 +427,8 @@ internal static class AppDataSnapshotFactory
             CopilotSessionId = source.CopilotSessionId,
             ApprovalMode = source.ApprovalMode,
             ApprovalRules = CloneApprovalRules(source.ApprovalRules),
+            SandboxDisabled = source.SandboxDisabled,
+            SandboxFolders = CloneSandboxFolders(source.SandboxFolders),
             SessionProviderSignature = source.SessionProviderSignature,
             CreatedAt = source.CreatedAt,
             UpdatedAt = source.UpdatedAt,

@@ -68,8 +68,12 @@ public partial class ProjectsViewModel
         OnPropertyChanged(nameof(HasProjectApprovalRules));
     }
 
-    /// <summary>Rules can also change in Settings → Permissions or from an approval card.</summary>
-    public void RefreshApprovals() => RefreshProjectApprovalRules(SelectedProject);
+    /// <summary>Rules can also change in Settings → Permissions or from an approval card, and so can sandbox folders.</summary>
+    public void RefreshApprovals()
+    {
+        RefreshProjectApprovalRules(SelectedProject);
+        RefreshSandboxFromProject(SelectedProject);
+    }
 
     [RelayCommand]
     private void RemoveProjectApprovalRule(ApprovalRuleRowViewModel? row)
