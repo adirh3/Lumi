@@ -17,9 +17,9 @@ using Xunit;
 namespace Lumi.Tests;
 
 /// <summary>
-/// Changing the model while Lumi works. The fake runtime behaves as the real one was measured to: a new
-/// model picked while a turn runs waits in the queue until the turn ends, an abort drops it with the turn,
-/// and a reasoning effort (or the model already running) applies at once.
+/// Changing the model while Lumi works. The fake runtime behaves as the real one was measured to: while a
+/// turn runs, any pick but a change of reasoning effort alone (even the model already running) waits in the
+/// queue until the turn ends, an abort drops it with the turn, and a new effort applies at once.
 /// </summary>
 public sealed partial class DeferredSendQueueTests
 {
@@ -220,6 +220,21 @@ public sealed partial class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task AutoPickedAgainMidReply_StaysQueued()
+    {
+        await TestCopilot.Shared.ConnectAsync();
+        using var host = DeferredSendHost.Create();
+        using var rpc = StartWorkingTurn(host);
+        rpc.LiveModel = "auto";
+
+        Assert.True(await host.PickModelAsync("auto"));
+
+        // A newer Auto tier can wait behind the one the session runs, and only this pick replaces it.
+        Assert.Equal(["auto"], rpc.QueuedModelSwitches);
+        Assert.NotNull(host.Runtime.PendingModelSwitch);
+    }
+
+    [Fact]
     public async Task ModelOnAnotherEndpointPickedMidReply_TakesOverWithTheNextMessage_WithoutSwitchNow()
     {
         await TestCopilot.Shared.ConnectAsync();
@@ -369,7 +384,10 @@ public sealed partial class DeferredSendQueueTests
         {
             DropAbortedModelSwitches();
             var model = Assert.IsType<string>(request["modelId"]);
-            if (TurnRunning && !string.Equals(model, LiveModel, StringComparison.Ordinal))
+            var effort = request.GetValueOrDefault("reasoningEffort") as string;
+            var effortOnly = string.Equals(model, LiveModel, StringComparison.Ordinal)
+                             && effort is not null && !string.Equals(effort, LiveEffort, StringComparison.Ordinal);
+            if (TurnRunning && !effortOnly)
             {
                 var id = (++_nextQueueId).ToString(CultureInfo.InvariantCulture);
                 _queuedModelSwitches.Add((id, model, AbortCount));
@@ -381,12 +399,15 @@ public sealed partial class DeferredSendQueueTests
                 throw new LocalRpcException($"Model '{model}' is not available.");
 
             LiveModel = model;
-            LiveEffort = request.GetValueOrDefault("reasoningEffort") as string;
+            LiveEffort = effort;
             if (AbortCount > EmptyBatchCount)
                 ModelAppliedBeforeContinuations++;
             Operations.Add($"model:{model}");
             return new { modelId = model, status = "applied", deferred = false };
         }
+
+        [JsonRpcMethod("session.model.getCurrent", UseSingleObjectParameterDeserialization = true)]
+        public object GetCurrentModel(object request) => new { modelId = LiveModel, reasoningEffort = LiveEffort };
 
         [JsonRpcMethod("session.queue.pendingItems", UseSingleObjectParameterDeserialization = true)]
         public object PendingQueueItems(object request)

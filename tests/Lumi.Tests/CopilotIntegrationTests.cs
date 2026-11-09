@@ -1740,6 +1740,66 @@ public class CopilotIntegrationTests : IAsyncLifetime
     }
 
     [SkippableFact]
+    public async Task RunningModelPickedAgainMidReply_LeavesNothingWaiting()
+    {
+        SkipIfDisabled();
+        var ids = (await _service.GetModelsAsync()).Select(model => model.Id).ToHashSet(StringComparer.Ordinal);
+        var running = new[] { "gpt-6-luna", "gpt-5.6-luna" }.FirstOrDefault(ids.Contains);
+        var picked = new[] { "gpt-5.6-luna", "gpt-5.6-terra" }.FirstOrDefault(id => id != running && ids.Contains(id));
+        Skip.If(running is null || picked is null, "The account does not offer the two test models.");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var idle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        var tool = AIFunctionFactory.Create(async (CancellationToken cancellationToken) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                started.TrySetResult();
+                await release.Task.WaitAsync(TimeSpan.FromSeconds(60), cancellationToken);
+            }
+            return "REPICK_COMPLETE";
+        }, "repick_probe", "Get the completion marker.");
+        var session = await _service.CreateSessionAsync(SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
+        {
+            Model = running,
+            SystemPrompt = "Call repick_probe once, then reply with its returned marker.",
+            Tools = [tool],
+            Streaming = true
+        }));
+        var appliedModels = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var changes = session.On<SessionModelChangeEvent>(evt => appliedModels.Enqueue(evt.Data.NewModel ?? ""));
+        using var idleSubscription = session.On<SessionIdleEvent>(_ => idle.TrySetResult());
+        try
+        {
+            // The chat's picks, as Lumi sends them.
+            var runningPick = SessionConfigBuilder.CreateSetModelOptions(running, "high", "default");
+            Assert.False((await SessionModelSwitch.SwitchAsync(session, running!, runningPick)).Deferred);
+            await session.SendAsync(new MessageOptions { Prompt = "Run the tool and report its marker." });
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(60));
+
+            var queued = await SessionModelSwitch.SwitchAsync(
+                session, picked!, SessionConfigBuilder.CreateSetModelOptions(picked, "high", "default"));
+            Assert.True(queued.Deferred);
+            await SessionModelSwitch.RemoveQueuedAsync(session, queued.QueueIds);
+
+            // While a turn runs the runtime queues even the model it runs; nothing waits for that pick.
+            Assert.False((await SessionModelSwitch.SwitchAsync(session, running!, runningPick)).Deferred);
+#pragma warning disable GHCP001
+            Assert.Empty((await session.Rpc.Queue.PendingItemsAsync()).Items);
+#pragma warning restore GHCP001
+            release.TrySetResult();
+            await idle.Task.WaitAsync(TimeSpan.FromSeconds(90));
+            Assert.DoesNotContain(picked, appliedModels);
+        }
+        finally
+        {
+            await session.DisposeAsync();
+            await _service.DeleteSessionAsync(session.SessionId);
+        }
+    }
+
+    [SkippableFact]
     public async Task CustomTool_IsInvoked_WithEventsAndHook()
     {
         SkipIfDisabled();

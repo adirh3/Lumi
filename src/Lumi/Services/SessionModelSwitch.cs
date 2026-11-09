@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using GitHub.Copilot;
+using GitHub.Copilot.Rpc;
 
 namespace Lumi.Services;
 
@@ -11,7 +12,8 @@ internal readonly record struct SessionModelSwitchResult(bool Deferred, IReadOnl
 /// Switches a live session's model and reports what the runtime did with the switch. The runtime changes
 /// models only between turns: one picked while a turn runs waits in its queue, as a cancellable item, until
 /// the turn ends, and an abort drops it with the turn. A change of reasoning effort alone applies from the
-/// running turn's next step.
+/// running turn's next step. A pick the session already runs is queued too while a turn runs; nothing waits
+/// for it, so it is taken back out of the queue.
 /// </summary>
 internal static class SessionModelSwitch
 {
@@ -20,6 +22,24 @@ internal static class SessionModelSwitch
         string modelId,
         SetModelOptions options,
         CancellationToken cancellationToken = default)
+    {
+        var result = await RequestSwitchAsync(session, modelId, options, cancellationToken);
+#pragma warning disable GHCP001
+        if (result.Deferred && IsRunning(await session.Rpc.Model.GetCurrentAsync(cancellationToken), modelId, options))
+#pragma warning restore GHCP001
+        {
+            await RemoveQueuedAsync(session, result.QueueIds);
+            return new SessionModelSwitchResult(false, []);
+        }
+
+        return result;
+    }
+
+    private static async Task<SessionModelSwitchResult> RequestSwitchAsync(
+        CopilotSession session,
+        string modelId,
+        SetModelOptions options,
+        CancellationToken cancellationToken)
     {
 #pragma warning disable GHCP001
         if (options.ResetAutoTier)
@@ -45,6 +65,21 @@ internal static class SessionModelSwitch
         return result.Deferred == true
             ? new SessionModelSwitchResult(true, result.QueueId is { Length: > 0 } id ? [id] : [])
             : new SessionModelSwitchResult(false, []);
+#pragma warning restore GHCP001
+    }
+
+    /// <summary>
+    /// Whether the session already runs the pick: the model, and any effort and tier it names. An Auto pick
+    /// always goes through the queue: a newer tier can wait behind the committed one, and a pick replaces it.
+    /// </summary>
+    private static bool IsRunning(CurrentModel live, string modelId, SetModelOptions options)
+    {
+#pragma warning disable GHCP001
+        return !string.Equals(modelId, "auto", StringComparison.OrdinalIgnoreCase)
+               && string.Equals(live.ModelId, modelId, StringComparison.OrdinalIgnoreCase)
+               && (options.ReasoningEffort is null
+                   || string.Equals(live.ReasoningEffort, options.ReasoningEffort, StringComparison.OrdinalIgnoreCase))
+               && (options.ContextTier ?? ContextTier.Default) == (live.ContextTier ?? ContextTier.Default);
 #pragma warning restore GHCP001
     }
 
