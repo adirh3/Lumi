@@ -70,6 +70,9 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
     private AndroidTextSelectionPresenter? _textSelectionPresenter;
     private GestureDetector? _textSelectionGestureDetector;
     private bool _windowLayoutListenerRegistered;
+#if LUMI_MOBILE_SMOOTHNESS
+    private Lumi.Mobile.Smoothness.SmoothnessSocketHost? _smoothnessHost;
+#endif
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
@@ -96,6 +99,25 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
 
         base.OnCreate(savedInstanceState);
         Current = this;
+#if LUMI_MOBILE_SMOOTHNESS
+        var benchmarkAttempts = 0;
+        DispatcherTimer.Run(() =>
+        {
+            if (Avalonia.Application.Current?.ApplicationLifetime is ISingleViewApplicationLifetime
+                { MainView: MobileShellView view } && Avalonia.Controls.TopLevel.GetTopLevel(view) is not null
+                && _nativeComposerEditorFactory is { } editorFactory)
+            {
+                _smoothnessHost = new(view, 47692, () => SystemClock.ElapsedRealtimeNanos() / 1_000_000d,
+                    softKeyboardExpected: true,
+                    nativeEditorHitTest: editorFactory.CanReceiveSmoothnessTouch);
+                return false;
+            }
+            if (++benchmarkAttempts < 75)
+                return true;
+            global::Android.Util.Log.Error("LumiSmoothness", "The benchmark view did not initialize.");
+            return false;
+        }, TimeSpan.FromMilliseconds(100));
+#endif
         if (launchRequest is not null)
             DispatchConnectionRequest(launchRequest);
         // A recreated activity keeps its launching intent; only a fresh launch opens the chat.
@@ -331,6 +353,10 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
 
     protected override void OnDestroy()
     {
+#if LUMI_MOBILE_SMOOTHNESS
+        _smoothnessHost?.Dispose();
+        _smoothnessHost = null;
+#endif
         if (ReferenceEquals(Current, this))
             Current = null;
         MobilePlatformServices.ClearTextSelectionGesture();
@@ -358,6 +384,14 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
 
     public override bool DispatchTouchEvent(MotionEvent? motionEvent)
     {
+#if LUMI_MOBILE_SMOOTHNESS
+        if (motionEvent?.ActionMasked is MotionEventActions.Down or MotionEventActions.Up)
+        {
+            var density = Resources?.DisplayMetrics?.Density ?? 1f;
+            _smoothnessHost?.ObserveHostTouch(motionEvent.GetX() / density, motionEvent.GetY() / density,
+                motionEvent.ActionMasked == MotionEventActions.Down);
+        }
+#endif
         if (motionEvent?.ActionMasked == MotionEventActions.Down)
             MobilePlatformServices.ClearTextSelectionGesture();
         var handled = base.DispatchTouchEvent(motionEvent);
@@ -369,6 +403,10 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
             AndroidImeAutocorrect.Refresh(this);
         return handled;
     }
+
+#if LUMI_MOBILE_SMOOTHNESS
+    internal void ObserveSmoothnessKeyboardRequest() => _smoothnessHost?.ObserveKeyboardRequest();
+#endif
 
     public override bool DispatchKeyEvent(KeyEvent? keyEvent)
     {

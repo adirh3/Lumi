@@ -404,6 +404,10 @@ public partial class ChatDetailView : UserControl
         UpdateComposerFocus();
     }
 
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+    internal void ResetSmoothnessComposerFocus() => ReleaseComposerFocus();
+#endif
+
     /// <summary>
     /// Keeps the welcome between the floating bars, and drops Lumi's mark when that room is short. The
     /// welcome scrolls as one surface across its whole box, so the box must never reach under the bars:
@@ -1011,13 +1015,10 @@ public partial class ChatDetailView : UserControl
             if (!next.Realize())
                 continue;
 
-            if (_pendingRealizations.Count > 0)
-            {
-                // The next turn waits until this one has been measured, and for the next frame:
-                // layout passes are not frames, and a quick turn would otherwise share one.
-                _awaitingRealizationLayout = true;
-                LayoutUpdated += OnRealizationLayoutUpdated;
-            }
+            // A new request can arrive while this turn is measured, even when the queue is empty now.
+            // Keep the frame boundary for those requests too.
+            _awaitingRealizationLayout = true;
+            LayoutUpdated += OnRealizationLayoutUpdated;
             return;
         }
     }

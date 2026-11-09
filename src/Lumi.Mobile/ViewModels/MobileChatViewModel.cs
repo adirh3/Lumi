@@ -922,6 +922,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// </summary>
     public ObservableCollection<ModelProviderGroup> ModelGroups { get; } = [];
 
+    /// <summary>Headers and model rows in display order, so one list can virtualize across providers.</summary>
+    public ObservableCollection<object> ModelRows { get; } = [];
+
     public ObservableCollection<PickerOption> QualityOptions { get; } = [];
 
     public ObservableCollection<PickerOption> ContextTierOptions { get; } = [];
@@ -954,6 +957,21 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
         while (ModelGroups.Count > sections.Count)
             ModelGroups.RemoveAt(ModelGroups.Count - 1);
+        var displayRows = new List<object>();
+        foreach (var group in ModelGroups)
+        {
+            displayRows.Add(group);
+            displayRows.AddRange(group.Options);
+        }
+        while (ModelRows.Count > displayRows.Count)
+            ModelRows.RemoveAt(ModelRows.Count - 1);
+        for (var i = 0; i < displayRows.Count; i++)
+        {
+            if (i >= ModelRows.Count)
+                ModelRows.Add(displayRows[i]);
+            else if (!Equals(ModelRows[i], displayRows[i]))
+                ModelRows[i] = displayRows[i];
+        }
         SyncOptions(QualityOptions, QualityLevels, Quality, EffortDisplay);
         SyncOptions(ContextTierOptions, ContextWindowTiers, ContextWindowTier, ContextDisplay);
 

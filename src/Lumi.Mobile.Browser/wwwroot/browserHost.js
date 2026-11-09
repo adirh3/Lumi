@@ -507,3 +507,4 @@ export function configureViewportInsets(callback) {
         new ResizeObserver(schedule).observe(document.getElementById('out'));
     publish();
 }
+export function getPerformanceTime() { return performance.now(); }

@@ -103,6 +103,8 @@ public sealed class MobileModelPickerTests
         Assert.Equal(["claude-opus-5.5", "byok:or-sol"], Section(chat, "PINNED"));
         Assert.Equal(["gpt-6.1-sol", "claude-sonnet-5", "auto"], Section(chat, "GITHUB COPILOT"));
         Assert.Equal(chat.ModelGroups.SelectMany(group => group.Options), chat.ModelOptions);
+        Assert.Equal(chat.ModelOptions, chat.ModelRows.OfType<ModelPickerOption>());
+        Assert.Equal(chat.ModelGroups, chat.ModelRows.OfType<ModelProviderGroup>());
 
         var opus = Row(chat, "claude-opus-5.5");
         Assert.Equal(("Claude Opus 5.5", "3×", "200K", "Needs enabling"), (opus.Label, opus.Cost, opus.ContextSize, opus.Status));
@@ -368,6 +370,41 @@ public sealed class MobileModelPickerTests
         Assert.False(shell.Chat.HasPendingConfiguration);
         return Task.CompletedTask;
     });
+
+    [Fact]
+    public Task LargeCatalogVirtualizesAcrossProvidersAndItsLastModelRemainsTouchReachable() =>
+        RunUiAsync(async (shell, window) =>
+        {
+            var catalog = Catalog("claude-opus-5.5");
+            for (var index = 0; index < 150; index++)
+            {
+                var id = $"extra-model-{index:000}";
+                catalog.AvailableModels.Add(id);
+                catalog.ModelOptions.Add(new()
+                {
+                    Model = id, DisplayName = $"Extra model {index:000}", ProviderName = "Extra account",
+                    Account = "Extra account", Cost = "1x", ContextSize = "200K"
+                });
+            }
+            shell.Chat.ApplyCatalogs(catalog);
+            shell.Chat.OpenModelSheetCommand.Execute(null);
+            await SettleAsync(window);
+            var list = Named<ItemsControl>(window, "ModelSheetList");
+            Assert.IsType<VirtualizingStackPanel>(list.ItemsPanelRoot);
+            var sheet = Named<StrataBottomSheet>(window, "ModelSheet");
+            Assert.InRange(sheet.GetVisualDescendants().OfType<Button>()
+                .Count(button => button.Classes.Contains("model-option")), 1, 35);
+            Assert.Equal(shell.Chat.ModelOptions, shell.Chat.ModelRows.OfType<ModelPickerOption>());
+
+            var last = shell.Chat.ModelRows.OfType<ModelPickerOption>().Last();
+            list.ScrollIntoView(shell.Chat.ModelRows.IndexOf(last));
+            await SettleAsync(window);
+            var button = sheet.GetVisualDescendants().OfType<Button>()
+                .Single(button => button.Classes.Contains("model-option") && ReferenceEquals(button.DataContext, last));
+            Tap(window, button);
+            Assert.Equal(last.Name, shell.Chat.Model);
+            Assert.False(shell.Chat.IsModelSheetOpen);
+        });
 
     private static async Task RunUiAsync(Func<MobileShellViewModel, Window, Task> test)
     {

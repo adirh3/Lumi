@@ -15,6 +15,8 @@ internal static class LumiAppLabel
 {
 #if LUMI_PREVIEW
     public const string Text = "Lumi Preview";
+#elif LUMI_MOBILE_SMOOTHNESS
+    public const string Text = "Lumi Smoothness";
 #else
     public const string Text = "Lumi";
 #endif
@@ -44,7 +46,12 @@ public class MainApplication : AvaloniaAndroidApplication<App>
         MobilePlatformServices.TextShare = new AndroidTextShareService(this);
         MobilePlatformServices.Notifications = new Notifications.AndroidPhoneNotificationPlatform(this);
         // Strata/theme defaults read the culture when their types and XAML are first loaded.
+#if LUMI_MOBILE_SMOOTHNESS
+        Strings.Load("en");
+        App.ShellFactory = Lumi.Mobile.Smoothness.MobileSmoothnessFixture.CreateShell;
+#else
         Strings.Load(new MobileSettingsStore().Load().Language);
+#endif
         MobilePlatformServices.DeviceNameOverride = ResolveDeviceName();
         System.Diagnostics.Trace.Listeners.Add(new LogcatTraceListener());
         CrashReporter.Install();

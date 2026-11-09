@@ -77,6 +77,23 @@ try {
 
     await runtime.runMain(config.mainAssemblyName, [globalThis.location.href]);
 
+    // Only an explicitly instrumented fixture build exports this control channel.
+    if (new URLSearchParams(location.search).get('smoothness') === '1') {
+        const benchmark = exports.Lumi.Mobile.Browser.BrowserSmoothness;
+        if (!benchmark)
+            throw new Error('The mobile smoothness harness was not compiled into this build.');
+        globalThis.lumiSmoothness = {
+            command: async request => JSON.parse(await benchmark.Command(JSON.stringify(request)))
+        };
+        for (const name of ['pointerdown', 'pointerup'])
+            window.addEventListener(name, event => {
+                if (event.isTrusted && event.pointerType === 'touch') {
+                    const box = document.getElementById('out').getBoundingClientRect();
+                    benchmark.ObserveTouch(event.clientX - box.left, event.clientY - box.top, name === 'pointerdown');
+                }
+            }, { capture: true, passive: true });
+    }
+
     configureNativeTextInputs(
         interop.SetNativeTextInputText,
         interop.HandleNativeTextInputKey,

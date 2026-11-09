@@ -25,6 +25,20 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
 
     public bool IsAvailable => true;
 
+#if LUMI_MOBILE_SMOOTHNESS
+    internal bool CanReceiveSmoothnessTouch(NativeComposerEditorHost host, Avalonia.Point point)
+    {
+        if (!_states.TryGetValue(host, out var state) || state.IsDestroyed
+            || !host.IsEffectivelyVisible || !state.Editor.IsShown
+            || !state.Editor.Enabled || !state.Editor.Clickable || state.Editor.Alpha <= 0)
+            return false;
+        using var visible = new global::Android.Graphics.Rect();
+        var density = state.Editor.Resources?.DisplayMetrics?.Density ?? 1f;
+        return state.Editor.GetGlobalVisibleRect(visible)
+            && visible.Contains((int)Math.Round(point.X * density), (int)Math.Round(point.Y * density));
+    }
+#endif
+
     public IPlatformHandle Create(
         NativeComposerEditorHost host,
         IPlatformHandle parent)
@@ -82,18 +96,19 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
             {
                 var focusVersion = ++state.FocusVersion;
                 state.HoldAvaloniaFocus();
-                host.SetInputFocusFromNative(true);
-                editor.RequestFocus();
-                editor.Post(() =>
+                state.DeferFocusNotification = true;
+                try
                 {
-                    if (state.IsDestroyed || focusVersion != state.FocusVersion
-                        || !host.IsVisible || editor.Visibility != ViewStates.Visible)
-                        return;
-                    editor.Context
-                        ?.GetSystemService(Context.InputMethodService)
-                        ?.JavaCast<InputMethodManager>()
-                        ?.ShowSoftInput(editor, ShowFlags.Implicit);
-                });
+                    editor.RequestFocus();
+                    // Request before revealing the toolbar; its first style/binding pass is synchronous.
+                    if (!TryShowKeyboard(host, state, focusVersion))
+                        editor.Post(() => TryShowKeyboard(host, state, focusVersion));
+                }
+                finally
+                {
+                    state.DeferFocusNotification = false;
+                    host.SetInputFocusFromNative(editor.HasFocus);
+                }
             }
             else if (args.Event?.ActionMasked == MotionEventActions.Up)
             {
@@ -110,10 +125,7 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
 
                     state.HoldAvaloniaFocus();
                     editor.RequestFocus();
-                    editor.Context
-                        ?.GetSystemService(Context.InputMethodService)
-                        ?.JavaCast<InputMethodManager>()
-                        ?.ShowSoftInput(editor, ShowFlags.Implicit);
+                    TryShowKeyboard(host, state, focusVersion);
                 });
             }
         };
@@ -130,7 +142,8 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
                     _focusedEditor = null;
                 state.ReleaseAvaloniaFocus();
             }
-            host.SetInputFocusFromNative(args.HasFocus);
+            if (!state.DeferFocusNotification)
+                host.SetInputFocusFromNative(args.HasFocus);
         };
         state.ThemeChangedHandler = (_, _) =>
         {
@@ -157,6 +170,25 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         ApplyTheme(host, editor);
         QueueHeightUpdate(host, state);
         return new AndroidViewControlHandle(editor);
+    }
+
+    private static bool TryShowKeyboard(NativeComposerEditorHost host, EditorState state, int focusVersion)
+    {
+        if (state.IsDestroyed || focusVersion != state.FocusVersion || !host.IsVisible
+            || state.Editor.Visibility != ViewStates.Visible || !state.Editor.HasFocus
+            || !state.Editor.HasWindowFocus)
+            return false;
+        var manager = state.Editor.Context?.GetSystemService(Context.InputMethodService)
+            ?.JavaCast<InputMethodManager>();
+        if (manager is null)
+        {
+            global::Android.Util.Log.Warn("LumiIme", "The input method service is unavailable.");
+            return false;
+        }
+#if LUMI_MOBILE_SMOOTHNESS
+        MainActivity.Current?.ObserveSmoothnessKeyboardRequest();
+#endif
+        return manager.ShowSoftInput(state.Editor, ShowFlags.Implicit);
     }
 
     private static void QueueHeightUpdate(NativeComposerEditorHost host, EditorState state)
@@ -302,10 +334,7 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
             host.SetInputFocusFromNative(true);
             state.Editor.RequestFocus();
             state.Editor.SetSelection(clamped);
-            state.Editor.Context
-                ?.GetSystemService(Context.InputMethodService)
-                ?.JavaCast<InputMethodManager>()
-                ?.ShowSoftInput(state.Editor, ShowFlags.Implicit);
+            TryShowKeyboard(host, state, focusVersion);
         });
     }
 
@@ -376,6 +405,7 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         }
         public bool ApplyingModel { get; set; }
         public bool HeightUpdateQueued { get; set; }
+        public bool DeferFocusNotification { get; set; }
         public int FocusVersion { get; set; }
         public EventHandler<global::Android.Text.TextChangedEventArgs>? TextChangedHandler { get; set; }
         public EventHandler<View.LayoutChangeEventArgs>? LayoutChangedHandler { get; set; }

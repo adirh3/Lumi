@@ -77,6 +77,182 @@ validator has positive and negative regression tests in `QaCoreCoverageTests`.
 `summary.json` includes both results and links naturally to the adjacent TRX and
 logs. The script returns nonzero on an incomplete run; it does not retry tests.
 
+## Mobile smoothness benchmark
+
+`tools\mobile-smoothness\benchmark.py` drives the **same mobile views and deterministic,
+paged in-memory PC** in Android and the PWA. It never pairs with a real PC, reads a
+saved mobile profile, sends a model request, or changes a user's chats. The fixture
+has 1,800 chats, 6,000 logical turns, 72 models across providers, projects, and jobs.
+Only the production-sized initial transcript window is generated and loaded:
+plain conversation, rich markdown with compact work, and long highlighted code.
+The logical code history is tens of megabytes; it is not constructed in memory.
+
+The catalog covers transcript/chat-list/model-list **touch scrolling and flings**,
+switching to a different plain/rich/code chat, opening model/project/title sheets,
+and moving between Chats, Jobs, Customize, and Settings. Setup, warmups and initial
+scroll positioning are excluded. Model opening uses a draft, as the compact
+composer exposes its model while composing. Measured input goes through Chromium's
+trusted touch injection or Android's native touchscreen input, not command execution
+or direct scroll-offset changes.
+The host marks the input batch finished only after every injected tap/stroke has
+completed. A quiet gap between strokes cannot end recording early; settling and
+coverage checks run after that marker. Multi-stroke content cadence includes
+gesture boundaries, so read it alongside UI-frame gaps and input/readiness
+latency rather than treating every content gap as a UI-thread stall.
+
+Transcript scrolling uses four consecutive real strokes, including their fling,
+so it crosses turns that were not built during setup rather than only moving within
+one already-built answer. Composer scenarios cover a blank chat and each transcript
+kind. Native Android EditText and PWA DOM input events are observed at their host
+boundary because those editors do not route their touches through the Avalonia canvas.
+`composer-empty` runs first in each fresh app, without a focus warmup, to retain
+the first keyboard-opening cost. Other composer cases are warmed as configured.
+This is an app-cold tap, not a claim that Android's separate keyboard service or
+the device itself was restarted.
+
+`--filter scroll-reveal` specifically measures presentation hitches, not just
+motion within an already-built answer. A mixed, bounded page includes questions,
+submitted forms, tool rows, terminals, file chips and activity cards. Twelve real
+strokes must cross at least three new turns in `scroll-reveal-cold`; the retained
+case first visits the page and must return to at least three turns with no cold
+builds. Missing coverage fails the action. Each turn's cold/retained activation
+and measured layout duration are correlated with frame timestamps in `presentations`.
+These diagnostics do not claim that a layout ending is the physical display's paint.
+
+### Build and run
+
+Use optimized, explicitly instrumented builds. Normal Release builds do not include
+the fixture or its control endpoint. Debug builds can verify scenarios but are not
+an optimized performance baseline.
+
+```powershell
+python -m pip install -r tools\mobile-smoothness\requirements.txt
+
+# Publish to a NEW directory; never mix reference and candidate assets.
+dotnet publish src\Lumi.Mobile.Browser\Lumi.Mobile.Browser.csproj `
+  -c Release -p:LumiMobileSmoothness=true -o C:\bench\reference-pwa
+
+python tools\mobile-smoothness\benchmark.py --platform pwa `
+  --web-root C:\bench\reference-pwa\wwwroot `
+  --browser-exe "C:\Program Files\Google\Chrome\Application\chrome.exe" `
+  --output C:\bench\pwa-reference
+
+# The APK has its OWN com.lumi.mobile.smoothness package and in-memory settings.
+# Use android-arm64 for a phone, android-x64 for an x64 emulator.
+dotnet publish src\Lumi.Mobile.Android\Lumi.Mobile.Android.csproj `
+  -c Release -f net10.0-android -r android-x64 -p:LumiMobileSmoothness=true `
+  -p:AndroidSdkDirectory="$env:LOCALAPPDATA\Android\Sdk" `
+  -p:JavaSdkDirectory="$env:JAVA_HOME" -o C:\bench\reference-android
+
+python tools\mobile-smoothness\benchmark.py --platform android `
+  --adb "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" `
+  --serial emulator-5554 `
+  --apk C:\bench\reference-android\com.lumi.mobile.smoothness-Signed.apk `
+  --output C:\bench\android-reference
+
+python -m unittest discover -s tools\mobile-smoothness -p "test_*.py"
+dotnet test tests\Lumi.Mobile.Tests\Lumi.Mobile.Tests.csproj `
+  --filter "FullyQualifiedName~MobileSmoothness"
+```
+
+The driver verifies the isolated APK's package with the SDK's `aapt2` **before**
+installing it, forwards a loopback-only diagnostic port, and stops only that
+benchmark package afterwards. The emulator/device must already be booted and
+unlocked. It does not start, reset, reconfigure or kill other emulators.
+The simulator also supports `--mobile-smoothness --isolated --device "Pixel 8 Pro"`
+for inspecting the shared fixture; its window is not an Android/PWA timing result.
+
+`--filter scroll`, `--filter switch`, `--filter popup`, `--filter nav`, and
+`--filter composer` select
+catalog prefixes (comma-separated). The default is three fresh app/browser runs
+with one unmeasured warmup per action. `--repeats` cannot be less than three.
+The PWA uses an actual headed browser surface with a fixed 390 × 844 CSS/DIP
+app viewport, not emulated browser DPR. `--width`, `--height`, and an optional
+native Chromium `--dpr` override select a form factor. `--workerframes 1` exercises
+worker presentation separately from the default normal renderer. `--refresh-hz`
+can require a known refresh mode instead of silently accepting a different one.
+
+### What the numbers mean
+
+- **Input to content ready:** the real touch's arrival in the app to the first
+  frame opportunity where the intended destination has valid layout/content.
+  It includes the normal loading path, not the setup. It is **not hardware
+  input-to-photon latency**; scanout, touch-controller delay and pixel response
+  require an external camera or platform presentation trace with content correlation.
+- **Content frame gaps:** changing transcript offsets sampled at UI frame
+  opportunities. A busy UI cannot look smooth merely because an unrelated glow
+  keeps drawing. Scrolling also records travel and the viewport's unbuilt fraction
+  (p95, maximum and time-weighted exposure); a short blank interval cannot disappear
+  simply because it occupies less than five percent of the samples.
+- **Composer/keyboard:** real touch to the first UI frame observing editor focus,
+  native IME request and the
+  OS-reported keyboard inset are separate timings. The latter is not the first
+  visible keyboard pixel or a measurement of the keyboard service's animation.
+  Composer readiness additionally waits for the inset animation to settle and
+  verifies that the laid-out composer is above the keyboard; the first tiny
+  inset is not misreported as a fully ready keyboard/composer.
+  A desktop-hosted PWA has no soft keyboard: its focus latency is measured, while
+  keyboard timings are explicitly unavailable. Android must actually request and
+  report an open keyboard or the action fails; hardware-keyboard-only runs do not pass.
+- **Rendered output:** Android's actual presentation timestamps for the exact
+  Avalonia SurfaceView, collected from SurfaceFlinger; PWA WebGL command batches
+  and the headed browser's compositor swaps are separate channels. Neither a
+  JavaScript/worker clock nor a GL call count alone is called physical-panel FPS.
+  A discrete action with only one redraw has no frame-cadence statistic, not
+  a fictitious zero. Continuous scrolling requires multiple rendered frames.
+- **Refresh-relative pacing:** gaps, missed-refresh estimates, over-50-ms hitches,
+  and excess-gap time accompany readiness, not just average FPS. Raw timestamp
+  samples, per-action JSON, native surface dumps/browser traces and before/after
+  content screenshots are retained, including failures.
+
+The PWA calibrates its clock on a separate visible animation before loading Lumi,
+checks actual canvas/DPR geometry, and rejects hidden/throttled runs. Android
+requires one unambiguous app surface and rejects a changed refresh mode or an
+incomplete/wrapped frame collector. Both verify that the gesture changed real
+content, preserve production paging, and run a **known 120-ms stall**: recorded
+frame gaps must span its exact injected interval. Missing input, missing frames,
+unreachable controls, incorrect destinations, timeout, malformed output, or
+changed build bytes produce incomplete evidence, never a pass.
+Android rejects a polling gap long enough for SurfaceFlinger's 128-frame history
+to wrap. A disconnected/invalid loopback diagnostic request is logged and closed
+without disabling the controller for the next run.
+
+### Comparing changes
+
+Freeze a reference build **with the same harness** before optimizing. Use the same
+device, browser binary/version, viewport, scale, renderer, refresh mode, fixture,
+warmups and categories, without concurrent builds/tests or another workload.
+Repeat reference/candidate runs in alternating order when quantifying a gain;
+do not compare desktop-browser rates directly with phone/emulator rates.
+
+```powershell
+python tools\mobile-smoothness\benchmark.py `
+  --compare C:\bench\pwa-reference\report.json C:\bench\pwa-candidate\report.json `
+  --output C:\bench\comparison
+```
+
+The report retains repeatability separately from completion: per-scenario
+content-gap p95 spread exceeding 20% is noisy, not a certified improvement.
+Discrete actions also require repeatable input-to-ready latency; regular frame
+opportunities alone cannot certify highly variable chat switching or keyboard opening.
+Per-action repeatability is retained alongside the overall result.
+Comparisons reject incomplete evidence, mismatched collectors/environments and
+unstable runs. **Exit 0** is a complete, repeatable run; **1** is incomplete or
+invalid evidence; **3** is a completed but non-repeatable run. Keep failed/noisy
+controls rather than selecting the fastest trial or relaxing the threshold.
+This host-sensitive development benchmark is not a new required PR/release gate.
+Fixture/build configuration comes from the app that actually ran, not a driver
+label. Warmup settings, geometry, runtime identity and refresh cadence must agree
+across every trial, not only the first. The input-batch marker changes the fixture
+contract to v5: freeze new matching references rather than comparing older reports
+to the reviewed collector.
+
+Touch moves may be coalesced while the UI is busy. The driver requires a real
+scroll gesture and sufficient travel, not an artificially high delivered-move
+count that would reject the very stalls being measured. The known stall is
+injected after sampled gesture activity begins, and verified against its exact
+frame interval.
+
 ## Real headed workflows
 
 The Debug responsiveness harness (`dotnet run --project src\Lumi\Lumi.csproj -- --ui-perf-harness --ui-perf-filter navigation`)

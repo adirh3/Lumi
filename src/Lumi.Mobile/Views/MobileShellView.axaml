@@ -352,13 +352,16 @@
             <ScrollViewer x:Name="ModelSheetScroll" Classes="mobile-scroll model-scroll" Padding="0,0,0,4"
                           HorizontalScrollBarVisibility="Disabled">
               <StackPanel x:Name="ModelSheetScrollContent">
-              <ItemsControl x:Name="ModelSheetList" ItemsSource="{Binding Chat.ModelGroups}">
-                <ItemsControl.ItemTemplate>
+              <ItemsControl x:Name="ModelSheetList" ItemsSource="{Binding Chat.ModelRows}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <VirtualizingStackPanel />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.DataTemplates>
                   <DataTemplate x:DataType="vm:ModelProviderGroup">
-                    <StackPanel>
-                      <TextBlock Text="{Binding Label}" Classes="sheet-label" />
-                      <ItemsControl ItemsSource="{Binding Options}">
-                        <ItemsControl.ItemTemplate>
+                    <TextBlock Text="{Binding Label}" Classes="sheet-label" />
+                  </DataTemplate>
                           <!-- One line per model, as on the desktop: a check for the current model, its name,
                                then cost and context size in right-aligned columns. The pin sits on the row's
                                trailing edge, always shown, since a phone has no pointer to reveal it. -->
@@ -394,11 +397,7 @@
                               </Button>
                             </Panel>
                           </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                      </ItemsControl>
-                    </StackPanel>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
+                </ItemsControl.DataTemplates>
               </ItemsControl>
               </StackPanel>
             </ScrollViewer>

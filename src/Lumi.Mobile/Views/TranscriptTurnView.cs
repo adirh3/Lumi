@@ -1,5 +1,8 @@
 using System.Collections.Specialized;
 using System.Collections.ObjectModel;
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+using System.Diagnostics;
+#endif
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -37,8 +40,12 @@ internal sealed class TranscriptTurnView : Decorator
     private bool _updateQueued;
     private bool _registeredAnchor;
     private int _version;
+    private Action? _updateAction;
 
     internal bool IsRealized => _items?.IsVisible == true;
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+    internal static event Action<TranscriptTurnView, string, double>? PresentationMeasured;
+#endif
 
     internal bool IsReadyForEntrance =>
         !_updateQueued && (!IsNearViewport || _turn?.DisplayItems.Count == 0
@@ -76,6 +83,7 @@ internal sealed class TranscriptTurnView : Decorator
     protected override void OnDataContextChanged(EventArgs e)
     {
         _version++;
+        _updateAction = null;
         _updateQueued = false;
         _chat?.CancelRealization(this);
         if (_attached && _turn is not null)
@@ -106,6 +114,7 @@ internal sealed class TranscriptTurnView : Decorator
     {
         _attached = false;
         _version++;
+        _updateAction = null;
         _updateQueued = false;
         _chat?.CancelRealization(this);
         _chat = null;
@@ -123,8 +132,15 @@ internal sealed class TranscriptTurnView : Decorator
         if (!IsRealized)
             return new Size(double.IsFinite(availableSize.Width) ? availableSize.Width : 0, _reservedHeight);
 
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+        var started = PresentationMeasured is null ? 0 : Stopwatch.GetTimestamp();
+#endif
         var measured = base.MeasureOverride(availableSize);
         _reservedHeight = measured.Height;
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+        if (started != 0)
+            PresentationMeasured?.Invoke(this, "measure", Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+#endif
         return measured;
     }
 
@@ -139,36 +155,54 @@ internal sealed class TranscriptTurnView : Decorator
         if (!_attached || _updateQueued)
             return;
         _updateQueued = true;
-        var version = _version;
-        Dispatcher.UIThread.Post(() =>
+        if (_updateAction is null)
         {
-            if (!_attached || version != _version)
-                return;
-            _updateQueued = false;
-            SetAnchor(IsWithin(0));
-            var chat = _chat;
-            if (_turn is null || chat?.ShouldDeferTranscriptRealization == true || !IsWithin(RetainBand))
-            {
-                chat?.CancelRealization(this);
-                if (_items is not null)
-                    _items.IsVisible = false;
-            }
-            else if (IsRealized)
-            {
-                RefreshItems();
-            }
-            else if (chat is null || IsWithin(EntranceBand))
-            {
-                // Content about to be seen appears at once, never one turn per frame.
-                Realize();
-            }
-            else if (IsWithin(RealizeBand))
-            {
-                chat.RequestRealization(this);
-            }
-            chat?.QueueChatEntrance();
-        }, _turn?.DisplayItems.Any(item => item.HasPendingEntranceAnimation) == true
+            var version = _version;
+            _updateAction = () => ApplyQueuedUpdate(version);
+        }
+        Dispatcher.UIThread.Post(_updateAction, HasPendingEntrance()
             ? DispatcherPriority.Loaded : DispatcherPriority.Background);
+    }
+
+    private bool HasPendingEntrance()
+    {
+        if (_turn is null)
+            return false;
+        for (var i = 0; i < _turn.DisplayItems.Count; i++)
+        {
+            if (_turn.DisplayItems[i].HasPendingEntranceAnimation)
+                return true;
+        }
+        return false;
+    }
+
+    private void ApplyQueuedUpdate(int version)
+    {
+        if (!_attached || version != _version)
+            return;
+        _updateQueued = false;
+        SetAnchor(IsWithin(0));
+        var chat = _chat;
+        if (_turn is null || chat?.ShouldDeferTranscriptRealization == true || !IsWithin(RetainBand))
+        {
+            chat?.CancelRealization(this);
+            if (_items is not null)
+                _items.IsVisible = false;
+        }
+        else if (IsRealized)
+        {
+            RefreshItems();
+        }
+        else if (chat is null || IsWithin(EntranceBand))
+        {
+            // Content about to be seen appears at once, never one turn per frame.
+            Realize();
+        }
+        else if (IsWithin(RealizeBand))
+        {
+            chat.RequestRealization(this);
+        }
+        chat?.QueueChatEntrance();
     }
 
     /// <summary>Builds or restores this turn's content; false when there was nothing to do.</summary>
@@ -178,6 +212,10 @@ internal sealed class TranscriptTurnView : Decorator
             || _chat?.ShouldDeferTranscriptRealization == true)
             return false;
 
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+        var started = PresentationMeasured is null ? 0 : Stopwatch.GetTimestamp();
+        var cold = _items is null;
+#endif
         if (_items is null)
         {
             _items = new ItemsControl
@@ -193,6 +231,11 @@ internal sealed class TranscriptTurnView : Decorator
             RefreshItems();
         _items.IsVisible = true;
         _chat?.QueueChatEntrance();
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+        if (started != 0)
+            PresentationMeasured?.Invoke(this, cold ? "cold" : "retained",
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+#endif
         return true;
     }
 

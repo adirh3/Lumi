@@ -113,7 +113,7 @@
       usual setups sit on the composer they configure, where the thumb already is. The actions are the
       composer's own glass, so everything that can be tapped reads as one material.
     -->
-    <Style Selector="Border.welcome-mark">
+    <Style Selector="Grid#NoChatPlaceholder Border.welcome-mark">
       <Setter Property="Width" Value="56" />
       <Setter Property="Height" Value="56" />
       <!-- The icon's own rounded square, so the soft pool of its colour beneath follows its shape. -->
@@ -122,7 +122,7 @@
       <Setter Property="Margin" Value="0,0,0,18" />
       <Setter Property="BoxShadow" Value="0 12 30 -12 #B36C5CE7" />
     </Style>
-    <Style Selector="TextBlock.welcome-greeting">
+    <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-greeting">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeHeadline}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="LetterSpacing" Value="-0.5" />
@@ -131,7 +131,7 @@
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="TextBlock.welcome-brief">
+    <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-brief">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
       <Setter Property="LineHeight" Value="{DynamicResource Font.LineHeightMeta}" />
       <Setter Property="TextAlignment" Value="Center" />
@@ -154,7 +154,7 @@
     </Style>
 
     <!-- A starter: a calm glass pill, 42 dp drawn inside its 48 dp target, that fills the composer. -->
-    <Style Selector="Button.welcome-starter">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -165,28 +165,28 @@
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.welcome-starter /template/ Panel">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter /template/ Panel">
       <Setter Property="Background" Value="Transparent" />
     </Style>
-    <Style Selector="Button.welcome-starter /template/ Border#PART_Surface,
-                     Button.welcome-starter:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter /template/ Border#PART_Surface,
+                     Grid#NoChatPlaceholder Button.welcome-starter:pointerover /template/ Border#PART_Surface">
       <Setter Property="Margin" Value="0,3" />
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.welcome-starter /template/ Border#PART_FocusRing">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter /template/ Border#PART_FocusRing">
       <Setter Property="Margin" Value="-2,1" />
     </Style>
-    <Style Selector="Button.welcome-starter:pressed /template/ Border#PART_Surface">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
       <Setter Property="RenderTransform" Value="scale(0.96)" />
     </Style>
-    <Style Selector="Button.welcome-starter /template/ Border#PART_Aurora,
-                     Button.welcome-setup /template/ Border#PART_Aurora">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter /template/ Border#PART_Aurora,
+                     Grid#NoChatPlaceholder Button.welcome-setup /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Button.welcome-starter TextBlock.welcome-starter-label">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter TextBlock.welcome-starter-label">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
       <Setter Property="FontWeight" Value="Normal" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
@@ -195,11 +195,11 @@
       <Setter Property="MaxLines" Value="2" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
-    <Style Selector="Button.welcome-starter TextBlock.welcome-starter-glyph">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter TextBlock.welcome-starter-glyph">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.welcome-starter sc|StrataLineIcon">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter sc|StrataLineIcon">
       <Setter Property="Width" Value="18" />
       <Setter Property="Height" Value="18" />
       <Setter Property="StrokeThickness" Value="2" />
@@ -214,7 +214,7 @@
       the words in the composer to finish first. The row runs to the screen's edges, so the next pill
       peeks in and says the row scrolls. A pill is 36 dp drawn inside its 48 dp target.
     -->
-    <Style Selector="Button.follow-up">
+    <Style Selector="ScrollViewer#FollowUpSuggestions Button.follow-up">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Padding" Value="0" />
       <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
@@ -224,19 +224,19 @@
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.follow-up /template/ Border#PART_Surface,
-                     Button.follow-up:pointerover /template/ Border#PART_Surface,
-                     Button.follow-up:pressed /template/ Border#PART_Surface">
+    <Style Selector="ScrollViewer#FollowUpSuggestions Button.follow-up /template/ Border#PART_Surface,
+                     ScrollViewer#FollowUpSuggestions Button.follow-up:pointerover /template/ Border#PART_Surface,
+                     ScrollViewer#FollowUpSuggestions Button.follow-up:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="BoxShadow" Value="none" />
       <Setter Property="RenderTransform" Value="none" />
     </Style>
-    <Style Selector="Button.follow-up /template/ Border#PART_Aurora">
+    <Style Selector="ScrollViewer#FollowUpSuggestions Button.follow-up /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
     <!-- Each pill frosts what passes beneath it, as the working pill above the composer does. -->
-    <Style Selector="Panel.follow-up-glass">
+    <Style Selector="ScrollViewer#FollowUpSuggestions Panel.follow-up-glass">
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="RenderTransform" Value="scale(1)" />
       <Setter Property="Transitions">
@@ -245,10 +245,10 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.follow-up:pressed Panel.follow-up-glass">
+    <Style Selector="ScrollViewer#FollowUpSuggestions Button.follow-up:pressed Panel.follow-up-glass">
       <Setter Property="RenderTransform" Value="scale(0.96)" />
     </Style>
-    <Style Selector="Border.follow-up-pill">
+    <Style Selector="ScrollViewer#FollowUpSuggestions Border.follow-up-pill">
       <Setter Property="Height" Value="36" />
       <Setter Property="CornerRadius" Value="18" />
       <Setter Property="Padding" Value="12,0,15,0" />
@@ -263,10 +263,10 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.follow-up:pressed Border.follow-up-pill">
+    <Style Selector="ScrollViewer#FollowUpSuggestions Button.follow-up:pressed Border.follow-up-pill">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
     </Style>
-    <Style Selector="Path.follow-up-glyph">
+    <Style Selector="ScrollViewer#FollowUpSuggestions Path.follow-up-glyph">
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="14" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -276,7 +276,7 @@
       <Setter Property="StrokeLineCap" Value="Round" />
       <Setter Property="StrokeJoin" Value="Round" />
     </Style>
-    <Style Selector="TextBlock.follow-up-text">
+    <Style Selector="ScrollViewer#FollowUpSuggestions TextBlock.follow-up-text">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -286,14 +286,14 @@
 
     <!-- The setups' heading, as the desktop words it ("Start with"). The row beneath runs to the screen's
          edges, so a card scrolls in from beyond them. -->
-    <Style Selector="TextBlock.welcome-label">
+    <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-label">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="Margin" Value="18,0,18,8" />
     </Style>
     <!-- A setup: a glass card on the composer with the desktop tile's mark, its place and how it runs. -->
-    <Style Selector="Button.welcome-setup">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -305,29 +305,29 @@
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.welcome-setup /template/ Border#PART_Surface,
-                     Button.welcome-setup:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup /template/ Border#PART_Surface,
+                     Grid#NoChatPlaceholder Button.welcome-setup:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
       <Setter Property="ClipToBounds" Value="False" />
     </Style>
-    <Style Selector="Button.welcome-setup:pressed /template/ Border#PART_Surface">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlassPressed}" />
       <Setter Property="RenderTransform" Value="scale(0.97)" />
     </Style>
-    <Style Selector="Button.welcome-setup.selected /template/ Border#PART_Surface">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup.selected /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSelection}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Border.welcome-setup-mark">
+    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-mark">
       <Setter Property="Width" Value="36" />
       <Setter Property="Height" Value="36" />
       <Setter Property="CornerRadius" Value="12" />
       <Setter Property="Background" Value="{DynamicResource Brush.RowTile}" />
     </Style>
-    <Style Selector="Border.welcome-setup-mark TextBlock">
+    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-mark TextBlock">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="HorizontalAlignment" Value="Center" />
@@ -335,7 +335,7 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
     <!-- Applied: a small accent check settles on the mark, cut out of the card by a ring of its fill. -->
-    <Style Selector="Border.welcome-setup-check">
+    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-check">
       <Setter Property="Width" Value="18" />
       <Setter Property="Height" Value="18" />
       <Setter Property="CornerRadius" Value="9" />
@@ -354,11 +354,11 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.welcome-setup.selected Border.welcome-setup-check">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup.selected Border.welcome-setup-check">
       <Setter Property="Opacity" Value="1" />
       <Setter Property="RenderTransform" Value="scale(1)" />
     </Style>
-    <Style Selector="Border.welcome-setup-check sc|StrataLineIcon">
+    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-check sc|StrataLineIcon">
       <Setter Property="Width" Value="11" />
       <Setter Property="Height" Value="11" />
       <Setter Property="StrokeThickness" Value="3" />
@@ -366,20 +366,20 @@
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
     </Style>
-    <Style Selector="TextBlock.welcome-setup-title">
+    <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-setup-title">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="TextWrapping" Value="NoWrap" />
     </Style>
-    <Style Selector="TextBlock.welcome-setup-meta">
+    <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-setup-meta">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="TextWrapping" Value="NoWrap" />
     </Style>
-    <Style Selector="Button.welcome-setup.selected TextBlock.welcome-setup-meta">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup.selected TextBlock.welcome-setup-meta">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
     </Style>
 
@@ -389,10 +389,10 @@
       <Setter Property="HorizontalAlignment" Value="Center" />
     </Style>
 
-    <Style Selector="Button.answer-action /template/ Border#PART_Aurora">
+    <Style Selector="StackPanel#AnswerActions Button.answer-action /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Button.answer-action">
+    <Style Selector="StackPanel#AnswerActions Button.answer-action">
       <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
       <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
       <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
@@ -406,22 +406,22 @@
     </Style>
     <!-- Each glyph sits at the edge its target shares with the next, so the glyphs are a short step
          apart while every target stays 48dp; the footer then follows a short step after the last. -->
-    <Style Selector="Button.answer-action.leading">
+    <Style Selector="StackPanel#AnswerActions Button.answer-action.leading">
       <Setter Property="Padding" Value="18,0,0,0" />
     </Style>
-    <Style Selector="StackPanel.answer-actions TextBlock.answer-footer">
+    <Style Selector="StackPanel#AnswerActions.answer-actions TextBlock.answer-footer">
       <Setter Property="Margin" Value="6.5,0,0,0" />
     </Style>
-    <Style Selector="StackPanel.answer-actions.can-share TextBlock.answer-footer">
+    <Style Selector="StackPanel#AnswerActions.answer-actions.can-share TextBlock.answer-footer">
       <Setter Property="Margin" Value="-11.5,0,0,0" />
     </Style>
-    <Style Selector="Button.answer-action /template/ Border#PART_Surface,
-                     Button.answer-action:pointerover /template/ Border#PART_Surface,
-                     Button.answer-action:pressed /template/ Border#PART_Surface">
+    <Style Selector="StackPanel#AnswerActions Button.answer-action /template/ Border#PART_Surface,
+                     StackPanel#AnswerActions Button.answer-action:pointerover /template/ Border#PART_Surface,
+                     StackPanel#AnswerActions Button.answer-action:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="RenderTransform" Value="none" />
     </Style>
-    <Style Selector="Panel.answer-glyph-host">
+    <Style Selector="StackPanel#AnswerActions Panel.answer-glyph-host">
       <Setter Property="Width" Value="30" />
       <Setter Property="Height" Value="30" />
       <Setter Property="RenderTransform" Value="scale(1)" />
@@ -432,18 +432,18 @@
       </Setter>
     </Style>
     <!-- A press lights a small circle around the glyph, not the whole target. -->
-    <Style Selector="Border.answer-halo">
+    <Style Selector="StackPanel#AnswerActions Border.answer-halo">
       <Setter Property="CornerRadius" Value="15" />
       <Setter Property="Background" Value="Transparent" />
     </Style>
-    <Style Selector="Button.answer-action:pressed Border.answer-halo">
+    <Style Selector="StackPanel#AnswerActions Button.answer-action:pressed Border.answer-halo">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
     </Style>
-    <Style Selector="Button.answer-action:pressed Panel.answer-glyph-host">
+    <Style Selector="StackPanel#AnswerActions Button.answer-action:pressed Panel.answer-glyph-host">
       <Setter Property="RenderTransform" Value="scale(0.92)" />
     </Style>
     <!-- The desktop's message actions: its stroked copy and share glyphs, drawn in their 16-unit box. -->
-    <Style Selector="Button.answer-action Viewbox">
+    <Style Selector="StackPanel#AnswerActions Button.answer-action Viewbox">
       <Setter Property="Width" Value="19" />
       <Setter Property="Height" Value="19" />
       <Setter Property="RenderTransform" Value="scale(1)" />
@@ -454,24 +454,24 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.answer-action Path.answer-glyph">
+    <Style Selector="StackPanel#AnswerActions Button.answer-action Path.answer-glyph">
       <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
       <Setter Property="StrokeThickness" Value="1.3" />
       <Setter Property="StrokeLineCap" Value="Round" />
       <Setter Property="StrokeJoin" Value="Round" />
     </Style>
-    <Style Selector="Button.answer-action Viewbox.copied-glyph">
+    <Style Selector="StackPanel#AnswerActions Button.answer-action Viewbox.copied-glyph">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="RenderTransform" Value="scale(0.6)" />
     </Style>
-    <Style Selector="Button.answer-action Viewbox.copied-glyph Path.answer-glyph">
+    <Style Selector="StackPanel#AnswerActions Button.answer-action Viewbox.copied-glyph Path.answer-glyph">
       <Setter Property="Stroke" Value="{DynamicResource Brush.SuccessDefault}" />
     </Style>
-    <Style Selector="Button.answer-action.copied Viewbox.copy-glyph">
+    <Style Selector="StackPanel#AnswerActions Button.answer-action.copied Viewbox.copy-glyph">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="RenderTransform" Value="scale(0.6)" />
     </Style>
-    <Style Selector="Button.answer-action.copied Viewbox.copied-glyph">
+    <Style Selector="StackPanel#AnswerActions Button.answer-action.copied Viewbox.copied-glyph">
       <Setter Property="Opacity" Value="1" />
       <Setter Property="RenderTransform" Value="scale(1)" />
     </Style>
@@ -808,6 +808,7 @@
     <DataTemplate DataType="vm:UserTurnItemViewModel">
       <StackPanel Spacing="4" Margin="48,16,0,6">
         <sc:StrataChatMessage x:Name="UserMessageBubble" Role="User" Classes="mobile-message"
+                              Theme="{StaticResource StrataChatMessage.Hosted}"
                               HorizontalAlignment="Right"
                               Author="{Binding Author}"
                               Timestamp="{Binding TimestampText}"

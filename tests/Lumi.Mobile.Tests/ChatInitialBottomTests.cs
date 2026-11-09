@@ -17,6 +17,44 @@ namespace Lumi.Mobile.Tests;
 public sealed class ChatInitialBottomTests(ITestOutputHelper output)
 {
     [Fact]
+    public async Task ViewportUpdatesReuseTheirCallbackAndInvalidateItForAnotherTurn()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MobileShellViewModel(
+                store: session.NewStore(), post: action => action());
+            var view = new ChatDetailView { DataContext = model };
+            var window = new Window { Width = 412, Height = 892, Content = view };
+            window.Show();
+            try
+            {
+                await OpenChatAsync(model, Guid.NewGuid());
+                var transcript = view.FindControl<ItemsControl>("Transcript")!;
+                var turn = TurnView(transcript, 23);
+                var callbackField = typeof(TranscriptTurnView).GetField("_updateAction",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                var callback = Assert.IsType<Action>(callbackField.GetValue(turn));
+                for (var update = 0; update < 4; update++)
+                {
+                    turn.QueueUpdate();
+                    await PumpAsync();
+                    Assert.Same(callback, callbackField.GetValue(turn));
+                }
+
+                turn.QueueUpdate();
+                var replacement = model.Chat.Turns[22];
+                turn.DataContext = replacement;
+                var newCallback = Assert.IsType<Action>(callbackField.GetValue(turn));
+                Assert.NotSame(callback, newCallback);
+                await PumpAsync();
+                Assert.Same(replacement, Assert.IsType<ItemsControl>(turn.Child).DataContext);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task EmptyTurnRealizesWhenItsFirstContentArrives()
     {
         using var session = HeadlessMobileSession.Start();

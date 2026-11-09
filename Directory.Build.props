@@ -2,5 +2,7 @@
   <PropertyGroup>
     <!-- Keep Avalonia peers aligned; DataGrid is pinned separately in Directory.Build.targets. -->
     <AvaloniaVersion>12.1.4</AvaloniaVersion>
+    <!-- Opt-in diagnostics keep mobile benchmarks representative of optimized Release builds. -->
+    <DefineConstants Condition="'$(LumiMobileSmoothness)' == 'true'">$(DefineConstants);LUMI_MOBILE_SMOOTHNESS</DefineConstants>
   </PropertyGroup>
 </Project>
