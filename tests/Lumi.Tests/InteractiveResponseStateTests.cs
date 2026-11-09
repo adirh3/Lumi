@@ -100,10 +100,38 @@ public class InteractiveResponseStateTests
         var submitted = new InteractiveState { CheckedIds = ["one"] };
         InteractiveResponseState.Update(message, "prep", submitted.ToJson());
         InteractiveResponseState.Update(message, "prep", new InteractiveState { CheckedIds = ["one", "two"] }.ToJson());
-        InteractiveResponseState.Acknowledge(message, "prep", "remaining", submitted);
+        InteractiveResponseState.Acknowledge(message, "prep", InteractiveResponseState.FindDefinition(message, "prep"), "remaining", submitted);
         var state = InteractiveState.Parse(message.InteractionStates!["prep"]);
         Assert.Equal(2, state.CheckedIds.Count);
         Assert.Null(state.SubmittedFingerprint);
+    }
+
+    [Fact]
+    public void AnExplorerActionStaysSentWhenOnlyTheViewChangedWhileSending()
+    {
+        var message = new ChatMessage
+        {
+            Role = "assistant",
+            Content = """
+                ```explorer
+                {"id":"tvs","title":"TVs","attributes":[{"id":"price","label":"Price","type":"money","unit":"USD"}],"items":[{"id":"a","label":"TV A","values":{"price":999}},{"id":"b","label":"TV B","values":{"price":1299}}]}
+                ```
+                """
+        };
+        var definition = InteractiveResponseState.FindDefinition(message, "tvs");
+        var submitted = new InteractiveState { SelectedIds = ["a"] };
+        InteractiveResponseState.Update(message, "tvs", submitted.ToJson());
+        // Switching to the table changes nothing the request sent; picking another option would.
+        InteractiveResponseState.Update(message, "tvs",
+            new InteractiveState { SelectedIds = ["a"], Values = { ["view"] = "table" } }.ToJson());
+        InteractiveResponseState.Acknowledge(message, "tvs", definition, "use", submitted);
+
+        var state = InteractiveState.Parse(message.InteractionStates!["tvs"]);
+        Assert.Equal("table", state.Values["view"]);
+        Assert.NotNull(state.SubmittedFingerprint);
+        Assert.Equal(state.SentFingerprint(definition, "use"), state.SubmittedFingerprint);
+        Assert.NotEqual(state.SubmittedFingerprint,
+            (state with { SelectedIds = ["a", "b"] }).SentFingerprint(definition, "use"));
     }
 
     [Fact]

@@ -34,7 +34,7 @@ Quick links: [AI accounts](#ai-accounts), [voice input](#voice-input),
 - **System tray** — Minimize to tray with global hotkey for instant access. On macOS, clicking the Dock icon or opening Lumi again restores the hidden window and keeps the current chat, draft, and maximized or full-screen state. Quit and operating-system shutdown still exit normally when minimize-to-tray is enabled.
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
 - **Inline images** — Local and online images render directly in chat, including inside Markdown table cells. Local paths can contain spaces or URI-escaped spaces (`%20`). Use the expand button in an image's top-right corner to view it full screen; press Esc or the close button to return
-- **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback
+- **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, option explorers for researched products, stays, and plans (cards or a sortable table, filters, details, and side-by-side comparison), what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback
 - **MCP Apps & canvases** — Connector-provided interactive apps and Copilot canvas extensions open in Workspace, with lightweight reopen cards in the transcript. App tool calls reuse the chat's Copilot connection; canvas behavior and data stay with the extension.
 - **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
 - **Localization** — English, Hebrew, Spanish, Brazilian Portuguese, Simplified Chinese, German, French, Japanese, Korean and Arabic. Choose a language in Settings and restart to apply it; Hebrew and Arabic use right-to-left layouts.
@@ -364,6 +364,21 @@ repeated footnotes.
   the unchecked items; a user checkmark never claims that Lumi executed or verified a task.
 - **Choices** are selectable cards you can **Use selected** or **Compare** (two or more). A filter
   appears for longer lists; filtering is local and does not discard selections.
+- **Option explorers** hold the options Lumi researched for you — TVs, hotels, flights,
+  restaurants, plans — when they share details such as price, rating, or specs. Options appear as
+  picture cards, or as a table you can sort by any column when there are many without pictures.
+  Pictures come from each option's link, the way a messaging app previews a link you share (or
+  from a photo Lumi found); an option whose site offers no preview shows its initials instead. On
+  your phone, your PC finds the pictures and sends them along, so the phone never visits those sites.
+  **Filters** are built from the details: chips for short values (a panel type, a neighborhood),
+  **Must have** chips for features, and sliders such as *Up to $1,500* or *4.5 and up*; search
+  narrows them further. Open an option for its photo, summary, pros and cons, and full details, and
+  step through options with the arrows (or the arrow keys). Tap **+** on up to four options to
+  **Compare** them side by side: the best value in each row is marked and a short bar shows where
+  each one stands, and **Only differences** hides the rows they share. **Continue with selected**
+  and **Help me decide** send your picks to Lumi; when your filters leave two or fewer options,
+  **Find more like these** asks Lumi to research more that match them. Views, filters, sort, and
+  picks are saved with the answer; they are never a purchase or a booking.
 - **Calculators** recalculate locally with a headline result: bill splitting, a monthly budget with
   an allocation bar, savings projections with a growth chart, a fixed-rate **loan/mortgage**
   payment with its principal/interest split, and recipe quantities in kitchen-friendly fractions.
@@ -396,7 +411,7 @@ Desktop and mobile share the controls. Touch forms use larger targets and bottom
 older desktop hosts remain usable for local previews but cannot save or submit the new interactions.
 
 The LLM-facing schemas and selection guidance live in `SystemPromptBuilder`. Native JSON fences
-are `form`, `checklist`, `results`, `calculator`, and `quiz`, with a stable `id` unique
+are `form`, `checklist`, `results`, `calculator`, `quiz`, and `explorer`, with a stable `id` unique
 within the answer. Definitions are declarative; arbitrary scripts or formula execution are not
 supported. Malformed completed definitions show an explicit error and their source rather than
 silently becoming an empty response.

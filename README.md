@@ -275,7 +275,7 @@ usable.
 | <a id="automated-qa"></a>Automated QA | [Deterministic merge checks, headed workflows and evidence](docs/testing.md) |
 | <a id="voice-input"></a>Voice input | [On-device dictation, models and microphone setup](docs/user-guide.md#voice-input) |
 | <a id="mcp-apps-and-copilot-canvases"></a>MCP Apps and Copilot canvases | [Workspace apps, bridge and trust boundaries](docs/user-guide.md#mcp-apps-and-copilot-canvases) |
-| <a id="interactive-answers"></a>Interactive answers | [Forms, checklists, choices, calculators and quizzes](docs/user-guide.md#interactive-answers) |
+| <a id="interactive-answers"></a>Interactive answers | [Forms, checklists, choices, option explorers, calculators and quizzes](docs/user-guide.md#interactive-answers) |
 | <a id="csv-file-previews"></a>CSV file previews | [Table preview behavior and limits](docs/user-guide.md#csv-file-previews) |
 | <a id="navigation"></a>Navigation | [Pages, projects, memories and settings](docs/user-guide.md#navigation) |
 | <a id="customize-and-discover"></a>Customize and Discover | [Skills, agents, plugins and connectors](docs/user-guide.md#customize-and-discover) |

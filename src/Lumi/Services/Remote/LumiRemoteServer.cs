@@ -809,6 +809,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 case RemoteProtocol.Routes.MarkdownImage:
                     await HandleMarkdownImageAsync(context, cancellationToken).ConfigureAwait(false);
                     return;
+                case RemoteProtocol.Routes.ExplorerPicture:
+                    await HandleExplorerPictureAsync(context, cancellationToken).ConfigureAwait(false);
+                    return;
                 case RemoteProtocol.Routes.Command:
                     await HandleCommandAsync(context, device, cancellationToken).ConfigureAwait(false);
                     return;
@@ -1416,29 +1419,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             return;
         }
 
-        var capture = await Dispatcher.UIThread.InvokeAsync(() =>
-        {
-            var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
-            if (chat is null)
-                return new MarkdownImageCapture(null, null, null, null);
-
-            var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
-            IReadOnlyList<ChatMessage>? messages =
-                owner?.CurrentChat?.Id == chatId
-                    ? owner.Messages.Select(item => item.Message).ToList()
-                    : chat.Messages.Count > 0
-                        ? chat.Messages
-                        : null;
-            var message = messages?.FirstOrDefault(candidate =>
-                candidate.Id == messageId);
-            return new MarkdownImageCapture(
-                chat,
-                message?.Content,
-                message?.Role,
-                messages?.Select(CloneMessageForRemote).ToList());
-        });
-
-        if (capture.Chat is null)
+        var capture = await CaptureImageMessageAsync(chatId, messageId, cancellationToken).ConfigureAwait(false);
+        if (capture is null)
         {
             await WriteErrorAsync(context, 404, Loc.Remote_ChatNotFound, cancellationToken)
                 .ConfigureAwait(false);
@@ -1447,17 +1429,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
         var content = capture.Content;
         var role = capture.Role;
-        if ((content is null || role is null)
-            && await _dataStore.FindStoredMessageAsync(chatId, messageId, cancellationToken).ConfigureAwait(false)
-                is { Message: var stored })
-        {
-            content ??= stored.Content;
-            role ??= stored.Role;
-        }
-
-        var authorizedPaths = _dataStore.PersistsTranscripts
-            ? await GetAuthorizedImagePathsAsync(chatId, capture.LoadedMessages, cancellationToken).ConfigureAwait(false)
-            : RemoteMarkdownImageFiles.BuildAuthorizedPaths(capture.LoadedMessages ?? []);
+        var authorizedPaths = await GetAuthorizedImagePathsAsync(chatId, capture, cancellationToken).ConfigureAwait(false);
 
         var advertised = string.Equals(
                              role,
@@ -1555,6 +1527,200 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 file.Name,
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The message a phone asks a picture of: its text and role, live or stored, and the chat's loaded
+    /// messages, which can make local pictures showable. Null when the chat is gone.
+    /// </summary>
+    private async Task<MarkdownImageCapture?> CaptureImageMessageAsync(
+        Guid chatId,
+        Guid messageId,
+        CancellationToken cancellationToken)
+    {
+        var capture = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+            if (chat is null)
+                return new MarkdownImageCapture(null, null, null, null);
+
+            var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
+            IReadOnlyList<ChatMessage>? messages =
+                owner?.CurrentChat?.Id == chatId
+                    ? owner.Messages.Select(item => item.Message).ToList()
+                    : chat.Messages.Count > 0
+                        ? chat.Messages
+                        : null;
+            var message = messages?.FirstOrDefault(candidate =>
+                candidate.Id == messageId);
+            return new MarkdownImageCapture(
+                chat,
+                message?.Content,
+                message?.Role,
+                messages?.Select(CloneMessageForRemote).ToList());
+        });
+
+        if (capture.Chat is null)
+            return null;
+        if ((capture.Content is null || capture.Role is null)
+            && await _dataStore.FindStoredMessageAsync(chatId, messageId, cancellationToken).ConfigureAwait(false)
+                is { Message: var stored })
+        {
+            capture = capture with
+            {
+                Content = capture.Content ?? stored.Content,
+                Role = capture.Role ?? stored.Role
+            };
+        }
+        return capture;
+    }
+
+    private Task<IReadOnlySet<string>> GetAuthorizedImagePathsAsync(
+        Guid chatId,
+        MarkdownImageCapture capture,
+        CancellationToken cancellationToken) =>
+        _dataStore.PersistsTranscripts
+            ? GetAuthorizedImagePathsAsync(chatId, capture.LoadedMessages, cancellationToken)
+            : Task.FromResult(RemoteMarkdownImageFiles.BuildAuthorizedPaths(capture.LoadedMessages ?? []));
+
+    /// <summary>
+    /// The picture of one option in an answer's explorer, found here so the phone never reads the
+    /// pages its options link to. The option is named by its answer, block and id, never by address.
+    /// </summary>
+    private async Task HandleExplorerPictureAsync(
+        RemoteHttpContext context,
+        CancellationToken cancellationToken)
+    {
+        var blockId = context.Request.QueryValue("blockId");
+        var itemId = context.Request.QueryValue("itemId");
+        if (!Guid.TryParse(context.Request.QueryValue("chatId"), out var chatId)
+            || !Guid.TryParse(context.Request.QueryValue("messageId"), out var messageId)
+            || string.IsNullOrEmpty(blockId)
+            || string.IsNullOrEmpty(itemId))
+        {
+            await WriteErrorAsync(context, 400, Loc.Remote_InlineImageArgumentsRequired, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var capture = await CaptureImageMessageAsync(chatId, messageId, cancellationToken).ConfigureAwait(false);
+        if (capture is null)
+        {
+            await WriteErrorAsync(context, 404, Loc.Remote_ChatNotFound, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var picture = FindExplorerItem(capture, blockId, itemId) is { } item
+            ? await FindExplorerPictureAsync(chatId, capture, item, cancellationToken).ConfigureAwait(false)
+            : null;
+        if (picture is not { } found)
+        {
+            await WriteErrorAsync(context, 404, Loc.Remote_InlineImageUnavailable, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await using var stream = new MemoryStream(found.Content, writable: false);
+        await context.WriteStreamAsync(
+                stream,
+                found.Content.LongLength,
+                found.ContentType,
+                new Dictionary<string, string>
+                {
+                    ["Cache-Control"] = "private, max-age=86400",
+                    ["X-Content-Type-Options"] = "nosniff"
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>The option an answer's explorer shows, or null when the answer shows no such option.</summary>
+    private static InteractiveExplorerItem? FindExplorerItem(MarkdownImageCapture capture, string blockId, string itemId)
+    {
+        if (capture.Content is not { } content || capture.Role is not { } role)
+            return null;
+        try
+        {
+            return InteractiveResponseState.FindDefinition(new ChatMessage { Role = role, Content = content }, blockId)
+                is InteractiveExplorer explorer
+                ? explorer.Items.FirstOrDefault(item => item.Id == itemId)
+                : null;
+        }
+        catch (Exception ex) when (ex is FormatException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The option's picture as the desktop's explorer shows it: its own image (a web picture, or a local
+    /// one the chat made showable), else its link's preview while previews are on.
+    /// </summary>
+    private async Task<MarkdownImageDownload?> FindExplorerPictureAsync(
+        Guid chatId,
+        MarkdownImageCapture capture,
+        InteractiveExplorerItem item,
+        CancellationToken cancellationToken)
+    {
+        if (item.Image is { Length: > 0 } image)
+        {
+            if (RemoteMarkdownImageFiles.TryResolvePublicUri(image, out var remote))
+            {
+                if (await TryDownloadPublicPictureAsync(remote, cancellationToken).ConfigureAwait(false) is { } own)
+                    return own;
+            }
+            else if (RemoteMarkdownImageFiles.TryResolveAuthorizedPath(
+                         image,
+                         await GetAuthorizedImagePathsAsync(chatId, capture, cancellationToken).ConfigureAwait(false),
+                         out var path)
+                     && await TryReadLocalPictureAsync(path, cancellationToken).ConfigureAwait(false) is { } local)
+            {
+                return local;
+            }
+        }
+
+        if (!StrataInteractiveBlock.ShowsLinkPreviews
+            || await StrataMarkdown.GetLinkPreviewImageAsync(item.Url).ConfigureAwait(false) is not { } preview
+            || !RemoteMarkdownImageFiles.TryResolvePublicUri(preview, out var previewUri))
+        {
+            return null;
+        }
+        return await TryDownloadPublicPictureAsync(previewUri, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<MarkdownImageDownload?> TryDownloadPublicPictureAsync(
+        Uri uri,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await StrataMarkdown.DownloadPublicMarkdownImageAsync(uri, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidDataException or IOException
+                                   || ex is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<MarkdownImageDownload?> TryReadLocalPictureAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var file = new FileInfo(path);
+            if (!file.Exists || file.Length > RemoteProtocol.MaxMarkdownImageBytes)
+                return null;
+            return new MarkdownImageDownload(
+                await File.ReadAllBytesAsync(file.FullName, cancellationToken).ConfigureAwait(false),
+                RemoteMarkdownImageFiles.ImageContentType(file.FullName));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     private async Task HandleTranscriptAsync(RemoteHttpContext context, CancellationToken cancellationToken)

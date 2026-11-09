@@ -1,0 +1,620 @@
+{
+  "cases": [
+    {
+      "id": "tv-65-gaming",
+      "category": "explorer",
+      "prompt": "I'm looking for a 65-inch TV under $2,000, mostly for movies and PS5 gaming. What are my best options?",
+      "expect": ["explorer"],
+      "sources": [
+        {
+          "title": "The best 65-inch TVs of 2026 - RTINGS.com",
+          "url": "https://www.rtings.com/tv/reviews/best/by-size/65-inch",
+          "text": "Lab-tested picks. Mixed-usage scores: Samsung S90D (QD-OLED) 8.9/10, LG C4 (OLED) 8.8/10, Sony Bravia 8 (OLED) 8.6/10, TCL QM8 (Mini-LED) 8.5/10, Hisense U8N (Mini-LED) 8.4/10, Sony Bravia 7 (Mini-LED) 8.3/10. For PS5 gaming, the S90D and C4 take 4K at 144 Hz on all four HDMI 2.1 ports; both Sonys stop at 120 Hz on two HDMI 2.1 ports. The OLEDs have perfect blacks for movies; the Mini-LEDs are much brighter for daytime viewing."
+        },
+        {
+          "title": "Samsung 65\" Class S90D OLED 4K Smart TV - Best Buy",
+          "url": "https://www.bestbuy.com/site/samsung-65-class-s90d-oled-4k-smart-tizen-tv/6576523.p",
+          "text": "Price: $1,599.99 (was $2,199.99). Customer rating 4.7 out of 5 (2,184 reviews). QD-OLED panel, 144 Hz, 4 HDMI 2.1 ports, HDR10+ but no Dolby Vision. Peak HDR brightness about 1,000 nits. Product image: https://pisces.bbystatic.com/image2/BestBuy_US/images/products/6576/6576523_sd.jpg"
+        },
+        {
+          "title": "LG 65\" Class C4 Series OLED evo 4K Smart TV - Best Buy",
+          "url": "https://www.bestbuy.com/site/lg-65-class-c4-series-oled-evo-4k-smart-webos-tv/6578567.p",
+          "text": "Price: $1,699.99 (was $2,699.99). Customer rating 4.8 out of 5 (3,021 reviews). WOLED panel, 144 Hz, 4 HDMI 2.1 ports, Dolby Vision and HDR10. Peak HDR brightness about 900 nits. Product image: https://pisces.bbystatic.com/image2/BestBuy_US/images/products/6578/6578567_sd.jpg"
+        },
+        {
+          "title": "Sony BRAVIA 8 65\" OLED 4K HDR Google TV - Sony Electronics",
+          "url": "https://electronics.sony.com/tv-video/televisions/all-tvs/p/k65xr80",
+          "text": "Price: $1,999.99. Customer rating 4.6 out of 5 (410 reviews). OLED panel, 120 Hz, 2 HDMI 2.1 ports, Dolby Vision. Peak HDR brightness about 800 nits. Best-in-class motion processing and colour accuracy for movies."
+        },
+        {
+          "title": "TCL 65\" QM8 QD-Mini LED 4K Google TV (65QM851G) - Amazon.com",
+          "url": "https://www.amazon.com/dp/B0CVQL5K8X",
+          "text": "Price: $1,199.99. Customer rating 4.4 out of 5 (1,640 ratings). Mini-LED panel, 144 Hz, 2 HDMI 2.1 ports, Dolby Vision. Very bright: about 2,500 nits peak. Some blooming around bright objects in dark scenes."
+        },
+        {
+          "title": "Hisense 65\" U8N Mini-LED 4K Google TV (65U8N) - Amazon.com",
+          "url": "https://www.amazon.com/dp/B0CVFW9QZ8",
+          "text": "Price: $999.99. Customer rating 4.5 out of 5 (2,310 ratings). Mini-LED panel, 144 Hz, 2 HDMI 2.1 ports, Dolby Vision. About 2,000 nits peak."
+        },
+        {
+          "title": "Sony BRAVIA 7 65\" Mini LED 4K HDR Google TV - Sony Electronics",
+          "url": "https://electronics.sony.com/tv-video/televisions/all-tvs/p/k65xr70",
+          "text": "Price: $1,799.99. Customer rating 4.5 out of 5 (380 reviews). Mini-LED panel, 120 Hz, 2 HDMI 2.1 ports, Dolby Vision. About 1,300 nits peak."
+        }
+      ]
+    },
+    {
+      "id": "hotels-lisbon",
+      "category": "explorer",
+      "prompt": "Find me a hotel in Lisbon for 3 nights, May 14-17, for two adults. Budget around €200 a night, ideally walking distance to Alfama.",
+      "expect": ["explorer"],
+      "sources": [
+        {
+          "title": "Memmo Alfama Hotel - Booking.com",
+          "url": "https://www.booking.com/hotel/pt/memmo-alfama.html",
+          "text": "Boutique hotel in Alfama with a rooftop pool and river views. May 14-17, 2 adults: €218 per night (€654 total), breakfast included. Guest rating 9.1/10 (2,950 reviews). 0.1 km from Alfama. Free cancellation until May 10. Photo: https://cf.bstatic.com/xdata/images/hotel/max1024x768/memmo-alfama.jpg"
+        },
+        {
+          "title": "Santiago de Alfama - Boutique Hotel - Booking.com",
+          "url": "https://www.booking.com/hotel/pt/santiago-de-alfama.html",
+          "text": "Restored 15th-century palace in the heart of Alfama. May 14-17, 2 adults: €245 per night (€735 total), breakfast included. Guest rating 9.4/10 (1,120 reviews). In Alfama (0 km). Photo: https://cf.bstatic.com/xdata/images/hotel/max1024x768/santiago-de-alfama.jpg"
+        },
+        {
+          "title": "Hotel Convento do Salvador - Booking.com",
+          "url": "https://www.booking.com/hotel/pt/convento-do-salvador.html",
+          "text": "A converted 16th-century convent next to Alfama. May 14-17, 2 adults: €156 per night (€468 total); breakfast €12 per person extra. Guest rating 8.9/10 (1,840 reviews). 0.2 km from Alfama. Photo: https://cf.bstatic.com/xdata/images/hotel/max1024x768/convento-do-salvador.jpg"
+        },
+        {
+          "title": "My Story Hotel Tejo - Booking.com",
+          "url": "https://www.booking.com/hotel/pt/my-story-tejo.html",
+          "text": "Modern hotel in Baixa near Praça da Figueira. May 14-17, 2 adults: €172 per night (€516 total), breakfast included. Guest rating 8.6/10 (4,300 reviews). 0.9 km from Alfama."
+        },
+        {
+          "title": "Lisboa Pessoa Hotel - Booking.com",
+          "url": "https://www.booking.com/hotel/pt/lisboa-pessoa.html",
+          "text": "Design hotel in Chiado with a rooftop bar. May 14-17, 2 adults: €198 per night (€594 total); breakfast €18 per person extra. Guest rating 9.0/10 (2,210 reviews). 1.4 km from Alfama. Photo: https://cf.bstatic.com/xdata/images/hotel/max1024x768/lisboa-pessoa.jpg"
+        },
+        {
+          "title": "Browns Downtown - Booking.com",
+          "url": "https://www.booking.com/hotel/pt/browns-downtown.html",
+          "text": "Rooms in Baixa, near Rossio square. May 14-17, 2 adults: €139 per night (€417 total), breakfast not included. Guest rating 8.4/10 (3,560 reviews). 0.8 km from Alfama."
+        }
+      ]
+    },
+    {
+      "id": "laptop-dev",
+      "category": "explorer",
+      "prompt": "I need a new laptop for C# and .NET development, budget up to $1,800. Which ones should I consider?",
+      "expect": ["explorer"],
+      "sources": [
+        {
+          "title": "Dell XPS 14 (9440) review - PCMag",
+          "url": "https://www.pcmag.com/reviews/dell-xps-14-9440",
+          "text": "As tested: $1,699 with Intel Core Ultra 7 155H, 32 GB RAM, 1 TB SSD, 14.5-inch 3.2K OLED. Weight 1.68 kg. Battery: 12 hours in our video test. Rating 4.0 out of 5. Fast and well built, but the capacitive function row annoys some developers."
+        },
+        {
+          "title": "Lenovo ThinkPad X1 Carbon Gen 12 review - PCMag",
+          "url": "https://www.pcmag.com/reviews/lenovo-thinkpad-x1-carbon-gen-12",
+          "text": "As tested: $1,749 with Intel Core Ultra 7 165U, 32 GB RAM, 1 TB SSD, 14-inch 2.8K OLED. Weight 1.09 kg. Battery: 14 hours. Rating 4.5 out of 5. The best keyboard in a laptop; the U-series chip is slower in long builds."
+        },
+        {
+          "title": "Apple MacBook Pro 14 (M4) review - PCMag",
+          "url": "https://www.pcmag.com/reviews/apple-macbook-pro-14-inch-m4",
+          "text": "As tested: $1,599 with Apple M4 (10-core), 16 GB RAM, 512 GB SSD, 14.2-inch Liquid Retina XDR. Weight 1.55 kg. Battery: 22 hours. Rating 5.0 out of 5. .NET runs natively on macOS with Rider or VS Code; Visual Studio for Windows needs a Windows VM."
+        },
+        {
+          "title": "Asus Zenbook 14 OLED (UX3405) review - PCMag",
+          "url": "https://www.pcmag.com/reviews/asus-zenbook-14-oled-ux3405",
+          "text": "As tested: $1,099 with Intel Core Ultra 7 155H, 16 GB RAM, 1 TB SSD, 14-inch 3K OLED. Weight 1.2 kg. Battery: 13 hours. Rating 4.0 out of 5. Great value; RAM is soldered, so 16 GB is permanent."
+        },
+        {
+          "title": "Framework Laptop 13 (Intel Core Ultra) review - PCMag",
+          "url": "https://www.pcmag.com/reviews/framework-laptop-13-intel-core-ultra",
+          "text": "As tested: $1,399 with Intel Core Ultra 7 155H, 32 GB RAM, 1 TB SSD, 13.5-inch 2.8K display. Weight 1.3 kg. Battery: 9 hours. Rating 4.0 out of 5. Every part is replaceable and upgradeable."
+        },
+        {
+          "title": "HP Spectre x360 14 (2024) review - PCMag",
+          "url": "https://www.pcmag.com/reviews/hp-spectre-x360-14-2024",
+          "text": "As tested: $1,549 with Intel Core Ultra 7 155H, 32 GB RAM, 2 TB SSD, 14-inch 2.8K OLED touch screen. Weight 1.44 kg. Battery: 11 hours. Rating 4.0 out of 5. A convertible with a pen in the box."
+        }
+      ]
+    },
+    {
+      "id": "headphones-anc",
+      "category": "explorer",
+      "prompt": "What are the best noise-cancelling headphones for long flights? I don't want to spend more than $400.",
+      "expect": ["explorer"],
+      "sources": [
+        {
+          "title": "Sony WH-1000XM5 Wireless Noise Canceling Headphones - Best Buy",
+          "url": "https://www.bestbuy.com/site/sony-wh-1000xm5-wireless-noise-canceling-headphones/6505727.p",
+          "text": "Price: $329.99 (was $399.99). Customer rating 4.6 out of 5 (12,410 reviews). Battery: 30 hours with noise cancelling on. Weight 250 g. Multipoint Bluetooth. Does not fold."
+        },
+        {
+          "title": "Bose QuietComfort Ultra Headphones - Bose",
+          "url": "https://www.bose.com/p/headphones/bose-quietcomfort-ultra-headphones/QCUH-HEADPHONEARN.html",
+          "text": "Price: $379.00. Customer rating 4.5 out of 5 (6,830 reviews). Battery: 24 hours. Weight 254 g. The strongest noise cancelling in our tests. Folds into its case."
+        },
+        {
+          "title": "Sennheiser MOMENTUM 4 Wireless - Sennheiser",
+          "url": "https://www.sennheiser.com/en-us/catalog/products/headphones/momentum-4-wireless/momentum-4-wireless-black-509266",
+          "text": "Price: $279.95. Customer rating 4.4 out of 5 (2,970 reviews). Battery: 60 hours. Weight 293 g. Good noise cancelling and the best sound in its class. Folds flat."
+        },
+        {
+          "title": "Apple AirPods Max (USB-C) - Apple",
+          "url": "https://www.apple.com/shop/buy-airpods/airpods-max",
+          "text": "Price: $549.00. Customer rating 4.4 out of 5. Battery: 20 hours. Weight 385 g. Excellent noise cancelling; heavy for long flights. Does not fold."
+        },
+        {
+          "title": "Bose QuietComfort Headphones - Bose",
+          "url": "https://www.bose.com/p/headphones/bose-quietcomfort-headphones/QCH-HEADPHONEARN.html",
+          "text": "Price: $249.00 (was $349.00). Customer rating 4.5 out of 5 (9,140 reviews). Battery: 24 hours. Weight 240 g. Very comfortable; noise cancelling slightly behind the Ultra. Folds into its case."
+        },
+        {
+          "title": "Sony WH-1000XM4 Wireless Noise Canceling Headphones - Amazon.com",
+          "url": "https://www.amazon.com/dp/B0863TXGM3",
+          "text": "Price: $248.00. Customer rating 4.7 out of 5 (61,200 ratings). Battery: 30 hours. Weight 254 g. Folds into its case."
+        }
+      ]
+    },
+    {
+      "id": "flights-tlv-nyc",
+      "category": "explorer",
+      "prompt": "Find me flights from Tel Aviv to New York, leaving March 10 and coming back March 20. Economy, one adult.",
+      "expect": ["explorer"],
+      "sources": [
+        {
+          "title": "Tel Aviv (TLV) to New York, Mar 10 - Mar 20, 1 adult, economy - Google Flights",
+          "url": "https://www.google.com/travel/flights/search?tfs=TLV.NYC.2027-03-10.2027-03-20",
+          "text": "Round-trip prices: (1) El Al LY001, nonstop TLV-JFK, departs 00:40, 11 h 55 min, $1,185, one checked bag included. (2) United UA91, nonstop TLV-EWR, departs 23:55, 12 h 15 min, $1,212, carry-on only. (3) Delta DL235, nonstop TLV-JFK, departs 23:35, 12 h 5 min, $1,248, one checked bag. (4) Lufthansa via Frankfurt, 1 stop, 16 h 40 min, $842, one checked bag. (5) Turkish Airlines via Istanbul, 1 stop, 17 h 5 min, $698, two checked bags. (6) ITA Airways via Rome, 1 stop, 18 h 20 min, $764, one checked bag. Prices checked today; fares change often."
+        }
+      ]
+    },
+    {
+      "id": "robot-vacuum-pets",
+      "category": "explorer",
+      "prompt": "We have two dogs that shed a lot. Which robot vacuum should I buy?",
+      "expect": ["explorer"],
+      "sources": [
+        {
+          "title": "The best robot vacuums for pet hair in 2026 - TechRadar",
+          "url": "https://www.techradar.com/best/best-robot-vacuum-for-pet-hair",
+          "text": "Our tested picks: Roborock Qrevo Curv (best overall for hair; anti-tangle brush), Roborock S8 MaxV Ultra (best obstacle avoidance), iRobot Roomba Combo j9+ (avoids pet waste, guaranteed), Eufy X10 Pro Omni (best value), Dreame L20 Ultra (best mopping), Shark PowerDetect NeverTouch Pro (bagless base)."
+        },
+        {
+          "title": "Roborock Qrevo Curv - Roborock",
+          "url": "https://us.roborock.com/pages/roborock-qrevo-curv",
+          "text": "Price: $999.99. 18,500 Pa suction. Self-emptying, mop-washing dock. Anti-tangle side and main brushes. Customer rating 4.5 out of 5."
+        },
+        {
+          "title": "Roborock S8 MaxV Ultra - Roborock",
+          "url": "https://us.roborock.com/pages/roborock-s8-maxv-ultra",
+          "text": "Price: $1,399.99. 10,000 Pa suction. Self-emptying, mop-washing dock. AI obstacle avoidance with camera. Customer rating 4.6 out of 5."
+        },
+        {
+          "title": "iRobot Roomba Combo j9+ - iRobot",
+          "url": "https://www.irobot.com/en_US/roomba-combo-j9plus/C975020.html",
+          "text": "Price: $899.99. Suction not published in Pa (\"100x the power\"). Self-emptying base; mop retracts onto the top. Pet waste avoidance guarantee. Customer rating 4.3 out of 5."
+        },
+        {
+          "title": "eufy X10 Pro Omni - eufy",
+          "url": "https://www.eufy.com/products/t2351111",
+          "text": "Price: $599.99. 8,000 Pa suction. Self-emptying, mop-washing dock. Anti-tangle brush. Customer rating 4.4 out of 5."
+        },
+        {
+          "title": "Dreame L20 Ultra - Dreame",
+          "url": "https://www.dreametech.com/products/l20-ultra",
+          "text": "Price: $899.99. 7,000 Pa suction. Self-emptying dock that washes and dries the mops. Customer rating 4.3 out of 5."
+        },
+        {
+          "title": "Shark PowerDetect NeverTouch Pro 2-in-1 - Shark",
+          "url": "https://www.sharkclean.com/product/powerdetect-nevertouch-pro-rv2820zeus",
+          "text": "Price: $699.99. Suction not published in Pa. Bagless self-emptying base, mop pad. Customer rating 4.2 out of 5."
+        }
+      ]
+    },
+    {
+      "id": "restaurants-eilat",
+      "category": "explorer",
+      "prompt": "Can you recommend a nice restaurant in Eilat for our anniversary dinner this Thursday?",
+      "expect": ["explorer"],
+      "sources": [
+        {
+          "title": "Coral & Salt - Eilat - Google Maps",
+          "url": "https://maps.example.com/eilat/coral-and-salt",
+          "text": "Seafood restaurant on the north beach promenade. Rating 4.7 (1,930 reviews). About ₪260 per person. Sea view terrace. Not kosher. Open Thursday 18:00-23:30; reservations recommended."
+        },
+        {
+          "title": "Timna Terrace - Eilat - Google Maps",
+          "url": "https://maps.example.com/eilat/timna-terrace",
+          "text": "Chef's tasting menu of modern Israeli food. Rating 4.8 (860 reviews). About ₪420 per person. Sea and mountain view. Not kosher. Thursday seatings 19:00 and 21:30; reservation required."
+        },
+        {
+          "title": "HaOgen Grill - Eilat - Google Maps",
+          "url": "https://maps.example.com/eilat/haogen-grill",
+          "text": "Steakhouse in the marina. Rating 4.5 (2,410 reviews). About ₪310 per person. Marina view. Kosher. Open Thursday 12:00-23:00."
+        },
+        {
+          "title": "Desert Rose Bistro - Eilat - Google Maps",
+          "url": "https://maps.example.com/eilat/desert-rose-bistro",
+          "text": "Mediterranean bistro in the city centre. Rating 4.6 (1,270 reviews). About ₪190 per person. No sea view. Not kosher. Open Thursday 17:00-23:00."
+        },
+        {
+          "title": "Marina Sushi Bar - Eilat - Google Maps",
+          "url": "https://maps.example.com/eilat/marina-sushi-bar",
+          "text": "Japanese restaurant on the marina. Rating 4.4 (3,050 reviews). About ₪170 per person. Marina view. Kosher. Open Thursday 12:00-00:00."
+        },
+        {
+          "title": "Bella Napoli Eilat - Google Maps",
+          "url": "https://maps.example.com/eilat/bella-napoli",
+          "text": "Italian trattoria near the promenade. Rating 4.3 (2,880 reviews). About ₪120 per person. No sea view. Kosher. Open Thursday 12:00-23:00."
+        }
+      ]
+    },
+    {
+      "id": "pm-tools-team",
+      "category": "explorer",
+      "prompt": "We're a 10-person startup building a web app. Which project management tool should we use?",
+      "expect": ["explorer"],
+      "sources": [
+        {
+          "title": "Linear pricing",
+          "url": "https://linear.app/pricing",
+          "text": "Free plan up to 250 issues. Basic $8 per user per month, Business $14 per user per month (billed yearly). Built for software teams; deep GitHub and GitLab integration. G2 rating 4.6/5."
+        },
+        {
+          "title": "Jira pricing - Atlassian",
+          "url": "https://www.atlassian.com/software/jira/pricing",
+          "text": "Free for up to 10 users. Standard $7.53 per user per month. Scrum and Kanban boards, GitHub integration, steep learning curve. G2 rating 4.3/5."
+        },
+        {
+          "title": "Asana pricing",
+          "url": "https://asana.com/pricing",
+          "text": "Free for up to 10 users. Starter $10.99 per user per month (billed yearly). Strong for cross-team projects; GitHub integration available. G2 rating 4.4/5."
+        },
+        {
+          "title": "ClickUp pricing",
+          "url": "https://clickup.com/pricing",
+          "text": "Free Forever plan. Unlimited $7 per user per month (billed yearly). Very flexible, can feel cluttered. GitHub integration. G2 rating 4.7/5."
+        },
+        {
+          "title": "Notion pricing",
+          "url": "https://www.notion.com/pricing",
+          "text": "Free for individuals. Plus $10 per user per month (billed yearly). Docs and projects in one place; GitHub pull requests sync into databases. G2 rating 4.7/5."
+        },
+        {
+          "title": "monday.com pricing",
+          "url": "https://monday.com/pricing",
+          "text": "Free for up to 2 seats. Basic $9 per seat per month, minimum 3 seats (billed yearly). Visual boards; GitHub integration. G2 rating 4.7/5."
+        }
+      ]
+    },
+    {
+      "id": "ev-family",
+      "category": "explorer",
+      "prompt": "Which electric SUV should we get? We're a family of four, our budget is around $50,000, and range matters.",
+      "expect": ["explorer"],
+      "sources": [
+        {
+          "title": "Best electric SUVs of 2026 - Car and Driver",
+          "url": "https://www.caranddriver.com/rankings/best-cars/electric-suvs",
+          "text": "Tesla Model Y Long Range AWD: $47,990, EPA range 320 miles, 5 seats, 0-60 mph in 4.8 s, IIHS Top Safety Pick+. Hyundai Ioniq 5 SEL: $46,650, 318 miles, 5 seats, 0-60 in 7.0 s, Top Safety Pick+. Kia EV6 Wind AWD: $48,700, 290 miles, 5 seats, 0-60 in 5.1 s, Top Safety Pick+. Ford Mustang Mach-E Premium AWD: $48,995, 300 miles, 5 seats, 0-60 in 4.8 s. Chevrolet Equinox EV 2LT: $43,295, 319 miles, 5 seats, 0-60 in 7.9 s, Top Safety Pick+. Kia EV9 Light Long Range: $54,900, 305 miles, 7 seats, 0-60 in 8.2 s, Top Safety Pick+. Prices are starting MSRPs before incentives."
+        }
+      ]
+    },
+    {
+      "id": "washing-machine-he",
+      "category": "explorer",
+      "prompt": "אני מחפש מכונת כביסה עד 3,000 ₪ למשפחה של ארבע נפשות. מה האפשרויות הכי טובות?",
+      "expect": ["explorer"],
+      "sources": [
+        {
+          "title": "Samsung WW90T534DAW - זאפ השוואת מחירים",
+          "url": "https://www.zap.co.il/model.aspx?modelid=1103455",
+          "text": "מחיר החל מ-₪2,490. קיבולת 9 ק״ג, 1400 סל״ד, דירוג אנרגטי A, מנוע אינוורטר. דירוג גולשים 4.5 מתוך 5 (310 חוות דעת). אחריות 3 שנים."
+        },
+        {
+          "title": "LG F4V5RYP0W - זאפ השוואת מחירים",
+          "url": "https://www.zap.co.il/model.aspx?modelid=1121874",
+          "text": "מחיר החל מ-₪2,790. קיבולת 10.5 ק״ג, 1400 סל״ד, דירוג אנרגטי A, תוכנית אדים. דירוג גולשים 4.6 מתוך 5 (240 חוות דעת)."
+        },
+        {
+          "title": "Bosch WGG24409IL Serie 6 - זאפ השוואת מחירים",
+          "url": "https://www.zap.co.il/model.aspx?modelid=1114032",
+          "text": "מחיר החל מ-₪2,990. קיבולת 9 ק״ג, 1400 סל״ד, דירוג אנרגטי A, ללא אדים. דירוג גולשים 4.7 מתוך 5 (190 חוות דעת)."
+        },
+        {
+          "title": "Electrolux EW6F4R28WU PerfectCare 600 - זאפ השוואת מחירים",
+          "url": "https://www.zap.co.il/model.aspx?modelid=1098211",
+          "text": "מחיר החל מ-₪2,190. קיבולת 8 ק״ג, 1200 סל״ד, דירוג אנרגטי B. דירוג גולשים 4.3 מתוך 5 (150 חוות דעת)."
+        },
+        {
+          "title": "Beko WTV9636XS - זאפ השוואת מחירים",
+          "url": "https://www.zap.co.il/model.aspx?modelid=1087342",
+          "text": "מחיר החל מ-₪1,690. קיבולת 9 ק״ג, 1200 סל״ד, דירוג אנרגטי A. דירוג גולשים 4.2 מתוך 5 (420 חוות דעת)."
+        },
+        {
+          "title": "Whirlpool FFB 9469 - זאפ השוואת מחירים",
+          "url": "https://www.zap.co.il/model.aspx?modelid=1109967",
+          "text": "מחיר החל מ-₪2,290. קיבולת 9 ק״ג, 1400 סל״ד, דירוג אנרגטי B. דירוג גולשים 4.4 מתוך 5 (205 חוות דעת)."
+        }
+      ]
+    },
+    {
+      "id": "phones-two",
+      "category": "comparison",
+      "prompt": "Should I get the iPhone 16 Pro or the Pixel 9 Pro? I care most about the camera and battery life.",
+      "expect": ["comparison"],
+      "forbid": ["explorer"],
+      "sources": [
+        {
+          "title": "iPhone 16 Pro review - The Verge",
+          "url": "https://www.theverge.com/24247538/iphone-16-pro-review",
+          "text": "From $999 (128 GB). 48 MP main, 48 MP ultra-wide and 12 MP 5x telephoto cameras. Lasted 14 hours 6 minutes in our continuous video-streaming test. Class-leading 4K120 Dolby Vision video."
+        },
+        {
+          "title": "Google Pixel 9 Pro review - The Verge",
+          "url": "https://www.theverge.com/24240543/google-pixel-9-pro-review",
+          "text": "From $999 (128 GB). 50 MP main, 48 MP ultra-wide and 48 MP 5x telephoto cameras. Lasted 12 hours 58 minutes in our streaming test. The best low-light stills of any phone, and seven years of OS updates."
+        }
+      ]
+    },
+    {
+      "id": "framework-two",
+      "category": "comparison",
+      "prompt": "Should I use React or Svelte for the dashboard in my new side project?",
+      "expect": ["comparison"],
+      "forbid": ["explorer"]
+    },
+    {
+      "id": "rent-vs-buy",
+      "category": "comparison",
+      "prompt": "Is it better to rent or to buy an apartment in Tel Aviv right now?",
+      "expect": ["comparison"],
+      "forbid": ["explorer"],
+      "sources": [
+        {
+          "title": "Tel Aviv housing market, Q3 2026 - Globes",
+          "url": "https://en.globes.co.il/en/article-tel-aviv-housing-market-q3-2026",
+          "text": "Average price of a 4-room apartment in Tel Aviv: ₪4.6 million, up 3.1% year over year. Average monthly rent for a 4-room apartment: ₪9,800. The price is about 39 years of rent."
+        },
+        {
+          "title": "Mortgage interest rates - Bank of Israel",
+          "url": "https://www.boi.org.il/en/economic-roles/statistics/mortgages/",
+          "text": "Average mortgage interest rate in September 2026: 4.9%. A first home needs at least a 25% down payment."
+        }
+      ]
+    },
+    {
+      "id": "approach-pick",
+      "category": "results",
+      "prompt": "My integration tests are flaky because of timing issues. I could add retries, inject a fake clock, or rewrite them against an in-memory server. Which approach should I take?",
+      "expect": ["results"],
+      "forbid": ["explorer"]
+    },
+    {
+      "id": "gift-ideas",
+      "category": "results",
+      "prompt": "Give me some birthday gift ideas for my wife. She loves anime and cooking.",
+      "expect": ["results"],
+      "forbid": ["explorer"]
+    },
+    {
+      "id": "next-feature",
+      "category": "results",
+      "prompt": "I've finished the MVP of my habit-tracker app. What should I build next?",
+      "expect": ["results"],
+      "forbid": ["explorer"]
+    },
+    {
+      "id": "population-trend",
+      "category": "chart",
+      "prompt": "How has Israel's population grown since 2000?",
+      "expect": ["chart"],
+      "forbid": ["explorer"],
+      "sources": [
+        {
+          "title": "Population of Israel at year end - Central Bureau of Statistics",
+          "url": "https://www.cbs.gov.il/en/subjects/Pages/Population.aspx",
+          "text": "Population at year end, in millions: 2000: 6.37. 2005: 6.99. 2010: 7.70. 2015: 8.46. 2020: 9.29. 2025: 10.08. Average annual growth about 1.9%."
+        }
+      ]
+    },
+    {
+      "id": "gdp-g7",
+      "category": "chart",
+      "prompt": "Compare GDP per capita across the G7 countries.",
+      "expect": ["chart"],
+      "forbid": ["explorer"],
+      "sources": [
+        {
+          "title": "World Economic Outlook database, October 2026 - IMF",
+          "url": "https://www.imf.org/en/Publications/WEO/weo-database/2026/October",
+          "text": "GDP per capita, current prices, US dollars, 2026 estimates: United States 89,110. Germany 55,910. United Kingdom 54,120. Canada 53,560. France 47,360. Italy 41,050. Japan 33,950."
+        }
+      ]
+    },
+    {
+      "id": "spending-split",
+      "category": "chart",
+      "prompt": "Here's my monthly spending: rent ₪6,000, groceries ₪2,500, car ₪1,500, kids ₪2,000 and fun ₪1,000. Show me where my money goes.",
+      "expect": ["chart", "calculator"],
+      "forbid": ["explorer"]
+    },
+    {
+      "id": "weather-eilat",
+      "category": "card",
+      "prompt": "What's the weather going to be like in Eilat tomorrow?",
+      "expect": ["card"],
+      "forbid": ["explorer"],
+      "sources": [
+        {
+          "title": "Eilat forecast - Israel Meteorological Service",
+          "url": "https://ims.gov.il/en/city_portal/eilat",
+          "text": "Tuesday, November 10, 2026: sunny. High 29°C, low 19°C. Wind northeast 15 km/h. UV index 6 (high). Sea temperature 25°C. No rain expected."
+        }
+      ]
+    },
+    {
+      "id": "single-product",
+      "category": "card",
+      "prompt": "Tell me about the Sony WH-1000XM5. Is it still worth buying?",
+      "expect": ["card"],
+      "forbid": ["explorer"],
+      "sources": [
+        {
+          "title": "Sony WH-1000XM5 review - RTINGS.com",
+          "url": "https://www.rtings.com/headphones/reviews/sony/wh-1000xm5-wireless",
+          "text": "Excellent noise cancelling in a light, comfortable 250 g design. 30 hours of battery with noise cancelling on. Multipoint Bluetooth and LDAC. Unlike the XM4 it doesn't fold. Succeeded by the WH-1000XM6 in 2025 ($449.99)."
+        },
+        {
+          "title": "Sony WH-1000XM5 Wireless Noise Canceling Headphones - Best Buy",
+          "url": "https://www.bestbuy.com/site/sony-wh-1000xm5-wireless-noise-canceling-headphones/6505727.p",
+          "text": "Price: $329.99 (was $399.99). Customer rating 4.6 out of 5 (12,410 reviews)."
+        }
+      ]
+    },
+    {
+      "id": "dotnet-version",
+      "category": "card",
+      "prompt": "What's the latest .NET version, and when does it go out of support?",
+      "expect": ["card"],
+      "forbid": ["explorer"],
+      "sources": [
+        {
+          "title": ".NET and .NET Core support policy - Microsoft",
+          "url": "https://dotnet.microsoft.com/platform/support/policy/dotnet-core",
+          "text": ".NET 10 (LTS) was released on November 11, 2025 and is supported until November 10, 2028. .NET 9 (STS) and .NET 8 (LTS) are supported until November 10, 2026. .NET 11 is scheduled for release in November 2026."
+        }
+      ]
+    },
+    {
+      "id": "packing-ski",
+      "category": "checklist",
+      "prompt": "Make me a packing list for a 4-day ski trip to Austria in January.",
+      "expect": ["checklist"],
+      "forbid": ["explorer"]
+    },
+    {
+      "id": "tv-setup",
+      "category": "checklist",
+      "prompt": "How do I set up my new Samsung TV with my soundbar, step by step?",
+      "expect": ["checklist"],
+      "forbid": ["explorer"]
+    },
+    {
+      "id": "bill-split",
+      "category": "calculator",
+      "prompt": "Dinner came to ₪640 for the five of us, and we want to leave a 12% tip. How much does each person pay?",
+      "expect": ["calculator"],
+      "forbid": ["explorer"]
+    },
+    {
+      "id": "mortgage",
+      "category": "calculator",
+      "prompt": "What would the monthly payment be on a ₪1.2 million mortgage at 4.5% over 25 years?",
+      "expect": ["calculator"],
+      "forbid": ["explorer"]
+    },
+    {
+      "id": "quiz-capitals",
+      "category": "quiz",
+      "prompt": "Quiz me on South American capitals.",
+      "expect": ["quiz"],
+      "forbid": ["explorer"]
+    },
+    {
+      "id": "oauth-flow",
+      "category": "mermaid",
+      "prompt": "Explain how the OAuth 2.0 authorization code flow works.",
+      "expect": ["mermaid"],
+      "forbid": ["explorer"]
+    },
+    {
+      "id": "capital-fact",
+      "category": "plain",
+      "prompt": "What's the capital of Australia?",
+      "expect": ["plain", "card"],
+      "forbid": ["explorer", "results"]
+    },
+    {
+      "id": "sky-blue",
+      "category": "plain",
+      "prompt": "Why is the sky blue?",
+      "expect": ["plain", "card"],
+      "forbid": ["explorer", "results"]
+    },
+    {
+      "id": "tallest-buildings",
+      "category": "plain",
+      "prompt": "What are the five tallest buildings in the world?",
+      "expect": ["plain", "chart", "card"],
+      "forbid": ["explorer", "results"],
+      "sources": [
+        {
+          "title": "Tallest buildings in the world - The Skyscraper Center (CTBUH)",
+          "url": "https://www.skyscrapercenter.com/buildings",
+          "text": "1. Burj Khalifa, Dubai: 828 m, completed 2010. 2. Merdeka 118, Kuala Lumpur: 679 m, 2023. 3. Shanghai Tower, Shanghai: 632 m, 2015. 4. Makkah Royal Clock Tower, Mecca: 601 m, 2012. 5. Ping An Finance Center, Shenzhen: 599 m, 2017."
+        }
+      ]
+    },
+    {
+      "id": "news-battery",
+      "category": "plain",
+      "prompt": "What's the latest news on Northwind Motors' solid-state battery?",
+      "expect": ["plain", "card"],
+      "forbid": ["explorer", "results"],
+      "sources": [
+        {
+          "title": "Northwind Motors delays solid-state battery to 2028 - Reuters",
+          "url": "https://www.reuters.com/business/autos/northwind-motors-solid-state-2028",
+          "text": "November 6, 2026: Northwind Motors pushed mass production of its solid-state battery from 2027 to 2028, citing yields at its pilot line. The company still expects a 600-mile range and a 10-minute charge from 10% to 80%."
+        },
+        {
+          "title": "Northwind opens solid-state pilot line in Ohio - The Verge",
+          "url": "https://www.theverge.com/2026/10/21/northwind-solid-state-pilot-line",
+          "text": "October 21, 2026: Northwind opened a $1.1 billion pilot line in Ohio that will build cells for 2,000 test vehicles next year."
+        }
+      ]
+    },
+    {
+      "id": "csharp-reverse",
+      "category": "plain",
+      "prompt": "How do I reverse a list in C#?",
+      "expect": ["plain"],
+      "forbid": ["explorer", "results"]
+    },
+    {
+      "id": "weekend-eilat-kids",
+      "category": "borderline",
+      "prompt": "What should we do this weekend in Eilat with the kids?",
+      "expect": ["any"],
+      "sources": [
+        {
+          "title": "Things to do in Eilat with kids - Visit Eilat",
+          "url": "https://www.example-visit-eilat.com/family",
+          "text": "Coral Lagoon Observatory: underwater observatory and shark pool, ₪129 adults and ₪109 children, rating 4.6. Dolphin Bay Reef: watch and swim with dolphins, ₪89 adults and ₪65 children, rating 4.4. Copper Canyon Park: desert hikes and ancient mines, ₪59 adults and ₪49 children, rating 4.7. Glacier Ice Park: indoor ice rink and sledding, ₪99 per person, rating 4.2. Desert Camel Ranch: camel rides at sunset, ₪150 per person, rating 4.5."
+        }
+      ]
+    },
+    {
+      "id": "recipes-tonight",
+      "category": "borderline",
+      "prompt": "What can I cook tonight with chicken, rice and spinach?",
+      "expect": ["any"]
+    },
+    {
+      "id": "anime-2026",
+      "category": "borderline",
+      "prompt": "What are the best new anime series of 2026 so far?",
+      "expect": ["any"],
+      "sources": [
+        {
+          "title": "The best anime of 2026 so far - IGN",
+          "url": "https://www.ign.com/articles/best-anime-2026-so-far",
+          "text": "Starfall Requiem (IMDb 8.6): a space opera about a fleet's last stand, 24 episodes. The Last Cartographer (IMDb 8.3): a mapmaker in a world that redraws itself, 12 episodes. Garden of Iron (IMDb 8.1): mecha drama about a farming colony, 13 episodes. Neon Ronin (IMDb 7.9): cyberpunk samurai action, 12 episodes. Moonlit Bakery (IMDb 7.6): a gentle slice-of-life about a night bakery, 12 episodes."
+        }
+      ]
+    }
+  ]
+}

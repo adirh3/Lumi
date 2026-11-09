@@ -64,6 +64,7 @@
     <Content Include="..\..\src\Lumi.Mobile.Android\Resources\mipmap-xxxhdpi\ic_launcher.png"
              Link="BrowserAssets\android-launcher.png"
              CopyToOutputDirectory="PreserveNewest" />
+    <None Update="RoutingEval\routing-cases.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

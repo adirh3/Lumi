@@ -4074,6 +4074,40 @@ public sealed partial class MobileShellViewModel :
         IReadOnlyList<RemoteInlineImage> images) =>
         Client.ReleaseMarkdownImages(chatId, messageId, images);
 
+    /// <summary>
+    /// The picture of an option an explorer in the open chat shows. The PC finds and sends it, so the
+    /// phone never reads the pages an answer links to; the request ends once the answer leaves the
+    /// transcript. Null for a block that is not one of the PC's answers.
+    /// </summary>
+    public async Task<byte[]?> LoadExplorerPictureAsync(
+        StrataTheme.Controls.StrataInteractiveBlock block,
+        StrataTheme.Controls.InteractiveExplorerItem item,
+        CancellationToken cancellationToken)
+    {
+        var chatId = Chat.ChatId;
+        if (chatId == Guid.Empty
+            || block.DataContext is not AssistantItemViewModel answer
+            || !Guid.TryParseExact(answer.Id, "N", out var messageId)
+            || block.Definition is not { } definition)
+        {
+            return null;
+        }
+
+        using var request = CreateConnectionRequest();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            request.Token,
+            answer.Lifetime,
+            cancellationToken);
+        try
+        {
+            return await Client.DownloadExplorerPictureAsync(chatId, messageId, definition.Id, item.Id, linked.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
     public async Task<RemoteActivityDetails?> GetActivityDetailsAsync(
         Guid chatId,
         string activityId)

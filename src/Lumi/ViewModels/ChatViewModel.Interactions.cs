@@ -70,7 +70,7 @@ public partial class ChatViewModel
                 interactionReceipt: receipt);
             if (!result.Accepted)
                 return new(false, result.Error ?? Loc.Chat_InteractionNotAccepted);
-            InteractiveResponseState.Acknowledge(message, blockId, action, updated.State);
+            InteractiveResponseState.Acknowledge(message, blockId, updated.Definition, action, updated.State);
             _dataStore.MarkChatChanged(chat);
             RefreshInteractionState(messageId);
             await SaveChatAsync(chat, saveIndex: false);

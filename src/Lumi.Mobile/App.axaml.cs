@@ -7,6 +7,7 @@ using Lumi.Mobile.Appearance;
 using Lumi.Mobile.Layout;
 using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Views;
+using StrataTheme.Controls;
 
 namespace Lumi.Mobile;
 
@@ -32,6 +33,10 @@ public partial class App : Application
     public override void OnFrameworkInitializationCompleted()
     {
         _shell = ShellFactory?.Invoke() ?? new MobileShellViewModel();
+        // Explorers show options' pictures and their links' previews, which the PC finds and sends: the
+        // phone never reads the pages an answer links to.
+        StrataInteractiveBlock.ShowsLinkPreviews = true;
+        StrataInteractiveBlock.ExplorerPictureLoader = _shell.LoadExplorerPictureAsync;
         ApplyTheme(_shell.Theme);
         // The look applies before the first view is built, so nothing starts in Lumi's defaults and changes.
         ApplyAppearance(this, _shell);

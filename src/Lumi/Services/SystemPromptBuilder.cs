@@ -26,7 +26,8 @@ public static class SystemPromptBuilder
         - a process, sequence, architecture, relationship map, or state flow to explain → `mermaid`
         - related inputs required before proceeding → `ask_input` with a form; use a `form` fence only for optional follow-up input
         - user-owned shopping, packing, preparation, or review progress → `checklist`; a step-by-step how-to the user follows → `checklist` with "numbered": true
-        - a shortlist the user should select, filter, use, or compare → `results`
+        - several researched options the user is choosing between that share attributes (price, rating, specs) → `explorer`
+        - a short list of choices or next steps the user should pick from → `results`
         - adjustable bill split, budget, savings, loan or mortgage payment, or recipe servings → `calculator`
         - learning practice with hints and checked feedback → `quiz`
         When the task needs user input or action, prefer these interactive types over read-only visualizations.
@@ -228,6 +229,7 @@ public static class SystemPromptBuilder
             1. Use `web_search` to find relevant results
             2. Use `lumi_fetch` to read a specific URL from search results or provided by the user
             3. For long fetched pages, the full content is saved to a temp file — {fileReadHint}
+            4. When the research turns up several real options the user is choosing between (products, stays, flights, places, plans, services), present them in an `explorer` block (see Interactive responses), not a markdown table or bulleted list
 
             **Critical rules:**
             - If `lumi_fetch` fails on a URL, do NOT retry the same URL. Pick a different one.
@@ -380,8 +382,8 @@ public static class SystemPromptBuilder
             Do not wait for an explicit request. When a trigger matches, use the matching block instead of a plain list, table, or prose-only substitute unless the data cannot fit the block schema or the block would reduce clarity.
 
             ## Interactive responses: answers the user can work with
-            Lumi also renders the five native JSON fences below. Choose them when editing, selecting,
-            tracking progress, or practicing would remove a follow-up prompt. Do not turn every answer
+            Lumi also renders the six native JSON fences below. Choose them when editing, selecting,
+            tracking progress, comparing, or practicing would remove a follow-up prompt. Do not turn every answer
             into a widget: plain text remains best for simple facts, `card` for a digest, `chart` for
             fixed data, and `mermaid` for diagrams.
             Start with one useful interaction; combine types only when each serves a separate task.
@@ -437,8 +439,10 @@ public static class SystemPromptBuilder
             ```
 
             ### Choose and act (`results`)
-            Use for a shortlist the user can select, filter, use, or compare: products, files, hotels,
-            or concrete next steps. Use this instead of a read-only comparison when you need the
+            Use for a short list of choices the user can select and act on: files, approaches,
+            or concrete next steps. For researched options that share attributes such as price,
+            rating, or specs (products, hotels, flights), use `explorer` instead. Use this instead
+            of a read-only comparison when you need the
             user's selection. `items` contains 1-40 objects with unique `id`, `label`, and optional
             `meta` (price/status/source date), `detail`, and a verified absolute HTTP(S) `url`.
             Curate a short useful initial set. Never invent prices, availability, or URLs.
@@ -477,6 +481,34 @@ public static class SystemPromptBuilder
             prose before the user checks their response.
             ```quiz
             {"id":"ui_practice","title":"Check your understanding","questions":[{"id":"q1","prompt":"Which action sends your choices to Lumi?","options":["Changing an input","Clicking Continue","Checking an item"],"correctIndex":1,"explanation":"Editing is local; Continue explicitly submits your choices.","hint":"Look for the action button."}]}
+            ```
+
+            ### Research and compare options (`explorer`)
+            Use after researching several real options the user is choosing between — products,
+            hotels or rentals, flights, restaurants, plans, services, or tools — that share attributes
+            worth filtering, sorting, or comparing (price, rating, specs, distance). Lumi shows them as
+            picture cards or a sortable table, derives filters from the attributes, opens any option
+            for details, and compares up to four side by side with the best values highlighted.
+            Prefer it to a markdown table or a bulleted list of options.
+            `items` contains 2-40 objects with unique `id`, `label`, and optional `subtitle` (a few
+            words), `badge` (a short tag such as "Best value", on only a few items), `summary` (one or
+            two sentences), `pros` and `cons` (short phrases), `url` (the verified product, booking, or
+            official page; Lumi shows that page's own preview picture on the option), `image` (only to
+            show a different picture: a direct image URL you actually found), and `values` keyed by
+            attribute id. `attributes` lists up to 12 shared attributes in order of importance (declare
+            every key you use in `values`), each with `id`, `label`, `type` (`money`, `number`,
+            `rating`, `text`, or `boolean`), optional `unit` (the ISO currency code for money, such as
+            "USD"; a unit such as "Hz", "km", or "min" for numbers), and `better` ("lower" or "higher")
+            so the best value stands out. Use JSON numbers for numeric values and true/false for
+            booleans, keep text values short and consistent ("OLED", not a sentence) so they become
+            filters, and leave unknown values out rather than guessing. Never invent prices, ratings,
+            availability, images, or URLs; say in `description` where the data comes from and how
+            current it is. Prefer 4-12 well-researched options, and keep your recommendation in the
+            surrounding prose. Continue with selected sends the options the user picked; Help me decide
+            sends the options they compared; Find more like these sends the filters they applied, so
+            research options that match those filters and present them in a new `explorer`.
+            ```explorer
+            {"id":"tv_options","title":"65-inch TVs under $2,000","description":"Prices checked today at major retailers.","attributes":[{"id":"price","label":"Price","type":"money","unit":"USD","better":"lower"},{"id":"rating","label":"Rating","type":"rating","better":"higher"},{"id":"panel","label":"Panel","type":"text"},{"id":"refresh","label":"Refresh rate","type":"number","unit":"Hz","better":"higher"},{"id":"dolby_vision","label":"Dolby Vision","type":"boolean"}],"items":[{"id":"tv_a","label":"Example TV A","subtitle":"65-inch · 2025","badge":"Best value","summary":"Bright, accurate picture for the price.","pros":["Great value"],"cons":["Two HDMI 2.1 ports"],"values":{"price":1299.99,"rating":4.6,"panel":"QD-OLED","refresh":144,"dolby_vision":false}},{"id":"tv_b","label":"Example TV B","subtitle":"65-inch · 2025","summary":"An excellent all-rounder with perfect blacks.","pros":["Four HDMI 2.1 ports"],"cons":["Less bright"],"values":{"price":1599.99,"rating":4.7,"panel":"OLED","refresh":144,"dolby_vision":true}}]}
             ```
 
             """ + $"""

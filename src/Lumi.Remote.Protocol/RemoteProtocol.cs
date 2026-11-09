@@ -222,6 +222,13 @@ public static class RemoteProtocol
         public const string Activity = "/lumi/activity";
         public const string MarkdownImage = "/lumi/markdown-image";
 
+        /// <summary>
+        /// Authenticated picture of one option in an answer's explorer, by chat, message, block and
+        /// option identity: the option's own image, else its link's preview, which the desktop finds
+        /// so a phone never reads the pages itself.
+        /// </summary>
+        public const string ExplorerPicture = "/lumi/explorer-picture";
+
         /// <summary>Authenticated announced-file download by chat/message identity.</summary>
         public const string File = "/lumi/file";
 
@@ -281,6 +288,9 @@ public static class RemoteProtocol
         /// </summary>
         public const string PhoneNotificationsV1 = "phone-notifications-v1";
 
+        /// <summary>The desktop serves options' pictures for explorers at <see cref="Routes.ExplorerPicture"/>.</summary>
+        public const string ExplorerPicturesV1 = "explorer-pictures-v1";
+
         public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
         public static IReadOnlyList<string> Server { get; } =
         [
@@ -293,7 +303,8 @@ public static class RemoteProtocol
             ResumePingV1,
             ModelPinsV1,
             MessageEditingV1,
-            PhoneNotificationsV1
+            PhoneNotificationsV1,
+            ExplorerPicturesV1
         ];
     }
 

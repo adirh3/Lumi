@@ -1868,6 +1868,146 @@ public sealed class RemoteEndToEndTests
     }
 
     [Fact]
+    public async Task ExplorerOptionPicturesComeFromThePcByOptionNeverByAddress()
+    {
+        var imageBytes = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2uoAAAAASUVORK5CYII=");
+        var viewed = Path.Combine(Path.GetTempPath(), $"lumi-explorer-viewed-{Guid.NewGuid():N}.png");
+        var unshown = Path.Combine(Path.GetTempPath(), $"lumi-explorer-unshown-{Guid.NewGuid():N}.png");
+        File.WriteAllBytes(viewed, imageBytes);
+        File.WriteAllBytes(unshown, imageBytes);
+        var answerId = Guid.NewGuid();
+        var json = $$"""
+            {"id":"stays","title":"Stays","items":[
+              {"id":"viewed","label":"Viewed Stay","image":{{JsonSerializer.Serialize(viewed)}}},
+              {"id":"unshown","label":"Unshown Stay","image":{{JsonSerializer.Serialize(unshown)}}},
+              {"id":"linked","label":"Linked Stay","url":"https://stays.example/linked"},
+              {"id":"plain","label":"Plain Stay"}]}
+            """;
+        var pagesAsked = new List<string>();
+        var showedPreviews = StrataTheme.Controls.StrataInteractiveBlock.ShowsLinkPreviews;
+        try
+        {
+            await RunAsync(async rig =>
+            {
+                await PairAsync(rig);
+                var chat = Assert.Single(rig.DataStore.Data.Chats);
+                Assert.True(rig.Client.SupportsExplorerPictures);
+
+                // The phone names the option by the answer that shows it, and gets the picture the chat made showable.
+                rig.Shell.Chat.Reset(chat.Id, chat.Title);
+                var explorer = (StrataTheme.Controls.InteractiveExplorer)StrataTheme.Controls.InteractiveDefinition.Parse("explorer", json);
+                var block = new StrataTheme.Controls.StrataInteractiveBlock
+                {
+                    Definition = explorer,
+                    DataContext = new AssistantItemViewModel(new RemoteTranscriptItem { Id = answerId.ToString("N"), Text = "" })
+                };
+                Assert.Equal(imageBytes, await rig.Shell.LoadExplorerPictureAsync(block, explorer.Items[0], CancellationToken.None));
+
+                // A local picture the chat never showed, an option without one, and options or blocks the answer
+                // doesn't have bring nothing.
+                Task<byte[]?> Picture(string blockId, string itemId) =>
+                    rig.Client.DownloadExplorerPictureAsync(chat.Id, answerId, blockId, itemId, CancellationToken.None);
+                Assert.Null(await Picture("stays", "unshown"));
+                Assert.Null(await Picture("stays", "plain"));
+                Assert.Null(await Picture("stays", "missing"));
+                Assert.Null(await Picture("other", "viewed"));
+
+                // An option without its own picture shows its link's preview, which the PC looks up only while
+                // it shows previews itself.
+                StrataTheme.Controls.StrataMarkdown.LinkPreviewReader = page =>
+                {
+                    lock (pagesAsked)
+                        pagesAsked.Add(page.AbsoluteUri);
+                    return Task.FromResult<string?>(null);
+                };
+                StrataTheme.Controls.StrataInteractiveBlock.ShowsLinkPreviews = false;
+                Assert.Null(await Picture("stays", "linked"));
+                lock (pagesAsked)
+                    Assert.Empty(pagesAsked);
+                StrataTheme.Controls.StrataInteractiveBlock.ShowsLinkPreviews = true;
+                Assert.Null(await Picture("stays", "linked"));
+                lock (pagesAsked)
+                    Assert.Equal(["https://stays.example/linked"], pagesAsked);
+            }, seed: data =>
+            {
+                var chat = new Chat { Title = "Explorer pictures" };
+                chat.Messages.Add(new ChatMessage
+                {
+                    Role = "tool", ToolName = "view", ToolStatus = "Completed",
+                    Content = JsonSerializer.Serialize(new { path = viewed })
+                });
+                chat.Messages.Add(new ChatMessage
+                {
+                    Id = answerId, Role = "assistant",
+                    Content = "Here are the stays.\n\n```explorer\n" + json + "\n```"
+                });
+                chat.MessageCount = chat.Messages.Count;
+                data.Chats.Add(chat);
+            });
+        }
+        finally
+        {
+            StrataTheme.Controls.StrataMarkdown.LinkPreviewReader = null;
+            StrataTheme.Controls.StrataInteractiveBlock.ShowsLinkPreviews = showedPreviews;
+            File.Delete(viewed);
+            File.Delete(unshown);
+        }
+    }
+
+    [Fact]
+    public async Task AnExplorerPictureRequestEndsWhenItsAnswerLeavesTheTranscript()
+    {
+        var answerId = Guid.NewGuid();
+        const string json = """{"id":"stays","title":"Stays","items":[{"id":"slow","label":"Slow Stay","url":"https://stays.example/slow"}]}""";
+        var asked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var page = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var showedPreviews = StrataTheme.Controls.StrataInteractiveBlock.ShowsLinkPreviews;
+        try
+        {
+            await RunAsync(async rig =>
+            {
+                await PairAsync(rig);
+                var chat = Assert.Single(rig.DataStore.Data.Chats);
+                // The PC is still reading the option's page when the phone leaves the answer.
+                StrataTheme.Controls.StrataInteractiveBlock.ShowsLinkPreviews = true;
+                StrataTheme.Controls.StrataMarkdown.LinkPreviewReader = _ =>
+                {
+                    asked.TrySetResult();
+                    return page.Task;
+                };
+                rig.Shell.Chat.Reset(chat.Id, chat.Title);
+                var explorer = (StrataTheme.Controls.InteractiveExplorer)StrataTheme.Controls.InteractiveDefinition.Parse("explorer", json);
+                var answer = new AssistantItemViewModel(new RemoteTranscriptItem { Id = answerId.ToString("N"), Text = "" });
+                var block = new StrataTheme.Controls.StrataInteractiveBlock { Definition = explorer, DataContext = answer };
+                var picture = rig.Shell.LoadExplorerPictureAsync(block, explorer.Items[0], CancellationToken.None);
+                await asked.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+                // Leaving the chat disposes its answers, which frees the image slot the request held.
+                answer.Dispose();
+                Assert.Null(await picture.WaitAsync(TimeSpan.FromSeconds(5)));
+                page.TrySetResult(null);
+            }, seed: data =>
+            {
+                var chat = new Chat { Title = "Slow picture" };
+                chat.Messages.Add(new ChatMessage
+                {
+                    Id = answerId, Role = "assistant",
+                    Content = "Here is a stay.\n\n```explorer\n" + json + "\n```"
+                });
+                chat.MessageCount = chat.Messages.Count;
+                data.Chats.Add(chat);
+            });
+        }
+        finally
+        {
+            page.TrySetResult(null);
+            StrataTheme.Controls.StrataMarkdown.LinkPreviewReader = null;
+            StrataTheme.Controls.StrataInteractiveBlock.ShowsLinkPreviews = showedPreviews;
+        }
+    }
+
+    [Fact]
     public Task TimedOutRetryWithTheSameRequestIdDoesNotDuplicateASteeredMessage() => RunAsync(async rig =>
     {
         var code = rig.Server.BeginPairing();

@@ -188,6 +188,10 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
     private IReadOnlyList<RemoteInlineImage>? _inlineImages;
     private IReadOnlyList<RemoteInlineImage>? _leasedInlineImages;
     private long _imageResolutionVersion;
+    private readonly CancellationTokenSource _lifetime = new();
+
+    /// <summary>Cancelled once the answer leaves the transcript, so work done only to show it stops.</summary>
+    internal CancellationToken Lifetime => _lifetime.Token;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowAnswerActions))]
@@ -360,6 +364,7 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         CancelImageResolution();
         ReleaseInlineImages();
         _inlineImages = null;
+        _lifetime.Cancel();
     }
 
     partial void OnTextChanged(string value) =>

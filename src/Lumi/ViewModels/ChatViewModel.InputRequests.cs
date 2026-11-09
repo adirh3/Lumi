@@ -113,7 +113,7 @@ public partial class ChatViewModel
                     return new(false, labels["inputExpired"]);
                 message.InputAnswer = updated.State.ToJson();
                 message.ToolOutput = result;
-                InteractiveResponseState.Acknowledge(message, blockId, action, updated.State);
+                InteractiveResponseState.Acknowledge(message, blockId, updated.Definition, action, updated.State);
             }
             RefreshInteractionState(message.Id);
             RefreshInputWaitingState(chat);

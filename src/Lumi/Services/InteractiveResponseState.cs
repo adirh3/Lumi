@@ -64,14 +64,17 @@ internal static class InteractiveResponseState
         return (definition, state);
     }
 
-    public static void Acknowledge(ChatMessage message, string blockId, string action, InteractiveState submitted)
+    public static void Acknowledge(ChatMessage message, string blockId, InteractiveDefinition definition, string action,
+        InteractiveState submitted)
     {
         if (message.InteractionStates is not { } states || !states.TryGetValue(blockId, out var json))
             return;
         var latest = InteractiveState.Parse(json);
-        if (latest.Fingerprint() != submitted.Fingerprint())
+        // A change made while sending keeps the action unsent, unless it leaves what the action sends as it was.
+        var sent = submitted.SentFingerprint(definition, action);
+        if (sent is null || latest.SentFingerprint(definition, action) != sent)
             return;
-        latest.SubmittedFingerprint = action + ":" + submitted.Fingerprint();
+        latest.SubmittedFingerprint = sent;
         message.InteractionStates[blockId] = latest.ToJson();
         message.MarkChanged();
     }

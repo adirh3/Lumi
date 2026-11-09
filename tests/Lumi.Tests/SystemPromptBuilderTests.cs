@@ -29,8 +29,13 @@ public sealed class SystemPromptBuilderTests
     {
         var prompt = SystemPromptBuilder.Build(new UserSettings { Language = "en" },
             agent: null, project: null, allSkills: [], activeSkills: [], memories: []);
-        foreach (var language in new[] { "form", "checklist", "results", "calculator", "quiz" })
+        foreach (var language in new[] { "form", "checklist", "results", "calculator", "quiz", "explorer" })
             Assert.Contains("```" + language, prompt);
+        Assert.Contains("several researched options the user is choosing between that share attributes (price, rating, specs) → `explorer`", prompt);
+        Assert.Contains("present them in an `explorer` block", prompt);
+        Assert.Contains("`better` (\"lower\" or \"higher\")", prompt);
+        Assert.Contains("availability, images, or URLs; say in `description` where the data comes from", prompt);
+        Assert.Contains("Find more like these sends the filters they applied", prompt);
         Assert.DoesNotContain("```diagram", prompt);
         Assert.Contains("Keep `ask_question` for one simple choice.", prompt);
         Assert.Contains("`\"numbered\": true`", prompt);

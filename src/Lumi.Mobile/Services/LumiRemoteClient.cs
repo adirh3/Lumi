@@ -171,6 +171,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         _capabilities.Contains(RemoteProtocol.Capabilities.MessageEditingV1);
     public bool SupportsPhoneNotifications =>
         _capabilities.Contains(RemoteProtocol.Capabilities.PhoneNotificationsV1);
+    public bool SupportsExplorerPictures =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.ExplorerPicturesV1);
 
     /// <summary>True once this host has proven a compatible protocol; a resume can skip the handshake.</summary>
     public bool HasCompatibleBootstrap => _hasCompatibleBootstrap;
@@ -676,7 +678,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         int protocolVersion = RemoteProtocol.Version,
         bool scopedEvents = true,
         bool fileSuggestions = false,
-        bool modelPins = false)
+        bool modelPins = false,
+        bool explorerPictures = false)
     {
         _compatibleBaseUrl = BaseUrl;
         _compatibleProtocolVersion = protocolVersion;
@@ -687,6 +690,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             _capabilities.Add(RemoteProtocol.Capabilities.FileSuggestionsV1);
         if (modelPins)
             _capabilities.Add(RemoteProtocol.Capabilities.ModelPinsV1);
+        if (explorerPictures)
+            _capabilities.Add(RemoteProtocol.Capabilities.ExplorerPicturesV1);
         _hasCompatibleBootstrap = true;
     }
 
@@ -1160,6 +1165,97 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             _downloadStore.Release(
                 "markdown-images",
                 $"{chatId:N}-{messageId:N}-{image.Index}");
+        }
+    }
+
+    /// <summary>
+    /// The picture of one option in an answer's explorer: the PC finds it (the option's own image, else
+    /// its link's preview), so the phone never reads the pages an answer links to. Null when it has none.
+    /// </summary>
+    public async Task<byte[]?> DownloadExplorerPictureAsync(
+        Guid chatId,
+        Guid messageId,
+        string blockId,
+        string itemId,
+        CancellationToken cancellationToken)
+    {
+        if (BaseUrl is not { Length: > 0 } || !SupportsExplorerPictures)
+            return null;
+
+        using var deadline = CreateDeadline(cancellationToken, _uploadDeadline);
+        try
+        {
+            // Pictures share the image downloads' slots, so they never crowd out the phone's other requests.
+            await MarkdownImageDownloadGate.WaitAsync(deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (IsDeadlineCancellation(cancellationToken, deadline))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"{BaseUrl}{RemoteProtocol.Routes.ExplorerPicture}?chatId={chatId}&messageId={messageId}" +
+                $"&blockId={Uri.EscapeDataString(blockId)}&itemId={Uri.EscapeDataString(itemId)}");
+            ApplyAuth(request);
+            using var response = await _http
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token)
+                .ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                SetState(RemoteLinkState.Unauthorized, Strings.Get("NoLongerPaired"));
+                return null;
+            }
+            if (!response.IsSuccessStatusCode
+                || response.Content.Headers.ContentLength is > RemoteProtocol.MaxMarkdownImageBytes)
+            {
+                return null;
+            }
+
+            await using var source = await response.Content
+                .ReadAsStreamAsync(deadline.Token)
+                .ConfigureAwait(false);
+            using var picture = new MemoryStream();
+            var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+            try
+            {
+                while (true)
+                {
+                    var read = await source
+                        .ReadAsync(buffer.AsMemory(0, buffer.Length), deadline.Token)
+                        .ConfigureAwait(false);
+                    if (read == 0)
+                        break;
+                    if (picture.Length + read > RemoteProtocol.MaxMarkdownImageBytes)
+                        return null;
+                    picture.Write(buffer, 0, read);
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+            return picture.ToArray();
+        }
+        catch (OperationCanceledException) when (IsDeadlineCancellation(cancellationToken, deadline))
+        {
+            return null;
+        }
+        catch (RemoteGatewaySignInException ex)
+        {
+            SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Trace.TraceWarning($"[Mobile] Explorer picture download failed: {ex}");
+            return null;
+        }
+        finally
+        {
+            MarkdownImageDownloadGate.Release();
         }
     }
 

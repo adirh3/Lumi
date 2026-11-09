@@ -126,7 +126,8 @@ internal static class RemoteMarkdownImageFiles
                && TryResolvePublicUri(reference.Target, out uri);
     }
 
-    private static bool TryResolveAuthorizedPath(
+    /// <summary>A local picture the chat made showable, named by its path or file URI.</summary>
+    public static bool TryResolveAuthorizedPath(
         string target,
         IReadOnlySet<string> authorizedPaths,
         out string path)
@@ -140,7 +141,8 @@ internal static class RemoteMarkdownImageFiles
                && authorizedPaths.Contains(path);
     }
 
-    private static bool TryResolvePublicUri(string target, out Uri uri)
+    /// <summary>A web address the desktop may fetch a picture from: http or https, never the PC itself.</summary>
+    public static bool TryResolvePublicUri(string target, out Uri uri)
     {
         if (Uri.TryCreate(target, UriKind.Absolute, out uri!)
             && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
@@ -162,6 +164,18 @@ internal static class RemoteMarkdownImageFiles
             ? $"image-{imageIndex}.png"
             : name;
     }
+
+    /// <summary>The media type of a showable local picture, by its extension.</summary>
+    public static string ImageContentType(string path) =>
+        Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".gif" => "image/gif",
+            ".webp" => "image/webp",
+            ".bmp" => "image/bmp",
+            _ => "application/octet-stream"
+        };
 
     private static bool TryResolveLocalPath(string target, out string path)
     {

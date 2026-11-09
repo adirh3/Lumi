@@ -681,7 +681,7 @@ internal sealed class RemoteCommandRouter
                 cancellationToken, receipt).ConfigureAwait(true);
             if (result.Ok)
             {
-                InteractiveResponseState.Acknowledge(message, blockId, action, updated.State);
+                InteractiveResponseState.Acknowledge(message, blockId, updated.Definition, action, updated.State);
                 _dataStore.MarkChatChanged(chat);
                 TryResolveRegisteredOwner(chat.Id)?.RefreshInteractionState(messageId);
                 await SaveInteractionChatAsync(chat, cancellationToken).ConfigureAwait(true);

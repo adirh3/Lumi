@@ -311,6 +311,9 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // Researched options without a picture of their own show their link's preview, as a
+            // messaging app previews a shared link.
+            StrataInteractiveBlock.ShowsLinkPreviews = true;
             var copilotService = new CopilotService();
             copilotService.SetSettingsProvider(
                 () => dataStore.Data.Settings, Lumi.Services.Byok.SecureKeyStoreFactory.Instance);

@@ -85,6 +85,35 @@ public sealed class MarkdownImageDownloadTests
     }
 
     [Fact]
+    public async Task ExplorerPicturesAreAskedOfThePcByOptionAndOnlyWhenItOffersThem()
+    {
+        var bytes = new byte[] { 1, 2, 3 };
+        var handler = new ImageHandler(bytes);
+        await using var client = new LumiRemoteClient(
+            "device",
+            "Phone",
+            handler,
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(5),
+            new TrustedRouteVerifier());
+        client.Configure("http://100.64.0.1:62135", "secret-token");
+        var chatId = Guid.NewGuid();
+        var messageId = Guid.NewGuid();
+
+        // A PC that doesn't serve pictures is never asked; the option keeps its initials.
+        client.MarkProtocolCompatibleForTests();
+        Assert.Null(await client.DownloadExplorerPictureAsync(chatId, messageId, "tv picks", "lg/c5", CancellationToken.None));
+        Assert.Null(handler.RequestUri);
+
+        client.MarkProtocolCompatibleForTests(explorerPictures: true);
+        Assert.Equal(bytes, await client.DownloadExplorerPictureAsync(chatId, messageId, "tv picks", "lg/c5", CancellationToken.None));
+        Assert.Equal(
+            $"/lumi/explorer-picture?chatId={chatId}&messageId={messageId}&blockId=tv%20picks&itemId=lg%2Fc5",
+            handler.RequestUri?.PathAndQuery);
+        Assert.Equal("secret-token", handler.DeviceToken);
+    }
+
+    [Fact]
     public void MarkdownImageCachePruningEnforcesAgeAndSizeBudgets()
     {
         var folder = Path.Combine(
