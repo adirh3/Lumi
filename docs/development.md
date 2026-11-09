@@ -86,14 +86,17 @@ with those directories. Lumi uses the normal SDK resume call without stripping
 plugin configuration, resetting native history, or adding a custom recovery retry.
 
 Official [Avalonia 12.1.4](https://github.com/AvaloniaUI/Avalonia/releases/tag/12.1.4)
-includes both accepted text fixes: batched input-method selection notifications
+introduced both accepted text fixes: batched input-method selection notifications
 and empty bounds for zero-length text ranges. Lumi and Strata use the official
-packages without a custom core override, local feed mapping or runtime patch.
+12.1.6 packages without a custom core override, local feed mapping or runtime patch.
 `Avalonia.Controls.DataGrid` is released independently and remains pinned to its
-published `12.1.2` release in `Directory.Build.targets`. The focused input and
+published `12.1.2` release in Lumi and Strata. The focused input and
 text-layout regression tests are retained.
 When switching an existing build from the former custom package, use a clean rebuild
 (`dotnet build src/Lumi/Lumi.csproj -t:Rebuild`) or a fresh `--artifacts-path`.
+If a locally built package occupies the same version in the shared NuGet cache,
+restore with a separate `NUGET_PACKAGES` directory first; rebuilding alone will
+reuse the cached package.
 
 **GitHub sign-in:** [Lumi's CLI acquisition target](../build/Copilot/CopilotCli.targets)
 supplies one checksum-pinned, matching official full Copilot CLI through the SDK's
