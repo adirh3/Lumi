@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Lumi.Mobile.Services;
+using AndroidColor = global::Android.Graphics.Color;
 using AndroidContext = global::Android.Content.Context;
 using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
@@ -43,7 +44,6 @@ internal sealed class AndroidHtmlPreview(string path, string fileName) : NativeC
         if (_webView is { PeerReference.IsValid: true } webView)
         {
             webView.StopLoading();
-            webView.WebChromeClient = null;
             webView.Destroy();
         }
 
@@ -100,12 +100,11 @@ internal sealed class AndroidHtmlPreview(string path, string fileName) : NativeC
         settings.AllowContentAccess = false;
         settings.AllowFileAccessFromFileURLs = false;
         settings.AllowUniversalAccessFromFileURLs = false;
-        settings.SupportMultipleWindows = false;
+        settings.SetSupportMultipleWindows(false);
         settings.JavaScriptCanOpenWindowsAutomatically = false;
         settings.MixedContentMode = MixedContentHandling.NeverAllow;
-        webView.SetBackgroundColor(Android.Graphics.Color.White);
-        webView.WebViewClient = new BlockNavigationClient();
-        webView.WebChromeClient = null;
+        webView.SetBackgroundColor(AndroidColor.White);
+        webView.SetWebViewClient(new BlockNavigationClient());
     }
 
     private static TextView StateText(AndroidContext context, string text) => new(context)
