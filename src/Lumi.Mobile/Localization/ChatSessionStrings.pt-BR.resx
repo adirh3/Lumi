@@ -383,6 +383,8 @@
   <data name="Steered" xml:space="preserve"><value>Redirecionado</value></data>
   <data name="SteerFailed" xml:space="preserve"><value>Não foi possível redirecionar</value></data>
   <data name="JobWakeSummary" xml:space="preserve"><value>A tarefa despertou esta conversa.</value></data>
+  <data name="JobStatusLineCaption" xml:space="preserve"><value>Verificado, nada novo</value></data>
+  <data name="JobStatusLineNoStatus" xml:space="preserve"><value>Nenhuma mudança desde a última atualização.</value></data>
   <data name="SourceCountOne" xml:space="preserve"><value>1 fonte</value></data>
   <data name="SourceCountMany" xml:space="preserve"><value>{0} fontes</value></data>
   <data name="Thinking" xml:space="preserve"><value>Pensando</value></data>

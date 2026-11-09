@@ -1413,11 +1413,25 @@ public partial class DataStore
 
         var candidates = await _chatStore.ReadSearchCandidatesAsync(chat.Id, query, window.TailStartSeq, includeReasoning)
             .WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (candidates.Count == 0)
+            return [];
+
+        var quietRuns = await ReadQuietJobRunsAsync(chat.Id, window.TailStartSeq, cancellationToken).ConfigureAwait(false);
+        var statusLines = BackgroundJobRunPresentation.StatusLineRuns(SnapshotBackgroundJobs());
         // Older messages shown on screen are the ones searched: they may hold edits not stored yet.
         var matches = new List<(long, int)>();
         foreach (var message in MapAttached(chat, candidates))
         {
-            if (TranscriptSearchText.Of(message, includeReasoning) is { Length: > 0 } text
+            string? text;
+            if (QuietJobRunAt(quietRuns, message.StorageSeq) is not { } runStart)
+                text = TranscriptSearchText.Of(message, includeReasoning);
+            // A job run that found nothing new shows at most its job's status line.
+            else if (runStart == message.StorageSeq && statusLines.ContainsKey(message.Id))
+                text = message.JobRunStatus;
+            else
+                continue;
+
+            if (text is { Length: > 0 }
                 && TranscriptSearchText.CountOccurrences(text, query) is > 0 and var count)
             {
                 matches.Add((message.StorageSeq, count));
@@ -1425,6 +1439,40 @@ public partial class DataStore
         }
 
         return matches;
+    }
+
+    // Where each exchange before beforeSeq starts, and whether it is a job run that found nothing new.
+    private async Task<List<(long Seq, bool Quiet)>> ReadQuietJobRunsAsync(Guid chatId, long beforeSeq, CancellationToken cancellationToken)
+    {
+        var outline = await _chatStore!.ReadOutlineAsync(chatId, beforeSeq).WaitAsync(cancellationToken).ConfigureAwait(false);
+        var starts = outline
+            .Where(static entry => entry.Role == "user")
+            .Select(static entry => (entry.Seq, entry.JobRunQuiet))
+            .ToList();
+        return starts.Any(static start => start.JobRunQuiet) ? starts : [];
+    }
+
+    // The start of the quiet job run seq belongs to, or null when it belongs to an exchange that shows.
+    private static long? QuietJobRunAt(List<(long Seq, bool Quiet)> starts, long seq)
+    {
+        var low = 0;
+        var high = starts.Count - 1;
+        var found = -1;
+        while (low <= high)
+        {
+            var mid = (low + high) / 2;
+            if (starts[mid].Seq <= seq)
+            {
+                found = mid;
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid - 1;
+            }
+        }
+
+        return found >= 0 && starts[found].Quiet ? starts[found].Seq : null;
     }
 
     // ── Reads by chat id (remote clients, off the UI thread) ───────────────

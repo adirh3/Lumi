@@ -382,7 +382,9 @@ public sealed class BackgroundJobService : IDisposable
             Prompt = job.Prompt,
             TriggerType = BackgroundJobTriggerTypes.ChatEvent,
             IsEnabled = job.IsEnabled,
-            IsTemporary = job.IsTemporary
+            IsTemporary = job.IsTemporary,
+            NoChangeBehavior = job.NoChangeBehavior,
+            LastReportedStatus = job.LastReportedStatus
         };
 
         return new ChatEventDelivery(

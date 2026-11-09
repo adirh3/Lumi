@@ -1094,6 +1094,10 @@ public partial class ChatViewModel
             if (!wasBusy || chat.IsPaused)
                 return;
 
+            // A change-only job run that found nothing new announces nothing.
+            if (TryCompleteJobRunQuietly(chat, stoppedByUser))
+                return;
+
             if (!IsChatOnScreen(chat.Id))
                 chat.HasUnreadMessages = true;
             if (_dataStore.Data.Settings.NotificationsEnabled)

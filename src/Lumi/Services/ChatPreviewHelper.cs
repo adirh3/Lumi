@@ -8,9 +8,13 @@ internal static class ChatPreviewHelper
 
     public static string? FromMessages(IReadOnlyList<ChatMessage> messages)
     {
+        // A job run that found nothing new is not what the chat last said to anyone.
+        var quiet = BackgroundJobRunPresentation.QuietRunMask(messages);
         for (var index = messages.Count - 1; index >= 0; index--)
         {
             var message = messages[index];
+            if (quiet[index])
+                continue;
             if (message.Role is not ("user" or "assistant"))
                 continue;
             if (message.Role == "assistant" && message.IsStreaming)

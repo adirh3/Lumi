@@ -1872,6 +1872,25 @@
     <Style Selector="#Transcript Border.job-wake.chat-event Border.job-wake-tile > sc|StrataLineIcon">
       <Setter Property="Data" Value="{x:Static sc:StrataIcons.Chats}" />
     </Style>
+    <!-- A change-only job's status line: a quieter card that says where things stand, updated in place. -->
+    <Style Selector="#Transcript Border.job-wake.status-line">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="none" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake.status-line Border.job-wake-tile">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="CornerRadius" Value="9" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake.status-line Border.job-wake-tile > sc|StrataLineIcon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Data" Value="{x:Static sc:StrataIcons.CheckCircle}" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake.status-line TextBlock.job-wake-body">
+      <Setter Property="MaxLines" Value="2" />
+      <Setter Property="Margin" Value="0,3,0,0" />
+    </Style>
     <Style Selector="#Transcript Border.job-wake.failed Border.job-wake-tile">
       <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
       <Setter Property="BorderBrush">
@@ -3257,6 +3276,7 @@
                 Classes.script="{Binding IsScript}"
                 Classes.chat-event="{Binding IsChatEvent}"
                 Classes.failed="{Binding IsFailed}"
+                Classes.status-line="{Binding IsStatusLine}"
                 Classes.expanded="{Binding IsExpanded}"
                 AutomationProperties.Name="JobWakeCard">
           <StackPanel>

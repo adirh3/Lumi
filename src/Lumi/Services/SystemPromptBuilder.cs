@@ -543,6 +543,14 @@ public static class SystemPromptBuilder
             - Script jobs are one-shot wake scripts. Write a small script that waits, polls, or blocks until something worth attention happens, then exits. Lumi receives stdout, stderr, and the exit code in the linked chat. If the work should keep watching, create another script job after you reply.
             - Use chat-event jobs instead of timers or polling when one Lumi chat should react to another chat's progress. Use time jobs for recurring reminders and planning. Use script jobs for external "sleep until condition" workflows like polling a PR, watching a feed, or monitoring a price.
 
+            **What each run posts (`noChangeBehavior`):**
+            - `reply` (default): every run posts a normal reply. Right for digests, reminders, and anything the user wants to read every time.
+            - `status_line`: a run that finds nothing new posts nothing; the job keeps one compact status line in the chat (last checked time and a short status) that updates in place. A run that finds a change replies normally.
+            - `silent`: a run that finds nothing new leaves no trace in the chat at all; only changes reply.
+            - For watchers ("tell me when it's approved", "let me know if the build fails"), pick `status_line` or `silent`. When the conversation makes the user's preference obvious, choose it yourself; otherwise ask once with `ask_question` before creating the job.
+            - Several jobs in one chat can each use a different setting; each status-line job keeps its own line.
+            - Lumi remembers each change-only job's last reported status and gives it to every run, so the run can compare against it. Keep the job prompt to what to check and what counts as a change; don't have it keep its own state in files or tables.
+
             **Safety:**
             - Do not create background jobs silently. Create or update a job only after the user asks for it or clearly accepts your suggestion.
             - Make script jobs inspectable and minimal. Prefer read-only checks unless the user explicitly asks for actions.
@@ -732,8 +740,10 @@ public static class SystemPromptBuilder
                 .Append(" | next: ")
                 .Append(job.NextRunAt?.ToLocalTime().ToString("g") ?? "(none)")
                 .Append(" | last: ")
-                .Append(string.IsNullOrWhiteSpace(job.LastRunStatus) ? BackgroundJobRunStatuses.Idle : job.LastRunStatus)
-                .Append('\n');
+                .Append(string.IsNullOrWhiteSpace(job.LastRunStatus) ? BackgroundJobRunStatuses.Idle : job.LastRunStatus);
+            if (job.ReportsOnlyChanges)
+                builder.Append(" | posts: changes only (").Append(BackgroundJobNoChangeBehaviors.Normalize(job.NoChangeBehavior)).Append(')');
+            builder.Append('\n');
         }
 
         return builder.ToString();

@@ -120,8 +120,15 @@ public sealed partial class JobWakeItemViewModel : TranscriptItemViewModel
     [ObservableProperty] private RemoteJobWake _details = RemoteJobWake.Parse(
         null, "", Strings.Get("BackgroundJob"), Strings.Get("WakeSignalReceived"));
     [ObservableProperty] private string _timestampText = "";
+    [ObservableProperty] private string? _jobRunStatus;
 
-    public string Summary => Details.WakeSignal.StartsWith('{') || Details.WakeSignal.StartsWith('[')
+    /// <summary>A change-only job's single status line: its latest run found nothing new.</summary>
+    public bool IsStatusLine => JobRunStatus is not null;
+    public string Caption => Strings.Get(IsStatusLine ? "JobStatusLineCaption" : "JobWokeChat");
+
+    public string Summary => IsStatusLine
+        ? JobRunStatus is { Length: > 0 } status ? status : Strings.Get("JobStatusLineNoStatus")
+        : Details.WakeSignal.StartsWith('{') || Details.WakeSignal.StartsWith('[')
         ? Strings.Get("JobWakeSummary")
         : Details.WakeSignal;
     public bool HasInstructions => Details.Instructions.Length > 0;
@@ -142,6 +149,9 @@ public sealed partial class JobWakeItemViewModel : TranscriptItemViewModel
         Details = RemoteJobWake.Parse(item.Author, item.Text ?? "",
             Strings.Get("BackgroundJob"), Strings.Get("WakeSignalReceived"));
         TimestampText = item.Timestamp?.ToLocalTime().ToString("t") ?? "";
+        JobRunStatus = item.JobRunStatus;
+        OnPropertyChanged(nameof(IsStatusLine));
+        OnPropertyChanged(nameof(Caption));
         OnPropertyChanged(nameof(Summary));
         OnPropertyChanged(nameof(HasInstructions));
         OnPropertyChanged(nameof(HasOutput));

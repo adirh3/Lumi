@@ -220,6 +220,28 @@ public class ChatMessage
     private bool _inputCanceled;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool InputCanceled { get => _inputCanceled; set => SetPersisted(ref _inputCanceled, value); }
+
+    private Guid? _backgroundJobId;
+    /// <summary>
+    /// The background job whose run this user message started. Set only for jobs that report only
+    /// changes (<see cref="BackgroundJob.NoChangeBehavior"/> other than reply).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? BackgroundJobId { get => _backgroundJobId; set => SetPersisted(ref _backgroundJobId, value); }
+
+    private bool _jobRunQuiet;
+    /// <summary>
+    /// True when the job run this user message started found nothing new. Its exchange is hidden from
+    /// the transcript, or shown as the job's single status line while it is the job's latest quiet run.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool JobRunQuiet { get => _jobRunQuiet; set => SetPersisted(ref _jobRunQuiet, value); }
+
+    private string? _jobRunStatus;
+    /// <summary>The short status the job's run reported, such as "Still pending approval".</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? JobRunStatus { get => _jobRunStatus; set => SetPersisted(ref _jobRunStatus, value); }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public InteractionReceipt? InteractionReceipt
     {
@@ -415,6 +437,9 @@ public class ChatMessage
         InputDefinition = InputDefinition,
         InputAnswer = InputAnswer,
         InputCanceled = InputCanceled,
+        BackgroundJobId = BackgroundJobId,
+        JobRunQuiet = JobRunQuiet,
+        JobRunStatus = JobRunStatus,
         InteractionReceipt = InteractionReceipt?.Clone(),
         IsStreaming = IsStreaming,
         IsProgress = IsProgress,
@@ -1102,6 +1127,13 @@ public class Chat : INotifyPropertyChanged
 
     [JsonIgnore]
     public List<ChatMessage> Messages { get; set; } = [];
+
+    /// <summary>
+    /// The background job run in progress in this chat, for jobs that report only changes. Shared by
+    /// every surface that can drive the chat, so the run's tool call and its turn's end meet here.
+    /// </summary>
+    [JsonIgnore]
+    internal BackgroundJobRunState? ActiveJobRun { get; set; }
     public List<Guid> ActiveSkillIds { get; set; } = [];
     public List<string> ActiveExternalSkillNames
     {
@@ -1551,6 +1583,69 @@ public static class BackgroundJobRunStatuses
     public const string Waiting = "Waiting";
 }
 
+/// <summary>
+/// What a job's run shows in its chat when it finds nothing new. A run that finds something new
+/// always replies; these decide only the runs that don't.
+/// </summary>
+public static class BackgroundJobNoChangeBehaviors
+{
+    /// <summary>Every run posts its reply, as jobs always did.</summary>
+    public const string Reply = "reply";
+
+    /// <summary>Runs that find nothing new update one status line for the job in place.</summary>
+    public const string StatusLine = "status_line";
+
+    /// <summary>Runs that find nothing new leave the chat untouched.</summary>
+    public const string Silent = "silent";
+
+    public static IReadOnlyList<string> All { get; } = [Reply, StatusLine, Silent];
+
+    public static string Normalize(string? value)
+        => TryNormalize(value, out var normalized) ? normalized : Reply;
+
+    public static bool TryNormalize(string? value, out string normalized)
+    {
+        var key = (value ?? "").Trim().ToLowerInvariant().Replace('-', '_').Replace(' ', '_');
+        normalized = key switch
+        {
+            "" or "reply" or "always" or "always_reply" or "post_a_reply" => Reply,
+            "status_line" or "statusline" or "status" or "update_status" or "update_one_status_line" => StatusLine,
+            "silent" or "quiet" or "hidden" or "none" or "stay_silent" => Silent,
+            _ => ""
+        };
+        return normalized.Length > 0;
+    }
+
+    public static bool ReportsOnlyChanges(string? value) => Normalize(value) != Reply;
+}
+
+/// <summary>Where a change-only job run stands, between its start and its turn's end.</summary>
+public enum BackgroundJobRunOutcome
+{
+    Pending,
+    Quiet,
+    Changed
+}
+
+/// <summary>
+/// A change-only job run in progress (see <see cref="Chat.ActiveJobRun"/>): which job, the message
+/// that started it, what the run reported, and the lifecycle events held back until it is known
+/// whether the run is worth anyone's attention.
+/// </summary>
+public sealed class BackgroundJobRunState
+{
+    public required Guid JobId { get; init; }
+    public required string NoChangeBehavior { get; init; }
+    public Guid UserMessageId { get; set; }
+
+    /// <summary>The chat's lifecycle turn the run belongs to; -1 until its turn has begun.</summary>
+    public long TurnSequence { get; set; } = -1;
+    public bool? ReportedChanged { get; set; }
+    public string? ReportedStatus { get; set; }
+    public BackgroundJobRunOutcome Outcome { get; set; }
+    public List<Lumi.Services.ChatLifecycleEvent> HeldEvents { get; } = [];
+}
+
 public class BackgroundJob : INotifyPropertyChanged
 {
     private bool _isRunning;
@@ -1594,6 +1689,24 @@ public class BackgroundJob : INotifyPropertyChanged
     public string LastScriptOutput { get; set; } = "";
     public int? LastScriptExitCode { get; set; }
     public int RunCount { get; set; }
+
+    /// <summary>What a run that finds nothing new shows in the chat (<see cref="BackgroundJobNoChangeBehaviors"/>).</summary>
+    public string NoChangeBehavior { get; set; } = BackgroundJobNoChangeBehaviors.Reply;
+
+    /// <summary>The status the job's last change-only run reported; the next run compares against it.</summary>
+    public string LastReportedStatus { get; set; } = "";
+
+    /// <summary>The user message of the job's latest quiet run, where its status line is shown.</summary>
+    public Guid? LastQuietRunMessageId { get; set; }
+
+    /// <summary>When the job last ran and found nothing new.</summary>
+    public DateTimeOffset? LastQuietRunAt { get; set; }
+
+    /// <summary>Runs in a row that found nothing new, since the last one that did.</summary>
+    public int QuietRunCount { get; set; }
+
+    [JsonIgnore]
+    public bool ReportsOnlyChanges => BackgroundJobNoChangeBehaviors.ReportsOnlyChanges(NoChangeBehavior);
 
     [JsonIgnore]
     public bool IsTimeTriggered => !IsScriptTriggered && !IsChatEventTriggered;

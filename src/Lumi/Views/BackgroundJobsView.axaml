@@ -1100,6 +1100,26 @@
                                 AutomationProperties.Name="{loc:Str Jobs_FieldTemporary}" />
                 </Grid>
 
+                <StackPanel x:Name="JobsNoChangeSettings" Spacing="8">
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="job-option-title" Text="{loc:Str Jobs_FieldNoChange}" />
+                    <TextBlock Classes="mg-section-caption" Text="{loc:Str Jobs_FieldNoChangeDescription}" />
+                  </StackPanel>
+                  <Border Classes="mg-segmented" HorizontalAlignment="Left">
+                    <WrapPanel ItemSpacing="2" LineSpacing="2">
+                      <Button x:Name="JobsNoChangeReply" Classes="mg-segment" Classes.selected="{Binding IsReplyOnNoChange}"
+                              Command="{Binding SetNoChangeBehaviorCommand}" CommandParameter="reply"
+                              Content="{loc:Str Jobs_NoChangeReply}" />
+                      <Button x:Name="JobsNoChangeStatusLine" Classes="mg-segment" Classes.selected="{Binding IsStatusLineOnNoChange}"
+                              Command="{Binding SetNoChangeBehaviorCommand}" CommandParameter="status_line"
+                              Content="{loc:Str Jobs_NoChangeStatusLine}" />
+                      <Button x:Name="JobsNoChangeSilent" Classes="mg-segment" Classes.selected="{Binding IsSilentOnNoChange}"
+                              Command="{Binding SetNoChangeBehaviorCommand}" CommandParameter="silent"
+                              Content="{loc:Str Jobs_NoChangeSilent}" />
+                    </WrapPanel>
+                  </Border>
+                </StackPanel>
+
                 <Border Classes="job-note">
                   <DockPanel>
                     <sc:StrataLineIcon DockPanel.Dock="Left" Data="{x:Static sc:StrataIcons.Lightbulb}" Width="14" Height="14"

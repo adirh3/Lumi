@@ -1,4 +1,5 @@
 using Avalonia.Media;
+using Lumi.Mobile.Localization;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using Lumi.Remote.Protocol;
@@ -190,6 +191,33 @@ public sealed class MobileDesktopParityTests
         Assert.Same(wake, opened);
         Assert.IsType<UserTurnItemViewModel>(TranscriptItemFactory.Create(
             new RemoteTranscriptItem { Kind = RemoteProtocol.ItemKinds.User, Author = "You", Text = content }));
+    }
+
+    [Fact]
+    public void QuietJobRunBecomesAStatusLineThatUpdatesInPlace()
+    {
+        const string content = "Background job triggered: BAMI watch\n\nJob instructions:\nCheck the request.\n\nTrigger context:\nScheduled run.";
+        var item = new RemoteTranscriptItem
+        {
+            Id = "wake", Kind = RemoteProtocol.ItemKinds.User,
+            Author = "Lumi Job - BAMI watch", Text = content, JobRunStatus = "Pending, 1 of 2 approvals."
+        };
+        using var line = Assert.IsType<JobWakeItemViewModel>(TranscriptItemFactory.Create(item));
+        Assert.True(line.IsStatusLine);
+        Assert.Equal(ChatSessionStrings.Get("JobStatusLineCaption"), line.Caption);
+        Assert.Equal("Pending, 1 of 2 approvals.", line.Summary);
+
+        line.Update(new RemoteTranscriptItem
+        {
+            Id = "wake", Kind = RemoteProtocol.ItemKinds.User,
+            Author = "Lumi Job - BAMI watch", Text = content, JobRunStatus = ""
+        });
+        Assert.Equal(ChatSessionStrings.Get("JobStatusLineNoStatus"), line.Summary);
+
+        using var reply = Assert.IsType<JobWakeItemViewModel>(TranscriptItemFactory.Create(
+            new RemoteTranscriptItem { Id = "wake2", Kind = RemoteProtocol.ItemKinds.User, Author = "Lumi Job - BAMI watch", Text = content }));
+        Assert.False(reply.IsStatusLine);
+        Assert.NotEqual(ChatSessionStrings.Get("JobStatusLineCaption"), reply.Caption);
     }
 
     [Fact]

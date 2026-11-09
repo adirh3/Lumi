@@ -80,6 +80,9 @@ public partial class BackgroundJobsViewModel : ObservableObject
     [ObservableProperty] private bool _editIsEnabled = true;
     [ObservableProperty] private bool _editIsTemporary;
 
+    /// <summary>What a run that finds nothing new leaves in the chat (<see cref="BackgroundJobNoChangeBehaviors"/>).</summary>
+    [ObservableProperty] private string _editNoChangeBehavior = BackgroundJobNoChangeBehaviors.Reply;
+
     /// <summary>The jobs the search and filters leave, in the sidebar's order.</summary>
     public ObservableCollection<BackgroundJob> Jobs { get; } = [];
     public ObservableCollection<Chat> AvailableChats { get; } = [];
@@ -541,6 +544,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
             EditIsEnabled = job.IsEnabled;
             _hydratedIsEnabled = job.IsEnabled;
             EditIsTemporary = job.IsTemporary;
+            EditNoChangeBehavior = BackgroundJobNoChangeBehaviors.Normalize(job.NoChangeBehavior);
         }
         finally
         {
@@ -613,6 +617,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
             EditIsEnabled = true;
             _hydratedIsEnabled = true;
             EditIsTemporary = false;
+            EditNoChangeBehavior = BackgroundJobNoChangeBehaviors.Reply;
         }
         finally
         {
@@ -768,6 +773,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
             job.ChatEventTypes = IsChatEventTrigger ? chatEventTypes : [];
             job.IsEnabled = EditIsEnabled;
             job.IsTemporary = IsScriptTrigger || EditIsTemporary;
+            job.NoChangeBehavior = BackgroundJobNoChangeBehaviors.Normalize(EditNoChangeBehavior);
             job.UpdatedAt = now;
             job.RunAt = parsedRunAt;
 

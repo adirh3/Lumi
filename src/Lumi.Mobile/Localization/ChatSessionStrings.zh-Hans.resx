@@ -383,6 +383,8 @@
   <data name="Steered" xml:space="preserve"><value>已引导</value></data>
   <data name="SteerFailed" xml:space="preserve"><value>无法引导</value></data>
   <data name="JobWakeSummary" xml:space="preserve"><value>任务唤醒了此聊天。</value></data>
+  <data name="JobStatusLineCaption" xml:space="preserve"><value>已检查，没有新内容</value></data>
+  <data name="JobStatusLineNoStatus" xml:space="preserve"><value>自上次更新以来没有变化。</value></data>
   <data name="SourceCountOne" xml:space="preserve"><value>1 个来源</value></data>
   <data name="SourceCountMany" xml:space="preserve"><value>{0} 个来源</value></data>
   <data name="Thinking" xml:space="preserve"><value>思考</value></data>

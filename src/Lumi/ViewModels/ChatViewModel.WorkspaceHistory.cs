@@ -206,9 +206,16 @@ public partial class ChatViewModel
             change.Touched = ++touched;
         }
 
+        var inQuietJobRun = false;
         foreach (var message in messages)
         {
             AddFileEditsBefore(message.StorageSeq);
+            // A job run that found nothing new is not shown, so nothing it did is listed either.
+            if (message.Role == "user")
+                inQuietJobRun = message.JobRunQuiet;
+            if (inQuietJobRun)
+                continue;
+
             switch (message.Role)
             {
                 case "user":
