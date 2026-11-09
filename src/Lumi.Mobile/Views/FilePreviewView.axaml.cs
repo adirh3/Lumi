@@ -30,7 +30,7 @@ public partial class FilePreviewView : UserControl
         AvaloniaProperty.Register<FilePreviewView, Thickness>(nameof(Insets));
 
     /// <summary>The floating actions' height and gap, so the end of a file scrolls clear of them.</summary>
-    private const double ActionsClearance = 96;
+    private const double MinimumActionsClearance = 96;
 
     /// <summary>
     /// The space below a markdown section, given whether the next one continues its text and its font size:
@@ -52,6 +52,7 @@ public partial class FilePreviewView : UserControl
     public FilePreviewView()
     {
         InitializeComponent();
+        this.FindControl<StackPanel>("PreviewActionsHost")!.SizeChanged += (_, _) => ApplyHtmlPreviewClearance();
         ApplyChrome();
     }
 
@@ -86,11 +87,16 @@ public partial class FilePreviewView : UserControl
         _preview = DataContext as FilePreviewViewModel;
         if (_preview is not null)
             _preview.PropertyChanged += OnPreviewPropertyChanged;
+        this.FindControl<ContentControl>("PreviewHtml")!.Content = null;
+        SyncHtmlPreview();
         ResetScrollPositions();
     }
 
     private void OnPreviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(FilePreviewViewModel.ShowHtml))
+            SyncHtmlPreview();
+
         if (e.PropertyName != nameof(FilePreviewViewModel.ActionMessage)
             || sender is not FilePreviewViewModel { ActionMessage: { Length: > 0 } message } preview)
             return;
@@ -104,6 +110,28 @@ public partial class FilePreviewView : UserControl
         }, ActionMessageDuration);
     }
 
+    private void SyncHtmlPreview()
+    {
+        var host = this.FindControl<ContentControl>("PreviewHtml")!;
+        if (_preview is not { ShowHtml: true, LocalPath: { } path } preview)
+        {
+            host.Content = null;
+            return;
+        }
+        if (host.Content is not null)
+            return;
+
+        try
+        {
+            host.Content = MobilePlatformServices.HtmlPreviewFactory?.Invoke(path, preview.FileName);
+        }
+        catch (Exception ex)
+        {
+            preview.ErrorText = Strings.Get("FilePreviewFailed");
+            Trace.TraceWarning($"[Mobile] HTML preview failed for {preview.FileName}: {ex}");
+        }
+    }
+
     private void ApplyChrome()
     {
         var insets = Insets;
@@ -112,7 +140,11 @@ public partial class FilePreviewView : UserControl
         this.FindControl<Border>("PreviewHeader")!.Padding =
             new Thickness(12 + insets.Left, 16 + insets.Top, 12 + insets.Right, 10);
 
-        var bottom = ActionsClearance + insets.Bottom;
+        var bottom = MinimumActionsClearance + insets.Bottom;
+        this.FindControl<StackPanel>("PreviewActionsHost")!.Margin =
+            new Thickness(12 + insets.Left, 0, 12 + insets.Right, 16 + insets.Bottom);
+        // Native browser content sits above the canvas, so leave the complete action chrome clear.
+        ApplyHtmlPreviewClearance();
         this.FindControl<StackPanel>("PreviewMarkdownContent")!.Margin =
             new Thickness(20 + insets.Left, 14, 20 + insets.Right, bottom);
         this.FindControl<StackPanel>("PreviewCodeContent")!.Margin =
@@ -123,8 +155,16 @@ public partial class FilePreviewView : UserControl
         this.FindControl<DockPanel>("PreviewCsvTable")!.Margin = new Thickness(insets.Left, 0, insets.Right, 0);
         this.FindControl<ItemsControl>("PreviewPdfPages")!.Margin =
             new Thickness(16 + insets.Left, 16, 16 + insets.Right, bottom);
-        this.FindControl<StackPanel>("PreviewActionsHost")!.Margin =
-            new Thickness(12 + insets.Left, 0, 12 + insets.Right, 16 + insets.Bottom);
+    }
+
+    private void ApplyHtmlPreviewClearance()
+    {
+        var actions = this.FindControl<StackPanel>("PreviewActionsHost")!;
+        var bottom = Math.Max(
+            MinimumActionsClearance + Insets.Bottom,
+            actions.Bounds.Height + actions.Margin.Bottom + 8);
+        this.FindControl<ContentControl>("PreviewHtml")!.Margin =
+            new Thickness(Insets.Left, 0, Insets.Right, bottom);
     }
 
     /// <summary>A different file starts at its top.</summary>

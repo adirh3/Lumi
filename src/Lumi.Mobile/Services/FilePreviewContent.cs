@@ -15,6 +15,7 @@ public enum FilePreviewKind
     Text,
     Csv,
     Pdf,
+    Html,
 
     /// <summary>Nothing to draw here (Office documents, archives, media): it opens in another app.</summary>
     Unsupported
@@ -94,6 +95,9 @@ public static class FilePreviewContent
             return FilePreviewKind.Image;
         if (extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase))
             return FilePreviewKind.Pdf;
+        if (extension.Equals(".html", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".htm", StringComparison.OrdinalIgnoreCase))
+            return FilePreviewKind.Html;
         if (MarkdownExtensions.Contains(extension))
             return FilePreviewKind.Markdown;
         if (extension.Equals(".csv", StringComparison.OrdinalIgnoreCase)

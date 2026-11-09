@@ -147,7 +147,10 @@ public sealed class NativeTextInputOverlay
         var ancestors = control.GetVisualAncestors().ToArray();
         var shell = ancestors.OfType<MobileShellView>().FirstOrDefault()?.DataContext
             as MobileShellViewModel;
-        if (shell?.HasPageOverlay == true && ancestors.OfType<ChatDetailView>().Any())
+        if (ancestors.OfType<ChatDetailView>().Any()
+            && (shell?.HasPageOverlay == true
+                || shell?.IsFilePreviewCoveringChat == true
+                || shell?.IsFilePreviewMoving == true))
             return true;
 
         var anySheetPresented = false;

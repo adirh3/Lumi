@@ -97,6 +97,31 @@ export function revokeObjectUrl(url) {
         URL.revokeObjectURL(url);
 }
 
+export function createHtmlPreview(bytes, fileName) {
+    const frame = document.createElement('iframe');
+    // Scripts can make the artifact interactive, but must never read Lumi's origin or pairing token.
+    frame.setAttribute('sandbox', 'allow-scripts allow-downloads');
+    frame.referrerPolicy = 'no-referrer';
+    frame.title = fileName;
+    frame.style.border = '0';
+    frame.style.background = 'white';
+    frame.style.width = '100%';
+    frame.style.height = '100%';
+    // Blob/srcdoc documents inherit the app's CSP, which intentionally forbids inline scripts.
+    // The isolated static shell has its own policy; no file URL or authentication token leaves Lumi.
+    frame.addEventListener('load', () => {
+        if (frame.isConnected)
+            frame.contentWindow.postMessage(bytes, '*');
+    }, { once: true });
+    frame.src = '/app/html-preview.html';
+    return frame;
+}
+
+export function destroyHtmlPreview(frame) {
+    frame.remove();
+    frame.src = 'about:blank';
+}
+
 export function configureFilePickerCancellation({ StorageProvider }) {
     const openFileDialog = StorageProvider.openFileDialog;
     StorageProvider.openFileDialog = async function (...args) {
@@ -427,8 +452,13 @@ export function downloadUrl(url, fileName) {
 
 const shareTypes = {
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
-    pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json'
+    pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json',
+    html: 'text/html', htm: 'text/html'
 };
+
+export function downloadFile(bytes, fileName) {
+    downloadUrl(createObjectUrl(bytes, shareTypeOf(fileName)), fileName);
+}
 
 function shareTypeOf(fileName) {
     const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
@@ -436,10 +466,14 @@ function shareTypeOf(fileName) {
 }
 
 export function canShareFiles() {
+    return canShareFile('lumi.png');
+}
+
+export function canShareFile(fileName) {
     try {
         return typeof navigator.share === 'function'
             && typeof navigator.canShare === 'function'
-            && navigator.canShare({ files: [new File([new Uint8Array(1)], 'lumi.png', { type: 'image/png' })] });
+            && navigator.canShare({ files: [new File([new Uint8Array(1)], fileName, { type: shareTypeOf(fileName) })] });
     } catch {
         return false;
     }
@@ -450,6 +484,18 @@ export function canShareFiles() {
 export async function shareFile(url, fileName) {
     try {
         const blob = await (await fetch(url)).blob();
+        return await shareBlob(blob, fileName);
+    } catch (error) {
+        return error?.name === 'AbortError' ? 'cancelled' : 'failed';
+    }
+}
+
+export function shareBytes(bytes, fileName) {
+    return shareBlob(new Blob([bytes], { type: shareTypeOf(fileName) }), fileName);
+}
+
+async function shareBlob(blob, fileName) {
+    try {
         const type = blob.type && blob.type !== 'application/octet-stream' ? blob.type : shareTypeOf(fileName);
         const file = new File([blob], fileName, { type });
         if (!navigator.canShare?.({ files: [file] }))

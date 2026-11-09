@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body>
+<script>
+function receiveFile(event) {
+    if (event.source !== parent || !(event.data instanceof Uint8Array))
+        return;
+    removeEventListener('message', receiveFile);
+    const html = new TextDecoder().decode(event.data);
+    document.open();
+    document.write(html);
+    document.close();
+}
+addEventListener('message', receiveFile);
+</script>
+</body>
+</html>

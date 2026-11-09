@@ -383,6 +383,7 @@ public static class DesignPreview
                     [
                         new() { FileName = "fold-layout-report.pdf", Extension = ".pdf", MessageId = Guid.NewGuid() },
                         new() { FileName = "fold-layout-metrics.csv", Extension = ".csv", MessageId = Guid.NewGuid() },
+                        new() { FileName = "interactive-report.html", Extension = ".html", MessageId = Guid.NewGuid() },
                         new() { FileName = "Lumi-1.0-release-notes.docx", Extension = ".docx", MessageId = Guid.NewGuid() }
                     ]
                 }

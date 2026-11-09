@@ -5,6 +5,11 @@ namespace Lumi.Services.Remote;
 internal sealed class RemoteWebAppHandler(RemoteWebAssetProvider? assets)
 {
     private const string AppPrefix = "/app/";
+    private const string HtmlPreviewPolicy =
+        "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'self'; " +
+        "form-action 'none'; sandbox allow-scripts allow-downloads; " +
+        "script-src 'unsafe-inline' https: blob:; style-src 'unsafe-inline' https:; " +
+        "img-src https: data: blob:; font-src https: data:; connect-src https:; media-src https: data: blob:";
     private static readonly Dictionary<string, string> SecurityHeaders =
         new Dictionary<string, string>
         {
@@ -87,6 +92,12 @@ internal sealed class RemoteWebAppHandler(RemoteWebAssetProvider? assets)
             ("Cache-Control", isRecovery ? "no-store" : asset.CacheControl),
             ("ETag", asset.ETag),
             ("Vary", "Accept-Encoding"));
+        if (relative == "html-preview.html")
+        {
+            // Only this empty renderer shell can run a file's scripts, always in an opaque sandbox.
+            headers["Content-Security-Policy"] = HtmlPreviewPolicy;
+            headers["X-Frame-Options"] = "SAMEORIGIN";
+        }
         if (asset.ContentEncoding is { Length: > 0 } encoding)
             headers["Content-Encoding"] = encoding;
 

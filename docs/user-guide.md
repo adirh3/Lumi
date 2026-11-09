@@ -1228,8 +1228,10 @@ while a viewer is open.
 
 Tapping a file Lumi made opens it in a preview pane of its own, as the desktop's Workspace
 previews it. Images fit the pane and zoom with a pinch or a double-tap; Markdown reads as
-formatted text; code is highlighted (very long files as plain text); text wraps; CSV and TSV files
-are read by the desktop's own rules and become a table whose header stays in place while numbers
+formatted text; in the web app and native Android app, HTML renders as an interactive page in a
+sandbox isolated from Lumi and its pairing credentials; code is highlighted (very long files as
+plain text); text wraps;
+CSV and TSV files are read by the desktop's own rules and become a table whose header stays in place while numbers
 line up on the right; and on Android a
 PDF shows its pages, each drawn only while it is near the screen. A file the phone can't draw
 (an Office document, an archive, media) says so and offers another app without being downloaded
@@ -1238,8 +1240,10 @@ Galaxy Z Fold7's unfolded screen, a tablet) the chat moves into the chat list's 
 file opens beside it, the two meeting at the fold or either side of a hinge; the composer stays
 usable, and ✕, Back or showing the chats closes the file and brings the list back. A floating
 bar offers **Open with** another app, **Share** on Android and **Save** a copy; in the browser
-app, **Download** stands for both. Long text, code and Markdown are built a part at a time as they
-near the screen, so even a long report opens at once; a very long file shows its beginning
+app, **Download** saves the original file and **Share** appears when the browser supports sharing
+that file type. Some browsers disallow sharing HTML; use **Download** there. HTML previews use
+the complete file rather than a truncated source listing. Long text, code and Markdown are built
+a part at a time as they near the screen, so even a long report opens at once; a very long file shows its beginning
 (100,000 characters, 2,000 rows or 200 pages) and says so.
 
 Preview every popup without pairing, network calls or real chat data:
