@@ -912,6 +912,9 @@ time-aware starters, including project, agent, model, reasoning effort, and loca
 choice. The desktop selects them from the whole chat index, not the mobile history page.
 Selecting one keeps the current draft and attachments and creates no chat until Send.
 Setup selections apply only to that chat and do not change global desktop model defaults.
+Before the first send, a branch icon and **New worktree** subtitle beneath the mobile
+chat title indicate worktree mode. Tap the title to change it; existing chats keep
+their usual header.
 Older desktop hosts show an update hint instead of inventing different templates.
 Mobile and desktop sends use assistant readiness, not background-session activity.
 A ready session applies pending configuration changes through same-ID resume without

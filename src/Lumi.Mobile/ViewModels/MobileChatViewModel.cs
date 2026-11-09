@@ -66,6 +66,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSubmitInteractions))]
     [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
+    [NotifyPropertyChangedFor(nameof(ShowNewChatWorktree))]
     private Guid _chatId;
     [ObservableProperty] private string _title = "";
     [ObservableProperty]
@@ -263,7 +264,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [ObservableProperty] private string _agentGlyph = "◉";
     [ObservableProperty] private string? _projectName;
     [ObservableProperty] private string? _projectValue;
-    [ObservableProperty] private bool _useWorktree;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowNewChatWorktree))]
+    private bool _useWorktree;
 
     private readonly Dictionary<Guid, RemoteProject> _projectCatalog = [];
     private bool _worktreeChoiceExplicit;
@@ -288,6 +291,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
           TotalRawMessageCount > 0);
 
     public bool IsLocalWorkspaceSelected => !UseWorktree;
+
+    public bool ShowNewChatWorktree => ChatId == Guid.Empty && UseWorktree;
 
     public string WorkspaceSummary => Strings.Get(UseWorktree ? "NewWorktree" : "LocalCheckout");
 

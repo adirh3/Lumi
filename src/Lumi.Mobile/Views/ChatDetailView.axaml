@@ -1209,14 +1209,27 @@
                   <TextBlock Text="{Binding ChatHeaderMark.Glyph}"
                              Foreground="{Binding ChatHeaderMark.Foreground}" />
                 </Border>
-                <!-- The project takes only the room the title leaves, so it trims away first. -->
-                <DockPanel Grid.Column="1" VerticalAlignment="Center">
-                  <TextBlock x:Name="HeaderTitleText" DockPanel.Dock="Left" Classes="chat-header-title"
-                             Text="{Binding ChatDetailsTitle}" />
-                  <TextBlock x:Name="HeaderProjectText" Classes="chat-header-project"
-                             Text="{Binding Chat.ProjectName}"
-                             IsVisible="{Binding Chat.ProjectName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                </DockPanel>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                  <!-- The project takes only the room the title leaves, so it trims away first. -->
+                  <DockPanel>
+                    <TextBlock x:Name="HeaderTitleText" DockPanel.Dock="Left" Classes="chat-header-title"
+                               Text="{Binding ChatDetailsTitle}" />
+                    <TextBlock x:Name="HeaderProjectText" Classes="chat-header-project"
+                               Text="{Binding Chat.ProjectName}"
+                               IsVisible="{Binding Chat.ProjectName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  </DockPanel>
+                  <Grid x:Name="NewChatWorktreeIndicator" ColumnDefinitions="Auto,*"
+                        IsVisible="{Binding Chat.ShowNewChatWorktree}">
+                    <sc:StrataLineIcon Width="13" Height="13" Margin="0,0,5,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Brush.TextSecondary}"
+                                       Data="{x:Static sc:StrataIcons.Branch}" />
+                    <TextBlock Grid.Column="1" Text="{loc:Str NewWorktree}"
+                               FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}"
+                               TextTrimming="CharacterEllipsis" />
+                  </Grid>
+                </StackPanel>
                 <PathIcon x:Name="HeaderControlsIcon" Grid.Column="2" Classes="chat-header-chevron"
                           Data="{DynamicResource Mobile.Icon.ChevronDown}" />
               </Grid>

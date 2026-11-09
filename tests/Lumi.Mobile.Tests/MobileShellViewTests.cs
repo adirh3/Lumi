@@ -2827,6 +2827,71 @@ public sealed class MobileShellViewTests
         });
     }
 
+    [Theory]
+    [InlineData(320, 740)]
+    [InlineData(412, 892)]
+    [InlineData(884, 920)]
+    public async Task NewChatWorktreeIndicator_TracksTheChoiceWithoutChangingExistingChats(double width, double height)
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            Layout(window, shell, width, height);
+            var projectId = Guid.NewGuid();
+            shell.Chat.ApplyProjectCatalog(
+            [
+                new RemoteProject
+                {
+                    Id = projectId,
+                    Name = "A project with a long name",
+                    IsCodingProject = true,
+                    DefaultNewChatsUseWorktree = true
+                }
+            ]);
+            shell.Chat.Reset(Guid.Empty, "New chat");
+            Pump(window);
+            var indicator = Named(window, "NewChatWorktreeIndicator");
+            var header = Assert.IsType<Button>(Named(window, "HeaderDetailsButton"));
+            var headerHeight = header.Bounds.Height;
+            Assert.False(indicator.IsEffectivelyVisible);
+
+            shell.Chat.ProjectValue = projectId.ToString();
+            shell.Chat.ProjectName = "A project with a long name";
+            Pump(window);
+            Assert.True(indicator.IsEffectivelyVisible);
+            Assert.Contains(indicator.GetVisualDescendants().OfType<TextBlock>(),
+                text => text.Text == ChatSessionStrings.Get("NewWorktree"));
+            Assert.Equal(headerHeight, header.Bounds.Height);
+            var indicatorOrigin = indicator.TranslatePoint(default, header)!.Value;
+            Assert.True(new Rect(header.Bounds.Size).Contains(new Rect(indicatorOrigin, indicator.Bounds.Size)));
+            Assert.False(shell.Chat.IsRunSettingsSheetOpen);
+
+            Tap(window, header);
+            Pump(window);
+            Assert.True(shell.Chat.IsRunSettingsSheetOpen);
+            shell.Chat.SelectLocalWorkspaceCommand.Execute(null);
+            shell.Chat.IsRunSettingsSheetOpen = false;
+            Pump(window);
+            Assert.False(indicator.IsEffectivelyVisible);
+
+            shell.Chat.SelectNewWorktreeCommand.Execute(null);
+            Pump(window);
+            Assert.True(indicator.IsEffectivelyVisible);
+            shell.Chat.RemoveProjectCommand.Execute(null);
+            Pump(window);
+            Assert.False(indicator.IsEffectivelyVisible);
+
+            shell.Chat.ProjectValue = projectId.ToString();
+            shell.Chat.ProjectName = "A project with a long name";
+            Pump(window);
+            Assert.True(indicator.IsEffectivelyVisible);
+            shell.Chat.ChatId = Guid.NewGuid();
+            Pump(window);
+            Assert.True(shell.Chat.UseWorktree);
+            Assert.False(indicator.IsEffectivelyVisible);
+        });
+    }
+
     [Fact]
     public async Task ProjectScopeCanChangeWhileTheFirstSendDestinationIsFrozen()
     {
