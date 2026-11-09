@@ -606,6 +606,15 @@ public class CopilotIntegrationTests : IAsyncLifetime
                 ["mode"] = "sync",
                 ["initial_wait"] = 60
             });
+            // A command the sandbox blocks asks a person to let it past the sandbox; declining keeps it contained.
+            using var escapes = session.On<PermissionRequestedEvent>(evt =>
+            {
+                if (SandboxEscape.Of(evt.Data.PermissionRequest, evt.Data.PromptRequest) is not null)
+                {
+                    _ = session.Rpc.Permissions.HandlePendingPermissionRequestAsync(
+                        evt.Data.RequestId, GitHub.Copilot.Rpc.PermissionDecision.Reject("The user denied this permission request."));
+                }
+            });
             await session.Rpc.Tools.ExecuteAsync(OperatingSystem.IsWindows() ? "powershell" : "bash",
                 arguments, "sandbox-" + Guid.NewGuid().ToString("N"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(90));
             _output.WriteLine($"{path}: {(File.Exists(path) ? "written" : "contained")}");
@@ -1670,6 +1679,58 @@ public class CopilotIntegrationTests : IAsyncLifetime
             Assert.True(calls >= 2);
             Assert.NotEmpty(usedModels);
             Assert.All(usedModels, model => Assert.Equal(picked, model));
+        }
+        finally
+        {
+            await session.DisposeAsync();
+            await _service.DeleteSessionAsync(session.SessionId);
+        }
+    }
+
+    [SkippableFact]
+    public async Task ReasoningEffortChangedMidReply_AppliesFromTheNextModelCall()
+    {
+        SkipIfDisabled();
+        var ids = (await _service.GetModelsAsync()).Select(model => model.Id).ToHashSet(StringComparer.Ordinal);
+        var running = new[] { "gpt-6-luna", "gpt-5.6-luna", "gpt-5-mini" }.FirstOrDefault(ids.Contains);
+        Skip.If(running is null, "The account does not offer a test model with reasoning effort.");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var idle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        var tool = AIFunctionFactory.Create(async (CancellationToken cancellationToken) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                started.TrySetResult();
+                await release.Task.WaitAsync(TimeSpan.FromSeconds(60), cancellationToken);
+            }
+            return "EFFORT_PROBE_COMPLETE";
+        }, "effort_probe", "Get the completion marker.");
+        var session = await _service.CreateSessionAsync(SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
+        {
+            Model = running,
+            SystemPrompt = "Call effort_probe once, then reply with its returned marker.",
+            Tools = [tool],
+            Streaming = true
+        }));
+        var efforts = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var usage = session.On<AssistantUsageEvent>(evt => efforts.Enqueue(evt.Data.ReasoningEffort ?? ""));
+        using var idleSubscription = session.On<SessionIdleEvent>(_ => idle.TrySetResult());
+        try
+        {
+            Assert.False((await SessionModelSwitch.SwitchAsync(session, running!, new SetModelOptions { ReasoningEffort = "low" })).Deferred);
+            await session.SendAsync(new MessageOptions { Prompt = "Run the tool and report its marker." });
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(60));
+
+            // A new effort isn't queued: the call after the running tool already uses it.
+            Assert.False((await SessionModelSwitch.SwitchAsync(session, running!, new SetModelOptions { ReasoningEffort = "high" })).Deferred);
+            release.TrySetResult();
+            await idle.Task.WaitAsync(TimeSpan.FromSeconds(90));
+
+            _output.WriteLine($"Efforts per call: {string.Join(", ", efforts)}");
+            Assert.Equal("low", efforts.First());
+            Assert.Equal("high", efforts.Last());
         }
         finally
         {

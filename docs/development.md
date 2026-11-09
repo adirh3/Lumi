@@ -42,7 +42,7 @@ git submodule update --init --recursive
 ### Build & Run
 
 The Copilot SDK is an official NuGet dependency: `GitHub.Copilot.SDK`
-`1.0.28`, restored from NuGet.org. Its native
+`1.0.30-preview.1`, restored from NuGet.org. This is a prerelease; its native
 skill-provider API is experimental. Avalonia is also restored from NuGet.org;
 no vendored package feed is needed. No SDK submodule, source build, patch step,
 feed credentials, or Node.js installation
@@ -80,7 +80,7 @@ does not by itself require loading the same skill again. New skills, explicit
 reloads, edits and instructions lost to compaction still use the native loader.
 
 Installed plugin directories are supplied on both create and resume because chat
-sessions use Lumi's own Copilot configuration folder. The matching CLI `1.0.105`
+sessions use Lumi's own Copilot configuration folder. The matching CLI `1.0.108-1`
 fixes plugin activation snapshot failures when an already-live session resumes
 with those directories. Lumi uses the normal SDK resume call without stripping
 plugin configuration, resetting native history, or adding a custom recovery retry.
