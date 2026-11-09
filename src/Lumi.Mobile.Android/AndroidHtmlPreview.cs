@@ -15,55 +15,60 @@ namespace Lumi.Mobile.Android;
 /// <summary>Renders an interactive HTML file in a WebView, isolated from Lumi's app state.</summary>
 internal sealed class AndroidHtmlPreview(string path, string fileName) : NativeControlHost
 {
-    private CancellationTokenSource? _loadLifetime;
-    private WebView? _webView;
-    private bool _destroyed;
-
     protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
     {
         var context = (parent as AndroidViewControlHandle)?.View.Context
                       ?? throw new InvalidOperationException("The HTML preview needs an Android view parent.");
-        _destroyed = false;
-        var lifetime = _loadLifetime = new CancellationTokenSource();
-        var container = new FrameLayout(context) { ContentDescription = fileName };
+        var container = new PreviewContainer(context) { ContentDescription = fileName };
         container.AddView(StateText(context, Strings.Get("FilePreviewLoading")));
-        _ = LoadAsync(container, context, lifetime.Token);
+        _ = LoadAsync(container, context, container.LoadToken);
         return new AndroidViewControlHandle(container);
     }
 
-    protected override void DestroyNativeControlCore(IPlatformHandle control)
+    private sealed class PreviewContainer(AndroidContext context) : FrameLayout(context)
     {
-        _destroyed = true;
-        _loadLifetime?.Cancel();
-        _loadLifetime?.Dispose();
-        _loadLifetime = null;
+        private CancellationTokenSource? _loadLifetime = new();
 
-        if (control is AndroidViewControlHandle { View: FrameLayout container })
-            container.RemoveAllViews();
+        public CancellationToken LoadToken => _loadLifetime!.Token;
+        public WebView? WebView { get; set; }
 
-        if (_webView is { PeerReference.IsValid: true } webView)
+        protected override void Dispose(bool disposing)
         {
-            webView.StopLoading();
-            webView.Destroy();
-        }
+            // Avalonia disposes this JNI peer before DestroyNativeControlCore. Release our child
+            // here, while its parent is still usable; the handle's later Dispose is a no-op.
+            if (disposing && _loadLifetime is { } lifetime)
+            {
+                _loadLifetime = null;
+                lifetime.Cancel();
+                lifetime.Dispose();
 
-        _webView = null;
-        base.DestroyNativeControlCore(control);
+                if (WebView is { } webView)
+                {
+                    WebView = null;
+                    RemoveView(webView);
+                    webView.StopLoading();
+                    webView.Destroy();
+                    webView.Dispose();
+                }
+            }
+
+            base.Dispose(disposing);
+        }
     }
 
-    private async Task LoadAsync(FrameLayout container, AndroidContext context, CancellationToken token)
+    private async Task LoadAsync(PreviewContainer container, AndroidContext context, CancellationToken token)
     {
         try
         {
             var bytes = await File.ReadAllBytesAsync(path, token).ConfigureAwait(false);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                if (_destroyed || token.IsCancellationRequested)
+                if (token.IsCancellationRequested)
                     return;
 
                 var webView = new WebView(context);
+                container.WebView = webView;
                 Configure(webView);
-                _webView = webView;
                 container.RemoveAllViews();
                 container.AddView(webView, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MatchParent,
@@ -79,7 +84,7 @@ internal sealed class AndroidHtmlPreview(string path, string fileName) : NativeC
             System.Diagnostics.Trace.TraceError($"Could not load HTML preview '{fileName}': {ex}");
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                if (_destroyed || token.IsCancellationRequested)
+                if (token.IsCancellationRequested)
                     return;
 
                 container.RemoveAllViews();

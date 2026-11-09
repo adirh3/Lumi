@@ -820,6 +820,26 @@ the same app under its own package, label, data and pairing, so a build under
 test installs beside the everyday Lumi app and pairs with a Debug desktop
 without replacing or reconnecting it.
 
+For the Android HTML preview's native lifetime check, build a standalone emulator
+APK with `-r android-x64 -p:LumiPreview=true -p:EmbedAssembliesIntoApk=true` and open
+the existing synthetic fixture:
+
+```powershell
+adb shell am start -n com.lumi.mobile.preview/crc6470d511f2159c9bd9.MainActivity --ez lumi.design_preview true --es lumi.open_file interactive-report.html
+```
+
+Check the interactive button and the final marker after the 120,000-character
+payload. Close with Android Back, reopen several times, close with the preview's
+own button, and switch between HTML and another file on a two-pane screen. The
+app must stay in the same process, and each closed WebView must disappear from
+Chrome's remote WebView targets, not merely become hidden with its timers running.
+Also close while the file is loading. These checks require Android: the desktop
+simulator does not create a WebView. `AndroidHtmlPreview` owns each native
+container's loading and child WebView; disposal cancels loading, detaches and
+destroys the child before releasing the container's JNI peer. Avalonia 12.1.4
+disposes that peer before calling `DestroyNativeControlCore`, so cleanup there
+is too late.
+
 For a source-built desktop serving the PWA, set `LUMI_REMOTE_WEB_ROOT` to the
 published `wwwroot` directory in the terminal that launches the isolated desktop:
 
