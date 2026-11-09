@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Lumi.Mobile.Services;
+using AndroidContext = global::Android.Content.Context;
 using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Android;
@@ -50,7 +51,7 @@ internal sealed class AndroidHtmlPreview(string path, string fileName) : NativeC
         base.DestroyNativeControlCore(control);
     }
 
-    private async Task LoadAsync(FrameLayout container, Android.Content.Context context, CancellationToken token)
+    private async Task LoadAsync(FrameLayout container, AndroidContext context, CancellationToken token)
     {
         try
         {
@@ -107,7 +108,7 @@ internal sealed class AndroidHtmlPreview(string path, string fileName) : NativeC
         webView.WebChromeClient = null;
     }
 
-    private static TextView StateText(Android.Content.Context context, string text) => new(context)
+    private static TextView StateText(AndroidContext context, string text) => new(context)
     {
         Text = text,
         TextSize = 14,
