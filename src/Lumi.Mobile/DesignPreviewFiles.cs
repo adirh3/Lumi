@@ -33,10 +33,27 @@ internal static class DesignPreviewFiles
         ".cs" => Encoding.UTF8.GetBytes(Code),
         ".csv" => Encoding.UTF8.GetBytes(Metrics()),
         ".pdf" => Pdf(),
+        ".html" => Encoding.UTF8.GetBytes(Html()),
         // A real document is a zip; its start is enough for another app to be offered it.
         ".docx" => [0x50, 0x4B, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00],
         _ => null
     };
+
+    private static string Html()
+    {
+        var content = new StringBuilder("""
+            <!doctype html>
+            <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>body{font:16px sans-serif;margin:24px}button{padding:12px 18px;font-size:16px}</style></head>
+            <body><h1>Interactive HTML preview</h1>
+            <p>This file is larger than 100,000 characters and should render as a page, not source code.</p>
+            <button onclick="document.querySelector('#count').textContent = Number(document.querySelector('#count').textContent) + 1">Tap to test JavaScript</button>
+            <p>Tap count: <span id="count">0</span></p><pre>
+            """);
+        content.Append('x', 120_000);
+        content.Append("</pre><p>End of the complete HTML file.</p></body></html>");
+        return content.ToString();
+    }
 
     private static byte[] Asset(string uri)
     {

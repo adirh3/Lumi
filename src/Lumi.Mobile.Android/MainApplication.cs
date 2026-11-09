@@ -41,6 +41,7 @@ public class MainApplication : AvaloniaAndroidApplication<App>
         MobilePlatformServices.NetworkMonitor = new AndroidNetworkMonitor(this);
         MobilePlatformServices.ProducedFileOpener = new AndroidProducedFileOpener(this);
         MobilePlatformServices.PdfPreviewRenderer = new AndroidPdfPreviewRenderer();
+        MobilePlatformServices.HtmlPreviewFactory = (path, name) => new AndroidHtmlPreview(path, name);
         MobilePlatformServices.TextShare = new AndroidTextShareService(this);
         MobilePlatformServices.Notifications = new Notifications.AndroidPhoneNotificationPlatform(this);
         // Strata/theme defaults read the culture when their types and XAML are first loaded.
