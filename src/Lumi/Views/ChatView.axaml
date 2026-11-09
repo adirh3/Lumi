@@ -5270,6 +5270,7 @@
                       Margin="4,0,4,8"
                       IsVisible="{Binding HasSuggestions}">
         <Button Classes="follow-up-chip"
+                RightTapped="OnSuggestionRightTapped"
                 Command="{Binding SelectSuggestionCommand}"
                 CommandParameter="{Binding SuggestionA}"
                 AutomationProperties.Name="{Binding SuggestionA}"
@@ -5280,6 +5281,7 @@
           </Grid>
         </Button>
         <Button Classes="follow-up-chip"
+                RightTapped="OnSuggestionRightTapped"
                 Command="{Binding SelectSuggestionCommand}"
                 CommandParameter="{Binding SuggestionB}"
                 AutomationProperties.Name="{Binding SuggestionB}"
@@ -5290,6 +5292,7 @@
           </Grid>
         </Button>
         <Button Classes="follow-up-chip"
+                RightTapped="OnSuggestionRightTapped"
                 Command="{Binding SelectSuggestionCommand}"
                 CommandParameter="{Binding SuggestionC}"
                 AutomationProperties.Name="{Binding SuggestionC}"

@@ -735,6 +735,11 @@ remain available in diagnostics. Image-limit warnings with an action or link,
 all other warning categories, and actual image-processing errors keep their
 existing visible handling.
 
+### Follow-up suggestions
+
+On desktop, click a suggestion to send it immediately. Right-click it to put its full text in the
+composer without sending, ready to edit. This replaces any text already in the composer.
+
 ### Chat header and coding chats
 
 The floating header shows the chat's state; the composer holds what your next message can still

@@ -442,6 +442,18 @@ public partial class ChatView : UserControl
 
     private void FocusComposerAtEnd() => _composer?.FocusInputAtEnd();
 
+    private void OnSuggestionRightTapped(object? sender, TappedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: string suggestion }
+            || string.IsNullOrWhiteSpace(suggestion)
+            || DataContext is not ChatViewModel vm)
+            return;
+
+        vm.PromptText = suggestion;
+        FocusComposerAtEnd();
+        e.Handled = true;
+    }
+
     /// <summary>An agent's run opening in the Workspace takes over from the transient activity list.</summary>
     private void OnSubagentRunShowRequested() => HideRunningCard();
 
