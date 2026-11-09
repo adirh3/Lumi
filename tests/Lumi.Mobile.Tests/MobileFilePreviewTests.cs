@@ -10,6 +10,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Lumi.Mobile.Behaviors;
 using Lumi.Mobile.Layout;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
@@ -889,6 +890,7 @@ public sealed class MobileFilePreviewTests
             var host = Find<Panel>(view, "FilePreviewHost");
             var conversation = Find<Border>(view, "ConversationFrame");
             var pane = Find<FilePreviewView>(view, "FilePreviewPane");
+            var composerInput = Find<TextBox>(view, "PART_Input");
             Assert.True(host.IsVisible);
             Assert.Equal(2, Grid.GetColumn(host));
             Assert.Equal(conversation.Bounds, host.Bounds);
@@ -899,6 +901,8 @@ public sealed class MobileFilePreviewTests
             Assert.Equal(default, surface.CornerRadius);
             Assert.Equal(shell.ChatIslandPadding, surface.Padding);
             Assert.False(ChatDetailView.ShouldShowNativeComposerEditor(shell), "the native editor would draw over the file");
+            Assert.True(NativeTextInputOverlay.GetVisiblePlacement(composerInput, window) is null,
+                "the browser's native text overlay must step aside while the full-screen preview covers it");
 
             var back = Find<Button>(view, "PreviewBackButton");
             Assert.False(Find<Button>(view, "PreviewCloseButton").IsVisible);
@@ -915,6 +919,8 @@ public sealed class MobileFilePreviewTests
             await SettleAsync(window, () => !host.IsVisible);
             Assert.False(File.Exists(preview.LocalPath));
             Assert.Null(pane.DataContext);
+            Assert.True(NativeTextInputOverlay.GetVisiblePlacement(composerInput, window) is not null,
+                "the composer overlay returns after the preview leaves");
             Assert.False(shell.IsDrawerOpen, "Back from a file returns to its chat");
 
             // A file opened while the last is still leaving takes over the same pane.
@@ -931,6 +937,44 @@ public sealed class MobileFilePreviewTests
             Assert.Same(second, pane.DataContext);
             Assert.Equal(conversation.Bounds, host.Bounds);
             AssertNoBindingErrors(logs);
+        });
+
+    [Fact]
+    public Task HtmlPreviewKeepsWrappedActionFeedbackOutsideItsNativeSurface() =>
+        RunViewAsync(async (view, window, logs) =>
+        {
+            var previousFactory = MobilePlatformServices.HtmlPreviewFactory;
+            MobilePlatformServices.HtmlPreviewFactory = (_, _) => new Border();
+            using var files = new TempFiles();
+            var preview = Preview("report.html", Serve(files.Write("report.html", "<p>report</p>"u8.ToArray())));
+            try
+            {
+                view.DataContext = preview;
+                await preview.LoadAsync();
+                await SettleAsync(window, () => preview.ShowHtml);
+
+                var html = Find<ContentControl>(view, "PreviewHtml");
+                var actions = Find<StackPanel>(view, "PreviewActionsHost");
+                var initialHeight = actions.Bounds.Height;
+                Assert.True(html.IsEffectivelyVisible);
+
+                preview.ActionMessage = string.Join(' ', Enumerable.Repeat(
+                    "That file could not be shared.", 5));
+                await SettleAsync(window, () => actions.Bounds.Height > initialHeight);
+
+                var htmlBottom = html.TranslatePoint(new Point(0, html.Bounds.Height), window)!.Value.Y;
+                var actionsTop = actions.TranslatePoint(default, window)!.Value.Y;
+                Assert.True(html.Margin.Bottom >= actions.Bounds.Height + actions.Margin.Bottom + 7);
+                Assert.True(htmlBottom < actionsTop,
+                    $"Native HTML surface ends at {htmlBottom}, action feedback starts at {actionsTop}.");
+                Assert.True(Find<Border>(view, "PreviewActionMessage").IsEffectivelyVisible);
+                AssertNoBindingErrors(logs);
+            }
+            finally
+            {
+                preview.Close();
+                MobilePlatformServices.HtmlPreviewFactory = previousFactory;
+            }
         });
 
     [Theory]
