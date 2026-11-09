@@ -86,11 +86,16 @@ public partial class FilePreviewView : UserControl
         _preview = DataContext as FilePreviewViewModel;
         if (_preview is not null)
             _preview.PropertyChanged += OnPreviewPropertyChanged;
+        this.FindControl<ContentControl>("PreviewHtml")!.Content = null;
+        SyncHtmlPreview();
         ResetScrollPositions();
     }
 
     private void OnPreviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(FilePreviewViewModel.ShowHtml))
+            SyncHtmlPreview();
+
         if (e.PropertyName != nameof(FilePreviewViewModel.ActionMessage)
             || sender is not FilePreviewViewModel { ActionMessage: { Length: > 0 } message } preview)
             return;
@@ -104,6 +109,28 @@ public partial class FilePreviewView : UserControl
         }, ActionMessageDuration);
     }
 
+    private void SyncHtmlPreview()
+    {
+        var host = this.FindControl<ContentControl>("PreviewHtml")!;
+        if (_preview is not { ShowHtml: true, LocalPath: { } path } preview)
+        {
+            host.Content = null;
+            return;
+        }
+        if (host.Content is not null)
+            return;
+
+        try
+        {
+            host.Content = MobilePlatformServices.HtmlPreviewFactory?.Invoke(path, preview.FileName);
+        }
+        catch (Exception ex)
+        {
+            preview.ErrorText = Strings.Get("FilePreviewFailed");
+            Trace.TraceWarning($"[Mobile] HTML preview failed for {preview.FileName}: {ex}");
+        }
+    }
+
     private void ApplyChrome()
     {
         var insets = Insets;
@@ -113,6 +140,9 @@ public partial class FilePreviewView : UserControl
             new Thickness(12 + insets.Left, 16 + insets.Top, 12 + insets.Right, 10);
 
         var bottom = ActionsClearance + insets.Bottom;
+        // Native browser content sits above the canvas, so leave the existing action bar clear.
+        this.FindControl<ContentControl>("PreviewHtml")!.Margin =
+            new Thickness(insets.Left, 0, insets.Right, bottom);
         this.FindControl<StackPanel>("PreviewMarkdownContent")!.Margin =
             new Thickness(20 + insets.Left, 14, 20 + insets.Right, bottom);
         this.FindControl<StackPanel>("PreviewCodeContent")!.Margin =

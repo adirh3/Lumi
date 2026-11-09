@@ -41,6 +41,8 @@ public sealed class MobileFilePreviewTests
     [InlineData("metrics.csv", FilePreviewKind.Csv)]
     [InlineData("metrics.tsv", FilePreviewKind.Csv)]
     [InlineData("report.pdf", FilePreviewKind.Pdf)]
+    [InlineData("dashboard.HTML", FilePreviewKind.Html)]
+    [InlineData("report.htm", FilePreviewKind.Html)]
     [InlineData("release-notes.docx", FilePreviewKind.Unsupported)]
     [InlineData("bundle.zip", FilePreviewKind.Unsupported)]
     [InlineData("LICENSE", FilePreviewKind.Unknown)]
@@ -639,6 +641,81 @@ public sealed class MobileFilePreviewTests
     // ── On screen ───────────────────────────────────────────────────────────────────────────────
 
     [Fact]
+    public Task HtmlUsesTheHostRendererAndTheSameCompleteFileForActions() =>
+        RunViewAsync(async (view, window, logs) =>
+        {
+            using var files = new TempFiles();
+            var html = "<!doctype html><h1>Report</h1><!--"
+                       + new string('x', FilePreviewContent.MaxCharacters)
+                       + "--><button>Interactive content</button>";
+            var path = files.Write("report.html", Encoding.UTF8.GetBytes(html));
+            var previousFactory = MobilePlatformServices.HtmlPreviewFactory;
+            var renders = 0;
+            MobilePlatformServices.HtmlPreviewFactory = (localPath, name) =>
+            {
+                renders++;
+                Assert.Equal(path, localPath);
+                Assert.Equal("report.html", name);
+                Assert.Equal(html, File.ReadAllText(localPath));
+                return new TextBlock { Text = "Rendered HTML" };
+            };
+            try
+            {
+                var downloads = 0;
+                var preview = Preview("report.html", _ =>
+                {
+                    downloads++;
+                    return Task.FromResult(new ProducedFileDownload(path, null));
+                });
+                preview.IsSettling = true;
+                view.DataContext = preview;
+                await preview.LoadAsync();
+                await SettleAsync(window);
+                Assert.Equal(0, renders);
+                Assert.False(preview.ShowHtml);
+
+                preview.IsSettling = false;
+                await SettleAsync(window);
+                AssertShows(view, "PreviewHtml");
+                Assert.True(preview.ShowContentActions);
+                Assert.False(preview.IsTruncated);
+                Assert.Null(preview.Text);
+                Assert.Null(preview.Sections);
+                Assert.Equal(path, (await preview.EnsureDownloadedAsync()).Path);
+                Assert.Equal(1, downloads);
+                Assert.Equal(1, renders);
+
+                var content = Find<Control>(view, "PreviewHtml");
+                var actions = Find<Control>(view, "PreviewActionsBar");
+                Assert.True(content.TranslatePoint(new Point(0, content.Bounds.Height), window)!.Value.Y
+                            <= actions.TranslatePoint(default, window)!.Value.Y,
+                    "native HTML must not cover the canvas action buttons");
+
+                view.DataContext = null;
+                await SettleAsync(window);
+                Assert.Null(Find<ContentControl>(view, "PreviewHtml").Content);
+                preview.Close();
+                Assert.False(File.Exists(path));
+                AssertNoBindingErrors(logs);
+            }
+            finally
+            {
+                MobilePlatformServices.HtmlPreviewFactory = previousFactory;
+            }
+        });
+
+    [Fact]
+    public async Task HostsWithoutHtmlRenderingKeepTheSourcePreview()
+    {
+        using var files = new TempFiles();
+        var preview = Preview("report.htm", Serve(files.Write("report.htm", "<h1>Report</h1>"u8.ToArray())));
+        await preview.LoadAsync();
+        Assert.True(preview.ShowCode);
+        Assert.False(preview.ShowHtml);
+        Assert.Equal("html", preview.CodeLanguage);
+    }
+
+    [Fact]
     public Task EveryKindOfFileShowsInItsOwnViewWithItsActions() =>
         RunViewAsync(async (view, window, logs) =>
         {
@@ -1036,7 +1113,7 @@ public sealed class MobileFilePreviewTests
 
     private static readonly string[] ContentStates =
     [
-        "PreviewImage", "PreviewMarkdownScroll", "PreviewCodeScroll", "PreviewTextScroll", "PreviewCsvScroll",
+        "PreviewHtml", "PreviewImage", "PreviewMarkdownScroll", "PreviewCodeScroll", "PreviewTextScroll", "PreviewCsvScroll",
         "PreviewPdfScroll", "PreviewLoadingState", "PreviewEmptyState", "PreviewErrorState", "PreviewUnsupportedState"
     ];
 

@@ -99,50 +99,36 @@ internal sealed class BrowserProducedFileOpener : IProducedFileOpener
     /// <summary>A browser opens a file by downloading it, which already keeps a copy.</summary>
     public bool OpensBySaving => true;
 
-    public async Task<bool> TryOpenAsync(
+    public Task<bool> TryOpenAsync(
         string downloadedPath,
         string displayName,
         CancellationToken cancellationToken)
     {
-        // A preview keeps its copy in the app's in-memory file system; the browser downloads it from a
-        // blob URL, as it does a file fetched straight into one.
-        if (!downloadedPath.StartsWith("blob:", StringComparison.Ordinal) && File.Exists(downloadedPath))
-        {
-            var bytes = await File.ReadAllBytesAsync(downloadedPath, cancellationToken);
-            BrowserInterop.DownloadUrl(
-                BrowserInterop.CreateObjectUrl(bytes, "application/octet-stream"),
-                displayName);
-            return true;
-        }
-
-        BrowserInterop.DownloadUrl(downloadedPath, displayName);
-        return true;
+        cancellationToken.ThrowIfCancellationRequested();
+        // This is the browser's in-memory file system. Keep the handoff within the user's tap.
+        if (downloadedPath.StartsWith("blob:", StringComparison.Ordinal))
+            BrowserInterop.DownloadUrl(downloadedPath, displayName);
+        else
+            BrowserInterop.DownloadFile(File.ReadAllBytes(downloadedPath), displayName);
+        return Task.FromResult(true);
     }
 
     /// <summary>Browsers with the Web Share API hand files to the phone's share sheet.</summary>
     public bool CanShare => BrowserInterop.CanShareFiles();
+
+    public bool CanShareFile(string fileName) => BrowserInterop.CanShareFile(fileName);
 
     public async Task<bool> TryShareAsync(
         string downloadedPath,
         string displayName,
         CancellationToken cancellationToken)
     {
-        var ownsUrl = !downloadedPath.StartsWith("blob:", StringComparison.Ordinal);
-        var url = ownsUrl
-            ? BrowserInterop.CreateObjectUrl(
-                await File.ReadAllBytesAsync(downloadedPath, cancellationToken),
-                "application/octet-stream")
-            : downloadedPath;
-        try
-        {
-            // A share sheet the user closes is not a failure.
-            return await BrowserInterop.ShareFile(url, displayName) is "shared" or "cancelled";
-        }
-        finally
-        {
-            if (ownsUrl)
-                BrowserInterop.RevokeObjectUrl(url);
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        var sharing = downloadedPath.StartsWith("blob:", StringComparison.Ordinal)
+            ? BrowserInterop.ShareFile(downloadedPath, displayName)
+            : BrowserInterop.ShareBytes(File.ReadAllBytes(downloadedPath), displayName);
+        // A share sheet the user closes is not a failure.
+        return await sharing is "shared" or "cancelled";
     }
 }
 
@@ -553,6 +539,15 @@ internal static partial class BrowserInterop
     [JSImport("downloadUrl", "./browserHost.js")]
     internal static partial void DownloadUrl(string url, string fileName);
 
+    [JSImport("downloadFile", "./browserHost.js")]
+    internal static partial void DownloadFile(byte[] bytes, string fileName);
+
+    [JSImport("createHtmlPreview", "./browserHost.js")]
+    internal static partial JSObject CreateHtmlPreview(byte[] bytes, string fileName);
+
+    [JSImport("destroyHtmlPreview", "./browserHost.js")]
+    internal static partial void DestroyHtmlPreview(JSObject frame);
+
     [JSImport("createObjectUrl", "./browserHost.js")]
     internal static partial string CreateObjectUrl(byte[] bytes, string contentType);
 
@@ -561,6 +556,13 @@ internal static partial class BrowserInterop
 
     [JSImport("canShareFiles", "./browserHost.js")]
     internal static partial bool CanShareFiles();
+
+    [JSImport("canShareFile", "./browserHost.js")]
+    internal static partial bool CanShareFile(string fileName);
+
+    [JSImport("shareBytes", "./browserHost.js")]
+    [return: JSMarshalAs<JSType.Promise<JSType.String>>]
+    internal static partial Task<string> ShareBytes(byte[] bytes, string fileName);
 
     [JSImport("shareFile", "./browserHost.js")]
     [return: JSMarshalAs<JSType.Promise<JSType.String>>]

@@ -252,6 +252,9 @@
     <!-- ═══ The file ═══ -->
     <Panel x:Name="PreviewBody" Grid.Row="2" ClipToBounds="True">
 
+      <ContentControl x:Name="PreviewHtml" IsVisible="{Binding ShowHtml}"
+                      HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+
       <!-- Images: fitted, then pinch, double-tap or drag to look closer. -->
       <sc:StrataImageViewport x:Name="PreviewImage"
                               Source="{Binding Image}"

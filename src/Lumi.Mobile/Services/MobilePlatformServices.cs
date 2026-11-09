@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
@@ -17,6 +18,8 @@ public interface IProducedFileOpener
 
     /// <summary>The platform can hand a downloaded file to another app through its share sheet.</summary>
     bool CanShare => false;
+
+    bool CanShareFile(string fileName) => CanShare;
 
     Task<bool> TryShareAsync(
         string downloadedPath,
@@ -309,6 +312,9 @@ public static class MobilePlatformServices
 
     public static IPdfPreviewRenderer PdfPreviewRenderer { get; set; } =
         new DefaultPdfPreviewRenderer();
+
+    /// <summary>A host that can render HTML supplies a sandboxed view of the downloaded file.</summary>
+    public static Func<string, string, Control>? HtmlPreviewFactory { get; set; }
 
     public static ITextSelectionPresenter TextSelectionPresenter { get; set; } =
         new DefaultTextSelectionPresenter();

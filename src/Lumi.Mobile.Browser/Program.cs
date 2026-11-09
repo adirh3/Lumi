@@ -24,6 +24,7 @@ internal static class Program
         MobilePlatformServices.HostEnvironment = host;
         MobilePlatformServices.NetworkMonitor = BrowserInterop.NetworkMonitor;
         MobilePlatformServices.ProducedFileOpener = new BrowserProducedFileOpener();
+        MobilePlatformServices.HtmlPreviewFactory = (path, name) => new BrowserHtmlPreview(path, name);
         MobilePlatformServices.TextSelectionPresenter = new BrowserTextSelectionPresenter();
         MobilePlatformServices.TextInputOverlayPresenter = nativeTextInputOverlayPresenter;
         MobilePlatformServices.Notifications = new BrowserPhoneNotificationPlatform();

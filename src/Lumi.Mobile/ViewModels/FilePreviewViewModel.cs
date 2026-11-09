@@ -170,13 +170,15 @@ public sealed partial class FilePreviewViewModel : ObservableObject
 
     public bool ShowPdf => CanShowContent && Kind == FilePreviewKind.Pdf && Pdf is not null;
 
+    public bool ShowHtml => CanShowContent && !IsLoading && Kind == FilePreviewKind.Html && LocalPath is not null;
+
     public bool ShowUnsupported => !HasError && !IsLoading && Kind == FilePreviewKind.Unsupported;
 
     public bool ShowEmpty => CanShowContent && !IsLoading && IsTextual && Text is { Length: 0 };
 
     /// <summary>The file is on screen, so its actions float over it rather than standing in a card.</summary>
     public bool ShowContentActions =>
-        ShowImage || ShowMarkdown || ShowCode || ShowText || ShowCsv || ShowPdf || ShowEmpty;
+        ShowImage || ShowMarkdown || ShowCode || ShowText || ShowCsv || ShowPdf || ShowHtml || ShowEmpty;
 
     private bool IsTextual => Kind is FilePreviewKind.Markdown or FilePreviewKind.Code or FilePreviewKind.Text;
 
@@ -189,7 +191,7 @@ public sealed partial class FilePreviewViewModel : ObservableObject
             : Strings.Get("FilePreviewTruncated");
 
     /// <summary>This device can hand the file to another app's share sheet.</summary>
-    public bool CanShare => MobilePlatformServices.ProducedFileOpener.CanShare;
+    public bool CanShare => MobilePlatformServices.ProducedFileOpener.CanShareFile(FileName);
 
     /// <summary>Opening already saves the file (a browser download), so Save would only repeat it.</summary>
     public bool CanSave => !MobilePlatformServices.ProducedFileOpener.OpensBySaving;
@@ -200,7 +202,7 @@ public sealed partial class FilePreviewViewModel : ObservableObject
     private static readonly string[] StateProperties =
     [
         nameof(HasError), nameof(ShowLoading), nameof(ShowImage), nameof(ShowMarkdown), nameof(ShowCode),
-        nameof(ShowText), nameof(ShowCsv), nameof(ShowPdf), nameof(ShowUnsupported), nameof(ShowEmpty),
+        nameof(ShowText), nameof(ShowCsv), nameof(ShowPdf), nameof(ShowHtml), nameof(ShowUnsupported), nameof(ShowEmpty),
         nameof(ShowContentActions), nameof(ShowLimitNotice), nameof(LimitNoticeText), nameof(Subtitle),
         nameof(MarkdownText), nameof(CodeText), nameof(PlainText),
         nameof(MarkdownSections), nameof(CodeSections), nameof(TextSections)
@@ -323,6 +325,10 @@ public sealed partial class FilePreviewViewModel : ObservableObject
         var token = _lifetime.Token;
         switch (Kind)
         {
+            case FilePreviewKind.Html:
+                // The host renders the complete file, not the bounded source-code preview.
+                return;
+
             case FilePreviewKind.Image:
                 var bitmap = await StrataImageViewport.LoadImageAsync(path, MaxImagePixels, token).ConfigureAwait(true);
                 if (!IsCurrent(version))
@@ -394,6 +400,8 @@ public sealed partial class FilePreviewViewModel : ObservableObject
     private FilePreviewKind InitialKind()
     {
         var kind = FilePreviewContent.Classify(FileName);
+        if (kind == FilePreviewKind.Html && MobilePlatformServices.HtmlPreviewFactory is null)
+            return FilePreviewKind.Code;
         return kind == FilePreviewKind.Pdf && !_pdfRenderer.IsAvailable ? FilePreviewKind.Unsupported : kind;
     }
 

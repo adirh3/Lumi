@@ -169,6 +169,28 @@ public sealed class RemoteWebAppTests
     }
 
     [Fact]
+    public async Task HtmlRendererHasAnOpaqueSandboxWithoutRelaxingTheAppPolicy()
+    {
+        using var fixture = new WebFixture();
+        fixture.Write("index.html", "Lumi");
+        fixture.Write("html-preview.html", "Empty renderer");
+
+        var renderer = await fixture.RequestAsync("GET", "/app/html-preview.html");
+        var app = await fixture.RequestAsync("GET", "/app/");
+
+        Assert.StartsWith("HTTP/1.1 200 OK", renderer.Headers);
+        Assert.Contains("sandbox allow-scripts allow-downloads", renderer.Header("Content-Security-Policy"));
+        Assert.DoesNotContain("allow-same-origin", renderer.Header("Content-Security-Policy"));
+        Assert.Contains("frame-ancestors 'self'", renderer.Header("Content-Security-Policy"));
+        Assert.Contains("script-src 'unsafe-inline'", renderer.Header("Content-Security-Policy"));
+        Assert.Equal("SAMEORIGIN", renderer.Header("X-Frame-Options"));
+        Assert.Equal("Empty renderer", renderer.Body);
+        Assert.Contains("script-src 'self' 'wasm-unsafe-eval'", app.Header("Content-Security-Policy"));
+        Assert.Contains("frame-ancestors 'none'", app.Header("Content-Security-Policy"));
+        Assert.Equal("DENY", app.Header("X-Frame-Options"));
+    }
+
+    [Fact]
     public async Task ExplicitBrowserRecoveryUsesANonCachedBootstrapInsteadOfTheOldAppShell()
     {
         using var fixture = new WebFixture();
