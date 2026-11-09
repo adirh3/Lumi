@@ -754,4 +754,18 @@
   <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>你的手机正在阻止 Lumi 的通知。请在手机设置中允许 Lumi 的通知，然后返回 Lumi。</value></data>
   <data name="TestNotificationDelivered" xml:space="preserve"><value>已收到，请查看你的通知。</value></data>
   <data name="TestNotificationNotReceived" xml:space="preserve"><value>{0} 已发送，但此浏览器尚未收到。如果一直没有收到，此浏览器可能无法传送网页通知；请尝试其他浏览器。</value></data>
+  <data name="WebAppInstallTitle" xml:space="preserve"><value>轻点一下，打开 Lumi</value></data>
+  <data name="WebAppInstallText" xml:space="preserve"><value>将 Lumi 添加到主屏幕，随时回来继续聊天。</value></data>
+  <data name="WebAppInstallPreview" xml:space="preserve"><value>专属于你的聊天空间</value></data>
+  <data name="WebAppInstallAction" xml:space="preserve"><value>安装 Lumi</value></data>
+  <data name="WebAppInstallHow" xml:space="preserve"><value>如何添加 Lumi</value></data>
+  <data name="WebAppInstallSettings" xml:space="preserve"><value>将 Lumi 添加到主屏幕</value></data>
+  <data name="WebAppInstallSettingsHint" xml:space="preserve"><value>像应用一样打开 Lumi</value></data>
+  <data name="WebAppInstallShareStep" xml:space="preserve"><value>打开浏览器的分享菜单。</value></data>
+  <data name="WebAppInstallMenuStep" xml:space="preserve"><value>打开浏览器菜单或分享菜单。</value></data>
+  <data name="WebAppInstallAppleStep" xml:space="preserve"><value>选择“添加到主屏幕”，再轻点“添加”。如果出现“作为网页 App 打开”，请保持开启。</value></data>
+  <data name="WebAppInstallBrowserStep" xml:space="preserve"><value>选择“安装应用”或“添加到主屏幕”，然后确认。</value></data>
+  <data name="WebAppInstallOpenStep" xml:space="preserve"><value>从主屏幕上的新图标打开 Lumi。</value></data>
+  <data name="WebAppInstallFallback" xml:space="preserve"><value>找不到该选项？请在 iPhone/iPad 上用 Safari，或在 Android 上用 Chrome 打开此页面。</value></data>
+  <data name="WebAppInstallFailed" xml:space="preserve"><value>无法打开安装对话框。你可以按照以下步骤添加 Lumi。</value></data>
 </root>

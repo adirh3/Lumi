@@ -527,6 +527,57 @@
       </Border>
     </sc:StrataBottomSheet>
 
+    <sc:StrataBottomSheet x:Name="WebAppInstallSheet"
+                          Classes="safe-area"
+                          IsOpen="{Binding IsWebAppInstallPromptOpen, Mode=TwoWay}"
+                          Title="{loc:Str WebAppInstallTitle}">
+      <Border>
+        <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Margin="16,0,16,8" Spacing="16">
+            <Border Classes="sheet-card">
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
+                <Image Source="{x:Static views:LumiAppIcon.Image}" Width="52" Height="52" />
+                <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                  <TextBlock Text="Lumi" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeSubtitle}" />
+                  <TextBlock Text="{loc:Str WebAppInstallPreview}" Classes="sheet-body" TextWrapping="Wrap" />
+                </StackPanel>
+              </Grid>
+            </Border>
+            <TextBlock Text="{loc:Str WebAppInstallText}" Classes="sheet-body" Margin="8,0" TextWrapping="Wrap" />
+            <StackPanel x:Name="WebAppInstallInstructions" Spacing="14" Margin="8,0"
+                        IsVisible="{Binding IsWebAppInstallInstructionsVisible}">
+              <Grid ColumnDefinitions="24,*" ColumnSpacing="8">
+                <TextBlock Text="1" FontWeight="SemiBold" Foreground="{DynamicResource Brush.AccentDefault}" />
+                <TextBlock Grid.Column="1" Text="{Binding WebAppInstallFirstStep}" Classes="sheet-body" TextWrapping="Wrap" />
+              </Grid>
+              <Grid ColumnDefinitions="24,*" ColumnSpacing="8">
+                <TextBlock Text="2" FontWeight="SemiBold" Foreground="{DynamicResource Brush.AccentDefault}" />
+                <TextBlock Grid.Column="1" Text="{Binding WebAppInstallSecondStep}" Classes="sheet-body" TextWrapping="Wrap" />
+              </Grid>
+              <Grid ColumnDefinitions="24,*" ColumnSpacing="8">
+                <TextBlock Text="3" FontWeight="SemiBold" Foreground="{DynamicResource Brush.AccentDefault}" />
+                <TextBlock Grid.Column="1" Text="{loc:Str WebAppInstallOpenStep}" Classes="sheet-body" TextWrapping="Wrap" />
+              </Grid>
+              <TextBlock Text="{loc:Str WebAppInstallFallback}" Classes="sheet-body" TextWrapping="Wrap" />
+            </StackPanel>
+            <TextBlock Text="{Binding WebAppInstallError}" Classes="sheet-body" Margin="8,0" TextWrapping="Wrap"
+                       Foreground="{DynamicResource Brush.DangerDefault}"
+                       IsVisible="{Binding WebAppInstallError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <StackPanel Spacing="8">
+              <Button x:Name="WebAppInstallButton" Classes="sheet-action primary"
+                      Content="{Binding WebAppInstallActionText}"
+                      IsEnabled="{Binding !IsInstallingWebApp}"
+                      Command="{Binding InstallWebAppCommand}" />
+              <Button x:Name="WebAppInstallNotNowButton" Classes="sheet-action" Content="{loc:Str NotNow}"
+                      IsVisible="{Binding !IsWebAppInstallInstructionsVisible}"
+                      IsEnabled="{Binding !IsInstallingWebApp}"
+                      Command="{Binding DismissWebAppInstallCommand}" />
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </sc:StrataBottomSheet>
+
     <!-- ═══ Notifications: the one offer to turn them on, or the way to allow them where they are on but not allowed ═══ -->
     <sc:StrataBottomSheet x:Name="NotificationsPromptSheet"
                           Classes="safe-area"

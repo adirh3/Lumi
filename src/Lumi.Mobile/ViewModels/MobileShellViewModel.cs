@@ -923,7 +923,10 @@ public sealed partial class MobileShellViewModel :
     partial void OnIsPairedChanged(bool value)
     {
         if (!value)
+        {
             IsProjectPickerOpen = false;
+            IsWebAppInstallPromptOpen = false;
+        }
     }
 
     partial void OnActiveProjectIdChanged(Guid? value)
@@ -1045,6 +1048,7 @@ public sealed partial class MobileShellViewModel :
                 && !Chat.IsFilePreviewOpen
                 && !Library.HasOpenSurface
                 && !IsModalSheetPresented
+                && !IsWebAppInstallPromptOpen
                 && !IsProjectPickerOpen
                 && !IsChatActionsOpen
                 && !IsRenamingChat
@@ -1451,6 +1455,7 @@ public sealed partial class MobileShellViewModel :
     /// the active modal. A side panel holds the width the list would take, so it suspends them too.
     /// </summary>
     public bool CanDragDrawer =>
+        !IsWebAppInstallPromptOpen &&
         !IsChatActionsOpen &&
         !IsProjectPickerOpen &&
         !IsDisconnectConfirmationOpen &&
@@ -1845,6 +1850,11 @@ public sealed partial class MobileShellViewModel :
     [RelayCommand]
     private void GoBack()
     {
+        if (IsWebAppInstallPromptOpen)
+        {
+            DismissWebAppInstall();
+            return;
+        }
         if (IsWebAppUpdateConfirmationOpen)
         {
             CancelWebAppUpdate();
@@ -1918,6 +1928,7 @@ public sealed partial class MobileShellViewModel :
 
     /// <summary>True when the system back gesture has something of ours to dismiss.</summary>
     public bool CanGoBack =>
+        IsWebAppInstallPromptOpen ||
         (!IsPaired && Connect.IsCodeStep) ||
         IsWebAppUpdateConfirmationOpen ||
         IsDisconnectConfirmationOpen ||
@@ -1931,6 +1942,7 @@ public sealed partial class MobileShellViewModel :
 
     partial void OnPageChanged(MobilePage value)
     {
+        IsWebAppInstallPromptOpen = false;
         IsWebAppUpdateConfirmationOpen = false;
         IsDisconnectConfirmationOpen = false;
         IsProjectPickerOpen = false;
@@ -2378,8 +2390,8 @@ public sealed partial class MobileShellViewModel :
         {
             ApplyNotificationConnection();
             RefreshNotificationState();
-            OfferNotificationsIfUseful();
         }
+        OfferPhoneSetupIfUseful();
         var hadGrace = _connection.IsInBackgroundGrace;
         var resumedInGrace = _connection.EndBackgroundGrace();
         await _lifecycleGate.WaitAsync();
@@ -2594,6 +2606,7 @@ public sealed partial class MobileShellViewModel :
 
     private void ResetHostScopedState()
     {
+        IsWebAppInstallPromptOpen = false;
         IsWebAppUpdateRequested = false;
         IsWebAppUpdateConfirmationOpen = false;
         _sendReconciliationCandidates = [];
@@ -2919,7 +2932,7 @@ public sealed partial class MobileShellViewModel :
         {
             BootstrapSnapshotCount++;
             RefreshNotificationState();
-            OfferNotificationsIfUseful();
+            OfferPhoneSetupIfUseful();
             SendFromNotificationWhenReady();
         }
 

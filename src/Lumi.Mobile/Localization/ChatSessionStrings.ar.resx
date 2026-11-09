@@ -2052,4 +2052,18 @@
   <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>يحظر هاتفك الإشعارات من Lumi. اسمح بها لـ Lumi من إعدادات الهاتف، ثم عُد إلى Lumi.</value></data>
   <data name="TestNotificationDelivered" xml:space="preserve"><value>وصل الإشعار. تحقّق من إشعاراتك.</value></data>
   <data name="TestNotificationNotReceived" xml:space="preserve"><value>أرسله {0}، لكن هذا المتصفح لم يستلمه بعد. إن لم يصل شيء، فقد لا يوصل هذا المتصفح إشعارات الويب؛ جرّب متصفحًا آخر.</value></data>
+  <data name="WebAppInstallTitle" xml:space="preserve"><value>Lumi، بلمسة واحدة</value></data>
+  <data name="WebAppInstallText" xml:space="preserve"><value>أضف Lumi إلى شاشتك الرئيسية للعودة إلى محادثاتك متى أردت.</value></data>
+  <data name="WebAppInstallPreview" xml:space="preserve"><value>مكان خاص لمحادثاتك</value></data>
+  <data name="WebAppInstallAction" xml:space="preserve"><value>تثبيت Lumi</value></data>
+  <data name="WebAppInstallHow" xml:space="preserve"><value>كيفية إضافة Lumi</value></data>
+  <data name="WebAppInstallSettings" xml:space="preserve"><value>إضافة Lumi إلى الشاشة الرئيسية</value></data>
+  <data name="WebAppInstallSettingsHint" xml:space="preserve"><value>افتح Lumi كتطبيق</value></data>
+  <data name="WebAppInstallShareStep" xml:space="preserve"><value>افتح قائمة المشاركة في متصفحك.</value></data>
+  <data name="WebAppInstallMenuStep" xml:space="preserve"><value>افتح قائمة المتصفح أو قائمة المشاركة.</value></data>
+  <data name="WebAppInstallAppleStep" xml:space="preserve"><value>اختر إضافة إلى الشاشة الرئيسية، ثم إضافة. اترك خيار الفتح كتطبيق ويب مفعّلًا إن ظهر.</value></data>
+  <data name="WebAppInstallBrowserStep" xml:space="preserve"><value>اختر تثبيت التطبيق أو إضافة إلى الشاشة الرئيسية، ثم أكّد.</value></data>
+  <data name="WebAppInstallOpenStep" xml:space="preserve"><value>افتح Lumi من أيقونته الجديدة على الشاشة الرئيسية.</value></data>
+  <data name="WebAppInstallFallback" xml:space="preserve"><value>لا تجد الخيار؟ افتح هذه الصفحة في Safari على iPhone أو iPad، أو في Chrome على Android.</value></data>
+  <data name="WebAppInstallFailed" xml:space="preserve"><value>تعذّر فتح نافذة التثبيت. يمكنك إضافة Lumi باتباع الخطوات أدناه.</value></data>
 </root>

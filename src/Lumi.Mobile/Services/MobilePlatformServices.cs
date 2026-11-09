@@ -242,6 +242,22 @@ internal interface INativeTextInputOverlayPresenter
         Action<bool> focusChanged);
 }
 
+public enum WebAppInstallMode
+{
+    Unavailable,
+    NativePrompt,
+    Apple,
+    Android,
+    Browser
+}
+
+public enum WebAppInstallResult
+{
+    Unavailable,
+    Accepted,
+    Dismissed
+}
+
 public interface IMobileHostEnvironment
 {
     bool HasFixedEndpoint { get; }
@@ -255,6 +271,10 @@ public interface IMobileHostEnvironment
     Action? ApplyWebAppUpdate => null;
 
     Action? CheckWebAppUpdate => null;
+
+    WebAppInstallMode WebAppInstallMode => WebAppInstallMode.Unavailable;
+
+    Task<WebAppInstallResult> InstallWebAppAsync() => Task.FromResult(WebAppInstallResult.Unavailable);
 }
 
 public interface IRemoteDownloadStore

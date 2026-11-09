@@ -754,4 +754,18 @@
   <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>Seu celular está bloqueando as notificações do Lumi. Permita-as para o Lumi nas configurações do celular e volte ao Lumi.</value></data>
   <data name="TestNotificationDelivered" xml:space="preserve"><value>Chegou. Confira suas notificações.</value></data>
   <data name="TestNotificationNotReceived" xml:space="preserve"><value>{0} enviou, mas este navegador ainda não recebeu. Se nada chegar, este navegador talvez não entregue notificações da web; tente outro navegador.</value></data>
+  <data name="WebAppInstallTitle" xml:space="preserve"><value>Lumi, a um toque</value></data>
+  <data name="WebAppInstallText" xml:space="preserve"><value>Adicione o Lumi à sua Tela de Início para voltar às conversas quando quiser.</value></data>
+  <data name="WebAppInstallPreview" xml:space="preserve"><value>Um lugar próprio para suas conversas</value></data>
+  <data name="WebAppInstallAction" xml:space="preserve"><value>Instalar Lumi</value></data>
+  <data name="WebAppInstallHow" xml:space="preserve"><value>Como adicionar o Lumi</value></data>
+  <data name="WebAppInstallSettings" xml:space="preserve"><value>Adicionar Lumi à Tela de Início</value></data>
+  <data name="WebAppInstallSettingsHint" xml:space="preserve"><value>Abra o Lumi como um aplicativo</value></data>
+  <data name="WebAppInstallShareStep" xml:space="preserve"><value>Abra o menu Compartilhar do navegador.</value></data>
+  <data name="WebAppInstallMenuStep" xml:space="preserve"><value>Abra o menu do navegador ou o menu Compartilhar.</value></data>
+  <data name="WebAppInstallAppleStep" xml:space="preserve"><value>Escolha Adicionar à Tela de Início e depois Adicionar. Mantenha Abrir como App da Web ativado se aparecer.</value></data>
+  <data name="WebAppInstallBrowserStep" xml:space="preserve"><value>Escolha Instalar aplicativo ou Adicionar à tela inicial e confirme.</value></data>
+  <data name="WebAppInstallOpenStep" xml:space="preserve"><value>Abra o Lumi pelo novo ícone na Tela de Início.</value></data>
+  <data name="WebAppInstallFallback" xml:space="preserve"><value>Não encontra a opção? Abra esta página no Safari no iPhone/iPad ou no Chrome no Android.</value></data>
+  <data name="WebAppInstallFailed" xml:space="preserve"><value>Não foi possível abrir a janela de instalação. Você pode adicionar o Lumi seguindo os passos abaixo.</value></data>
 </root>

@@ -320,6 +320,45 @@ public sealed class PhoneNotificationListenerTests
 public sealed class MobileNotificationSettingsTests
 {
     [Fact]
+    public async Task BrowserInstallationIsOfferedAtBootstrapAndNotificationsWaitUntilTheNextLaunch()
+    {
+        using var session = HeadlessMobileSession.Start();
+        var previousHost = MobilePlatformServices.HostEnvironment;
+        MobilePlatformServices.HostEnvironment = new InstallableBrowserHost();
+        try
+        {
+            await WithPlatformAsync(new FakeWebPushPlatform(), async () =>
+            {
+                await using var desktop = WebPushDesktop();
+                var store = session.NewStore();
+                await using (var tab = NewShell(store))
+                {
+                    await PairAsync(tab, desktop);
+                    Assert.True(tab.IsWebAppInstallPromptOpen);
+                    Assert.False(tab.IsNotificationsPromptOpen);
+                    tab.DismissWebAppInstallCommand.Execute(null);
+                    Assert.True(store.Load().WebAppInstallPromptAnswered);
+                    Assert.False(store.Load().NotificationsPromptAnswered);
+
+                    await tab.NotifyApplicationActivatedAsync();
+                    Assert.False(tab.IsWebAppInstallPromptOpen);
+                    Assert.False(tab.IsNotificationsPromptOpen);
+                }
+
+                await using var reopened = NewShell(store);
+                await reopened.StartAsync();
+                await WaitAsync(() => reopened.BootstrapSnapshotCount > 0);
+                Assert.False(reopened.IsWebAppInstallPromptOpen);
+                Assert.True(reopened.IsNotificationsPromptOpen);
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.HostEnvironment = previousHost;
+        }
+    }
+
+    [Fact]
     public async Task TurningNotificationsOnAsksOnceAndStartsTheConnection()
     {
         using var session = HeadlessMobileSession.Start();
@@ -1040,6 +1079,14 @@ public sealed class MobileNotificationSettingsTests
         {
             MobilePlatformServices.Notifications = previous;
         }
+    }
+
+    private sealed class InstallableBrowserHost : IMobileHostEnvironment
+    {
+        public bool HasFixedEndpoint => false;
+        public string? FixedBaseUrl => null;
+        public string FixedEndpointName => "";
+        public WebAppInstallMode WebAppInstallMode => WebAppInstallMode.Android;
     }
 
     private sealed class FakeNotificationPlatform : IPhoneNotificationPlatform

@@ -31,7 +31,8 @@ public static class Program
         }
 #endif
         // An isolated data dir keeps simulator runs from clobbering a real phone pairing on this box.
-        if (args.Contains("--isolated") || args.Contains("--popup-preview") || args.Contains("--design-preview"))
+        if (args.Contains("--isolated") || args.Contains("--popup-preview") || args.Contains("--design-preview")
+            || args.Contains("--install-preview"))
         {
             var dir = Path.Combine(Path.GetTempPath(), "Lumi-mobile-sim", Guid.NewGuid().ToString("n"));
             Directory.CreateDirectory(dir);
@@ -40,10 +41,20 @@ public static class Program
 
         // Set culture before the builder loads App/theme XAML, not only before the shell's views.
 #if DEBUG || LUMI_MOBILE_SMOOTHNESS
-        Strings.Load(smoothness ? "en" : new MobileSettingsStore().Load().Language);
-#else
-        Strings.Load(new MobileSettingsStore().Load().Language);
+        if (smoothness)
+            Strings.Load("en");
+        else
 #endif
+        {
+            var settingsStore = new MobileSettingsStore();
+            var settings = settingsStore.Load();
+            if (args.Contains("--install-preview") && ReadOption(args, "--language") is { } previewLanguage)
+            {
+                settings.Language = previewLanguage;
+                settingsStore.Save(settings);
+            }
+            Strings.Load(settings.Language);
+        }
         var device = ReadOption(args, "--device");
         var host = ReadOption(args, "--host");
 #if DEBUG
@@ -51,6 +62,9 @@ public static class Program
         var popupPreview = args.Contains("--popup-preview");
         var designPreview = args.Contains("--design-preview");
         var designFile = ReadOption(args, "--open-file");
+        var installPreview = ReadOption(args, "--install-preview");
+        if (installPreview is not null)
+            MobilePlatformServices.HostEnvironment = new InstallPreviewHost(installPreview);
         if (args.Contains("--notifications") || args.Contains("--notifications-denied"))
             MobilePlatformServices.Notifications = new SimulatedNotificationPlatform(args.Contains("--notifications-denied"));
 #endif
@@ -80,6 +94,13 @@ public static class Program
                 window.Opened += (_, _) => window.OpenPopupPreview();
             if (designPreview)
                 window.Opened += (_, _) => window.OpenDesignPreview(designFile);
+            if (installPreview is not null)
+                window.Opened += (_, _) =>
+                {
+                    window.OpenDesignPreview();
+                    if (window.DataContext is MobileShellViewModel shell)
+                        shell.OfferPhoneSetupIfUseful();
+                };
 #endif
             return window;
         };
@@ -121,4 +142,27 @@ public static class Program
         var index = Array.IndexOf(args, name);
         return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
     }
+
+#if DEBUG
+    private sealed class InstallPreviewHost(string mode) : IMobileHostEnvironment
+    {
+        public bool HasFixedEndpoint => false;
+        public string? FixedBaseUrl => null;
+        public string FixedEndpointName => "";
+        public WebAppInstallMode WebAppInstallMode { get; private set; } = mode switch
+        {
+            "apple" => WebAppInstallMode.Apple,
+            "android" => WebAppInstallMode.Android,
+            "prompt" => WebAppInstallMode.NativePrompt,
+            "installed" => WebAppInstallMode.Unavailable,
+            _ => throw new ArgumentException("Use apple, android, prompt or installed for --install-preview.")
+        };
+
+        public Task<WebAppInstallResult> InstallWebAppAsync()
+        {
+            WebAppInstallMode = WebAppInstallMode.Unavailable;
+            return Task.FromResult(WebAppInstallResult.Accepted);
+        }
+    }
+#endif
 }

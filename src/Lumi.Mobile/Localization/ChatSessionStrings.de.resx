@@ -754,4 +754,18 @@
   <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>Dein Handy blockiert Benachrichtigungen von Lumi. Erlaube sie für Lumi in den Einstellungen deines Handys und kehre dann zu Lumi zurück.</value></data>
   <data name="TestNotificationDelivered" xml:space="preserve"><value>Sie ist angekommen. Schau in deine Benachrichtigungen.</value></data>
   <data name="TestNotificationNotReceived" xml:space="preserve"><value>{0} hat sie gesendet, aber dieser Browser hat sie noch nicht erhalten. Kommt nichts an, stellt dieser Browser möglicherweise keine Web-Benachrichtigungen zu; versuche einen anderen Browser.</value></data>
+  <data name="WebAppInstallTitle" xml:space="preserve"><value>Lumi, nur einen Tipp entfernt</value></data>
+  <data name="WebAppInstallText" xml:space="preserve"><value>Hol dir Lumi auf den Home-Bildschirm und kehre jederzeit zu deinen Chats zurück.</value></data>
+  <data name="WebAppInstallPreview" xml:space="preserve"><value>Ein eigener Platz für deine Chats</value></data>
+  <data name="WebAppInstallAction" xml:space="preserve"><value>Lumi installieren</value></data>
+  <data name="WebAppInstallHow" xml:space="preserve"><value>So fügst du Lumi hinzu</value></data>
+  <data name="WebAppInstallSettings" xml:space="preserve"><value>Lumi zum Home-Bildschirm hinzufügen</value></data>
+  <data name="WebAppInstallSettingsHint" xml:space="preserve"><value>Lumi wie eine App öffnen</value></data>
+  <data name="WebAppInstallShareStep" xml:space="preserve"><value>Öffne das Teilen-Menü deines Browsers.</value></data>
+  <data name="WebAppInstallMenuStep" xml:space="preserve"><value>Öffne das Browser- oder Teilen-Menü.</value></data>
+  <data name="WebAppInstallAppleStep" xml:space="preserve"><value>Wähle „Zum Home-Bildschirm“ und dann „Hinzufügen“. Lass „Als Web-App öffnen“ aktiviert, falls es angezeigt wird.</value></data>
+  <data name="WebAppInstallBrowserStep" xml:space="preserve"><value>Wähle „App installieren“ oder „Zum Startbildschirm hinzufügen“ und bestätige.</value></data>
+  <data name="WebAppInstallOpenStep" xml:space="preserve"><value>Öffne Lumi über das neue Symbol auf deinem Home-Bildschirm.</value></data>
+  <data name="WebAppInstallFallback" xml:space="preserve"><value>Die Option fehlt? Öffne diese Seite in Safari auf iPhone/iPad oder in Chrome auf Android.</value></data>
+  <data name="WebAppInstallFailed" xml:space="preserve"><value>Der Installationsdialog ließ sich nicht öffnen. Du kannst Lumi mit den folgenden Schritten hinzufügen.</value></data>
 </root>

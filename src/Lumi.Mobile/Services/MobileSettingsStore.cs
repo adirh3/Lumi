@@ -50,6 +50,9 @@ public sealed class MobileConnectionSettings
 
     /// <summary>The user answered the offer to turn notifications on, either way; it is not offered again.</summary>
     public bool NotificationsPromptAnswered { get; set; }
+
+    /// <summary>The Home Screen suggestion was answered; Settings can still open it again.</summary>
+    public bool WebAppInstallPromptAnswered { get; set; }
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]

@@ -33,6 +33,7 @@ try {
         configureAppLifecycle,
         configureAppUpdates,
         configureNotificationClicks,
+        configureWebAppInstallation,
         checkAppUpdate,
         reloadWebApp
     } = await import('./pwaHost.js');
@@ -104,6 +105,7 @@ try {
         interop.CanApplyAppUpdate,
         interop.SetAppUpdateState);
     configureNotificationClicks(interop.OpenChatFromNotification, interop.SendFromNotification);
+    configureWebAppInstallation(interop.WebAppInstallationChanged);
 
     // Reconnect as soon as the network returns instead of waiting out a retry pause.
     window.addEventListener('online', () => interop.SetNetworkAvailable(true));

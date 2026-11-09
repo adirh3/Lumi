@@ -27,6 +27,23 @@ internal sealed class BrowserHostEnvironment(string origin) : IMobileHostEnviron
     public Action? ApplyWebAppUpdate => BrowserInterop.TryApplyAppUpdate;
 
     public Action? CheckWebAppUpdate => BrowserInterop.CheckAppUpdate;
+
+    public WebAppInstallMode WebAppInstallMode => BrowserInterop.GetWebAppInstallMode() switch
+    {
+        "prompt" => WebAppInstallMode.NativePrompt,
+        "apple" => WebAppInstallMode.Apple,
+        "android" => WebAppInstallMode.Android,
+        "browser" => WebAppInstallMode.Browser,
+        _ => WebAppInstallMode.Unavailable
+    };
+
+    public async Task<WebAppInstallResult> InstallWebAppAsync() =>
+        await BrowserInterop.InstallWebApp() switch
+        {
+            "accepted" => WebAppInstallResult.Accepted,
+            "dismissed" => WebAppInstallResult.Dismissed,
+            _ => WebAppInstallResult.Unavailable
+        };
 }
 
 internal sealed class BrowserDiscoveryClient : ILumiDiscoveryClient
@@ -485,6 +502,17 @@ internal static partial class BrowserInterop
 
     [JSImport("isInstalledApp", "./pwaHost.js")]
     internal static partial bool IsInstalledApp();
+
+    [JSImport("getWebAppInstallMode", "./pwaHost.js")]
+    internal static partial string GetWebAppInstallMode();
+
+    [JSImport("installWebApp", "./pwaHost.js")]
+    [return: JSMarshalAs<JSType.Promise<JSType.String>>]
+    internal static partial Task<string> InstallWebApp();
+
+    [JSExport]
+    internal static void WebAppInstallationChanged() =>
+        (Application.Current as App)?.Shell?.NotifyWebAppInstallationChanged();
 
     [JSImport("expectTestPush", "./pwaHost.js")]
     [return: JSMarshalAs<JSType.Promise<JSType.Boolean>>]

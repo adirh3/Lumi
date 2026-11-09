@@ -1569,6 +1569,16 @@ the current build instead of depending on the browser retiring an old page.
 If recovery fails, the page displays the failed step and the browser's error
 message, while keeping pairing and verified caches intact.
 
+In a mobile browser on a secure address, Lumi offers once after connecting to
+add itself to the Home Screen. **Install Lumi** opens the browser's install
+dialog when the browser makes it available; otherwise **How to add Lumi** shows
+the manual steps. Dismissing the sheet, including swiping it away, remembers
+the choice. **Settings > Add Lumi to Home Screen** can reopen it. The offer
+does not appear in an installed web app, the native Android app, or a desktop
+browser. An install suggestion and a notification suggestion never appear
+together; after an automatic install suggestion, notifications wait until a
+later launch.
+
 **Install as app** does not guarantee a separate Android application identity:
 the browser decides whether it creates a packaged PWA or a browser-hosted
 shortcut, and it controls the Recents icon. Authentication-protected manifests

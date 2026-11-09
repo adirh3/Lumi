@@ -750,4 +750,18 @@
   <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>휴대폰이 Lumi의 알림을 차단하고 있어요. 휴대폰 설정에서 Lumi의 알림을 허용한 다음 Lumi로 돌아오세요.</value></data>
   <data name="TestNotificationDelivered" xml:space="preserve"><value>도착했어요. 알림을 확인해 보세요.</value></data>
   <data name="TestNotificationNotReceived" xml:space="preserve"><value>{0}이(가) 보냈지만 이 브라우저가 아직 받지 못했어요. 아무것도 오지 않으면 이 브라우저가 웹 알림을 전달하지 못하는 것일 수 있어요. 다른 브라우저를 사용해 보세요.</value></data>
+  <data name="WebAppInstallTitle" xml:space="preserve"><value>한 번의 탭으로 Lumi 열기</value></data>
+  <data name="WebAppInstallText" xml:space="preserve"><value>Lumi를 홈 화면에 추가하면 언제든지 대화를 이어갈 수 있어요.</value></data>
+  <data name="WebAppInstallPreview" xml:space="preserve"><value>대화를 위한 나만의 공간</value></data>
+  <data name="WebAppInstallAction" xml:space="preserve"><value>Lumi 설치</value></data>
+  <data name="WebAppInstallHow" xml:space="preserve"><value>Lumi 추가 방법</value></data>
+  <data name="WebAppInstallSettings" xml:space="preserve"><value>홈 화면에 Lumi 추가</value></data>
+  <data name="WebAppInstallSettingsHint" xml:space="preserve"><value>앱처럼 Lumi 열기</value></data>
+  <data name="WebAppInstallShareStep" xml:space="preserve"><value>브라우저의 공유 메뉴를 여세요.</value></data>
+  <data name="WebAppInstallMenuStep" xml:space="preserve"><value>브라우저 메뉴 또는 공유 메뉴를 여세요.</value></data>
+  <data name="WebAppInstallAppleStep" xml:space="preserve"><value>홈 화면에 추가를 선택하고 추가를 누르세요. 웹 앱으로 열기가 표시되면 켜 둔 채로 진행하세요.</value></data>
+  <data name="WebAppInstallBrowserStep" xml:space="preserve"><value>앱 설치 또는 홈 화면에 추가를 선택하고 확인하세요.</value></data>
+  <data name="WebAppInstallOpenStep" xml:space="preserve"><value>홈 화면의 새 아이콘으로 Lumi를 여세요.</value></data>
+  <data name="WebAppInstallFallback" xml:space="preserve"><value>옵션이 없나요? iPhone/iPad에서는 Safari로, Android에서는 Chrome으로 이 페이지를 여세요.</value></data>
+  <data name="WebAppInstallFailed" xml:space="preserve"><value>설치 창을 열지 못했어요. 아래 단계에 따라 Lumi를 추가할 수 있어요.</value></data>
 </root>

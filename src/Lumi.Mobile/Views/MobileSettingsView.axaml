@@ -490,6 +490,24 @@
                     </Grid>
                   </Button>
                 </Panel>
+                <Panel IsVisible="{Binding CanAddWebApp}">
+                  <Border Classes="row-divider inset" />
+                  <Button x:Name="SettingsWebAppInstallRow" Classes="list-row"
+                          AutomationProperties.Name="{loc:Str WebAppInstallSettings}"
+                          Command="{Binding OpenWebAppInstallCommand}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                      <Border Classes="row-tile">
+                        <Image Source="{x:Static views:LumiAppIcon.Image}" Width="28" Height="28" />
+                      </Border>
+                      <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="{loc:Str WebAppInstallSettings}" Classes="row-title" TextWrapping="Wrap" />
+                        <TextBlock Text="{loc:Str WebAppInstallSettingsHint}" Classes="row-meta" />
+                      </StackPanel>
+                      <PathIcon Grid.Column="2" Classes="row-chevron"
+                                Data="{DynamicResource Mobile.Icon.ChevronRight}" />
+                    </Grid>
+                  </Button>
+                </Panel>
                 <Panel>
                   <Border Classes="row-divider inset" />
                   <Button x:Name="SettingsMemoriesRow" Classes="list-row"

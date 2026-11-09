@@ -754,4 +754,18 @@
   <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>Your phone is blocking notifications from Lumi. Allow them for Lumi in your phone's settings, then come back to Lumi.</value></data>
   <data name="TestNotificationDelivered" xml:space="preserve"><value>It arrived. Check your notifications.</value></data>
   <data name="TestNotificationNotReceived" xml:space="preserve"><value>{0} sent it, but this browser hasn't received it. If nothing arrives, this browser may not deliver web notifications; try another browser.</value></data>
+  <data name="WebAppInstallTitle" xml:space="preserve"><value>Lumi, one tap away</value></data>
+  <data name="WebAppInstallText" xml:space="preserve"><value>Keep Lumi on your Home Screen, ready whenever you want to pick up a chat.</value></data>
+  <data name="WebAppInstallPreview" xml:space="preserve"><value>Your chats, in their own place</value></data>
+  <data name="WebAppInstallAction" xml:space="preserve"><value>Install Lumi</value></data>
+  <data name="WebAppInstallHow" xml:space="preserve"><value>How to add Lumi</value></data>
+  <data name="WebAppInstallSettings" xml:space="preserve"><value>Add Lumi to Home Screen</value></data>
+  <data name="WebAppInstallSettingsHint" xml:space="preserve"><value>Open Lumi like an app</value></data>
+  <data name="WebAppInstallShareStep" xml:space="preserve"><value>Open your browser's Share menu.</value></data>
+  <data name="WebAppInstallMenuStep" xml:space="preserve"><value>Open your browser's menu or Share menu.</value></data>
+  <data name="WebAppInstallAppleStep" xml:space="preserve"><value>Choose Add to Home Screen, then Add. Leave Open as Web App on if shown.</value></data>
+  <data name="WebAppInstallBrowserStep" xml:space="preserve"><value>Choose Install app or Add to Home screen, then confirm.</value></data>
+  <data name="WebAppInstallOpenStep" xml:space="preserve"><value>Open Lumi from its new Home Screen icon.</value></data>
+  <data name="WebAppInstallFallback" xml:space="preserve"><value>Can't find the option? Open this page in Safari on iPhone/iPad or Chrome on Android.</value></data>
+  <data name="WebAppInstallFailed" xml:space="preserve"><value>The install dialog couldn't open. You can add Lumi using the steps below.</value></data>
 </root>

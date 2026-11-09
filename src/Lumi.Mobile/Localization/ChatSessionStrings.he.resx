@@ -754,4 +754,18 @@
   <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>הטלפון חוסם התראות מ־Lumi. יש לאשר אותן ל־Lumi בהגדרות הטלפון, ואז לחזור ל־Lumi.</value></data>
   <data name="TestNotificationDelivered" xml:space="preserve"><value>ההתראה הגיעה. אפשר לבדוק בהתראות.</value></data>
   <data name="TestNotificationNotReceived" xml:space="preserve"><value>{0} שלח אותה, אבל הדפדפן הזה עוד לא קיבל אותה. אם שום דבר לא מגיע, ייתכן שהדפדפן הזה לא מעביר התראות מאתרים; כדאי לנסות דפדפן אחר.</value></data>
+  <data name="WebAppInstallTitle" xml:space="preserve"><value>Lumi, במרחק נגיעה</value></data>
+  <data name="WebAppInstallText" xml:space="preserve"><value>הוסיפו את Lumi למסך הבית, כדי לחזור לשיחות מתי שתרצו.</value></data>
+  <data name="WebAppInstallPreview" xml:space="preserve"><value>מקום משלכם לשיחות שלכם</value></data>
+  <data name="WebAppInstallAction" xml:space="preserve"><value>התקנת Lumi</value></data>
+  <data name="WebAppInstallHow" xml:space="preserve"><value>איך מוסיפים את Lumi</value></data>
+  <data name="WebAppInstallSettings" xml:space="preserve"><value>הוספת Lumi למסך הבית</value></data>
+  <data name="WebAppInstallSettingsHint" xml:space="preserve"><value>פתיחת Lumi כמו אפליקציה</value></data>
+  <data name="WebAppInstallShareStep" xml:space="preserve"><value>פתחו את תפריט השיתוף בדפדפן.</value></data>
+  <data name="WebAppInstallMenuStep" xml:space="preserve"><value>פתחו את תפריט הדפדפן או את תפריט השיתוף.</value></data>
+  <data name="WebAppInstallAppleStep" xml:space="preserve"><value>בחרו ״הוספה למסך הבית״ ואז ״הוספה״. אם מופיעה האפשרות ״פתיחה כיישום אינטרנט״, השאירו אותה פעילה.</value></data>
+  <data name="WebAppInstallBrowserStep" xml:space="preserve"><value>בחרו ״התקנת אפליקציה״ או ״הוספה למסך הבית״ ואשרו.</value></data>
+  <data name="WebAppInstallOpenStep" xml:space="preserve"><value>פתחו את Lumi מהסמל החדש במסך הבית.</value></data>
+  <data name="WebAppInstallFallback" xml:space="preserve"><value>האפשרות לא מופיעה? פתחו את הדף ב־Safari ב־iPhone או ב־iPad, או ב־Chrome ב־Android.</value></data>
+  <data name="WebAppInstallFailed" xml:space="preserve"><value>לא ניתן לפתוח את חלון ההתקנה. אפשר להוסיף את Lumi לפי השלבים הבאים.</value></data>
 </root>

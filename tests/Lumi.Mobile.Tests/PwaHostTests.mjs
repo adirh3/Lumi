@@ -35,18 +35,19 @@ function eventTarget(properties = {}) {
 function host({
     hidden = false, secure = true, dark = false, registrationError,
     origin = 'https://lumi.test', storage = new Map(), storageError, registration,
-    controller = null, updateError, updateTask, notifications
+    controller = null, updateError, updateTask, notifications, displayMode = 'browser', referrer = ''
 } = {}) {
     const meta = {};
     const media = eventTarget({ matches: dark });
     const document = eventTarget({
-        hidden,
+        hidden, referrer,
         documentElement: { style: {}, dataset: {} },
         querySelector: () => meta
     });
     const registrations = [];
     const warnings = [];
     const navigations = [];
+    const displayMedia = new Map();
     const timers = new Map();
     let timerId = 0;
     let updates = 0;
@@ -71,9 +72,17 @@ function host({
     }
     const window = eventTarget({
         isSecureContext: secure,
-        matchMedia: query => query.includes('display-mode')
-            ? { matches: notifications?.standalone === true }
-            : media,
+        matchMedia: query => {
+            if (!query.includes('display-mode'))
+                return media;
+            if (!displayMedia.has(query)) {
+                const mode = query.match(/display-mode: ([^)]+)/)[1];
+                displayMedia.set(query, eventTarget({
+                    matches: mode === (notifications?.standalone ? 'standalone' : displayMode)
+                }));
+            }
+            return displayMedia.get(query);
+        },
         location: {
             origin,
             href: `${origin}/app/`,
@@ -145,7 +154,7 @@ function host({
     vm.runInContext(source('pwaHost.js').replace(/^export /gm, ''), context);
     return {
         context, document, window, media, meta, registrations, warnings, navigations, storage,
-        registration, serviceWorker, timers,
+        registration, serviceWorker, timers, displayMedia,
         get updates() { return updates; },
         get reloads() { return reloads; }
     };
@@ -457,7 +466,7 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', la
     const interop = {
         SetNativeTextInputText() {}, HandleNativeTextInputKey() {}, SetNativeTextInputFocus() {},
         SetApplicationActive() {}, CanApplyAppUpdate() {}, SetAppUpdateState() {}, SetNetworkAvailable() {},
-        OpenChatFromNotification() {}
+        OpenChatFromNotification() {}, WebAppInstallationChanged() {}
     };
     const notificationClicks = [];
     const runtime = {
@@ -502,6 +511,9 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', la
                 return {
                     checkAppUpdate() {}, reloadWebApp: () => recoveries++,
                     configureAppLifecycle() {}, configureAppUpdates() {},
+                    configureWebAppInstallation(changed) {
+                        assert.equal(changed, interop.WebAppInstallationChanged);
+                    },
                     configureNotificationClicks(open) {
                         lifecycle.push('notification-clicks');
                         notificationClicks.push(open);
@@ -1762,6 +1774,100 @@ test('an app opened from the Home Screen counts as installed; a browser tab does
     const safari = host({ notifications: {} });
     safari.context.navigator.standalone = true;
     assert.equal(safari.context.isInstalledApp(), true);
+});
+
+test('installation help works across mobile browsers without depending on an install event', () => {
+    for (const browser of ['Chrome/143.0', 'EdgA/143.0', 'SamsungBrowser/28.0', 'Firefox/143.0']) {
+        const app = host({ notifications: { userAgent: `Mozilla/5.0 (Android 15; Mobile) ${browser}` } });
+        assert.equal(app.context.getWebAppInstallMode(), 'android');
+    }
+    for (const browser of ['Safari/604.1', 'CriOS/143.0', 'FxiOS/143.0']) {
+        const app = host({ notifications: { userAgent: `Mozilla/5.0 (iPhone) ${browser}` } });
+        assert.equal(app.context.getWebAppInstallMode(), 'apple');
+    }
+    assert.equal(host({ notifications: {
+        userAgent: 'Mozilla/5.0 (Macintosh) Safari/604.1', platform: 'MacIntel', maxTouchPoints: 5
+    } }).context.getWebAppInstallMode(), 'apple');
+});
+
+test('installed web apps never offer installation, including alternative display modes and Apple standalone', () => {
+    for (const displayMode of ['standalone', 'minimal-ui', 'fullscreen', 'window-controls-overlay']) {
+        const app = host({ displayMode });
+        assert.equal(app.context.getWebAppInstallMode(), 'unavailable');
+        app.window.dispatch('beforeinstallprompt', {
+            preventDefault() { assert.fail('an installed app must not capture an install prompt'); }
+        });
+        assert.equal(app.context.getWebAppInstallMode(), 'unavailable');
+    }
+    const apple = host();
+    apple.context.navigator.standalone = true;
+    assert.equal(apple.context.getWebAppInstallMode(), 'unavailable');
+    assert.equal(host({ referrer: 'android-app://com.example.app' }).context.getWebAppInstallMode(), 'unavailable');
+});
+
+test('desktop and insecure browsers are not promoted as installable mobile apps', () => {
+    const desktop = host({ notifications: {
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0) Chrome/143.0', platform: 'Win32', maxTouchPoints: 0
+    } });
+    assert.equal(desktop.context.getWebAppInstallMode(), 'unavailable');
+    desktop.window.dispatch('beforeinstallprompt', {
+        preventDefault() { assert.fail('leave desktop browser installation alone'); }
+    });
+    assert.equal(host({ secure: false }).context.getWebAppInstallMode(), 'unavailable');
+});
+
+test('a real browser-issued install event is invoked once, for either user choice', async () => {
+    for (const outcome of ['accepted', 'dismissed']) {
+        const app = host();
+        const changes = [];
+        app.context.configureWebAppInstallation(() => changes.push(app.context.getWebAppInstallMode()));
+        let prevented = false;
+        let prompts = 0;
+        app.window.dispatch('beforeinstallprompt', {
+            preventDefault() { prevented = true; },
+            prompt() { prompts++; return Promise.resolve(); },
+            userChoice: Promise.resolve({ outcome })
+        });
+        assert.equal(prevented, true);
+        assert.equal(app.context.getWebAppInstallMode(), 'prompt');
+        assert.equal(await app.context.installWebApp(), outcome);
+        assert.equal(await app.context.installWebApp(), 'unavailable');
+        assert.equal(prompts, 1);
+        assert.deepEqual(changes, ['android', 'prompt', 'android']);
+    }
+});
+
+test('installing through the browser menu immediately removes installation UI in the existing tab', async () => {
+    const app = host();
+    const changes = [];
+    app.context.configureWebAppInstallation(() => changes.push(app.context.getWebAppInstallMode()));
+    app.window.dispatch('beforeinstallprompt', { preventDefault() {} });
+    app.window.dispatch('appinstalled');
+    // Completing an installation does not turn this tab into the installed app. Notification
+    // permissions and their instructions must still describe the browser tab.
+    assert.equal(app.context.isInstalledApp(), false);
+    assert.equal(app.context.getWebAppInstallMode(), 'unavailable');
+    assert.equal(await app.context.installWebApp(), 'unavailable');
+    assert.deepEqual(changes, ['android', 'prompt', 'unavailable']);
+
+    const changing = host();
+    const modes = [];
+    changing.context.configureWebAppInstallation(() => modes.push(changing.context.getWebAppInstallMode()));
+    const standalone = changing.displayMedia.get('(display-mode: standalone)');
+    standalone.matches = true;
+    standalone.dispatch('change');
+    assert.deepEqual(modes, ['android', 'unavailable']);
+});
+
+test('a failed native install prompt reports the failure and cannot reuse its consumed event', async () => {
+    const app = host();
+    app.window.dispatch('beforeinstallprompt', {
+        preventDefault() {},
+        prompt() { return Promise.reject(new Error('browser refused')); }
+    });
+    await assert.rejects(app.context.installWebApp(), /browser refused/);
+    assert.equal(app.context.getWebAppInstallMode(), 'android');
+    assert.equal(await app.context.installWebApp(), 'unavailable');
 });
 
 test('each browser pairs under its own name, so the PC can tell side-by-side browsers apart', () => {

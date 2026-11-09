@@ -304,9 +304,69 @@ export function getNotificationPermission() {
     return 'Notification' in window ? window.Notification.permission : 'denied';
 }
 
+let appInstalled = false;
+let installPrompt;
+let onInstallationChanged;
+
 /** Opened from the Home Screen (or as an installed app) rather than in a browser tab. */
 export function isInstalledApp() {
-    return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    return ['standalone', 'minimal-ui', 'fullscreen', 'window-controls-overlay']
+            .some(mode => window.matchMedia(`(display-mode: ${mode})`).matches)
+        || navigator.standalone === true
+        || (document.referrer ?? '').startsWith('android-app://');
+}
+
+export function getWebAppInstallMode() {
+    if (appInstalled || isInstalledApp() || !window.isSecureContext)
+        return 'unavailable';
+    const apple = /iPad|iPhone|iPod/.test(navigator.userAgent ?? '')
+        || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    const android = /Android/.test(navigator.userAgent ?? '');
+    if (!apple && !android && navigator.userAgentData?.mobile !== true)
+        return 'unavailable';
+    return installPrompt ? 'prompt' : apple ? 'apple' : android ? 'android' : 'browser';
+}
+
+export function configureWebAppInstallation(onChanged) {
+    onInstallationChanged = onChanged;
+    onChanged();
+}
+
+window.addEventListener('beforeinstallprompt', event => {
+    // Leave desktop browser promotion alone; this suggestion belongs to the phone client.
+    if (getWebAppInstallMode() === 'unavailable')
+        return;
+    event.preventDefault();
+    installPrompt = event;
+    onInstallationChanged?.();
+});
+
+window.addEventListener('appinstalled', () => {
+    appInstalled = true;
+    installPrompt = undefined;
+    onInstallationChanged?.();
+});
+
+for (const mode of ['standalone', 'minimal-ui', 'fullscreen', 'window-controls-overlay']) {
+    window.matchMedia(`(display-mode: ${mode})`).addEventListener?.('change', () => {
+        if (isInstalledApp())
+            installPrompt = undefined;
+        onInstallationChanged?.();
+    });
+}
+
+export async function installWebApp() {
+    const prompt = installPrompt;
+    if (!prompt || getWebAppInstallMode() === 'unavailable')
+        return 'unavailable';
+    // Each browser-issued event is single-use, even when the user dismisses it.
+    installPrompt = undefined;
+    try {
+        await prompt.prompt();
+        return (await prompt.userChoice).outcome;
+    } finally {
+        onInstallationChanged?.();
+    }
 }
 
 /**
