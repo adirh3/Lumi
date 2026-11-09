@@ -24,13 +24,13 @@
     <LangVersion>preview</LangVersion>
     <RootNamespace>Lumi.Mobile.Android</RootNamespace>
     <AssemblyName>Lumi.Mobile.Android</AssemblyName>
-    <Version>1.1.123</Version>
+    <Version>1.1.125</Version>
     <ApplicationId>com.lumi.mobile</ApplicationId>
     <!-- Must increment for every build handed to a device: Android keys installs on versionCode, and
          a reinstall that keeps the same code gives no way to confirm which build is actually on the
          phone. -->
-    <ApplicationVersion>9050</ApplicationVersion>
-    <ApplicationDisplayVersion>1.1.123</ApplicationDisplayVersion>
+    <ApplicationVersion>9052</ApplicationVersion>
+    <ApplicationDisplayVersion>1.1.125</ApplicationDisplayVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <!-- Android's native streaming HTTP reads can block cancellation and prevent foreground reconnect. -->
     <UseNativeHttpHandler>false</UseNativeHttpHandler>
@@ -54,9 +54,15 @@
     <AndroidSigningKeyPass>$(LumiAndroidSigningKeyPass)</AndroidSigningKeyPass>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(LumiMobileSmoothness)' == 'true'">
+    <ApplicationId>com.lumi.mobile.smoothness</ApplicationId>
+    <AndroidKeyStore>false</AndroidKeyStore>
+    <AndroidDebuggable>true</AndroidDebuggable>
+  </PropertyGroup>
+
   <Target Name="ValidateProductionSigning"
           BeforeTargets="_Sign"
-          Condition="'$(Configuration)' == 'Release'">
+          Condition="'$(Configuration)' == 'Release' And '$(LumiMobileSmoothness)' != 'true'">
     <Error Condition="'$(LumiAndroidSigningKeyStore)' == '' Or !Exists('$(LumiAndroidSigningKeyStore)')"
            Text="Release Android builds require LumiAndroidSigningKeyStore." />
     <Error Condition="'$(LumiAndroidSigningStorePass)' == '' Or '$(LumiAndroidSigningKeyAlias)' == '' Or '$(LumiAndroidSigningKeyPass)' == ''"
@@ -70,6 +76,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Lumi.Mobile\Lumi.Mobile.csproj" />
+    <Compile Include="..\Lumi.Mobile.Desktop\SmoothnessSocketHost.cs" Link="SmoothnessSocketHost.cs" />
     <AndroidAsset Include="..\..\LICENSE" Link="Assets\LICENSE.txt" LogicalName="LICENSE.txt" />
   </ItemGroup>
 

@@ -19,6 +19,17 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+        var smoothness = args.Contains("--mobile-smoothness");
+        if (smoothness)
+            App.ShellFactory = Lumi.Mobile.Smoothness.MobileSmoothnessFixture.CreateShell;
+#else
+        if (args.Contains("--mobile-smoothness"))
+        {
+            Console.Error.WriteLine("Build with -p:LumiMobileSmoothness=true to run an optimized mobile benchmark.");
+            return 1;
+        }
+#endif
         // An isolated data dir keeps simulator runs from clobbering a real phone pairing on this box.
         if (args.Contains("--isolated") || args.Contains("--popup-preview") || args.Contains("--design-preview"))
         {
@@ -28,7 +39,11 @@ public static class Program
         }
 
         // Set culture before the builder loads App/theme XAML, not only before the shell's views.
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+        Strings.Load(smoothness ? "en" : new MobileSettingsStore().Load().Language);
+#else
         Strings.Load(new MobileSettingsStore().Load().Language);
+#endif
         var device = ReadOption(args, "--device");
         var host = ReadOption(args, "--host");
 #if DEBUG
@@ -45,6 +60,19 @@ public static class Program
             var window = new SimulatorWindow();
             if (device is { Length: > 0 })
                 window.Opened += (_, _) => window.SelectDevice(device);
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+            if (smoothness)
+            {
+                var port = int.Parse(ReadOption(args, "--smoothness-port") ?? "47692");
+                window.Opened += (_, _) =>
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    {
+                        var view = window.FindControl<Lumi.Mobile.Views.MobileShellView>("Shell")!;
+                        var diagnostics = new Lumi.Mobile.Smoothness.SmoothnessSocketHost(view, port);
+                        window.Closed += (_, _) => diagnostics.Dispose();
+                    }, Avalonia.Threading.DispatcherPriority.Loaded);
+            }
+#endif
 #if DEBUG
             if (interactiveProfile is { Length: > 0 })
                 window.Opened += (_, _) => window.OpenInteractiveControls(interactiveProfile);
@@ -58,6 +86,10 @@ public static class Program
 
         if (host is { Length: > 0 })
         {
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+            if (smoothness)
+                throw new ArgumentException("A benchmark cannot connect to a real PC.");
+#endif
             App.ShellFactory = () =>
             {
                 var shell = new MobileShellViewModel();

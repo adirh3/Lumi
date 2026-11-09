@@ -15,6 +15,10 @@ internal static class Program
 {
     private static async Task Main(string[] args)
     {
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+        var smoothness = args.Any(argument => Uri.TryCreate(argument, UriKind.Absolute, out var url)
+            && url.Query.Split('&', '?').Contains("smoothness=1", StringComparer.Ordinal));
+#endif
         await JSHost.ImportAsync("./browserHost.js", "/app/browserHost.js");
         await JSHost.ImportAsync("./pwaHost.js", "/app/pwaHost.js");
         // The pre-runtime page and Strata/theme XAML must use the same startup language.
@@ -70,6 +74,10 @@ internal static class Program
             };
             return shell;
         };
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+        if (smoothness)
+            App.ShellFactory = Mobile.Smoothness.MobileSmoothnessFixture.CreateShell;
+#endif
 
         await AppBuilder.Configure<App>()
             .WithInterFont()
@@ -111,6 +119,10 @@ internal static class Program
                     RegisterAvaloniaServiceWorker = false,
                     PreferFileDialogPolyfill = true
                 });
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+        if (smoothness)
+            BrowserSmoothness.Initialize();
+#endif
 
         // Resolve Avalonia's lazy storage import before a tap; no folder is opened or permission requested.
         if (Application.Current?.ApplicationLifetime is ISingleViewApplicationLifetime { MainView: { } view }

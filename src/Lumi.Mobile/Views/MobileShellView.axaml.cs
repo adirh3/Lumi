@@ -33,6 +33,18 @@ public partial class MobileShellView : UserControl
     private double _keyboardTop = double.NaN;
     private int _keyboardMotionVersion;
     private bool _isApplicationActive = true;
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+    private double _smoothnessKeyboardTarget;
+    internal double SmoothnessKeyboardInset => _keyboardInset;
+    internal bool IsSmoothnessKeyboardSettled => Math.Abs(_keyboardInset - _smoothnessKeyboardTarget) < 1;
+    internal event Action<double, double>? SmoothnessKeyboardReported;
+
+    private void ReportSmoothnessKeyboard(double target, TimeSpan duration = default)
+    {
+        _smoothnessKeyboardTarget = target;
+        SmoothnessKeyboardReported?.Invoke(target, duration.TotalMilliseconds);
+    }
+#endif
     private readonly Dictionary<Control, MobileEntrance> _pageEntrances = [];
     private readonly HashSet<StrataBottomSheet> _presentedSheets = [];
     private readonly StrataNavigationDrawer? _navigationDrawer;
@@ -93,6 +105,13 @@ public partial class MobileShellView : UserControl
 
             if (sheet.Name == "ModelSheet")
             {
+                if (DataContext is MobileShellViewModel shell
+                    && this.FindControl<ItemsControl>("ModelSheetList") is { } list)
+                {
+                    var selectedRow = shell.Chat.ModelOptions.FirstOrDefault(row => row.IsSelected);
+                    if (selectedRow is not null)
+                        list.ScrollIntoView(shell.Chat.ModelRows.IndexOf(selectedRow));
+                }
                 var selected = sheet.GetVisualDescendants().OfType<Button>()
                     .FirstOrDefault(button => button.DataContext is ModelPickerOption { IsSelected: true }
                                               && button.Classes.Contains("model-option"));
@@ -472,6 +491,9 @@ public partial class MobileShellView : UserControl
     {
         _keyboardMotionVersion++;
         _keyboardInset = _isApplicationActive ? keyboardInset : 0;
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+        ReportSmoothnessKeyboard(_keyboardInset);
+#endif
         // Browser viewport events can arrive before Avalonia's ResizeObserver. Keep the keyboard
         // edge in the measured host's coordinates rather than combining it with a stale height.
         var fullHeight = viewportHeight ?? (DataContext is MobileShellViewModel shell && shell.Layout.Height > 0
@@ -546,6 +568,9 @@ public partial class MobileShellView : UserControl
         var target = rect.Height > 0 && _topLevel is { } top
             ? Math.Max(0, top.ClientSize.Height - rect.Top)
             : 0;
+#if DEBUG || LUMI_MOBILE_SMOOTHNESS
+        ReportSmoothnessKeyboard(target, duration);
+#endif
 
         var version = ++_keyboardMotionVersion;
         var from = _keyboardInset;

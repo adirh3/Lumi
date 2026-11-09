@@ -781,6 +781,26 @@ Mobile sends clear the composer and show the user bubble and Thinking before
 waiting for pending configuration requests. Sending closes the keyboard; on Android
 the composer and conversation follow the keyboard's own slide frame by frame
 (`InputPaneStateEventArgs` duration and easing) instead of jumping to where it ends.
+An Android composer tap requests the IME as soon as its native editor has focus,
+before queued composer layout, with a guarded posted fallback if Android has not
+established the input connection yet. Focus versions still invalidate requests
+after dismissal or navigation.
+Unwrapped, left-to-right code retains its complete measured text layout when
+arranged, rather than laying out every line again. Wrapped, trimmed, bounded
+or differently aligned text still uses the framework's arranged constraint;
+selection, highlighting, viewport-only drawing and live text invalidation remain intact.
+Transcript turns reuse one viewport-update callback per attachment/data-context
+generation and inspect pending entrances without allocating an enumerator on each
+scroll update. The update still runs at its original priority and stale callbacks
+cannot affect a newly selected chat.
+Cold turn presentation uses Strata's `StrataChatMessage.Hosted` theme for user
+bubbles: Lumi already supplies their touch/context actions and edit surface, so
+the bubble does not construct an invisible desktop toolbar and inline editor.
+The bubble and metadata keep the same role styling; desktop messages keep their
+default theme. Welcome, follow-up and answer-action helper styles are scoped to
+their named surfaces rather than attaching inactive styling to every new card.
+Prefetch always waits for layout and the next frame, including requests that
+arrive while an otherwise empty prefetch queue is being measured.
 Configuration and send commands still
 share their transport gate; Stop cancels a send still waiting for that gate and
 returns its draft without dispatching it. The desktop's `RequestId` confirms the optimistic
