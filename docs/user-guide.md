@@ -1228,8 +1228,9 @@ while a viewer is open.
 
 Tapping a file Lumi made opens it in a preview pane of its own, as the desktop's Workspace
 previews it. Images fit the pane and zoom with a pinch or a double-tap; Markdown reads as
-formatted text; in the web app, HTML renders as an interactive page in a sandbox isolated from
-Lumi and its pairing credentials; code is highlighted (very long files as plain text); text wraps;
+formatted text; in the web app and native Android app, HTML renders as an interactive page in a
+sandbox isolated from Lumi and its pairing credentials; code is highlighted (very long files as
+plain text); text wraps;
 CSV and TSV files are read by the desktop's own rules and become a table whose header stays in place while numbers
 line up on the right; and on Android a
 PDF shows its pages, each drawn only while it is near the screen. A file the phone can't draw
