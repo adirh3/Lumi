@@ -3,7 +3,9 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Threading;
 using Lumi.Views.Controls;
 using Xunit;
@@ -17,6 +19,80 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ProgressiveItemsControlTests
 {
+    [Fact]
+    public async Task IndependentGroupsFillNearTheirOwnEndRatherThanTheEndOfTheWholePage()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var firstSource = new ObservableCollection<string>(["first 0", "first 1"]);
+            var secondSource = new ObservableCollection<string>(Enumerable.Range(0, 24).Select(index => $"second {index}"));
+            var lastSource = new ObservableCollection<string>();
+            var template = new FuncDataTemplate<string>((item, _) => new TextBlock { Text = item, Height = 40 });
+            var first = new ProgressiveItemsControl { Source = firstSource, InitialItemCount = 3, ItemTemplate = template };
+            var second = new ProgressiveItemsControl { Source = secondSource, InitialItemCount = 3, ItemTemplate = template };
+            var last = new ProgressiveItemsControl { Source = lastSource, InitialItemCount = 3, ItemTemplate = template };
+            var scroll = new ScrollViewer
+            {
+                Content = new StackPanel { Children = { first, second, last } }
+            };
+            var window = new Window { Width = 400, Height = 300, Content = scroll };
+            window.Show();
+            try
+            {
+                window.UpdateLayout();
+                await second.ShowThroughAsync(secondSource[^1]);
+                Assert.True(scroll.Extent.Height > scroll.Viewport.Height * 3);
+
+                for (var index = 2; index < 6; index++)
+                    firstSource.Add($"first {index}");
+                window.UpdateLayout();
+                Assert.Equal(3, first.ShownCount);
+                Assert.True(await FillsAsync(first, firstSource), "Later groups must not prevent an earlier group from filling.");
+                Assert.Equal(0, scroll.Offset.Y);
+
+                for (var index = 0; index < 6; index++)
+                    lastSource.Add($"last {index}");
+                window.UpdateLayout();
+                await Task.Delay(50);
+                Assert.Equal(3, last.ShownCount);
+
+                scroll.Offset = new Vector(0, scroll.Extent.Height);
+                Assert.True(await FillsAsync(last, lastSource), "A group below the viewport should fill when scrolled into view.");
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ACustomFirstPageStaysBoundedWhenTheSourceIsRepopulated()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            var source = new ObservableCollection<string>();
+            var list = new ProgressiveItemsControl { Source = source, InitialItemCount = 3 };
+            var window = new Window { Width = 400, Height = 300, Content = list };
+            window.Show();
+            try
+            {
+                window.UpdateLayout();
+                for (var index = 0; index < 40; index++)
+                    source.Add($"item {index}");
+                window.UpdateLayout();
+                Assert.Equal(3, list.ShownCount);
+                Assert.True(IsLeading(list, source));
+
+                source.Clear();
+                foreach (var item in Enumerable.Range(0, 40))
+                    source.Add($"replacement {item}");
+                Assert.Equal(3, list.ShownCount);
+                Assert.True(IsLeading(list, source));
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task ShownItems_StayTheLeadingItemsOfTheSource()
     {

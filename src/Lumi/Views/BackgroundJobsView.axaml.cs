@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Lumi.ViewModels;
@@ -8,12 +10,42 @@ namespace Lumi.Views;
 
 public partial class BackgroundJobsView : UserControl
 {
+    private BackgroundJobsViewModel? _viewModel;
+    private Control? _editor;
+
     public BackgroundJobsView()
     {
         InitializeComponent();
-        if (this.FindControl<TextBlock>("JobSaveHint") is { } hint)
-            hint.Text = ManagementPage.SaveHint;
-        ManagementPage.ResetScrollOn(this, "JobDetailScroll", nameof(BackgroundJobsViewModel.SelectedJob));
+        DataContextChanged += (_, _) =>
+        {
+            if (_viewModel is not null)
+                _viewModel.PropertyChanged -= OnViewModelChanged;
+            _viewModel = DataContext as BackgroundJobsViewModel;
+            if (_viewModel is not null)
+                _viewModel.PropertyChanged += OnViewModelChanged;
+            EnsureEditor();
+        };
+    }
+
+    private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(BackgroundJobsViewModel.IsEditing))
+            EnsureEditor();
+    }
+
+    private void EnsureEditor()
+    {
+        if (_viewModel is not { IsEditing: true } || _editor is not null)
+            return;
+
+        var host = this.FindControl<Panel>("JobDetail")!;
+        var template = (IControlTemplate)host.Resources["JobEditorTemplate"]!;
+        var built = template.Build(this)!;
+        _editor = built.Result;
+        NameScope.SetNameScope(_editor, built.NameScope);
+        _editor.FindControl<TextBlock>("JobSaveHint")!.Text = ManagementPage.SaveHint;
+        ManagementPage.ResetScrollOn(_editor, "JobDetailScroll", nameof(BackgroundJobsViewModel.SelectedJob));
+        host.Children.Add(_editor);
     }
 
     private void InitializeComponent()

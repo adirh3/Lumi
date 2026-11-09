@@ -113,7 +113,7 @@ public partial class MainWindow : Window
     private ContentControl? _libraryHost;
     private readonly Dictionary<int, PageScrollState> _pageScrollStates = [];
     private readonly Dictionary<int, PageScrollState> _sidebarScrollStates = [];
-    private sealed record PageScrollState(object? Key, IReadOnlyDictionary<string, Vector> Offsets);
+    private sealed record PageScrollState(object? Key, ManagementPage.ScrollState Scroll);
     private Border? _sidebarBorder;
     private Border? _contentArea;
     private Thumb? _sidebarResizeThumb;
@@ -3492,7 +3492,7 @@ public partial class MainWindow : Window
     {
         if (DataContext is not MainViewModel vm || !states.TryGetValue(index, out var state))
             return;
-        ManagementPage.RestoreScroll(view, state.Offsets,
+        ManagementPage.RestoreScroll(view, state.Scroll,
             () => isCurrent() && Equals(state.Key, PageStateKey(vm, index)));
     }
 }

@@ -27,6 +27,9 @@ public sealed class ProgressiveItemsControl : ItemsControl
     /// <summary>Items shown with the list itself, enough to fill a bounded area on open.</summary>
     internal const int FirstPageSize = 12;
 
+    public static readonly StyledProperty<int> InitialItemCountProperty =
+        AvaloniaProperty.Register<ProgressiveItemsControl, int>(nameof(InitialItemCount), FirstPageSize);
+
     /// <summary>Building beyond the first page yields once this much time has been spent.</summary>
     private const double FrameBudgetMs = 12d;
 
@@ -49,7 +52,11 @@ public sealed class ProgressiveItemsControl : ItemsControl
         SourceProperty.Changed.AddClassHandler<ProgressiveItemsControl>((list, _) => list.OnSourceChanged());
     }
 
-    public ProgressiveItemsControl() => ItemsSource = _shown;
+    public ProgressiveItemsControl()
+    {
+        ItemsSource = _shown;
+        EffectiveViewportChanged += (_, _) => ScheduleFill();
+    }
 
     protected override Type StyleKeyOverride => typeof(ItemsControl);
 
@@ -57,6 +64,12 @@ public sealed class ProgressiveItemsControl : ItemsControl
     {
         get => GetValue(SourceProperty);
         set => SetValue(SourceProperty, value);
+    }
+
+    public int InitialItemCount
+    {
+        get => GetValue(InitialItemCountProperty);
+        set => SetValue(InitialItemCountProperty, value);
     }
 
     /// <summary>How many of the leading <see cref="Source"/> items are shown so far.</summary>
@@ -100,17 +113,21 @@ public sealed class ProgressiveItemsControl : ItemsControl
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e) => ScheduleFill();
 
     /// <summary>
-    /// More items are wanted while less than one screen of them is built below the scroll area's view.
+    /// More items are wanted while less than one screen of this list is built below the scroll area's view.
     /// Without a scroll area, every item is wanted.
     /// </summary>
     private bool WantsMore(IList source)
     {
-        if (_shown.Count >= source.Count)
+        if (!IsEffectivelyVisible || _shown.Count >= source.Count)
             return false;
         if (_scroller is not { } scroller)
             return true;
 
-        var builtBelow = scroller.Extent.Height - scroller.Offset.Y - scroller.Viewport.Height;
+        if (this.TranslatePoint(new Point(0, Bounds.Height), scroller) is not { } end)
+            return false;
+
+        // Other galleries can share the scroller without filling this list's screen-ahead budget.
+        var builtBelow = end.Y - scroller.Viewport.Height;
         return builtBelow < Math.Max(scroller.Viewport.Height, 1);
     }
 
@@ -140,7 +157,7 @@ public sealed class ProgressiveItemsControl : ItemsControl
         if (!_isAttached || Source is not { } source)
             return;
 
-        for (var i = 0; i < FirstPageSize && i < source.Count; i++)
+        for (var i = 0; i < Math.Max(1, InitialItemCount) && i < source.Count; i++)
             _shown.Add(source[i]);
 
         if (_isFillScheduled || _shown.Count >= source.Count)
@@ -165,7 +182,12 @@ public sealed class ProgressiveItemsControl : ItemsControl
                 if (e.NewStartingIndex <= _shown.Count)
                 {
                     for (var i = 0; i < e.NewItems.Count; i++)
+                    {
+                        // A refreshed gallery can repopulate one item at a time; keep its first page bounded too.
+                        if (e.NewStartingIndex + i == _shown.Count && _shown.Count == Math.Max(1, InitialItemCount))
+                            break;
                         _shown.Insert(e.NewStartingIndex + i, e.NewItems[i]);
+                    }
                 }
                 break;
             case NotifyCollectionChangedAction.Remove when e.OldItems is not null && e.OldStartingIndex >= 0:

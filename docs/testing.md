@@ -79,6 +79,16 @@ logs. The script returns nonzero on an incomplete run; it does not retry tests.
 
 ## Real headed workflows
 
+The Debug responsiveness harness (`dotnet run --project src\Lumi\Lumi.csproj -- --ui-perf-harness --ui-perf-filter navigation`)
+includes first-open and repeated Jobs navigation with 24 synthetic jobs (scheduled digests
+and paused watchers), rather than measuring an empty overview. Jobs builds a bounded first
+page per group and fills toward the viewport while scrolling; its editor is built only when
+opened. Component coverage in `ManagementPageLifetimeTests` checks that filtering keeps
+this bound, all cards remain reachable, and deferred editors preserve drafts. Multi-group
+coverage resumes scheduled jobs after the Paused group has fully loaded, checking that
+Enabled fills independently without scrolling. Each gallery measures its own end against
+the viewport, so later groups cannot suppress it and offscreen groups still stay bounded.
+
 The headed suite starts the actual Debug application on a native desktop host.
 It uses existing named controls and Avalonia button automation peers, not OS
 pointer coordinates or a second implementation of the application:

@@ -268,6 +268,10 @@ internal sealed class UiResponsivenessHarness
             RunAsync: () => ClickNavigationAsync(2, "NavCustomize"),
             Prepare: () => PrepareNavigationAsync(2));
         yield return new UiAction(
+            "nav-warm-jobs", "Navigation", "Reopen populated Jobs",
+            RunAsync: () => ClickNavigationAsync(1, "NavJobs"),
+            Prepare: () => PrepareNavigationAsync(1));
+        yield return new UiAction(
             "nav-warm-chat", "Navigation", "Return to Chat page (warm)",
             RunAsync: () => ClickNavigationAsync(0, "NavChat"),
             Prepare: () => OnUiAsync(() => _mainVm.SelectedNavIndex = MainViewModel.MemoriesNavIndex));

@@ -11,6 +11,7 @@ using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Lumi.Views;
+using Lumi.Views.Controls;
 using Xunit;
 
 namespace Lumi.Tests;
@@ -18,6 +19,134 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ManagementPageLifetimeTests
 {
+    [Fact]
+    public async Task ResumingJobsFillsTheEnabledGroupAfterThePausedGroupHasAlreadyLoaded()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            using var main = CreateMain();
+            var chat = new Chat { Title = "Monitoring" };
+            main.DataStore.Data.Chats.Add(chat);
+            main.DataStore.Data.BackgroundJobs.Clear();
+            var scheduled = Enumerable.Range(0, 6).Select(index =>
+            {
+                var at = DateTimeOffset.Now.AddYears(1).AddDays(index);
+                return new BackgroundJob
+                {
+                    Name = $"Scheduled {index}", ChatId = chat.Id, IsEnabled = index < 2,
+                    ScheduleType = BackgroundJobScheduleTypes.Once, RunAt = at,
+                    NextRunAt = index < 2 ? at : null
+                };
+            }).ToArray();
+            main.DataStore.Data.BackgroundJobs.AddRange(scheduled);
+            for (var index = 0; index < 20; index++)
+                main.DataStore.Data.BackgroundJobs.Add(new BackgroundJob
+                {
+                    Name = $"Watcher {index:D2}", ChatId = chat.Id, IsEnabled = false
+                });
+            var window = Show(main);
+            try
+            {
+                main.SelectedNavIndex = 1;
+                Pump(window);
+                var page = Page(window, "PageJobsHost");
+                var enabled = page.FindControl<ProgressiveItemsControl>("JobsGallery")!;
+                var paused = page.FindControl<ProgressiveItemsControl>("JobsPausedGallery")!;
+                var scroll = page.FindControl<ScrollViewer>("JobsOverviewScroll")!;
+                await paused.ShowThroughAsync(main.JobsVM.PausedCards[^1]);
+                Assert.Equal(24, paused.ShownCount);
+                Assert.True(scroll.Extent.Height > scroll.Viewport.Height * 2);
+
+                foreach (var job in scheduled.Skip(2))
+                    main.JobsVM.ToggleJobCommand.Execute(job);
+                Pump(window);
+                Assert.Equal(6, main.JobsVM.EnabledCards.Count);
+                for (var attempt = 0; attempt < 150 && enabled.ShownCount < 6; attempt++)
+                {
+                    await Task.Delay(10);
+                    window.UpdateLayout();
+                }
+                Assert.Equal(6, enabled.ShownCount);
+                Assert.Equal(main.JobsVM.EnabledCards, enabled.Items.Cast<JobCard>());
+                Assert.Equal(20, paused.ShownCount);
+                Assert.Equal(0, scroll.Offset.Y);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task JobsOverviewDefersTheEditorAndOffscreenCardsIncludingAfterFiltering()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            using var main = CreateMain();
+            var chat = new Chat { Title = "Monitoring" };
+            main.DataStore.Data.Chats.Add(chat);
+            main.DataStore.Data.BackgroundJobs.Clear();
+            for (var index = 0; index < 36; index++)
+                main.DataStore.Data.BackgroundJobs.Add(new BackgroundJob
+                {
+                    Name = $"Watcher {index:D2}", ChatId = chat.Id, IsEnabled = false
+                });
+            var window = Show(main);
+            try
+            {
+                main.SelectedNavIndex = 1;
+                Pump(window);
+                var page = Page(window, "PageJobsHost");
+                var gallery = page.FindControl<ProgressiveItemsControl>("JobsPausedGallery")!;
+                Assert.Equal(36, main.JobsVM.PausedCards.Count);
+                Assert.Equal(gallery.InitialItemCount, gallery.ShownCount);
+                Assert.DoesNotContain(page.GetVisualDescendants().OfType<Control>(), control => control.Name == "JobNameInput");
+
+                main.JobsVM.EnabledFacet.SelectCommand.Execute(null);
+                Pump(window);
+                Assert.Empty(gallery.Items);
+                main.JobsVM.AllFacet.SelectCommand.Execute(null);
+                Pump(window);
+                Assert.Equal(gallery.InitialItemCount, gallery.ShownCount);
+
+                var scroll = page.FindControl<ScrollViewer>("JobsOverviewScroll")!;
+                for (var attempt = 0; attempt < 150 && gallery.ShownCount < 36; attempt++)
+                {
+                    scroll.Offset = new Vector(0, scroll.Extent.Height);
+                    await Task.Delay(20);
+                    window.UpdateLayout();
+                }
+                Assert.Equal(36, gallery.ShownCount);
+                Assert.Equal(main.JobsVM.PausedCards, gallery.Items.Cast<JobCard>());
+
+                scroll.Offset = new Vector(0, scroll.Extent.Height - scroll.Viewport.Height);
+                var previousOffset = scroll.Offset.Y;
+                main.SelectedNavIndex = 0;
+                Pump(window);
+                main.SelectedNavIndex = 1;
+                Pump(window);
+                page = Page(window, "PageJobsHost");
+                scroll = page.FindControl<ScrollViewer>("JobsOverviewScroll")!;
+                for (var attempt = 0; attempt < 150 && Math.Abs(scroll.Offset.Y - previousOffset) > 1; attempt++)
+                {
+                    await Task.Delay(10);
+                    window.UpdateLayout();
+                }
+                Assert.InRange(scroll.Offset.Y, previousOffset - 1, previousOffset + 1);
+
+                main.JobsVM.PausedCards[^1].OpenCommand.Execute(null);
+                Pump(window);
+                var input = page.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "JobNameInput");
+                Assert.Equal("Watcher 35", input.Text);
+                input.Text = "Unsaved watcher";
+                main.JobsVM.RefreshFromStore(preserveEditorBuffer: true);
+                Assert.Equal("Unsaved watcher", input.Text);
+                Assert.Equal("Unsaved watcher", main.JobsVM.EditName);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
     [Theory]
     [InlineData(1, "PageJobsHost")]
     [InlineData(2, "PageProjectsHost")]
@@ -75,7 +204,7 @@ public sealed class ManagementPageLifetimeTests
                 main.SelectedNavIndex = index;
                 SelectDetail(main, index);
                 Pump(window);
-                var field = Page(window, hostName).FindControl<TextBox>(fieldName)!;
+                var field = Page(window, hostName).GetVisualDescendants().OfType<TextBox>().Single(input => input.Name == fieldName);
                 Assert.NotNull(field);
                 field.Text = "Unsaved draft";
                 Pump(window);
@@ -84,7 +213,7 @@ public sealed class ManagementPageLifetimeTests
                 Assert.Null(Host(window, hostName).Content);
                 main.SelectedNavIndex = index;
                 Pump(window);
-                Assert.Equal("Unsaved draft", Page(window, hostName).FindControl<TextBox>(fieldName)!.Text);
+                Assert.Equal("Unsaved draft", Page(window, hostName).GetVisualDescendants().OfType<TextBox>().Single(input => input.Name == fieldName).Text);
                 Assert.NotNull(SelectedItem(main, index));
             }
             finally { window.Close(); }
@@ -118,13 +247,13 @@ public sealed class ManagementPageLifetimeTests
                     case 6: main.McpServersVM.NewServerCommand.Execute(null); break;
                 }
                 Pump(window);
-                Page(window, hostName).FindControl<TextBox>(fieldName)!.Text = "New unsaved item";
+                Page(window, hostName).GetVisualDescendants().OfType<TextBox>().Single(input => input.Name == fieldName).Text = "New unsaved item";
                 Pump(window);
                 main.SelectedNavIndex = 0;
                 Pump(window);
                 main.SelectedNavIndex = index;
                 Pump(window);
-                Assert.Equal("New unsaved item", Page(window, hostName).FindControl<TextBox>(fieldName)!.Text);
+                Assert.Equal("New unsaved item", Page(window, hostName).GetVisualDescendants().OfType<TextBox>().Single(input => input.Name == fieldName).Text);
                 Assert.Null(SelectedItem(main, index));
             }
             finally { window.Close(); }

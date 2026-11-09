@@ -13,6 +13,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Localization;
+using Lumi.Views.Controls;
 
 namespace Lumi.Views.Management;
 
@@ -152,25 +153,48 @@ internal static class ManagementPage
         };
     }
 
-    public static IReadOnlyDictionary<string, Vector> CaptureScroll(Control view)
-        => ScrollViewers(view).ToDictionary(static item => item.Key, static item => item.Scroll.Offset);
+    public sealed record ScrollState(
+        IReadOnlyDictionary<string, Vector> Offsets,
+        IReadOnlyDictionary<string, int> ShownItems);
 
-    public static void RestoreScroll(Control view, IReadOnlyDictionary<string, Vector> offsets, Func<bool> isCurrent)
+    public static ScrollState CaptureScroll(Control view)
+        => new(
+            ScrollViewers(view).ToDictionary(static item => item.Key, static item => item.Scroll.Offset),
+            ProgressiveLists(view)
+                .Where(static list => list.IsEffectivelyVisible && list.FindAncestorOfType<ScrollViewer>()?.Offset.Y > 0)
+                .ToDictionary(static list => list.Name!, static list => list.ShownCount));
+
+    public static void RestoreScroll(Control view, ScrollState state, Func<bool> isCurrent)
     {
-        if (offsets.Count == 0)
+        if (state.Offsets.Count == 0)
             return;
 
-        Dispatcher.UIThread.Post(() =>
+        Dispatcher.UIThread.Post(async () =>
         {
             if (!view.CheckAccess() || !view.IsAttachedToVisualTree() || !isCurrent())
                 return;
+
+            // Restore the previously built extent before applying an offset that would otherwise clamp.
+            foreach (var list in ProgressiveLists(view))
+            {
+                if (state.ShownItems.TryGetValue(list.Name!, out var count)
+                    && list.Source is { Count: > 0 } source && count > 0)
+                    await list.ShowThroughAsync(source[Math.Min(count, source.Count) - 1]!);
+                if (!view.IsAttachedToVisualTree() || !isCurrent())
+                    return;
+            }
+            view.UpdateLayout();
             foreach (var (key, scroll) in ScrollViewers(view))
             {
-                if (offsets.TryGetValue(key, out var offset))
+                if (state.Offsets.TryGetValue(key, out var offset))
                     scroll.Offset = offset;
             }
         }, DispatcherPriority.Loaded);
     }
+
+    private static IEnumerable<ProgressiveItemsControl> ProgressiveLists(Control view)
+        => view.GetVisualDescendants().OfType<ProgressiveItemsControl>()
+            .Where(static list => !string.IsNullOrEmpty(list.Name));
 
     public static void Release(Control view)
     {

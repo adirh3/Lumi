@@ -92,6 +92,28 @@ internal sealed class UiWorkloadScenarios
             BuildHeavyConversation(seed: 22, turns: 18, HeavyContentKind.Document), ProjectId);
 
         SeedFillerChats(fillerChatCount, now);
+        SeedJobs(now);
+    }
+
+    private void SeedJobs(DateTimeOffset now)
+    {
+        for (var index = 0; index < 24; index++)
+        {
+            _dataStore.Data.BackgroundJobs.Add(new BackgroundJob
+            {
+                Name = index < 4 ? $"Daily digest #{index + 1}" : $"Finished watcher #{index - 3}",
+                Description = "Check progress and report when attention is needed.",
+                ChatId = TinyChatId,
+                IsEnabled = index < 4,
+                TriggerType = index < 4 ? BackgroundJobTriggerTypes.Time : BackgroundJobTriggerTypes.Script,
+                IntervalMinutes = 525600,
+                CreatedAt = now,
+                UpdatedAt = now,
+                NextRunAt = index < 4 ? now.AddYears(1) : null,
+                LastRunStatus = index is 2 or 3 ? BackgroundJobRunStatuses.Failed : BackgroundJobRunStatuses.Completed,
+                RunCount = 1
+            });
+        }
     }
 
     /// <summary>
