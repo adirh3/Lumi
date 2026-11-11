@@ -150,6 +150,7 @@
     "Lumi.Tests.InteractiveResponseStateTests.AgentContextKeepsWholeRecentStatesWithinItsBudget",
     "Lumi.Tests.InteractiveResponseStateTests.AgentContextLeavesAskInputToItsToolResult",
     "Lumi.Tests.InteractiveResponseStateTests.AgentContextUsesUserEditedStateWithoutClaimingAgentExecution",
+    "Lumi.Tests.InteractiveResponseStateTests.AnExplorerActionStaysSentWhenOnlyTheViewChangedWhileSending",
     "Lumi.Tests.InteractiveResponseStateTests.ChatMessageCloneAndPersistenceKeepIndependentWidgetState",
     "Lumi.Tests.InteractiveResponseStateTests.DesktopProjectionAndTrimSafeWireContractPreserveState",
     "Lumi.Tests.InteractiveResponseStateTests.DuplicateAndUnclosedDefinitionsCannotBeSubmitted",
