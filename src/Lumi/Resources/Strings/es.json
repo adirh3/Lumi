@@ -1,4 +1,8 @@
 {
+  "Discover_UpdateFromSource": "Actualizar desde el origen",
+  "Discover_UpdateUnknown": "La versión disponible es desconocida. Actualizar desde el origen pide a Copilot que instale la versión que ofrece este origen.",
+  "Discover_UpdatedVersionUnknown": "Copilot completó la actualización, pero no informó de la versión instalada. Actualiza la vista para comprobar la instalación.",
+  "Discover_RefreshFailed": "No se pudieron actualizar estos mercados: {0}. Sus versiones disponibles son desconocidas.",
   "App_Name": "Lumi",
   "Setup_SectionTitle": "Configúralo en un paso",
   "Setup_SectionCaption": "Plugins oficiales para las herramientas que ya usas",

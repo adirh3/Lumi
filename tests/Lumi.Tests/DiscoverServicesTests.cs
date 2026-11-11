@@ -20,6 +20,11 @@ public sealed class DiscoverServicesTests
     [InlineData("GitHub: github/copilot-plugins", "github", "copilot-plugins", null)]
     [InlineData("https://github.com/microsoft/azure-skills.git", "microsoft", "azure-skills", null)]
     [InlineData("owner/repo#v1.2", "owner", "repo", "v1.2")]
+    [InlineData("git@github.com:owner/repo.git", "owner", "repo", null)]
+    [InlineData("http://github.com/owner/repo/", "owner", "repo", null)]
+    [InlineData("https://octo_contoso@github.com/contoso/private-plugin.git", "contoso", "private-plugin", null)]
+    [InlineData("URL: https://octo_contoso@github.com/contoso/private-plugin.git", "contoso", "private-plugin", null)]
+    [InlineData("Git: https://user@github.com/owner/repo.git#release", "owner", "repo", "release")]
     public void GitHubRepoRef_ReadsTheFormsMarketplacesAreWrittenIn(string text, string owner, string repo, string? reference)
     {
         var parsed = GitHubRepoRef.TryParse(text);
@@ -28,6 +33,34 @@ public sealed class DiscoverServicesTests
         Assert.Equal(owner, parsed!.Owner);
         Assert.Equal(repo, parsed.Repo);
         Assert.Equal(reference, parsed.Ref);
+        Assert.DoesNotContain("@", parsed.WebUrl);
+    }
+
+    [Theory]
+    [InlineData("https://github.com.evil.example/owner/repo")]
+    [InlineData("https://github.com@evil.example/owner/repo")]
+    [InlineData("https://evil.example/owner/repo")]
+    [InlineData("https://github.com:444/owner/repo")]
+    [InlineData("https://github.com/owner/repo?token=secret")]
+    [InlineData("https://github.com/owner/repo/extra")]
+    [InlineData("URL: file:///owner/repo")]
+    [InlineData("https://evil.example\\@github.com/owner/repo")]
+    [InlineData("owner/..")]
+    [InlineData("owner/%2f..")]
+    public void GitHubRepoRef_RejectsOtherHostsAndAmbiguousUrls(string source)
+        => Assert.Null(GitHubRepoRef.TryParse(source));
+
+    [Fact]
+    public async Task GitHubRepoRef_DoesNotForwardUrlCredentialsToPreviewRequests()
+    {
+        var source = GitHubRepoRef.TryParse("URL: https://user:secret@github.com/owner/repo.git")!;
+        using var http = new HttpClient(new FakeGitHub(new Dictionary<string, string>
+        {
+            ["raw/owner/repo/HEAD/plugin.json"] = "{}",
+        }));
+        var reader = new GitHubRepoReader(http, static () => null);
+        Assert.Equal("{}", await reader.TryGetTextAsync(source, "plugin.json", CancellationToken.None));
+        Assert.Equal("https://github.com/owner/repo", source.WebUrl);
     }
 
     [Fact]
@@ -417,11 +450,12 @@ public sealed class DiscoverServicesTests
         => new(registryType, identifier, version, "stdio", runtimeArguments ?? [], packageArguments ?? [], environment ?? []);
 
     /// <summary>Serves raw.githubusercontent.com files and api.github.com folder listings from memory.</summary>
-    private sealed class FakeGitHub(IReadOnlyDictionary<string, string> files) : HttpMessageHandler
+    internal sealed class FakeGitHub(IReadOnlyDictionary<string, string> files, HttpStatusCode missingStatus = HttpStatusCode.NotFound) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var uri = request.RequestUri!;
+            Assert.Empty(uri.UserInfo);
             var key = uri.Host switch
             {
                 "raw.githubusercontent.com" => "raw" + Uri.UnescapeDataString(uri.AbsolutePath),
@@ -431,7 +465,7 @@ public sealed class DiscoverServicesTests
 
             return Task.FromResult(files.TryGetValue(key.TrimEnd('/'), out var body)
                 ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) }
-                : new HttpResponseMessage(HttpStatusCode.NotFound));
+                : new HttpResponseMessage(missingStatus));
         }
     }
 }

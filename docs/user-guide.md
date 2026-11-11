@@ -506,6 +506,14 @@ names them by what they do, and keeps "MCP" for the protocol, config files and r
   marketplaces appear automatically; add any other with `owner/repo` or a Git URL. A plugin's page
   previews what it brings — skills, agents, MCP servers and whether it has hooks —
   read from its repository before you install.
+  Catalog details and GitHub previews may be unavailable for private Git sources that use a different
+  identity than the signed-in Copilot account. **Refresh** fetches marketplace catalogs again.
+  When a version cannot be determined, the plugin page
+  says so and offers **Update from source**, not a claim that it is current or that an update exists.
+  This action can install a different version; it is not a read-only check. Only a proven newer
+  version gets the update badge. Managed plugins cannot be updated here.
+  Update errors leave the displayed installed version unchanged. Lumi does not stop running chats or
+  connectors to force an update; an in-use or access-denied failure needs investigation before retrying.
 - **Connectors** come from *MCP registries* that serve the official registry API (`/v0.1/servers`).
   GitHub's MCP Registry (`https://api.mcp.github.com`) is the default; add others the same way.
   Adding one creates a normal Lumi connector: the hosted endpoint when the server offers one,

@@ -67,9 +67,13 @@ public static class DisplayNames
     /// behind the plugin it lists, so anything not provably newer is not offered as an update.
     /// </summary>
     public static bool IsNewerVersion(string? candidate, string? current)
+        => CompareVersions(candidate, current) == true;
+
+    /// <summary>Null means the versions cannot establish whether an update is available.</summary>
+    public static bool? CompareVersions(string? candidate, string? current)
     {
         if (!TryParse(candidate, out var next, out var nextPre) || !TryParse(current, out var installed, out var installedPre))
-            return false;
+            return null;
 
         for (var i = 0; i < Math.Max(next.Length, installed.Length); i++)
         {
@@ -79,7 +83,10 @@ public static class DisplayNames
                 return left > right;
         }
 
-        // 1.2.0 is newer than 1.2.0-beta; two pre-releases of one version are not compared.
+        if (nextPre is not null && installedPre is not null && nextPre != installedPre)
+            return null;
+
+        // 1.2.0 is newer than 1.2.0-beta.
         return nextPre is null && installedPre is not null;
     }
 

@@ -258,6 +258,7 @@ public sealed partial class DiscoverViewModel : ObservableObject
     [RelayCommand]
     private async Task RefreshAsync()
     {
+        string? refreshError = null;
         try
         {
             if (_plugins.IsAvailable)
@@ -266,10 +267,13 @@ public sealed partial class DiscoverViewModel : ObservableObject
         catch (Exception ex)
         {
             Debug.WriteLine($"[Discover] Marketplace refresh failed: {ex.Message}");
+            refreshError = Describe(ex);
         }
 
         _loading = LoadAllAsync();
         await _loading;
+        if (refreshError is not null)
+            PluginError = refreshError;
     }
 
     /// <summary>The Copilot runtime connected (or reconnected): plugins can load now.</summary>
@@ -913,6 +917,15 @@ public sealed partial class DiscoverViewModel : ObservableObject
             })
             .ToList();
         ApplyInstallState();
+        if (OpenCard is { IsPlugin: true } open)
+        {
+            var listing = _pluginCards.FirstOrDefault(card => card.Key == open.Key)?.Listing
+                ?? (open.Listing is { } previous ? previous with { Version = null } : null);
+            if (listing is not null)
+                open.ApplyListing(listing);
+            open.Installation = installed.FirstOrDefault(plugin => DiscoverCard.PluginKey(plugin.Name, plugin.Marketplace) == open.Key);
+            NotifyDetail();
+        }
     }
 
     /// <summary>

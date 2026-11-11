@@ -656,6 +656,8 @@
 
             <!-- Actions -->
             <StackPanel Spacing="10">
+              <TextBlock x:Name="DiscoverUpdateUnknown" Classes="dc-body"
+                         Text="{loc:Str Discover_UpdateUnknown}" IsVisible="{Binding IsUpdateUnknown}" />
               <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
                 <Button x:Name="DiscoverAddButton" AutomationProperties.Name="{Binding AddButtonText}" Classes="mg-button accent" Padding="16,8" Command="{Binding AddCommand}"
                         IsVisible="{Binding CanAdd}">

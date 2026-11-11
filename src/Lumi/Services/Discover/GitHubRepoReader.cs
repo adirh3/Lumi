@@ -15,20 +15,48 @@ namespace Lumi.Services.Discover;
 public sealed record GitHubRepoRef(string Owner, string Repo, string? Ref = null, string? Path = null)
 {
     private static readonly Regex OwnerRepo = new(
-        @"^(?:https?://github\.com/|git@github\.com:|github:\s*)?(?<owner>[A-Za-z0-9][A-Za-z0-9-]*)/(?<repo>[A-Za-z0-9._-]+?)(?:\.git)?/?(?:#(?<ref>[^\s]+))?$",
+        @"^(?:git@github\.com:)?(?<owner>[A-Za-z0-9][A-Za-z0-9-]*)/(?<repo>[A-Za-z0-9._-]+?)(?:\.git)?/?(?:#(?<ref>[^\s]+))?$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>
     /// Reads <c>owner/repo</c>, <c>owner/repo#ref</c>, a github.com URL or the runtime's
-    /// "GitHub: owner/repo" description. Anything else is not a GitHub repository.
+    /// "GitHub:", "URL:" or "Git:" description. URL userinfo is never retained or used for HTTP auth.
     /// </summary>
     public static GitHubRepoRef? TryParse(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return null;
 
-        var match = OwnerRepo.Match(text.Trim());
+        var source = text.Trim();
+        foreach (var prefix in new[] { "GitHub:", "URL:", "Git:" })
+        {
+            if (source.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                source = source[prefix.Length..].Trim();
+                break;
+            }
+        }
+
+        if (source.Contains('\\') || source.Any(char.IsWhiteSpace) || source.Any(char.IsControl))
+            return null;
+
+        if (source.Contains("://", StringComparison.Ordinal))
+        {
+            if (!Uri.TryCreate(source, UriKind.Absolute, out var uri)
+                || uri.Scheme is not ("https" or "http")
+                || !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+                || !uri.IsDefaultPort || uri.Query.Length != 0
+                || !uri.IsWellFormedOriginalString())
+                return null;
+
+            source = uri.AbsolutePath.TrimStart('/') + uri.Fragment;
+        }
+
+        var match = OwnerRepo.Match(source);
         if (!match.Success)
+            return null;
+
+        if (match.Groups["repo"].Value is "." or "..")
             return null;
 
         var reference = match.Groups["ref"].Success ? match.Groups["ref"].Value : null;

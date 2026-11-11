@@ -1,4 +1,8 @@
 {
+  "Discover_UpdateFromSource": "从来源更新",
+  "Discover_UpdateUnknown": "可用版本未知。从来源更新会请求 Copilot 安装该来源提供的版本。",
+  "Discover_UpdatedVersionUnknown": "Copilot 已完成更新，但未报告已安装的版本。请刷新以检查安装情况。",
+  "Discover_RefreshFailed": "无法刷新以下市场：{0}。其可用版本未知。",
   "App_Name": "Lumi",
   "Setup_SectionTitle": "一步完成设置",
   "Setup_SectionCaption": "为你常用的工具提供官方插件",

@@ -19,6 +19,100 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class DiscoverGridUiTests
 {
+    [Theory]
+    [InlineData(null, true, "Update from source")]
+    [InlineData("0.3.1", true, "Update to 0.3.1")]
+    [InlineData("0.3.0", false, "Update to 0.3.0")]
+    public async Task PluginDetail_DistinguishesUnknownFromKnownUpdates(string? candidate, bool canUpdate, string label)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc();
+            var vm = PluginDetail(fixture, rpc, candidate);
+            Assert.Equal(canUpdate, vm.CanUpdate);
+            Assert.Equal(label, vm.UpdateButtonText);
+            Assert.Equal(candidate is null, vm.IsUpdateUnknown);
+            Assert.Equal(candidate == "0.3.1", vm.OpenCard!.HasUpdate);
+
+            vm.OpenCard.Installation = vm.OpenCard.Installation! with { IsManaged = true };
+            Assert.False(vm.CanUpdate);
+            vm.OpenCard.Installation = null;
+            Assert.False(vm.CanUpdate);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PluginDetail_RefreshKeepsTheOpenOperationAndClearsMissingVersionHints()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc();
+            var vm = PluginDetail(fixture, rpc, "0.3.1");
+            var open = vm.OpenCard!;
+            var installed = open.Installation!;
+            open.IsBusy = true;
+
+            vm.ApplyPlugins([], [installed]);
+            Assert.Same(open, vm.OpenCard);
+            Assert.True(vm.IsDetailBusy);
+            Assert.True(vm.IsUpdateUnknown);
+            Assert.False(vm.CanUpdate);
+
+            vm.ApplyPlugins([open.Listing! with { Version = "0.3.2" }], [installed]);
+            Assert.Same(open, vm.OpenCard);
+            Assert.True(vm.IsDetailBusy);
+            Assert.False(vm.CanUpdate);
+            open.IsBusy = false;
+            Assert.True(vm.CanUpdate);
+            Assert.Equal("0.3.2", open.Listing!.Version);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PluginDetail_FailedUpdatePreservesVersion_AndMissingVersionNeverClaimsCurrent()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc { FailUpdate = true };
+            var vm = PluginDetail(fixture, rpc, "0.3.1");
+            await vm.UpdateCommand.ExecuteAsync(null);
+            Assert.Contains("os error 5", vm.ActionError);
+            Assert.Equal("0.3.0", vm.OpenCard!.Installation!.Version);
+            Assert.False(vm.HasResult);
+            Assert.False(vm.IsDetailBusy);
+
+            rpc.FailUpdate = false;
+            rpc.UpdatedVersion = null;
+            await vm.UpdateCommand.ExecuteAsync(null);
+            Assert.Null(vm.OpenCard.Installation.Version);
+            Assert.False(vm.OpenCard.HasVersion);
+            Assert.Equal(Loc.Discover_UpdatedVersionUnknown, vm.ResultMessage);
+            Assert.True(vm.IsUpdateUnknown);
+            Assert.False(vm.HasActionError);
+        }, CancellationToken.None);
+    }
+
+    private static DiscoverViewModel PluginDetail(PluginCatalogFixture fixture, PluginCatalogRpc rpc, string? candidate)
+    {
+        var vm = new DiscoverViewModel(
+            new DataStore(new AppData(), Path.Combine(fixture.Root, "skills")),
+            fixture.Service(rpc),
+            new McpRegistryClient(new HttpClient(new StubRegistry(_ => Page(0, 0, null)))),
+            static () => null);
+        var card = DiscoverCard.ForPlugin(Plugin("private-plugin", "Fixture") with { Marketplace = "private-plugin", Version = candidate }, _ => { });
+        card.Installation = new("private-plugin", "private-plugin", "0.3.0", true, null, false);
+        vm.OpenCard = card;
+        return vm;
+    }
+
     [Fact]
     public async Task Grid_ShowsAPageAtATime_BuildsItAfterTheClick_AndFetchesMoreAtTheEnd()
     {

@@ -61,7 +61,9 @@ public sealed partial class DiscoverViewModel
     public bool HasAddedServer => OpenCard?.AddedServer is not null;
     public bool IsDetailBusy => OpenCard?.IsBusy == true;
     public bool CanAdd => OpenCard is { IsAdded: false, IsBusy: false } card && (card.IsPlugin ? card.Listing is not null : Plan is not null);
-    public bool CanUpdate => OpenCard is { IsPlugin: true, HasUpdate: true, IsBusy: false };
+    public bool CanUpdate => OpenCard is { IsPlugin: true, Installation.IsManaged: false, IsBusy: false } card
+                             && (card.HasUpdate || card.IsUpdateUnknown);
+    public bool IsUpdateUnknown => OpenCard?.IsUpdateUnknown == true;
     public bool CanRemove => OpenCard is { IsAdded: true, IsBusy: false } card && card.Installation?.IsManaged != true;
     public bool HasParts => Parts.Count > 0;
     public bool HasNextSteps => NextSteps.Count > 0;
@@ -100,7 +102,8 @@ public sealed partial class DiscoverViewModel
         ? ""
         : string.Format(CultureInfo.CurrentCulture, card.IsPlugin ? Loc.Discover_RemovePluginConfirm : Loc.Discover_RemoveServerConfirm, card.Title);
 
-    public string UpdateButtonText => OpenCard?.Listing?.Version is { Length: > 0 } version
+    public string UpdateButtonText => IsUpdateUnknown ? Loc.Discover_UpdateFromSource
+        : OpenCard?.Listing?.Version is { Length: > 0 } version
         ? string.Format(CultureInfo.CurrentCulture, Loc.Discover_UpdateTo, version.TrimStart('v', 'V'))
         : Loc.Discover_Update;
 
@@ -433,22 +436,25 @@ public sealed partial class DiscoverViewModel
     [RelayCommand]
     private async Task UpdateAsync()
     {
-        if (OpenCard is not { Installation: { } installation } card || card.IsBusy)
+        if (!CanUpdate || OpenCard is not { Installation: { } installation } card)
             return;
 
         card.IsBusy = true;
         ActionError = null;
+        ResultMessage = null;
         NotifyDetail();
         try
         {
             var outcome = await _plugins.UpdateAsync(installation, CancellationToken.None);
-            var version = outcome.NewVersion ?? card.Listing?.Version ?? installation.Version;
+            var version = outcome.NewVersion;
             card.Installation = installation with { Version = version };
             _installed.RemoveAll(plugin => DiscoverCard.PluginKey(plugin.Name, plugin.Marketplace) == card.Key);
             _installed.Add(card.Installation);
             if (IsOpen(card))
             {
-                ResultMessage = string.Equals(outcome.PreviousVersion, outcome.NewVersion, StringComparison.OrdinalIgnoreCase)
+                ResultMessage = string.IsNullOrWhiteSpace(version) ? Loc.Discover_UpdatedVersionUnknown
+                    : !string.IsNullOrWhiteSpace(outcome.PreviousVersion)
+                      && string.Equals(outcome.PreviousVersion, version, StringComparison.OrdinalIgnoreCase)
                     ? Loc.Discover_UpToDate
                     : string.Format(CultureInfo.CurrentCulture, Loc.Discover_Updated, version);
             }
@@ -594,6 +600,7 @@ public sealed partial class DiscoverViewModel
         OnPropertyChanged(nameof(IsDetailBusy));
         OnPropertyChanged(nameof(CanAdd));
         OnPropertyChanged(nameof(CanUpdate));
+        OnPropertyChanged(nameof(IsUpdateUnknown));
         OnPropertyChanged(nameof(CanRemove));
         OnPropertyChanged(nameof(HasParts));
         OnPropertyChanged(nameof(HasNextSteps));

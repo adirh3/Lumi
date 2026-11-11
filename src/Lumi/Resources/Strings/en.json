@@ -1,4 +1,8 @@
 {
+  "Discover_UpdateFromSource": "Update from source",
+  "Discover_UpdateUnknown": "The available version is unknown. Update from source asks Copilot to install the version offered by this source.",
+  "Discover_UpdatedVersionUnknown": "Copilot completed the update but did not report an installed version. Refresh to check the installation.",
+  "Discover_RefreshFailed": "Couldn't refresh these marketplaces: {0}. Their available versions are unknown.",
   "App_Name": "Lumi",
   "Setup_SectionTitle": "Set up in one step",
   "Setup_SectionCaption": "Official plugins for the tools you already use",

@@ -118,9 +118,11 @@ public sealed partial class DiscoverCard : ObservableObject
     public bool HasAvatar => Avatar is not null;
 
     /// <summary>The marketplace lists a newer version than the one installed.</summary>
-    public bool HasUpdate => DisplayNames.IsNewerVersion(Listing?.Version, Installation?.Version);
+    public bool HasUpdate => Installation is not null && DisplayNames.IsNewerVersion(Listing?.Version, Installation.Version);
 
-    public string VersionText => Installation?.Version ?? Version ?? "";
+    public bool IsUpdateUnknown => Installation is not null && DisplayNames.CompareVersions(Listing?.Version, Installation.Version) is null;
+
+    public string VersionText => (Installation is { } installed ? installed.Version : Version) ?? "";
     public bool HasVersion => !string.IsNullOrWhiteSpace(VersionText);
     public string AddedLabel => IsPlugin ? Loc.Discover_Installed : Loc.Discover_Added;
 
@@ -176,6 +178,7 @@ public sealed partial class DiscoverCard : ObservableObject
     {
         OnPropertyChanged(nameof(IsAdded));
         OnPropertyChanged(nameof(HasUpdate));
+        OnPropertyChanged(nameof(IsUpdateUnknown));
         OnPropertyChanged(nameof(VersionText));
         OnPropertyChanged(nameof(HasVersion));
     }

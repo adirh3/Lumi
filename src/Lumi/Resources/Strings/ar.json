@@ -1,4 +1,8 @@
 {
+  "Discover_UpdateFromSource": "التحديث من المصدر",
+  "Discover_UpdateUnknown": "الإصدار المتاح غير معروف. يطلب التحديث من المصدر من Copilot تثبيت الإصدار الذي يقدمه هذا المصدر.",
+  "Discover_UpdatedVersionUnknown": "أكمل Copilot التحديث لكنه لم يبلغ عن الإصدار المثبت. حدّث العرض للتحقق من التثبيت.",
+  "Discover_RefreshFailed": "تعذّر تحديث هذه الأسواق: {0}. إصداراتها المتاحة غير معروفة.",
   "App_Name": "Lumi",
   "Setup_SectionTitle": "إعداد بخطوة واحدة",
   "Setup_SectionCaption": "إضافات رسمية للأدوات التي تستخدمها",
