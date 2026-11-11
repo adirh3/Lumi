@@ -55,6 +55,71 @@ public sealed class TranscriptIconConverter : IValueConverter
 }
 
 /// <summary>
+/// A launchpad starter's line icon, by the key the desktop sends (<see cref="Lumi.Remote.Protocol.RemoteProtocol.LaunchpadIcons"/>),
+/// as the desktop's launchpad draws it. A key this phone doesn't know is a lightbulb.
+/// </summary>
+public sealed class LaunchpadIconConverter : IValueConverter
+{
+    public static readonly LaunchpadIconConverter Instance = new();
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        Resolve(value as string);
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+
+    public static Geometry Resolve(string? key) => TryResolve(key) ?? StrataIcons.Lightbulb;
+
+    /// <summary>The key's own icon, or null when this phone doesn't know it.</summary>
+    public static Geometry? TryResolve(string? key) => key switch
+    {
+        "bookmark" => StrataIcons.Bookmark,
+        "globe" => StrataIcons.Globe,
+        "calendar" => StrataIcons.Calendar,
+        "people" => StrataIcons.People,
+        "checklist" => StrataIcons.Checklist,
+        "target" => StrataIcons.Target,
+        "person" => StrataIcons.Person,
+        "tag" => StrataIcons.Tag,
+        "overlap" => StrataIcons.Overlap,
+        "search" => StrataIcons.Search,
+        "question" => StrataIcons.Question,
+        "gift" => StrataIcons.Gift,
+        "chat" => StrataIcons.Chat,
+        "check-circle" => StrataIcons.CheckCircle,
+        "shield-check" => StrataIcons.ShieldCheck,
+        "book" => StrataIcons.Book,
+        "mail" => StrataIcons.Mail,
+        "reply" => StrataIcons.Reply,
+        "wand" => StrataIcons.Wand,
+        "share" => StrataIcons.Share,
+        "pencil" => StrataIcons.Pencil,
+        "document" => StrataIcons.Document,
+        "document-plus" => StrataIcons.DocumentPlus,
+        "layers" => StrataIcons.Layers,
+        "database" => StrataIcons.Database,
+        "folder" => StrataIcons.Folder,
+        "files" => StrataIcons.Files,
+        "wallet" => StrataIcons.Wallet,
+        "retry" => StrataIcons.Retry,
+        "bolt" => StrataIcons.Bolt,
+        "sliders" => StrataIcons.Sliders,
+        "plug" => StrataIcons.Plug,
+        "shield" => StrataIcons.Shield,
+        "copy" => StrataIcons.Copy,
+        "bug" => StrataIcons.Bug,
+        "beaker" => StrataIcons.Beaker,
+        "diff" => StrataIcons.Diff,
+        "branch" => StrataIcons.Branch,
+        "cube" => StrataIcons.Cube,
+        "chats" => StrataIcons.Chats,
+        "clock" => StrataIcons.Clock,
+        "lightbulb" => StrataIcons.Lightbulb,
+        _ => null
+    };
+}
+
+/// <summary>
 /// A file's type as a line icon, in the muted hues the rest of the app uses for categories, where
 /// the desktop shows the system's file icon. Emoji would read as a toy here.
 /// </summary>

@@ -31,6 +31,8 @@
     <!-- Launchpad glass: a lift of the island's own surface, translucent so Lumi's presence glows through -->
     <SolidColorBrush x:Key="Launchpad.CardFill" Color="{DynamicResource Color.Surface2}" Opacity="0.46" />
     <SolidColorBrush x:Key="Launchpad.CardFillHover" Color="{DynamicResource Color.Surface2}" Opacity="0.86" />
+    <!-- The setup a new chat starts with: an accent wash under the capsule's accent rim -->
+    <SolidColorBrush x:Key="Launchpad.ActiveFill" Color="{DynamicResource Color.AccentSubtle}" Opacity="0.72" />
 
     <!-- Floating header glass. Pills lift the overlay surface over their own frost; the edge veil
          takes the island's colour so scrolled history fades out beneath the header. -->
@@ -570,6 +572,149 @@
         <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
       </Style>
     </ControlTheme>
+
+    <!-- A launchpad capsule: the glass of the header pills and follow-up chips, which every starter and setup wears.
+         Hovered, its rim takes the accent; the setup a new chat starts with sits on an accent wash. -->
+    <ControlTheme x:Key="LaunchpadCapsuleButton" TargetType="Button" BasedOn="{StaticResource LaunchpadRowButton}">
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+
+      <Style Selector="^ /template/ Border#PART_Root">
+        <Setter Property="BoxShadow" Value="0 4 14 -6 #29000000" />
+      </Style>
+      <Style Selector="^:pointerover /template/ Border#PART_Root">
+        <Setter Property="Background" Value="{StaticResource ChatHeader.PillFillHover}" />
+        <Setter Property="BorderBrush" Value="{StaticResource FollowUp.RimHover}" />
+        <Setter Property="BoxShadow" Value="0 6 18 -6 #3D000000" />
+      </Style>
+      <Style Selector="^:pressed /template/ Border#PART_Root">
+        <Setter Property="Background" Value="{StaticResource ChatHeader.PillFillPressed}" />
+        <Setter Property="RenderTransform" Value="scale(0.97)" />
+      </Style>
+      <Style Selector="^.active /template/ Border#PART_Root">
+        <Setter Property="Background" Value="{DynamicResource Launchpad.ActiveFill}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      </Style>
+      <Style Selector="^.active:pointerover /template/ Border#PART_Root">
+        <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
+      </Style>
+    </ControlTheme>
+
+    <!-- The launchpad's tabs: quiet words that brighten on hover. The open one rides a soft glass pill, which slides over
+         from the tab it leaves, reshaping from that tab's size to its own (Strata's SelectionIndicatorAnimationHelper
+         moves PART_SelectedPipe), beneath the words it passes. The hover wash is a layer of its own, so a tab that opens
+         under the pointer drops it at once and the pill is the only shape that moves. -->
+    <ControlTheme x:Key="LaunchpadTabItem" TargetType="ListBoxItem">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Padding" Value="13,5" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Cursor" Value="Hand" />
+      <!-- The pill slides in from the tab it leaves, outside this tab's own bounds: nothing on its way may clip it -->
+      <Setter Property="ClipToBounds" Value="False" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel ClipToBounds="False">
+            <Border Name="PART_SelectedPipe"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    Background="{StaticResource ChatHeader.MenuChipFill}"
+                    BorderBrush="{DynamicResource Brush.GlassRim}"
+                    BorderThickness="1"
+                    IsHitTestVisible="False"
+                    ClipToBounds="False"
+                    Opacity="0" />
+            <Border Name="PART_Hover"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    Background="{DynamicResource Brush.SubtleHover}"
+                    IsHitTestVisible="False"
+                    Opacity="0">
+              <Border.Transitions>
+                <Transitions>
+                  <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
+                </Transitions>
+              </Border.Transitions>
+            </Border>
+            <Border Name="PART_Root"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    Padding="{TemplateBinding Padding}">
+              <Border.Transitions>
+                <Transitions>
+                  <BrushTransition Property="BorderBrush" Duration="0:0:0.16" />
+                </Transitions>
+              </Border.Transitions>
+              <ContentPresenter Name="PART_ContentPresenter"
+                                Content="{TemplateBinding Content}"
+                                ContentTemplate="{TemplateBinding ContentTemplate}"
+                                Foreground="{TemplateBinding Foreground}" />
+            </Border>
+          </Panel>
+        </ControlTemplate>
+      </Setter>
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.16" />
+        </Transitions>
+      </Setter>
+
+      <Style Selector="^:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      </Style>
+      <Style Selector="^:pointerover /template/ Border#PART_Hover">
+        <Setter Property="Opacity" Value="1" />
+      </Style>
+      <!-- The open tab draws first, so the pill sliding into it passes beneath the other tabs' words -->
+      <Style Selector="^:selected">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+        <Setter Property="ZIndex" Value="-1" />
+      </Style>
+      <Style Selector="^:selected /template/ Border#PART_SelectedPipe">
+        <Setter Property="Opacity" Value="1" />
+      </Style>
+      <Style Selector="^:selected /template/ Border#PART_Hover">
+        <Setter Property="IsVisible" Value="False" />
+      </Style>
+      <Style Selector="^:focus-visible /template/ Border#PART_Root">
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      </Style>
+    </ControlTheme>
+
+    <!-- A project or agent in the launchpad's Other list. Its pin, beside the row rather than inside it, keeps it on the
+         new chat; the list refilters as the user types, so neither carries a tooltip. -->
+    <DataTemplate x:Key="LaunchpadOtherRow" x:DataType="vm:LaunchpadOtherItem">
+      <Panel Classes="launchpad-other-host" Classes.pinned="{Binding IsPinned}">
+        <Button Classes="subtle header-card-row launchpad-other-row"
+                Command="{Binding SelectCommand}"
+                AutomationProperties.Name="{Binding Title}">
+          <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10" Margin="0,5">
+            <Panel Width="26" Height="26" VerticalAlignment="Center">
+              <Border Classes="launchpad-other-tile" />
+              <Border Classes="launchpad-other-badge" Background="{Binding BadgeBackground}" IsVisible="{Binding HasBadge}" />
+              <TextBlock Classes="launchpad-other-initial" Text="{Binding BadgeInitial}"
+                         Foreground="{Binding BadgeForeground}" IsVisible="{Binding HasBadge}" />
+              <TextBlock Classes="launchpad-other-glyph" Text="{Binding GlyphText}" IsVisible="{Binding HasGlyphText}" />
+              <PathIcon Classes="launchpad-other-icon" Data="{Binding Icon}" IsVisible="{Binding HasIcon}" />
+            </Panel>
+            <TextBlock Grid.Column="1" Classes="header-card-row-title launchpad-other-title" Text="{Binding Title}" />
+            <TextBlock Grid.Column="2" Classes="header-card-shortcut" Text="{Binding Meta}" IsVisible="{Binding HasMeta}" />
+            <Border Grid.Column="3" Width="24" />
+          </Grid>
+        </Button>
+        <Button Classes="launchpad-other-pin"
+                Command="{Binding TogglePinCommand}"
+                AutomationProperties.Name="{Binding PinTooltip}">
+          <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pin}" />
+        </Button>
+      </Panel>
+    </DataTemplate>
   </UserControl.Resources>
 
   <UserControl.Styles>
@@ -2017,6 +2162,18 @@
     <Style Selector="StackPanel#WelcomeGreeting.compact TextBlock.launchpad-greeting">
       <Setter Property="FontSize" Value="26" />
     </Style>
+    <!-- Short windows: four starters, so the greeting, the ideas and the setups stay in view -->
+    <Style Selector="StackPanel#LaunchpadIdeas.compact ItemsControl#WelcomeSuggestions > ContentPresenter:nth-child(n+5)">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <!-- The starters keep room for three lines (two when compact) and the reason under them: 34px capsules, 8px apart,
+         and the reason's 26px. -->
+    <Style Selector="StackPanel#LaunchpadIdeas StackPanel#LaunchpadIdeasBody">
+      <Setter Property="MinHeight" Value="144" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadIdeas.compact StackPanel#LaunchpadIdeasBody">
+      <Setter Property="MinHeight" Value="102" />
+    </Style>
 
     <!-- Chat panel: opacity + hit-testing controlled by .active class -->
     <Style Selector="Panel#ChatPanel">
@@ -2814,152 +2971,227 @@
     </Style>
     <Style Selector="TextBlock#LaunchpadBrief.launchpad-brief">
       <Setter Property="FontSize" Value="13.5" />
+      <Setter Property="MaxWidth" Value="560" />
       <Setter Property="TextAlignment" Value="Center" />
       <Setter Property="TextWrapping" Value="Wrap" />
-      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Border#LaunchpadLiveDot.launchpad-live-dot">
+
+    <!-- The ideas sit under the greeting: the tabs, quiet words whose open one rides a pill (LaunchpadTabItem), then the
+         starters -->
+    <Style Selector="StackPanel#LaunchpadIdeas">
+      <Setter Property="Margin" Value="0,26,0,0" />
+    </Style>
+    <Style Selector="ListBox#LaunchpadCategories.launchpad-tabs">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0,0,0,14" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+
+    <!-- The starters: glass capsules centred line by line, each led by its line icon. A plan from the project's brief
+         wears the accent; every other starter takes it only under the pointer. -->
+    <Style Selector="StackPanel#LaunchpadIdeas Button.launchpad-idea">
+      <Setter Property="Height" Value="34" />
+      <Setter Property="MaxWidth" Value="460" />
+      <Setter Property="Padding" Value="12,0,15,0" />
+      <Setter Property="CornerRadius" Value="17" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadIdeas sc|StrataLineIcon.launchpad-idea-icon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="StrokeThickness" Value="1.8" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadIdeas Button.launchpad-idea.brief sc|StrataLineIcon.launchpad-idea-icon,
+                     StackPanel#LaunchpadIdeas Button.launchpad-idea:pointerover sc|StrataLineIcon.launchpad-idea-icon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadIdeas TextBlock.launchpad-idea-text">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadIdeas Button.launchpad-idea:pointerover TextBlock.launchpad-idea-text">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <!-- Why the starter under the pointer is offered: one quiet line whose room is kept, so nothing moves -->
+    <Style Selector="StackPanel#LaunchpadIdeas TextBlock#LaunchpadIdeaReason">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Margin" Value="0,10,0,0" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="StackPanel#LaunchpadIdeas TextBlock#LaunchpadIdeaReason.shown">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!-- Chats that wait on the user: one quiet capsule in the corner, amber like every "waiting on you" -->
+    <Style Selector="Button#LaunchpadNeedsYouButton.launchpad-needs-you">
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Margin" Value="0,14,16,0" />
+      <Setter Property="Padding" Value="12,6,10,6" />
+      <Setter Property="CornerRadius" Value="16" />
+    </Style>
+    <Style Selector="Button#LaunchpadNeedsYouButton Border.launchpad-needs-you-dot">
       <Setter Property="Width" Value="7" />
       <Setter Property="Height" Value="7" />
       <Setter Property="CornerRadius" Value="4" />
       <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
-      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
-      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.3" />
-      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.3" />
-      <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+      <Setter Property="Background" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
-    <!-- Live pulses run only while the launchpad is up. The panel just fades out when a chat starts,
-         so its controls would otherwise stay "visible" and keep an idle chat rendering frames. -->
-    <Style Selector="Panel#WelcomePanel.active Border.launchpad-live-dot, Panel#WelcomePanel.active Border.launchpad-state-ring.live">
-      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
-    </Style>
-    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-section-label,
-                     StackPanel#LaunchpadSetups TextBlock.launchpad-section-label">
-      <Setter Property="FontSize" Value="11.5" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-    </Style>
-
-    <!-- Starters keep the calm pill of the transcript suggestions; the label brightens on hover -->
-    <Style Selector="Panel#WelcomePanel Button.launchpad-starter TextBlock">
-      <Setter Property="FontSize" Value="13" />
+    <Style Selector="Button#LaunchpadNeedsYouButton TextBlock.launchpad-needs-you-label">
+      <Setter Property="FontSize" Value="12.5" />
       <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="Panel#WelcomePanel Button.launchpad-starter TextBlock.starter-label">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Panel#WelcomePanel Button.launchpad-starter:pointerover TextBlock.starter-label">
+    <Style Selector="Button#LaunchpadNeedsYouButton:pointerover TextBlock.launchpad-needs-you-label">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-
-    <!-- The pick-up card: a single glass sheet so chats and automations read as one "what's going on" -->
-    <Style Selector="Border#LaunchpadActivity.launchpad-card">
-      <Setter Property="Background" Value="{DynamicResource Launchpad.CardFill}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.SubtleHover}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="16" />
-      <Setter Property="Padding" Value="6" />
-    </Style>
-    <Style Selector="Panel#WelcomePanel Border.launchpad-divider">
-      <Setter Property="Height" Value="1" />
-      <Setter Property="Margin" Value="10,4" />
-      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
-    </Style>
-
-    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-row-title">
-      <Setter Property="FontSize" Value="13.5" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
-    </Style>
-    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-row-time">
-      <Setter Property="FontSize" Value="11" />
+    <Style Selector="Button#LaunchpadNeedsYouButton PathIcon.launchpad-needs-you-chevron">
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-row-state">
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Margin" Value="0,0,7,0" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <!-- The card under it lives in a popup, so its rules start from the card itself. -->
+    <Style Selector="StackPanel#LaunchpadNeedsYouCard Border.launchpad-needs-you-tile">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
     </Style>
-    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-row-meta">
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Style Selector="StackPanel#LaunchpadNeedsYouCard Button.waiting Border.launchpad-needs-you-tile">
+      <Setter Property="Background" Value="{DynamicResource Brush.WarningSubtle}" />
     </Style>
-    <Style Selector="Panel#WelcomePanel PathIcon.launchpad-row-chevron">
-      <Setter Property="Width" Value="12" />
-      <Setter Property="Height" Value="12" />
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
-        </Transitions>
-      </Setter>
+    <Style Selector="StackPanel#LaunchpadNeedsYouCard PathIcon.launchpad-needs-you-icon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
-    <Style Selector="Panel#WelcomePanel Button.launchpad-row:pointerover PathIcon.launchpad-row-chevron">
-      <Setter Property="Opacity" Value="1" />
-    </Style>
-
-    <!-- Row state: a tinted tile carrying an icon (waiting, recent), a dot (new reply) or a ring (working) -->
-    <Style Selector="Panel#WelcomePanel Border.launchpad-state-tile">
-      <Setter Property="CornerRadius" Value="10" />
-      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
-    </Style>
-    <Style Selector="Panel#WelcomePanel PathIcon.launchpad-state-icon">
-      <Setter Property="Width" Value="16" />
-      <Setter Property="Height" Value="16" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-    </Style>
-    <Style Selector="Panel#WelcomePanel Border.launchpad-state-dot">
+    <Style Selector="StackPanel#LaunchpadNeedsYouCard Border.launchpad-needs-you-reply">
       <Setter Property="Width" Value="9" />
       <Setter Property="Height" Value="9" />
       <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Panel#WelcomePanel Border.launchpad-state-ring">
-      <Setter Property="Width" Value="12" />
-      <Setter Property="Height" Value="12" />
-      <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="BorderThickness" Value="2" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextTertiary}" />
+    <Style Selector="StackPanel#LaunchpadNeedsYouCard TextBlock.launchpad-needs-you-title">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
-    <Style Selector="Panel#WelcomePanel Border.launchpad-state-ring.live">
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
-      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
-      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.35" />
-      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.1" />
-      <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+    <Style Selector="StackPanel#LaunchpadNeedsYouCard TextBlock.launchpad-needs-you-state">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Panel#WelcomePanel Button.launchpad-row.waiting Border.launchpad-state-tile">
-      <Setter Property="Background" Value="{DynamicResource Brush.WarningSubtle}" />
-    </Style>
-    <Style Selector="Panel#WelcomePanel Button.launchpad-row.waiting PathIcon.launchpad-state-icon">
+    <Style Selector="StackPanel#LaunchpadNeedsYouCard Button.waiting TextBlock.launchpad-needs-you-state">
       <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
-    <Style Selector="Panel#WelcomePanel Button.launchpad-row.waiting TextBlock.launchpad-row-state">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+    <Style Selector="StackPanel#LaunchpadNeedsYouCard TextBlock.launchpad-needs-you-meta">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="MaxLines" Value="2" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Panel#WelcomePanel Button.launchpad-row.reply Border.launchpad-state-tile, Panel#WelcomePanel Button.launchpad-row.working Border.launchpad-state-tile">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+
+    <!-- The Other list: a search over every project and agent, each with its identity -->
+    <Style Selector="DockPanel#LaunchpadOtherCard TextBox.launchpad-other-search">
+      <Setter Property="Margin" Value="4,4,4,2" />
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="FontSize" Value="13" />
     </Style>
-    <Style Selector="Panel#WelcomePanel Button.launchpad-row.reply TextBlock.launchpad-row-state, Panel#WelcomePanel Button.launchpad-row.working TextBlock.launchpad-row-state">
+    <Style Selector="DockPanel#LaunchpadOtherCard PathIcon.launchpad-other-search-icon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="Margin" Value="10,0,0,0" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="DockPanel#LaunchpadOtherCard TextBlock.launchpad-other-section">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Margin" Value="10,10,10,4" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="DockPanel#LaunchpadOtherCard TextBlock.launchpad-other-empty">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Margin" Value="10,14" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="DockPanel#LaunchpadOtherCard Border.launchpad-other-tile">
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+    </Style>
+    <Style Selector="DockPanel#LaunchpadOtherCard Border.launchpad-other-badge">
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="DockPanel#LaunchpadOtherCard TextBlock.launchpad-other-initial">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="DockPanel#LaunchpadOtherCard TextBlock.launchpad-other-glyph">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="DockPanel#LaunchpadOtherCard PathIcon.launchpad-other-icon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="DockPanel#LaunchpadOtherCard TextBlock.launchpad-other-title">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <!-- A row's pin is always there, faint until the row is hovered, and in the accent once it keeps its place on the new
+         chat, so the list shows what pinning does without a hint -->
+    <Style Selector="DockPanel#LaunchpadOtherCard Button.launchpad-other-pin">
+      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="Margin" Value="0,0,6,0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="Opacity" Value="0.4" />
+    </Style>
+    <Style Selector="DockPanel#LaunchpadOtherCard Panel.launchpad-other-host:pointerover Button.launchpad-other-pin,
+                     DockPanel#LaunchpadOtherCard Panel.launchpad-other-host.pinned Button.launchpad-other-pin">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="DockPanel#LaunchpadOtherCard Button.launchpad-other-pin sc|StrataLineIcon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="DockPanel#LaunchpadOtherCard Button.launchpad-other-pin:pointerover sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="DockPanel#LaunchpadOtherCard Panel.launchpad-other-host.pinned Button.launchpad-other-pin sc|StrataLineIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
 
-    <!-- The automations footer -->
-    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-footer-text">
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-    </Style>
-
-    <!-- Setups sit on the composer they configure and fold away with the welcome state -->
+    <!-- The setups row rides on the composer and folds into it with the welcome state; the fade does most of the fold.
+         It is as wide as the composer: Just chat and Other hold its ends and the setups between them scroll once they
+         outgrow it. Inside the clip it keeps room for a setup's ⋯ above the capsules and for their shadow below. -->
     <Style Selector="StackPanel#LaunchpadSetups">
       <Setter Property="MaxHeight" Value="0" />
       <Setter Property="Opacity" Value="0" />
@@ -2974,55 +3206,104 @@
       </Setter>
     </Style>
     <Style Selector="StackPanel#ComposerContainer.welcome StackPanel#LaunchpadSetups">
-      <Setter Property="MaxHeight" Value="96" />
+      <Setter Property="MaxHeight" Value="72" />
       <Setter Property="Opacity" Value="1" />
       <Setter Property="IsHitTestVisible" Value="True" />
-      <Setter Property="Margin" Value="0,0,0,10" />
+      <Setter Property="Margin" Value="0,0,0,8" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-icon">
-      <Setter Property="CornerRadius" Value="9" />
-      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    <Style Selector="lc|FitRowPanel#LaunchpadSetupRow">
+      <Setter Property="Margin" Value="0,8,0,6" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups PathIcon.launchpad-setup-glyph">
-      <Setter Property="Width" Value="15" />
-      <Setter Property="Height" Value="15" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <!-- The rail reaches over the row's margins, so the room for the ⋯ and the shadows is inside its scrolling clip -->
+    <Style Selector="lc|FitRowPanel#LaunchpadSetupRow Panel#LaunchpadSetupRail">
+      <Setter Property="Margin" Value="0,-8,0,-6" />
     </Style>
-    <!-- Applied: a small accent check settles on the tile's icon -->
-    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-check">
-      <Setter Property="Width" Value="15" />
-      <Setter Property="Height" Value="15" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Margin" Value="0,-5,-5,0" />
-      <Setter Property="HorizontalAlignment" Value="Right" />
-      <Setter Property="VerticalAlignment" Value="Top" />
-      <Setter Property="BorderThickness" Value="2" />
-      <!-- Ring in the active tile's own fill, so the check reads as cut out of it -->
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentSubtle}" />
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    <Style Selector="lc|FitRowPanel#LaunchpadSetupRow ItemsControl#LaunchpadSetupTiles">
+      <Setter Property="Padding" Value="0,8,0,6" />
+    </Style>
+    <!-- The rail's arrows: small solid discs, like a setup's ⋯, over its faded edges, shown under the pointer while more
+         setups lie that way. They are for the mouse: keyboard focus brings each setup into sight itself. -->
+    <Style Selector="Panel#LaunchpadSetupRail Button.launchpad-rail-step">
+      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
+      <Setter Property="IsVisible" Value="False" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
       <Setter Property="Opacity" Value="0" />
-      <Setter Property="RenderTransform" Value="scale(0.4)" />
       <Setter Property="Transitions">
         <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="BackEaseOut" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup.active Border.launchpad-setup-check">
-      <Setter Property="Opacity" Value="1" />
-      <Setter Property="RenderTransform" Value="scale(1)" />
+    <Style Selector="Panel#LaunchpadSetupRail Button.launchpad-rail-step:pointerover /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-check PathIcon">
-      <Setter Property="Width" Value="7" />
-      <Setter Property="Height" Value="7" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    <Style Selector="Panel#LaunchpadSetupRail Button.launchpad-rail-step.back">
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Margin" Value="2,2,0,0" />
+    </Style>
+    <Style Selector="Panel#LaunchpadSetupRail Button.launchpad-rail-step.forward">
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="Margin" Value="0,2,2,0" />
+    </Style>
+    <Style Selector="Panel#LaunchpadSetupRail.can-back Button.launchpad-rail-step.back,
+                     Panel#LaunchpadSetupRail.can-forward Button.launchpad-rail-step.forward">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="Panel#LaunchpadSetupRail:pointerover Button.launchpad-rail-step">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Panel#LaunchpadSetupRail Button.launchpad-rail-step sc|StrataLineIcon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Panel#LaunchpadSetupRail Button.launchpad-rail-step:pointerover sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+
+    <!-- A setup capsule: its badge, its name and, while it's the chat's setup, what it starts with. The capsules space
+         themselves with their own margins, so a closed Keep leaves no gap and the row stays centred; when the row runs
+         out of room for Just chat and Other (a narrow window) their names give way and trim. -->
+    <Style Selector="lc|FitRowPanel#LaunchpadSetupRow > Button.launchpad-setup,
+                     lc|FitRowPanel#LaunchpadSetupRow Panel.launchpad-setup-host">
+      <Setter Property="Margin" Value="4,0" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup">
+      <Setter Property="Height" Value="38" />
+      <Setter Property="Padding" Value="5,0,15,0" />
+      <Setter Property="CornerRadius" Value="19" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Panel.launchpad-setup-badge">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-icon">
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups PathIcon.launchpad-setup-glyph">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
 
     <!-- A project's identity: its initial on a tint of its hue (rows and setups share it) -->
-    <Style Selector="Panel#WelcomePanel Border.launchpad-badge-tile,
-                     StackPanel#LaunchpadSetups Border.launchpad-badge-tile">
+    <Style Selector="Panel#WelcomePanel Border.launchpad-badge-tile">
       <Setter Property="CornerRadius" Value="9" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-badge-tile">
+      <Setter Property="CornerRadius" Value="14" />
     </Style>
     <Style Selector="Panel#WelcomePanel TextBlock.launchpad-badge-initial,
                      StackPanel#LaunchpadSetups TextBlock.launchpad-badge-initial">
@@ -3031,19 +3312,159 @@
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
+    <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-badge-initial">
+      <Setter Property="FontSize" Value="12" />
+    </Style>
     <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-setup-title">
-      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontSize" Value="13" />
       <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Margin" Value="9,0,0,0" />
+      <Setter Property="MaxWidth" Value="150" />
+      <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-other:not(.active) TextBlock.launchpad-setup-title">
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <!-- What the setup starts with opens beside its name while it's the chat's setup, so the row glides rather than
+         jumps when another one is picked; a variant (one project kept on two models, say) always says it -->
+    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-detail">
+      <Setter Property="MaxWidth" Value="0" />
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Padding" Value="7,0,0,0" />
+      <Setter Property="ClipToBounds" Value="True" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="MaxWidth" Duration="0:0:0.24" Easing="CubicEaseOut" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup.active Border.launchpad-setup-detail,
+                     StackPanel#LaunchpadSetups Button.launchpad-setup.variant Border.launchpad-setup-detail">
+      <Setter Property="MaxWidth" Value="140" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
     <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-setup-meta">
-      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontSize" Value="12" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
     <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup.active TextBlock.launchpad-setup-meta">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <!-- A setup that starts in a worktree: a small branch on its badge's lower corner -->
+    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-branch">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Margin" Value="0,0,-5,-5" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-branch sc|StrataLineIcon">
+      <Setter Property="Width" Value="9" />
+      <Setter Property="Height" Value="9" />
+      <Setter Property="StrokeThickness" Value="2.2" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup.active Border.launchpad-setup-branch sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <!-- A setup's ⋯ appears on hover as a small badge on its corner, clear of its name: the menu a right-click opens -->
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup-more">
+      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
+      <Setter Property="IsVisible" Value="False" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="Margin" Value="0,-7,-4,0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup-more:pointerover">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Panel.launchpad-setup-host:pointerover Button.launchpad-setup-more">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup-more PathIcon">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <!-- Keep: a small accent capsule that opens beside Other while it shows a setup the row doesn't hold, so making a
+         setup in the composer and keeping it is one move -->
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-keep">
+      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="9,0,12,0" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="ClipToBounds" Value="True" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="MaxWidth" Value="0" />
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="MaxWidth" Duration="0:0:0.24" Easing="CubicEaseOut" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+          <ThicknessTransition Property="Margin" Duration="0:0:0.24" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-keep.shown">
+      <Setter Property="MaxWidth" Value="120" />
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="Margin" Value="2,0,4,0" />
+      <Setter Property="IsHitTestVisible" Value="True" />
+      <Setter Property="Focusable" Value="True" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-keep:pointerover /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentHover}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-keep:focus-visible /template/ Border#PART_Root">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextOnAccent}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-keep sc|StrataLineIcon">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="12" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-keep TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-setups-empty">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Margin" Value="8,0" />
+      <Setter Property="MaxWidth" Value="360" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
     <!-- The turn currently owning the full composer stays visibly connected to it. -->
     <Style Selector="sc|StrataChatMessage.editing-source /template/ Border#PART_Bubble">
@@ -4187,9 +4608,10 @@
       </StackPanel>
     </Panel>
 
-    <!-- Welcome state (no active chat): Lumi's launchpad. A personal greeting that says what is
-         waiting on the user, starters for the hour, and the chats worth picking up. The user's
-         usual setups live on the composer below, which they configure. -->
+    <!-- Welcome state (no active chat): Lumi's launchpad, for starting something. Lumi's mark, the greeting and what to
+         start (For you, then a tab per kind of task) are centred in the space above the composer, with Lumi's presence
+         pooling behind them; where to start (the setups) rides on the composer. Chats that wait on the user are one
+         capsule in the corner. -->
     <Panel x:Name="WelcomePanel" Classes.active="{Binding IsWelcomeVisible}">
       <!-- Bottom margin tracks the composer's height (code-behind), so the launchpad centers in
            the space above it and scrolls rather than slides under it on short windows. -->
@@ -4214,40 +4636,71 @@
               <Run Text="{Binding Launchpad.GreetingLead}" /><Run Text="{Binding Launchpad.GreetingName}"
                    Foreground="{DynamicResource Brush.AccentDefault}" /><Run Text="{Binding Launchpad.GreetingTrail}" />
             </TextBlock>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
-              <Border x:Name="LaunchpadLiveDot" Classes="launchpad-live-dot"
-                      IsVisible="{Binding Launchpad.HasLiveWork}" />
-              <TextBlock x:Name="LaunchpadBrief" Classes="launchpad-brief"
-                         Text="{Binding Launchpad.Brief}" />
-            </StackPanel>
+            <TextBlock x:Name="LaunchpadBrief" Classes="launchpad-brief"
+                       Text="{Binding Launchpad.Subtitle}" />
           </StackPanel>
 
-          <!-- Starters for the hour (the presence glow pools between these and the Lumi mark) -->
-          <ItemsControl x:Name="WelcomeSuggestions"
-                        ItemsSource="{Binding Launchpad.Starters}"
-                        HorizontalAlignment="Center"
-                        Margin="0,20,0,0">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate>
-                <WrapPanel HorizontalAlignment="Center" />
-              </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:LaunchpadStarterItem">
-                <Button Classes="transcript-suggestion launchpad-starter"
-                        Margin="4,0,4,8"
-                        Command="{Binding SendCommand}"
-                        ToolTip.Tip="{Binding Prompt}"
-                        ToolTip.ShowDelay="500"
-                        AutomationProperties.Name="{Binding Label}">
-                  <StackPanel Orientation="Horizontal" Spacing="7">
-                    <TextBlock Text="{Binding Glyph}" />
-                    <TextBlock Classes="starter-label" Text="{Binding Label}" />
-                  </StackPanel>
-                </Button>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
+          <!-- What to start: For you, then a tab per kind of task, the open tab riding a pill that slides between them.
+               Starters are glass capsules, centred line by line; one goes into the composer, its first blank selected,
+               and nothing is sent on a click. Capsules carry no tooltips (they change with the tab under the pointer):
+               why a For you starter is offered shows under them while the pointer rests on it. -->
+          <StackPanel x:Name="LaunchpadIdeas" TextOptions.TextRenderingMode="Antialias">
+            <ListBox x:Name="LaunchpadCategories"
+                     Classes="launchpad-tabs"
+                     ItemsSource="{Binding Launchpad.Categories}"
+                     SelectedItem="{Binding Launchpad.SelectedCategory, Mode=TwoWay}"
+                     ItemContainerTheme="{StaticResource LaunchpadTabItem}"
+                     st:SelectionIndicatorAnimationHelper.Enable="True"
+                     st:SelectionIndicatorAnimationHelper.MatchSize="True"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                     AutomationProperties.Name="{loc:Str Launchpad_IdeasName}">
+              <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel ItemsAlignment="Center" />
+                </ItemsPanelTemplate>
+              </ListBox.ItemsPanel>
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:LaunchpadCategoryItem">
+                  <!-- The tab's own colour (quiet, brighter on hover, primary when open), which Strata's TextBlock
+                       style would otherwise replace -->
+                  <TextBlock Text="{Binding Title}" Foreground="{Binding $parent[ListBoxItem].Foreground}" />
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <!-- Room for three lines of starters and the line under them whichever tab is open, so switching tabs moves
+                 nothing: a tab with fewer lines leaves the room below them. -->
+            <StackPanel x:Name="LaunchpadIdeasBody">
+              <ItemsControl x:Name="WelcomeSuggestions" ItemsSource="{Binding Launchpad.Suggestions}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel ItemsAlignment="Center" ItemSpacing="8" LineSpacing="8" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:LaunchpadStarterItem">
+                    <Button Theme="{StaticResource LaunchpadCapsuleButton}"
+                            Classes="launchpad-idea"
+                            Classes.brief="{Binding IsFromBrief}"
+                            Command="{Binding UseCommand}"
+                            PointerEntered="OnLaunchpadIdeaPointerEntered"
+                            PointerExited="OnLaunchpadIdeaPointerExited"
+                            AutomationProperties.Name="{Binding AccessibleName}"
+                            AutomationProperties.HelpText="{Binding Reason}">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <sc:StrataLineIcon Classes="launchpad-idea-icon" Data="{Binding Icon}" />
+                        <lc:LaunchpadStarterLabel Classes="launchpad-idea-text"
+                                                  Parts="{Binding Parts}"
+                                                  BlankForeground="{DynamicResource Brush.AccentDefault}" />
+                      </StackPanel>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <!-- Why the starter under the pointer is offered ("From Lumi's brief", "This afternoon") -->
+              <TextBlock x:Name="LaunchpadIdeaReason" />
+            </StackPanel>
+          </StackPanel>
 
           <!-- A well-known setup Lumi noticed (such as Microsoft 365), until the user answers it.
                Only the main window's chat has SetupSuggestions; elsewhere this stays empty. -->
@@ -4256,88 +4709,58 @@
                  IsVisible="{Binding HasCurrent, FallbackValue=False}">
             <views:SetupSuggestionView DataContext="{Binding Current}" />
           </Panel>
+        </StackPanel>
+      </ScrollViewer>
 
-          <!-- What's going on: chats to pick up (most urgent first) and the automations on watch -->
-          <Border x:Name="LaunchpadActivity" Classes="launchpad-card"
-                  Margin="0,16,0,0"
-                  IsVisible="{Binding Launchpad.HasActivityCard}">
-            <StackPanel>
-              <TextBlock Classes="launchpad-section-label"
-                         Text="{loc:Str Launchpad_PickUpTitle}"
-                         Margin="10,6,10,4"
-                         IsVisible="{Binding Launchpad.HasPickUpItems}" />
-              <ItemsControl x:Name="LaunchpadPickUp" ItemsSource="{Binding Launchpad.PickUpItems}">
+      <!-- What waits on the user, as one quiet capsule: the chats themselves open in a card under it. -->
+      <Button x:Name="LaunchpadNeedsYouButton"
+              Theme="{StaticResource LaunchpadTileButton}"
+              Classes="launchpad-needs-you"
+              IsVisible="{Binding Launchpad.HasNeedsYou}"
+              AutomationProperties.Name="{Binding Launchpad.NeedsYouLabel}">
+        <Button.Flyout>
+          <Flyout Placement="BottomEdgeAlignedRight"
+                  HorizontalOffset="16"
+                  VerticalOffset="-10"
+                  FlyoutPresenterTheme="{StaticResource ChatHeaderCardPresenter}">
+            <StackPanel x:Name="LaunchpadNeedsYouCard" Width="360">
+              <ItemsControl x:Name="LaunchpadNeedsYouList" ItemsSource="{Binding Launchpad.NeedsYouItems}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:LaunchpadChatItem">
-                    <Button Theme="{StaticResource LaunchpadRowButton}"
-                            Classes="launchpad-row"
+                    <Button Classes="subtle header-card-row launchpad-needs-you-row"
                             Classes.waiting="{Binding IsWaiting}"
-                            Classes.reply="{Binding IsReply}"
-                            Classes.working="{Binding IsWorking}"
                             Command="{Binding OpenCommand}"
                             AutomationProperties.Name="{Binding Title}">
-                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                        <Panel Width="32" Height="32" VerticalAlignment="Center">
-                          <Border Classes="launchpad-state-tile" />
-                          <Border Classes="launchpad-badge-tile"
-                                  Background="{Binding BadgeBackground}"
-                                  IsVisible="{Binding ShowProjectBadge}" />
-                          <TextBlock Classes="launchpad-badge-initial"
-                                     Text="{Binding BadgeInitial}"
-                                     Foreground="{Binding BadgeForeground}"
-                                     IsVisible="{Binding ShowProjectBadge}" />
-                          <PathIcon Classes="launchpad-state-icon"
-                                    Data="{Binding StateIcon}"
-                                    IsVisible="{Binding HasStateIcon}" />
-                          <Border Classes="launchpad-state-dot" IsVisible="{Binding IsReply}" />
-                          <Border Classes="launchpad-state-ring live" IsVisible="{Binding IsWorking}" />
-                          <Border Classes="launchpad-state-ring" IsVisible="{Binding IsBackground}" />
-                        </Panel>
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="11" Margin="0,7">
+                        <Border Classes="header-card-tile launchpad-needs-you-tile" VerticalAlignment="Top">
+                          <Panel>
+                            <PathIcon Classes="launchpad-needs-you-icon"
+                                      Data="{x:Static vm:WorkspaceIcons.Question}"
+                                      IsVisible="{Binding IsWaiting}" />
+                            <Border Classes="launchpad-needs-you-reply" IsVisible="{Binding IsReply}" />
+                          </Panel>
+                        </Border>
                         <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center" MinWidth="0">
-                          <DockPanel>
-                            <TextBlock DockPanel.Dock="Right" Classes="launchpad-row-time"
-                                       Text="{Binding TimeLabel}" Margin="10,0,0,0" />
-                            <TextBlock Classes="launchpad-row-title" Text="{Binding Title}" />
-                          </DockPanel>
-                          <DockPanel IsVisible="{Binding HasSecondLine}">
-                            <TextBlock DockPanel.Dock="Left" Classes="launchpad-row-state"
-                                       Text="{Binding StateLabel}"
-                                       IsVisible="{Binding HasStateLabel}" />
-                            <TextBlock Classes="launchpad-row-meta" Text="{Binding Meta}" />
-                          </DockPanel>
+                          <TextBlock Classes="header-card-row-title launchpad-needs-you-title" Text="{Binding Title}" />
+                          <TextBlock Classes="launchpad-needs-you-state" Text="{Binding StateLabel}" />
+                          <TextBlock Classes="launchpad-needs-you-meta" Text="{Binding Meta}" />
                         </StackPanel>
-                        <PathIcon Grid.Column="2" Classes="launchpad-row-chevron"
-                                  Data="{x:Static vm:WorkspaceIcons.Chevron}" />
+                        <TextBlock Grid.Column="2" Classes="header-card-shortcut" VerticalAlignment="Top"
+                                   Text="{Binding TimeLabel}" />
                       </Grid>
                     </Button>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
-              <Border Classes="launchpad-divider" IsVisible="{Binding Launchpad.HasPickUpAndAutomations}" />
-              <Button x:Name="LaunchpadAutomations"
-                      Theme="{StaticResource LaunchpadRowButton}"
-                      Classes="launchpad-row"
-                      Padding="10,7"
-                      Command="{Binding Launchpad.OpenAutomationsCommand}"
-                      IsVisible="{Binding Launchpad.HasAutomations}"
-                      ToolTip.Tip="{loc:Str Launchpad_AutomationsTooltip}"
-                      AutomationProperties.Name="{Binding Launchpad.AutomationSummary}">
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                  <Panel Width="32" Height="20">
-                    <PathIcon Width="15" Height="15"
-                              Foreground="{DynamicResource Brush.TextTertiary}"
-                              Data="{x:Static vm:WorkspaceIcons.Clock}" />
-                  </Panel>
-                  <TextBlock Grid.Column="1" Classes="launchpad-footer-text"
-                             Text="{Binding Launchpad.AutomationSummary}" />
-                  <PathIcon Grid.Column="2" Classes="launchpad-row-chevron"
-                            Data="{x:Static vm:WorkspaceIcons.Chevron}" />
-                </Grid>
-              </Button>
             </StackPanel>
-          </Border>
+          </Flyout>
+        </Button.Flyout>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Border Classes="launchpad-needs-you-dot" />
+          <TextBlock Classes="launchpad-needs-you-label" Text="{Binding Launchpad.NeedsYouLabel}" />
+          <PathIcon Classes="launchpad-needs-you-chevron" Data="{x:Static vm:WorkspaceIcons.ChevronDown}" />
         </StackPanel>
-      </ScrollViewer>
+      </Button>
     </Panel>
 
     <!-- Invisible click-guard, raised only while a chat loads / its transcript is still realizing
@@ -5203,52 +5626,220 @@
         </Grid>
       </Border>
 
-      <!-- The user's usual setups, learned from the chats they start: one click configures this new
-           chat's project, checkout, agent and model. Folds away once the chat starts. -->
-      <StackPanel x:Name="LaunchpadSetups" Spacing="6" IsVisible="{Binding Launchpad.HasSetups}">
-        <TextBlock Classes="launchpad-section-label" Text="{loc:Str Launchpad_SetupsTitle}" Margin="6,0,0,0" />
-        <ItemsControl x:Name="LaunchpadSetupTiles" ItemsSource="{Binding Launchpad.Setups}">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <UniformGrid Columns="3" />
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:LaunchpadSetupItem">
-              <Button Theme="{StaticResource LaunchpadTileButton}"
-                      Classes="launchpad-setup"
-                      Classes.active="{Binding IsActive}"
-                      Margin="3,0"
-                      Command="{Binding SelectCommand}"
-                      ToolTip.Tip="{Binding ToolTip}"
-                      ToolTip.ShowDelay="450"
-                      AutomationProperties.Name="{Binding Title}">
-                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                  <Panel Width="30" Height="30" VerticalAlignment="Center">
-                    <Border Classes="launchpad-setup-icon" />
-                    <Border Classes="launchpad-badge-tile"
-                            Background="{Binding BadgeBackground}"
-                            IsVisible="{Binding HasBadge}" />
-                    <TextBlock Classes="launchpad-badge-initial"
-                               Text="{Binding BadgeInitial}"
-                               Foreground="{Binding BadgeForeground}"
-                               IsVisible="{Binding HasBadge}" />
-                    <PathIcon Classes="launchpad-setup-glyph" Data="{Binding Icon}" IsVisible="{Binding HasIcon}" />
-                    <TextBlock Text="{Binding GlyphText}" IsVisible="{Binding HasGlyphText}"
-                               FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    <Border Classes="launchpad-setup-check" RenderTransformOrigin="0.5,0.5">
-                      <PathIcon Data="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
-                    </Border>
-                  </Panel>
-                  <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center" MinWidth="0">
-                    <TextBlock Classes="launchpad-setup-title" Text="{Binding Title}" />
-                    <TextBlock Classes="launchpad-setup-meta" Text="{Binding Meta}" />
-                  </StackPanel>
-                </Grid>
-              </Button>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
+      <!-- Where the new chat starts, on the composer it feeds: Just chat, the setups the user keeps starting with (pinned
+           first, then learned from their chats: project, checkout, agent and model in one click) and Other, as glass
+           capsules centred on the composer. The chat's setup opens to say what it starts with; right-click a setup, or
+           its ⋯, to keep it, change its model, or stop it being suggested. The row folds into the composer once the
+           chat starts. -->
+      <StackPanel x:Name="LaunchpadSetups">
+        <lc:FitRowPanel x:Name="LaunchpadSetupRow" Spacing="0" HorizontalAlignment="Center"
+                        TextOptions.TextRenderingMode="Antialias">
+          <Button x:Name="LaunchpadJustChat"
+                  Theme="{StaticResource LaunchpadCapsuleButton}"
+                  Classes="launchpad-setup"
+                  Classes.active="{Binding Launchpad.IsJustChatActive}"
+                  Command="{Binding Launchpad.SelectJustChatCommand}"
+                  ToolTip.Tip="{loc:Str Launchpad_JustChatTooltip}"
+                  ToolTip.ShowDelay="450"
+                  AutomationProperties.Name="{loc:Str Launchpad_JustChat}">
+            <StackPanel Orientation="Horizontal">
+              <Panel Classes="launchpad-setup-badge">
+                <Border Classes="launchpad-setup-icon" />
+                <PathIcon Classes="launchpad-setup-glyph" Data="{x:Static vm:WorkspaceIcons.Sparkle}" />
+              </Panel>
+              <TextBlock Classes="launchpad-setup-title" Text="{loc:Str Launchpad_JustChat}" />
+              <Border Classes="launchpad-setup-detail">
+                <TextBlock Classes="launchpad-setup-meta" Text="{Binding Launchpad.JustChatMeta}" />
+              </Border>
+            </StackPanel>
+          </Button>
+
+          <!-- The setups, between Just chat and Other. However many the user keeps, the row stays as wide as the composer:
+               the ones that don't fit scroll (the wheel, or the arrows that show on hover) and the row's edge fades where
+               more lie, and the chat's setup scrolls into sight. -->
+          <Panel x:Name="LaunchpadSetupRail" IsVisible="{Binding Launchpad.HasSetups}">
+            <ScrollViewer x:Name="LaunchpadSetupScroller"
+                          HorizontalScrollBarVisibility="Hidden"
+                          VerticalScrollBarVisibility="Disabled">
+              <ItemsControl x:Name="LaunchpadSetupTiles" ItemsSource="{Binding Launchpad.Setups}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:LaunchpadSetupItem">
+                    <Panel Classes="launchpad-setup-host">
+                      <Button Theme="{StaticResource LaunchpadCapsuleButton}"
+                              Classes="launchpad-setup"
+                              Classes.active="{Binding IsActive}"
+                              Classes.variant="{Binding IsVariant}"
+                              Command="{Binding SelectCommand}"
+                              ToolTip.Tip="{Binding ToolTip}"
+                              ToolTip.ShowDelay="450"
+                              AutomationProperties.Name="{Binding Title}">
+                        <Button.ContextMenu>
+                          <!-- Keep it on the new chat, change what it starts with, or stop it being suggested. -->
+                          <ContextMenu x:CompileBindings="False">
+                            <MenuItem Header="{loc:Str Launchpad_SetupKeep}" ToggleType="CheckBox"
+                                      IsChecked="{Binding IsPinned, Mode=OneWay}" Command="{Binding ToggleKeepCommand}" />
+                            <MenuItem Header="{loc:Str Launchpad_SetupStartsWith}" ItemsSource="{Binding ModelChoices}">
+                              <MenuItem.ItemContainerTheme>
+                                <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+                                  <Setter Property="Header" Value="{Binding Title}" />
+                                  <Setter Property="ToggleType" Value="Radio" />
+                                  <Setter Property="IsChecked" Value="{Binding IsCurrent, Mode=OneWay}" />
+                                  <Setter Property="Command" Value="{Binding SelectCommand}" />
+                                </ControlTheme>
+                              </MenuItem.ItemContainerTheme>
+                            </MenuItem>
+                            <MenuItem Header="{loc:Str Launchpad_SetupWorktree}" ToggleType="CheckBox"
+                                      IsChecked="{Binding IsWorktree, Mode=OneWay}" IsVisible="{Binding CanUseWorktree}"
+                                      Command="{Binding ToggleWorktreeCommand}" />
+                            <Separator />
+                            <MenuItem Header="{loc:Str Launchpad_SetupHide}" Command="{Binding HideCommand}" />
+                          </ContextMenu>
+                        </Button.ContextMenu>
+                        <!-- Its badge, its name, and what it starts with, which trims first when the row runs short -->
+                        <Grid ColumnDefinitions="Auto,Auto,*">
+                          <Panel Classes="launchpad-setup-badge">
+                            <Border Classes="launchpad-setup-icon" />
+                            <Border Classes="launchpad-badge-tile"
+                                    Background="{Binding BadgeBackground}"
+                                    IsVisible="{Binding HasBadge}" />
+                            <TextBlock Classes="launchpad-badge-initial"
+                                       Text="{Binding BadgeInitial}"
+                                       Foreground="{Binding BadgeForeground}"
+                                       IsVisible="{Binding HasBadge}" />
+                            <PathIcon Classes="launchpad-setup-glyph" Data="{Binding Icon}" IsVisible="{Binding HasIcon}" />
+                            <TextBlock Text="{Binding GlyphText}" IsVisible="{Binding HasGlyphText}"
+                                       FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <!-- It starts in a worktree: a branch on the badge's lower corner -->
+                            <Border Classes="launchpad-setup-branch" IsVisible="{Binding IsWorktree}">
+                              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Branch}" />
+                            </Border>
+                          </Panel>
+                          <TextBlock Grid.Column="1" Classes="launchpad-setup-title" Text="{Binding Title}" />
+                          <Border Grid.Column="2" Classes="launchpad-setup-detail">
+                            <TextBlock Classes="launchpad-setup-meta" Text="{Binding Detail}" />
+                          </Border>
+                        </Grid>
+                      </Button>
+                      <Button Classes="launchpad-setup-more"
+                              Click="OnLaunchpadSetupMoreClick"
+                              ToolTip.Tip="{loc:Str Launchpad_SetupMore}"
+                              ToolTip.Placement="Top"
+                              ToolTip.VerticalOffset="-6"
+                              AutomationProperties.Name="{loc:Str Launchpad_SetupMore}">
+                        <PathIcon Data="M6 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z M12 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z M18 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z" />
+                      </Button>
+                    </Panel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+            <Button x:Name="LaunchpadSetupsBack"
+                    Classes="launchpad-rail-step back"
+                    Click="OnLaunchpadRailStepClick"
+                    ToolTip.Tip="{loc:Str Launchpad_SetupsBack}"
+                    ToolTip.Placement="Top"
+                    ToolTip.VerticalOffset="-6"
+                    AutomationProperties.Name="{loc:Str Launchpad_SetupsBack}">
+              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronLeft}" />
+            </Button>
+            <Button x:Name="LaunchpadSetupsForward"
+                    Classes="launchpad-rail-step forward"
+                    Click="OnLaunchpadRailStepClick"
+                    ToolTip.Tip="{loc:Str Launchpad_SetupsForward}"
+                    ToolTip.Placement="Top"
+                    ToolTip.VerticalOffset="-6"
+                    AutomationProperties.Name="{loc:Str Launchpad_SetupsForward}">
+              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronRight}" />
+            </Button>
+          </Panel>
+          <TextBlock Classes="launchpad-setups-empty" Text="{loc:Str Launchpad_SetupsEmpty}"
+                     IsVisible="{Binding !Launchpad.HasSetups}" />
+
+          <!-- Every other project and agent, searchable; one picked starts the way the user last worked there, and its
+               pin keeps it on the new chat. When the draft is a setup the row doesn't hold (made in the composer, or
+               picked here), the capsule shows it and Keep opens beside it. -->
+          <Button x:Name="LaunchpadOtherButton"
+                  Theme="{StaticResource LaunchpadCapsuleButton}"
+                  Classes="launchpad-setup launchpad-other"
+                  Classes.active="{Binding Launchpad.IsOtherActive}"
+                  ToolTip.Tip="{loc:Str Launchpad_OtherTooltip}"
+                  ToolTip.ShowDelay="450"
+                  AutomationProperties.Name="{loc:Str Launchpad_Other}"
+                  AutomationProperties.HelpText="{loc:Str Launchpad_OtherTooltip}">
+            <Button.Flyout>
+              <Flyout Placement="TopEdgeAlignedRight"
+                      HorizontalOffset="16"
+                      VerticalOffset="10"
+                      FlyoutPresenterTheme="{StaticResource ChatHeaderCardPresenter}">
+                <DockPanel x:Name="LaunchpadOtherCard" Width="320">
+                  <TextBox x:Name="LaunchpadOtherSearch"
+                           DockPanel.Dock="Top"
+                           Classes="launchpad-other-search"
+                           Text="{Binding Launchpad.OtherQuery}"
+                           PlaceholderText="{loc:Str Launchpad_OtherSearch}"
+                           AutomationProperties.Name="{loc:Str Launchpad_OtherSearch}">
+                    <TextBox.InnerLeftContent>
+                      <PathIcon Classes="launchpad-other-search-icon" Data="{x:Static vm:WorkspaceIcons.Search}" />
+                    </TextBox.InnerLeftContent>
+                  </TextBox>
+                  <ScrollViewer MaxHeight="320" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="0,4,0,2">
+                      <TextBlock Classes="launchpad-other-section" Text="{loc:Str Launchpad_OtherProjects}"
+                                 IsVisible="{Binding Launchpad.HasOtherProjects}" />
+                      <ItemsControl x:Name="LaunchpadOtherProjects" ItemsSource="{Binding Launchpad.OtherProjects}"
+                                    ItemTemplate="{StaticResource LaunchpadOtherRow}" />
+                      <TextBlock Classes="launchpad-other-section" Text="{loc:Str Launchpad_OtherAgents}"
+                                 IsVisible="{Binding Launchpad.HasOtherAgents}" />
+                      <ItemsControl x:Name="LaunchpadOtherAgents" ItemsSource="{Binding Launchpad.OtherAgents}"
+                                    ItemTemplate="{StaticResource LaunchpadOtherRow}" />
+                      <TextBlock Classes="launchpad-other-empty" Text="{loc:Str Launchpad_OtherEmpty}"
+                                 IsVisible="{Binding Launchpad.HasNoOtherMatch}" />
+                    </StackPanel>
+                  </ScrollViewer>
+                </DockPanel>
+              </Flyout>
+            </Button.Flyout>
+            <StackPanel Orientation="Horizontal">
+              <Panel Classes="launchpad-setup-badge">
+                <Border Classes="launchpad-setup-icon" />
+                <Border Classes="launchpad-badge-tile"
+                        Background="{Binding Launchpad.OtherBadgeBackground}"
+                        IsVisible="{Binding Launchpad.HasOtherBadge}" />
+                <TextBlock Classes="launchpad-badge-initial"
+                           Text="{Binding Launchpad.OtherBadgeInitial}"
+                           Foreground="{Binding Launchpad.OtherBadgeForeground}"
+                           IsVisible="{Binding Launchpad.HasOtherBadge}" />
+                <TextBlock Text="{Binding Launchpad.OtherGlyph}" IsVisible="{Binding Launchpad.HasOtherGlyph}"
+                           FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <PathIcon Classes="launchpad-setup-glyph" Data="{x:Static vm:WorkspaceIcons.Add}"
+                          IsVisible="{Binding Launchpad.ShowOtherAddIcon}" />
+              </Panel>
+              <TextBlock Classes="launchpad-setup-title" Text="{Binding Launchpad.OtherTitle}" />
+              <Border Classes="launchpad-setup-detail">
+                <TextBlock Classes="launchpad-setup-meta" Text="{Binding Launchpad.OtherMeta}" />
+              </Border>
+            </StackPanel>
+          </Button>
+          <!-- Keep: the setup on the Other capsule becomes the first of the user's setups, exactly as the composer has it -->
+          <Button x:Name="LaunchpadKeepSetupButton"
+                  Classes="launchpad-keep"
+                  Classes.shown="{Binding Launchpad.CanKeepDraft}"
+                  Command="{Binding Launchpad.KeepDraftCommand}"
+                  ToolTip.Tip="{Binding Launchpad.KeepDraftTooltip}"
+                  ToolTip.Placement="Top"
+                  ToolTip.VerticalOffset="-6"
+                  AutomationProperties.Name="{Binding Launchpad.KeepDraftTooltip}">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pin}" />
+              <TextBlock Text="{loc:Str Launchpad_KeepSetup}" />
+            </StackPanel>
+          </Button>
+        </lc:FitRowPanel>
       </StackPanel>
 
       <!-- Follow-up placeholders, shown while a reply's suggestions are being written -->

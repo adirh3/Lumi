@@ -62,40 +62,25 @@ public sealed class LaunchpadPlannerTests
     }
 
     [Fact]
-    public void PickUp_OrdersByUrgencyThenFillsWithRecentChats()
+    public void NeedsYou_ListsQuestionsThenUnreadReplies_AndLeavesWorkInProgressOut()
     {
         var recent = NewChat("Recent", Now.AddMinutes(-5));
-        var older = NewChat("Older", Now.AddHours(-3));
         var working = NewChat("Working", Now.AddHours(-6));
         working.IsRunning = true;
+        var background = NewChat("Background", Now.AddHours(-1));
+        background.IsSessionActive = true;
         var reply = NewChat("Reply", Now.AddHours(-2));
         reply.HasUnreadMessages = true;
+        var olderReply = NewChat("Older reply", Now.AddHours(-4));
+        olderReply.HasUnreadMessages = true;
         var waiting = NewChat("Waiting", Now.AddDays(-1));
         waiting.IsAwaitingInput = true;
 
-        var picked = LaunchpadPlanner.SelectPickUp([recent, older, working, reply, waiting], new HashSet<Guid>(), 4);
+        var picked = LaunchpadPlanner.SelectNeedsYou([recent, working, background, reply, olderReply, waiting], 2, out var total);
 
-        Assert.Equal(["Waiting", "Reply", "Working", "Recent"], picked.Select(entry => entry.Chat.Title));
-        Assert.Equal(
-            [LaunchpadChatState.Waiting, LaunchpadChatState.Reply, LaunchpadChatState.Working, LaunchpadChatState.Recent],
-            picked.Select(entry => entry.State));
-    }
-
-    [Fact]
-    public void PickUp_LeavesOutEmptyChatsAndQuietAutomationChats()
-    {
-        var empty = NewChat("Empty", Now, messageCount: 0);
-        var automation = NewChat("Watcher", Now.AddMinutes(-1));
-        var unreadAutomation = NewChat("Digest", Now.AddHours(-9));
-        unreadAutomation.HasUnreadMessages = true;
-        var conversation = NewChat("Conversation", Now.AddHours(-1));
-
-        var picked = LaunchpadPlanner.SelectPickUp(
-            [empty, automation, unreadAutomation, conversation],
-            new HashSet<Guid> { automation.Id, unreadAutomation.Id },
-            4);
-
-        Assert.Equal(["Digest", "Conversation"], picked.Select(entry => entry.Chat.Title));
+        Assert.Equal(3, total);
+        Assert.Equal(["Waiting", "Reply"], picked.Select(entry => entry.Chat.Title));
+        Assert.Equal([LaunchpadChatState.Waiting, LaunchpadChatState.Reply], picked.Select(entry => entry.State));
     }
 
     [Fact]
@@ -233,6 +218,219 @@ public sealed class LaunchpadPlannerTests
         }
     }
 
+    [Fact]
+    public void Starters_CanBeFoundAgainByTheirIds()
+    {
+        for (var hour = 0; hour < 24; hour += 3)
+        {
+            foreach (var starter in LaunchpadPlanner.SelectStarters(hour, hasHistory: true))
+            {
+                Assert.NotNull(starter.Id);
+                Assert.Equal(starter, LaunchpadStarterCatalog.Find(starter.Id!));
+            }
+        }
+
+        foreach (var category in LaunchpadStarterCatalog.Order)
+        {
+            var starters = LaunchpadStarterCatalog.In(category);
+            // Six fill a tab's three rows of two tiles.
+            Assert.Equal(6, starters.Count);
+            Assert.All(starters, starter =>
+            {
+                Assert.Equal(category, starter.CategoryId);
+                Assert.Equal(starter, LaunchpadStarterCatalog.Find(starter.Id!));
+            });
+        }
+
+        Assert.Equal(8, LaunchpadStarterCatalog.Order.Distinct().Count());
+        Assert.Null(LaunchpadStarterCatalog.Find("no.such.starter"));
+    }
+
+    [Theory]
+    [InlineData("he")]
+    [InlineData("es")]
+    [InlineData("pt-BR")]
+    [InlineData("zh-Hans")]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("ja")]
+    [InlineData("ko")]
+    [InlineData("ar")]
+    public void StarterTemplates_KeepTheirBlanksInEveryLanguage(string language)
+    {
+        var english = LaunchpadStarterCatalog.TemplateKeys.ToDictionary(key => key, key => LaunchpadTemplate.Blanks(Loc.Get(key)).Count);
+        try
+        {
+            Loc.Load(language);
+            foreach (var key in LaunchpadStarterCatalog.TemplateKeys)
+            {
+                var template = Loc.Get(key);
+                Assert.Equal(english[key], LaunchpadTemplate.Blanks(template).Count);
+                // Brackets only ever open and close a blank.
+                Assert.Equal(english[key], template.Count(ch => ch == '['));
+                Assert.Equal(english[key], template.Count(ch => ch == ']'));
+            }
+        }
+        finally
+        {
+            Loc.Load("en");
+        }
+    }
+
+    [Fact]
+    public void Template_SplitsIntoWordsAndBlanks()
+    {
+        Assert.Equal(
+            [
+                new LaunchpadTemplatePart("Help me choose a", false, false),
+                new LaunchpadTemplatePart("product", true, true),
+                new LaunchpadTemplatePart("under", false, true),
+                new LaunchpadTemplatePart("budget", true, true),
+            ],
+            LaunchpadTemplate.Parse("Help me choose a [product] under [budget]"));
+        Assert.Equal(
+            [
+                new LaunchpadTemplatePart("What's new in", false, false),
+                new LaunchpadTemplatePart("topic", true, true),
+                new LaunchpadTemplatePart("?", false, false),
+            ],
+            LaunchpadTemplate.Parse("What's new in [topic]?"));
+        Assert.Equal(["[product]", "[budget]"], LaunchpadTemplate.Blanks("Help me choose a [product] under [budget]"));
+        Assert.Empty(LaunchpadTemplate.Blanks("Review my changes"));
+        Assert.Equal([new LaunchpadTemplatePart("Review my changes", false, false)], LaunchpadTemplate.Parse("Review my changes"));
+    }
+
+    [Fact]
+    public void ForYou_LeadsWithTheBriefsPlans_ThenHabits_ThenTheHour_ThenFillsUp()
+    {
+        var timeOfDay = LaunchpadPlanner.SelectStarters(20, hasHistory: true);
+        var trip = LaunchpadStarterCatalog.Find("plan.trip")!;
+        var recap = timeOfDay[0];
+        var fillers = LaunchpadStarterCatalog.Fillers(isCodingProject: false);
+
+        var project = LaunchpadPlanner.SelectForYou(
+            ["Publish 1.0.2", " ", "Continue the benchmark", "A third plan", "A fourth plan"], "From Lumi's brief", [trip], timeOfDay, fillers);
+        Assert.Equal(["Publish 1.0.2", "Continue the benchmark", "A third plan", trip.Prompt, timeOfDay[0].Prompt, timeOfDay[1].Prompt],
+            project.Select(starter => starter.Prompt));
+        Assert.All(project.Take(3), starter =>
+        {
+            Assert.Null(starter.Id);
+            Assert.Equal(LaunchpadPlanner.BriefStarterGlyph, starter.Glyph);
+            Assert.Equal("From Lumi's brief", starter.Reason);
+        });
+
+        // A habit that is also the hour's starter shows once.
+        var personal = LaunchpadPlanner.SelectForYou([], null, [recap, trip], timeOfDay, fillers);
+        Assert.Equal([recap.Id, trip.Id, timeOfDay[1].Id, timeOfDay[2].Id, fillers[1].Id, fillers[2].Id], personal.Select(starter => starter.Id));
+
+        // With nothing of the user's own, the hour's starters lead (as on the phone) and well-tried ones fill the list.
+        var plain = LaunchpadPlanner.SelectForYou([], null, [], timeOfDay, fillers);
+        Assert.Equal(LaunchpadPlanner.ForYouCount, plain.Count);
+        Assert.Equal(timeOfDay, plain.Take(timeOfDay.Count));
+        Assert.Equal(["code.review", "code.explain"],
+            LaunchpadPlanner.SelectForYou([], null, [], [], LaunchpadStarterCatalog.Fillers(isCodingProject: true)).Take(2).Select(s => s.Id));
+        // In a coding project the work comes before the hour: after the brief's plans and the user's habits, the code.
+        var coding = LaunchpadStarterCatalog.Fillers(isCodingProject: true);
+        Assert.Equal(["Publish 1.0.2", trip.Prompt, .. coding.Take(4).Select(starter => starter.Prompt)],
+            LaunchpadPlanner.SelectForYou(["Publish 1.0.2"], "From Lumi's brief", [trip], timeOfDay, coding, workFirst: true)
+                .Select(starter => starter.Prompt));
+        // Either list of well-tried starters fills For you on its own, so its grid never has a gap.
+        Assert.All([false, true], coding => Assert.Equal(LaunchpadPlanner.ForYouCount,
+            LaunchpadPlanner.SelectForYou([], null, [], [], LaunchpadStarterCatalog.Fillers(coding)).Count));
+    }
+
+    [Fact]
+    public void ForYou_SaysWhyAStarterSuitsTheHour_OnlyForTheDayItself()
+    {
+        Loc.Load("en");
+        Assert.Equal("This morning", LaunchpadPlanner.TimeOfDayReason("day.plan", 9));
+        Assert.Equal("This afternoon", LaunchpadPlanner.TimeOfDayReason("day.focus", 14));
+        Assert.Equal("This evening", LaunchpadPlanner.TimeOfDayReason("day.recap", 19));
+        Assert.Equal("Tonight", LaunchpadPlanner.TimeOfDayReason("day.tomorrow", 23));
+        // Researching or writing a document suits any hour.
+        Assert.Null(LaunchpadPlanner.TimeOfDayReason("day.research", 9));
+        Assert.Null(LaunchpadPlanner.TimeOfDayReason("plan.trip", 9));
+    }
+
+    [Fact]
+    public void Setups_KeptComeFirst_EveryVariantIncluded_AndKeptOrHiddenPlacesAreNotLearnedAgain()
+    {
+        var lumi = new LaunchpadSetupSpec(Lumi, null, true, "gpt-6-sol", "high");
+        var lumiLearned = new LaunchpadSetupSpec(Lumi, null, true, "gpt-6-luna", null);
+        var search = new LaunchpadSetupSpec(Search, null, false, "gpt-6-luna", null);
+        var planner = new LaunchpadSetupSpec(null, Guid.NewGuid(), false, "gpt-6-luna", null);
+        var plainSol = new LaunchpadSetupSpec(null, null, false, "gpt-6-sol", null);
+
+        var merged = LaunchpadPlanner.MergeSetups([lumi], [lumiLearned, search, planner, plainSol], [search.Context], limit: 3);
+
+        Assert.Equal([(lumi, 0), (planner, -1), (plainSol, -1)], merged);
+
+        // One project kept on several models and checkouts: every one shows, each a setup of its own, and a setup kept
+        // twice shows once.
+        var lumiOpus = lumi with { ModelId = "claude-opus-5.5" };
+        var lumiLocal = lumi with { UseWorktree = false };
+        Assert.Equal([(lumi, 0), (lumiOpus, 1), (lumiLocal, 3)],
+            LaunchpadPlanner.MergeSetups([lumi, lumiOpus, lumi, lumiLocal], [lumiLearned, search], [], 3));
+
+        // Kept setups never count against the learned ones' limit, up to the most the row shows.
+        var many = Enumerable.Range(0, LaunchpadPlanner.MaxKeptSetups + 2)
+            .Select(index => lumi with { ModelId = $"model-{index}" }).ToList();
+        Assert.Equal(many.Take(LaunchpadPlanner.MaxKeptSetups).Select((spec, index) => (spec, index)),
+            LaunchpadPlanner.MergeSetups(many, [search, planner], [], 3));
+
+        // A setup the user keeps shows even where they asked not to see what they use.
+        Assert.Equal([(lumi, 0), (search, -1)], LaunchpadPlanner.MergeSetups([lumi], [lumiLearned, search], [lumi.Context], 3));
+    }
+
+    [Theory]
+    [InlineData("Lumi 1.0.1 is live; 1.0.2 is prepared but not published. Show HN moved to Monday.", "Lumi 1.0.1 is live; 1.0.2 is prepared but not published.")]
+    [InlineData("**Mobile smoothness** work is active.\n\nSaved workflows remain exploratory.", "Mobile smoothness work is active.")]
+    [InlineData("Lumi 1.0 ships next week", "Lumi 1.0 ships next week")]
+    [InlineData("项目正在准备 1.0 版本。下周发布。", "项目正在准备 1.0 版本。")]
+    [InlineData("", "")]
+    public void BriefHeadline_IsTheBriefsOpeningSentence(string brief, string expected)
+    {
+        Assert.Equal(expected, LaunchpadPlanner.BriefHeadline(brief));
+    }
+
+    [Fact]
+    public void BriefHeadline_TrimsALongSentenceAtAWord()
+    {
+        var headline = LaunchpadPlanner.BriefHeadline(string.Join(' ', Enumerable.Repeat("release", 40)) + ".");
+
+        Assert.True(headline.Length <= LaunchpadPlanner.BriefHeadlineMaxLength);
+        Assert.EndsWith("release…", headline, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Picks_BecomeHabits_InThePlaceTheyWereMade()
+    {
+        var uses = new List<StarterUse>();
+        LaunchpadStarterUse.Record(uses, "money.budget", null, Now.AddDays(-3));
+        LaunchpadStarterUse.Record(uses, "money.budget", null, Now.AddDays(-1));
+        LaunchpadStarterUse.Record(uses, "learn.news", null, Now.AddDays(-1));
+        LaunchpadStarterUse.Record(uses, "code.review", Lumi, Now.AddDays(-2));
+        LaunchpadStarterUse.Record(uses, "code.review", Lumi, Now);
+
+        // Picked twice lately is a habit; once is not yet.
+        Assert.Equal(["money.budget"], LaunchpadStarterUse.Habits(uses, null, Now));
+        Assert.Equal(["code.review"], LaunchpadStarterUse.Habits(uses, Lumi, Now));
+        Assert.Empty(LaunchpadStarterUse.Habits(uses, Search, Now));
+
+        // A habit dropped for months fades.
+        Assert.Empty(LaunchpadStarterUse.Habits(uses, null, Now.AddDays(120)));
+    }
+
+    [Fact]
+    public void Picks_KeepABoundedRecord()
+    {
+        var uses = new List<StarterUse>();
+        for (var index = 0; index <= LaunchpadStarterUse.MaxRecords; index++)
+            LaunchpadStarterUse.Record(uses, "plan.trip", Guid.NewGuid(), Now.AddMinutes(index));
+
+        Assert.Equal(LaunchpadStarterUse.MaxRecords, uses.Count);
+    }
+
     [Theory]
     [InlineData("**Pushed** to `main` — [open PR](https://github.com/x/y/pull/1)", "Pushed to main — open PR")]
     [InlineData("## Done — all green", "Done — all green")]
@@ -262,35 +460,6 @@ public sealed class LaunchpadPlannerTests
 
         Assert.Equal(LaunchpadPlanner.PreviewMaxLength, preview.Length);
         Assert.EndsWith("…", preview, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Automations_SummarizeActiveJobsAndTheNextRun()
-    {
-        var jobs = new List<BackgroundJob>
-        {
-            new() { Name = "Morning brief", IsEnabled = true, NextRunAt = Now.AddHours(13) },
-            new() { Name = "Watcher", IsEnabled = true },
-            new() { Name = "Paused", IsEnabled = false, NextRunAt = Now.AddMinutes(5) },
-        };
-
-        var summary = LaunchpadPlanner.BuildAutomationSummary(jobs, Now, out var hasAutomations);
-
-        var tomorrow = Now.AddHours(13).ToLocalTime().ToString("t", CultureInfo.CurrentCulture);
-        Assert.True(hasAutomations);
-        Assert.Equal($"2 automations active · next: Morning brief, tomorrow {tomorrow}", summary);
-    }
-
-    [Fact]
-    public void Automations_AreHiddenWhenNoneAreEnabled()
-    {
-        var summary = LaunchpadPlanner.BuildAutomationSummary(
-            [new BackgroundJob { Name = "Paused", IsEnabled = false }],
-            Now,
-            out var hasAutomations);
-
-        Assert.False(hasAutomations);
-        Assert.Equal("", summary);
     }
 
     private static List<LaunchpadSetupSpec> SelectSetups(

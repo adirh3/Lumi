@@ -168,6 +168,23 @@ test('recovery owns focus and blocks native input callbacks and later refocusing
     assert.equal(focused.mock.callCount(), 0);
 });
 
+test('a starter blank is selected in the native editor, and a range past the text is clamped', t => {
+    browserHost.configureNativeTextInputs(t.mock.fn(), t.mock.fn(), t.mock.fn());
+    showEditor();
+    const input = bodyChildren.find(item => item.tagName === 'INPUT');
+    input.setSelectionRange = t.mock.fn();
+
+    browserHost.selectNativeTextInput(1, 2, 5);
+    assert.equal(document.activeElement, input);
+    assert.deepEqual(input.setSelectionRange.mock.calls.at(-1).arguments, [2, 5]);
+
+    browserHost.selectNativeTextInput(1, 4, 99);
+    assert.deepEqual(input.setSelectionRange.mock.calls.at(-1).arguments, [4, 6]);
+
+    browserHost.focusNativeTextInput(1, 3);
+    assert.deepEqual(input.setSelectionRange.mock.calls.at(-1).arguments, [3, 3]);
+});
+
 test('recovery dismisses the selection modal and prevents it reopening over Reload', () => {
     browserHost.showTextSelection('Selected message');
     const selection = topLayer.at(-1);

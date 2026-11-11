@@ -416,6 +416,56 @@ public sealed class ContextCuratorTests
     }
 
     [Fact]
+    public void AProjectsBriefKeepsTheOwnersPlansAsStarters()
+    {
+        var lumi = new Project { Name = "Lumi" };
+        var store = new DataStore(new AppData { Projects = [lumi] });
+        var scope = CreateScope(store, lumi);
+        const string brief = "Lumi 1.0.1 is live; 1.0.2 is prepared but not published.";
+
+        var tool = scope.BuildTools().Single(tool => tool.Name == "update_brief");
+        Assert.Contains("starters", tool.JsonSchema.GetRawText(), StringComparison.Ordinal);
+        // Every call carries them: a model can't leave a brief's plans behind by passing nothing.
+        Assert.Contains("starters", tool.JsonSchema.GetProperty("required").EnumerateArray().Select(static name => name.GetString()));
+        Assert.Equal("array", tool.JsonSchema.GetProperty("properties").GetProperty("starters").GetProperty("type").GetString());
+        Assert.DoesNotContain("starters", CreateScope(store, project: null).BuildTools()
+            .Single(tool => tool.Name == "update_brief").JsonSchema.GetRawText(), StringComparison.Ordinal);
+
+        var answer = scope.UpdateBrief(brief, ["Publish 1.0.2.", "  Plan   the Show HN launch ", "publish 1.0.2", "", "A fourth", "A fifth"]);
+        Assert.StartsWith("Brief saved.\nStarters: Publish 1.0.2 | Plan the Show HN launch | A fourth.", answer);
+        Assert.Contains("Only the first 3 starters were kept.", answer);
+        Assert.Equal(["Publish 1.0.2", "Plan the Show HN launch", "A fourth"], scope.Brief.Starters);
+        Assert.Contains("Its starters: Publish 1.0.2 | Plan the Show HN launch | A fourth", scope.BuildPrompt());
+
+        // Leaving them out keeps them; a starter too long to be one is left out.
+        scope.UpdateBrief(brief + " Show HN moved to Monday.");
+        Assert.Equal(3, scope.Brief.Starters.Count);
+        Assert.Contains("left out for being over", scope.UpdateBrief(brief, [new string('x', ContextCuratorScope.MaxStarterLength + 1), "Publish 1.0.2"]));
+        Assert.Equal(["Publish 1.0.2"], scope.Brief.Starters);
+    }
+
+    [Fact]
+    public void OnlyTheStartersChanging_DoesNotRewriteTheBrief()
+    {
+        var lumi = new Project { Name = "Lumi" };
+        var store = new DataStore(new AppData { Projects = [lumi] });
+        var scope = CreateScope(store, lumi);
+        var written = DateTimeOffset.Now.AddDays(-2);
+        scope.Brief.Content = "Lumi 1.0.1 is live; 1.0.2 is prepared but not published.";
+        scope.Brief.UpdatedAt = written;
+        scope.Brief.EditedByUser = true;
+        scope.BuildPrompt();
+
+        Assert.StartsWith("Brief saved.", scope.UpdateBrief(scope.Brief.Content, ["Publish 1.0.2"]));
+
+        Assert.Equal(["Publish 1.0.2"], scope.Brief.Starters);
+        Assert.Equal(written, scope.Brief.UpdatedAt);
+        Assert.False(scope.BriefChanged);
+        // Saving the owner's text as it is still means the curator reviewed it.
+        Assert.False(scope.Brief.EditedByUser);
+    }
+
+    [Fact]
     public void ABriefIsPlainProse()
     {
         Assert.Null(ContextCuratorScope.ValidateBrief("Lumi is preparing its 1.0 release.\n\n#1307's fix waits for 1.5.0.5; 1.5.0.4 is live."));
@@ -638,6 +688,7 @@ public sealed class ContextCuratorTests
         {
             ProjectId = lumi.Id,
             Content = "## Now\n- Shipping 1.0 next week (\"Release\", Oct 21)\n- Testing nightly builds (\"QA\", Oct 21)\n\n## Decided\n- Weekly releases (\"Release\", Oct 20)",
+            Starters = ["Ship 1.0", "Test the nightly builds"],
         };
         var data = new AppData
         {
@@ -666,6 +717,8 @@ public sealed class ContextCuratorTests
         Assert.True(projectBrief.EditedByUser);
         Assert.EndsWith("Launch on Monday (as of Oct 22)", projectBrief.Content);
         Assert.False(briefs.HasUnsavedChanges);
+        // The starters were taken from the old text; the next review takes them from the user's.
+        Assert.Empty(projectBrief.Starters);
 
         briefs.RequestClearCommand.Execute(null);
         Assert.False(briefs.ShowSaveBar);

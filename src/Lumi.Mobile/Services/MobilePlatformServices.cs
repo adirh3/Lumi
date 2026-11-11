@@ -229,6 +229,9 @@ internal interface INativeTextInputOverlaySession : IDisposable
 
     void FocusAt(int caretIndex);
 
+    /// <summary>Focuses the input with the characters from <paramref name="start"/> to <paramref name="end"/> selected.</summary>
+    void Select(int start, int end) => FocusAt(end);
+
     void Blur();
 }
 
@@ -314,6 +317,10 @@ internal interface INativeComposerEditorFactory
     int GetCaretIndex(NativeComposerEditorHost host);
 
     void FocusAt(NativeComposerEditorHost host, int caretIndex);
+
+    /// <summary>Focuses the editor with <paramref name="length"/> characters from <paramref name="start"/> selected.</summary>
+    void FocusSelect(NativeComposerEditorHost host, int start, int length) =>
+        FocusAt(host, start + length);
 
     void FocusAtEnd(NativeComposerEditorHost host);
 

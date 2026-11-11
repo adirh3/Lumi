@@ -112,6 +112,18 @@ public static class RemoteProtocol
     public const int MobileLibraryPreviewLimit = 512;
 
     /// <summary>
+    /// The line icons a launchpad starter can name (<see cref="RemoteLaunchpadStarter.Icon"/>), each one of Strata's
+    /// icons on both ends. A phone draws a key it doesn't know as the last, <c>lightbulb</c>.
+    /// </summary>
+    public static readonly IReadOnlyList<string> LaunchpadIcons =
+    [
+        "bookmark", "globe", "calendar", "people", "checklist", "target", "person", "tag", "overlap", "search",
+        "question", "gift", "chat", "check-circle", "shield-check", "book", "mail", "reply", "wand", "share",
+        "pencil", "document", "document-plus", "layers", "database", "folder", "files", "wallet", "retry", "bolt",
+        "sliders", "plug", "shield", "copy", "bug", "beaker", "diff", "branch", "cube", "chats", "clock", "lightbulb"
+    ];
+
+    /// <summary>
     /// Hard UTF-8 JSON ceiling for a projected transcript. Detailed mode remains bounded by raw
     /// messages; compact mode is bounded by visible items and visible source text. Pathological
     /// metadata is compacted explicitly if the fully projected wire shape exceeds this independent
@@ -291,6 +303,14 @@ public static class RemoteProtocol
         /// <summary>The desktop serves options' pictures for explorers at <see cref="Routes.ExplorerPicture"/>.</summary>
         public const string ExplorerPicturesV1 = "explorer-pictures-v1";
 
+        /// <summary>
+        /// The new chat's launchpad reaches the phone whole (<see cref="RemoteNewChatExperience.Tabs"/>, For you per
+        /// place, Other's list, kept setups), and the phone keeps, hides or retunes setups and tells the PC which
+        /// starters it picks (<see cref="Actions.KeepSetup"/>, <see cref="Actions.HideSetup"/>,
+        /// <see cref="Actions.RetuneSetup"/>, <see cref="Actions.UseStarter"/>).
+        /// </summary>
+        public const string LaunchpadV1 = "launchpad-v1";
+
         public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
         public static IReadOnlyList<string> Server { get; } =
         [
@@ -304,7 +324,8 @@ public static class RemoteProtocol
             ModelPinsV1,
             MessageEditingV1,
             PhoneNotificationsV1,
-            ExplorerPicturesV1
+            ExplorerPicturesV1,
+            LaunchpadV1
         ];
     }
 
@@ -422,6 +443,26 @@ public static class RemoteProtocol
 
         /// <summary>Forgets the requesting browser's Web Push subscription.</summary>
         public const string UnregisterWebPush = "unregister_web_push";
+
+        /// <summary>
+        /// Keeps a setup on new chats (<c>kept=true</c>, first of the user's setups) or stops keeping it
+        /// (<c>kept=false</c>). The setup is named whole: <c>projectId</c>, <c>agentId</c>, <c>worktree</c>,
+        /// <c>model</c> and <c>effort</c> (or, for a draft, <c>quality</c> as the model picker shows it), any of them
+        /// absent.
+        /// </summary>
+        public const string KeepSetup = "keep_setup";
+
+        /// <summary>Stops suggesting a setup, named as for <see cref="KeepSetup"/>.</summary>
+        public const string HideSetup = "hide_setup";
+
+        /// <summary>
+        /// Changes what a setup, named as for <see cref="KeepSetup"/>, starts with from now on, which keeps it: its
+        /// checkout (<c>toWorktree</c>) and/or its model (<c>toModel</c>, with the effort this computer picks for it).
+        /// </summary>
+        public const string RetuneSetup = "retune_setup";
+
+        /// <summary>The user picked a starter (<c>id</c>) for a new chat in a project (<c>projectId</c>) or none.</summary>
+        public const string UseStarter = "use_starter";
     }
 
     /// <summary>Discriminators for <see cref="RemoteNotification.Kind"/>.</summary>

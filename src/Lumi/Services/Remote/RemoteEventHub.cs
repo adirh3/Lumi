@@ -65,6 +65,7 @@ internal sealed class RemoteEventHub : IDisposable
     private string? _lastLibraryJson;
     // The pinned models phones were last told about, as one comparable string.
     private string? _publishedFavoriteModels;
+    private string? _publishedNeedsYou;
     // Row hashes of the last whole first page sent to phones without row patches.
     private IReadOnlyDictionary<Guid, ulong>? _lastFullPageRows;
     private long _revision;
@@ -393,9 +394,12 @@ internal sealed class RemoteEventHub : IDisposable
         _main.ChatDeleted += OnChatDeleted;
         _main.ChatActivityOrReadStateChanged += OnChatActivityOrReadStateChanged;
         _main.ChatEvents.SuggestionsSettled += OnSuggestionsSettled;
+        _main.ChatEvents.AttentionRaised += OnAttentionRaised;
+        _main.ChatEvents.AttentionResolved += OnAttentionResolved;
         _dataStore.ChatContentChanged += OnChatContentChanged;
         _dataStore.IndexSaved += OnLibraryChanged;
         _publishedFavoriteModels = FavoriteModelsSignature();
+        _publishedNeedsYou = NeedsYouSignature();
 
         ReconcileSurfaces();
 
@@ -409,6 +413,8 @@ internal sealed class RemoteEventHub : IDisposable
         _main.ChatDeleted -= OnChatDeleted;
         _main.ChatActivityOrReadStateChanged -= OnChatActivityOrReadStateChanged;
         _main.ChatEvents.SuggestionsSettled -= OnSuggestionsSettled;
+        _main.ChatEvents.AttentionRaised -= OnAttentionRaised;
+        _main.ChatEvents.AttentionResolved -= OnAttentionResolved;
         _dataStore.ChatContentChanged -= OnChatContentChanged;
         _dataStore.IndexSaved -= OnLibraryChanged;
 
@@ -560,6 +566,46 @@ internal sealed class RemoteEventHub : IDisposable
             MarkChatsDirty();
         }
         MarkStatusDirty(chatId);
+        // A reply read leaves the chats the new chat says need the user.
+        MarkNeedsYouDirty();
+    }
+
+    private void OnAttentionRaised(ChatAttention attention) => MarkNeedsYouDirty();
+
+    private void OnAttentionResolved(Guid chatId, string requestId) => MarkNeedsYouDirty();
+
+    /// <summary>
+    /// The new chat lists the chats that need the user. A question asked or answered, or a reply read, changes that
+    /// list without saving the chat index, so phones on the new chat are sent it again once it really changed (a turn
+    /// starting or ending elsewhere leaves it alone).
+    /// </summary>
+    private void MarkNeedsYouDirty()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(MarkNeedsYouDirty);
+            return;
+        }
+
+        if (!_clients.Values.Any(static client => client.WantsNewChatExperience))
+            return;
+
+        var signature = NeedsYouSignature();
+        if (string.Equals(signature, _publishedNeedsYou, StringComparison.Ordinal))
+            return;
+
+        _publishedNeedsYou = signature;
+        _snapshotDirty = true;
+    }
+
+    private string NeedsYouSignature()
+    {
+        var needsYou = LaunchpadPlanner.SelectNeedsYou(
+            _dataStore.Data.Chats.ToArray(), RemoteProjector.MaxLaunchpadNeedsYouChats, out var total);
+        var signature = new StringBuilder().Append(total);
+        foreach (var (chat, state) in needsYou)
+            signature.Append(';').Append(chat.Id.ToString("N")).Append(':').Append((int)state);
+        return signature.ToString();
     }
 
     private void OnChatDeleted(Guid chatId)

@@ -254,11 +254,37 @@ internal static class AppDataSnapshotFactory
                     Content = b.Content,
                     UpdatedAt = b.UpdatedAt,
                     CuratedThrough = b.CuratedThrough,
-                    EditedByUser = b.EditedByUser
+                    EditedByUser = b.EditedByUser,
+                    Starters = b.Starters.ToList()
                 })
                 .ToList(),
+            // Picked on the UI thread while a save may be copying; ToArray copies without a version check.
+            StarterUses = source.StarterUses.ToArray()
+                .Select(static use => new StarterUse
+                {
+                    Id = use.Id,
+                    ProjectId = use.ProjectId,
+                    Count = use.Count,
+                    Score = use.Score,
+                    LastUsedAt = use.LastUsedAt
+                })
+                .ToList(),
+            PinnedSetups = CopySetupPins(source.PinnedSetups),
+            HiddenSetups = CopySetupPins(source.HiddenSetups),
         };
     }
+
+    // Changed on the UI thread while a save may be copying; ToArray copies without a version check.
+    private static List<LaunchpadSetupPin> CopySetupPins(List<LaunchpadSetupPin> pins) => pins.ToArray()
+        .Select(static pin => new LaunchpadSetupPin
+        {
+            ProjectId = pin.ProjectId,
+            AgentId = pin.AgentId,
+            UseWorktree = pin.UseWorktree,
+            ModelId = pin.ModelId,
+            Effort = pin.Effort
+        })
+        .ToList();
 
     public static AppData MergeChatIndexChanges(
         AppData currentSnapshot,

@@ -1141,6 +1141,85 @@ public sealed class RemoteEventHubObserverTests
         failure?.Throw();
     }
 
+    /// <summary>
+    /// The new chat lists the chats that need the user. A question asked or answered changes that list without saving
+    /// the chat index, so the phone on the new chat hears it again; a moment that leaves the list alone sends nothing.
+    /// </summary>
+    [Fact]
+    public async Task AQuestionAskedOrAnsweredReachesThePhoneOnTheNewChat()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(() =>
+        {
+            CancellationTokenSource? cancellation = null;
+            Task? writer = null;
+            MainViewModel? main = null;
+            try
+            {
+                var chat = Chat("Crash triage");
+                var dataStore = new DataStore(new AppData { Chats = [chat] });
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                using var hub = new RemoteEventHub(dataStore, main, () => []);
+                Dispatcher.UIThread.RunJobs();
+
+                var stream = new RecordingStream();
+                var phone = hub.AddClient(stream, "phone", subscription: new RemoteEventSubscription
+                {
+                    Generation = 1,
+                    IsForeground = true
+                });
+                cancellation = new CancellationTokenSource();
+                writer = phone.RunAsync(cancellation.Token);
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+
+                var unchanged = stream.Text.Length;
+                main.ChatEvents.PublishAttention(new ChatAttention(chat.Id, ChatAttentionKind.Reply, "Done."));
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                Assert.Equal(0, CountEvent(stream.Text[unchanged..], RemoteProtocol.Events.Snapshot));
+
+                var asked = stream.Text.Length;
+                chat.IsAwaitingInput = true;
+                main.ChatEvents.PublishAttention(new ChatAttention(chat.Id, ChatAttentionKind.Question, "Which build?", "q1"));
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                var waiting = stream.Text[asked..];
+                Assert.Equal(1, CountEvent(waiting, RemoteProtocol.Events.Snapshot));
+                Assert.Contains("\"needsYouCount\":1", waiting);
+                Assert.Contains("Crash triage", waiting);
+
+                var answered = stream.Text.Length;
+                chat.IsAwaitingInput = false;
+                main.ChatEvents.ResolveAttention(chat.Id, "q1");
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                var settled = stream.Text[answered..];
+                Assert.Equal(1, CountEvent(settled, RemoteProtocol.Events.Snapshot));
+                Assert.Contains("\"needsYouCount\":0", settled);
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                cancellation?.Cancel();
+                if (writer is not null)
+                    Pump(writer);
+                cancellation?.Dispose();
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
     [Fact]
     public async Task KeepAliveClosesBackgroundStreamsThePhoneAbandoned()
     {

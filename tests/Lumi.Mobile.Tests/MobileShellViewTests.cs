@@ -1391,8 +1391,8 @@ public sealed class MobileShellViewTests
             Assert.NotEmpty(buttons);
 
             // Tapping one has to load the composer, not send blind.
-            buttons[0].Command!.Execute(shell.Chat.Starters[0].Text);
-            Assert.Equal(shell.Chat.Starters[0].Text, shell.Chat.PromptText);
+            buttons[0].Command!.Execute(buttons[0].CommandParameter);
+            Assert.Equal(shell.Chat.Starters[0].EffectivePrompt, shell.Chat.PromptText);
 
             // A freshly created chat still counts as empty — this is the case that regressed.
             OpenChat(shell);
@@ -2426,7 +2426,8 @@ public sealed class MobileShellViewTests
             Pump(window);
             await Task.Delay(250);
             Pump(window);
-            var card = Named(window, "WelcomeSetups").GetVisualDescendants().OfType<Button>().Single();
+            var card = Named(window, "WelcomeSetups").GetVisualDescendants().OfType<Button>()
+                .Single(button => button.Classes.Contains("welcome-setup"));
             Assert.True(card.Bounds.Height >= 48);
             TapCard();
             Assert.Equal(Guid.Empty, shell.Chat.ChatId);
@@ -3038,6 +3039,7 @@ public sealed class MobileShellViewTests
         });
     }
 
+    /// <summary>A starter too long for the screen trims to its capsule's one line, which never runs past the screen.</summary>
     [Fact]
     public async Task LongStarterText_TrimsInsteadOfClipping()
     {
@@ -3054,16 +3056,29 @@ public sealed class MobileShellViewTests
             });
             Pump(window);
 
-            var starterText = Named(window, "WelcomeStarters")
+            var starters = Named(window, "WelcomeStarters");
+            var starterText = starters
                 .GetVisualDescendants()
-                .OfType<TextBlock>()
-                .First(text => text.Text?.StartsWith("Research an intentionally", StringComparison.Ordinal) == true);
+                .OfType<LaunchpadStarterLabel>()
+                .First(label => string.Concat(label.Inlines!.OfType<Avalonia.Controls.Documents.Run>().Select(run => run.Text))
+                    .StartsWith("Research an intentionally", StringComparison.Ordinal));
 
             Assert.Equal(TextTrimming.CharacterEllipsis, starterText.TextTrimming);
-            Assert.Equal(2, starterText.MaxLines);
-            Assert.Equal(TextWrapping.Wrap, starterText.TextWrapping);
-            Assert.Equal(Avalonia.Layout.HorizontalAlignment.Stretch,
-                starterText.GetVisualAncestors().OfType<Button>().First().HorizontalContentAlignment);
+            Assert.Equal(TextWrapping.NoWrap, starterText.TextWrapping);
+            var area = BoundsIn(starters, window);
+            var capsule = BoundsIn(starterText.GetVisualAncestors().OfType<Button>().First(), window);
+            Assert.True(capsule.Left >= area.Left - 0.5 && capsule.Right <= area.Right + 0.5, $"capsule {capsule} runs past {area}");
+            var natural = new TextBlock
+            {
+                Text = "Research an intentionally very long topic whose label cannot fit on one compact phone row",
+                FontFamily = starterText.FontFamily,
+                FontSize = starterText.FontSize,
+                LetterSpacing = starterText.LetterSpacing
+            };
+            natural.Measure(Size.Infinity);
+            Assert.True(starterText.Bounds.Width < natural.DesiredSize.Width,
+                $"the label is {starterText.Bounds.Width:0.#} dp of its {natural.DesiredSize.Width:0.#}: it must trim to its capsule");
+            Assert.True(BoundsIn(starterText, window).Right <= capsule.Right + 0.5, "the words stay inside their capsule");
         });
     }
 
@@ -3206,7 +3221,8 @@ public sealed class MobileShellViewTests
             Assert.True(starters.Bottom < setups.Top, $"starters {starters} must sit above the setups {setups}");
             Assert.InRange(composer.Top - setups.Bottom, 0, 24);
 
-            var cards = setupsControl.GetVisualDescendants().OfType<Button>().ToList();
+            var cards = setupsControl.GetVisualDescendants().OfType<Button>()
+                .Where(button => button.Classes.Contains("welcome-setup")).ToList();
             Assert.Equal(3, cards.Count);
             Assert.InRange(Math.Abs(BoundsIn(cards[0], window).Left - composer.Left), 0, 1);
 
@@ -3228,6 +3244,106 @@ public sealed class MobileShellViewTests
                 }
             }
         });
+    }
+
+    /// <summary>
+    /// The launchpad on a phone: the tabs over the starters as glass capsules centred line by line, as the desktop's
+    /// are, keeping room for the tab needing the most lines so switching tabs moves nothing, and the setups row on the
+    /// composer beginning with Just chat at the composer's edge. A starter fills the composer with its first blank
+    /// selected and send turned toward the next; nothing is sent. The chat's setup carries the ⋯ that opens its sheet,
+    /// and a place picked from Other glides into view on the row with Keep beside it.
+    /// </summary>
+    [Fact]
+    public async Task Launchpad_FillsTheComposerAndKeepsTheChatsSetupInReach()
+    {
+        await RunAsync(async (shell, window) =>
+        {
+            Pair(shell);
+            shell.IsSidebarCollapsed = true;
+            Layout(window, shell, 412, 892);
+            shell.Chat.ApplyLibraryCatalogs(MobileLaunchpadTests.Library());
+            shell.Chat.ApplyCatalogs(MobileLaunchpadTests.Catalogs());
+            shell.ApplyNewChatExperience(MobileLaunchpadTests.Experience());
+            await SettleFramesAsync(window);
+
+            var tabs = Assert.IsType<ListBox>(Named(window, "WelcomeTabs"));
+            Assert.True(tabs.IsEffectivelyVisible);
+            Assert.Equal(2, tabs.ItemCount);
+            var startersControl = Named(window, "WelcomeStarters");
+            var forYou = BoundsIn(startersControl, window);
+            var tabsTop = BoundsIn(tabs, window).Top;
+            shell.SelectedLaunchpadTab = shell.LaunchpadTabs[1];
+            await SettleFramesAsync(window);
+
+            // For you's one starter keeps the room Plan's need, so the tabs stay where the finger left them, and the
+            // tab needing the most lines fills that room exactly.
+            var area = BoundsIn(startersControl, window);
+            Assert.InRange(Math.Abs(BoundsIn(tabs, window).Top - tabsTop), 0, 0.5);
+            Assert.InRange(Math.Abs(area.Height - forYou.Height), 0, 0.5);
+            var cards = startersControl.GetVisualDescendants().OfType<Button>().ToList();
+            Assert.Equal(2, cards.Count);
+            Assert.InRange(Math.Abs(cards.Max(card => BoundsIn(card, window).Bottom) - area.Bottom), 0, 0.5);
+            Assert.All(cards, card => Assert.True(card.Bounds.Height >= 48, $"{card.Bounds.Height} dp is under a fingertip"));
+            foreach (var line in cards.Select(card => BoundsIn(card, window)).GroupBy(bounds => Math.Round(bounds.Top)))
+            {
+                var left = line.Min(bounds => bounds.Left) - area.Left;
+                var right = area.Right - line.Max(bounds => bounds.Right);
+                Assert.InRange(Math.Abs(left - right), 0, 1);
+            }
+
+            var composer = BoundsIn(Named(window, "Composer"), window);
+            Assert.InRange(Math.Abs(BoundsIn(Named(window, "WelcomeJustChat"), window).Left - composer.Left), 0, 1);
+            Assert.True(Named(window, "WelcomeOther").IsVisible);
+            Assert.False(Named(window, "WelcomeKeep").IsVisible);
+
+            // A starter: its first blank selected, send turned toward the next one, and nothing sent.
+            Tap(window, cards[0]);
+            await SettleFramesAsync(window);
+            var input = Named(window, "Composer").GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "PART_Input");
+            Assert.Equal("Plan a trip to [where?] in [when?]", input.Text);
+            Assert.Equal("[where?]", input.SelectedText);
+            var send = Named(window, "Composer").GetVisualDescendants().OfType<Button>().Single(button => button.Name == "PART_SendButton");
+            Assert.Equal(InteractiveLabels.Current["nextBlank"], Avalonia.Automation.AutomationProperties.GetName(send));
+            Tap(window, send);
+            await SettleFramesAsync(window);
+            Assert.Equal("[when?]", input.SelectedText);
+            Assert.Equal(InteractiveLabels.Current["send"], Avalonia.Automation.AutomationProperties.GetName(send));
+            Assert.Equal(Guid.Empty, shell.Chat.ChatId);
+
+            // The chat's setup carries its ⋯, and only it.
+            shell.UseStartSetupCommand.Execute(shell.StartSetups[0]);
+            await SettleFramesAsync(window);
+            var more = Named(window, "WelcomeSetups").GetVisualDescendants().OfType<Button>()
+                .Where(button => button.Classes.Contains("welcome-setup-more")).ToList();
+            var shown = Assert.Single(more, button => button.IsEffectivelyVisible);
+            Assert.True(shown.Bounds.Height >= 48);
+            Tap(window, shown);
+            Assert.True(shell.IsSetupSheetOpen);
+            shell.IsSetupSheetOpen = false;
+
+            // A place from Other: its capsule and Keep glide into view at the row's end.
+            shell.PickPlaceCommand.Execute(shell.OtherProjects.Single());
+            await SettleFramesAsync(window, frames: 60);
+            var keep = Named(window, "WelcomeKeep");
+            Assert.True(keep.IsEffectivelyVisible);
+            var row = BoundsIn(Named(window, "WelcomeSetupsScroll"), window);
+            var keepBounds = BoundsIn(keep, window);
+            Assert.True(keepBounds.Right <= row.Right + 0.5, $"Keep {keepBounds} lies beyond the row {row}");
+            Assert.True(keepBounds.Left >= row.Left, $"Keep {keepBounds} lies before the row {row}");
+        });
+    }
+
+    /// <summary>Runs layout, the dispatcher and render frames, so posted work and frame-driven glides finish.</summary>
+    private static async Task SettleFramesAsync(Window window, int frames = 12)
+    {
+        for (var frame = 0; frame < frames; frame++)
+        {
+            Pump(window);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(16);
+        }
+        Pump(window);
     }
 
     /// <summary>The greeting keeps the desktop's accent on the user's name.</summary>

@@ -404,6 +404,7 @@ public partial class ChatView : UserControl
             vm.CopyToClipboardRequested += OnCopyToClipboardRequested;
             vm.FocusComposerRequested += FocusComposer;
             vm.FocusComposerAtEndRequested += FocusComposerAtEnd;
+            vm.ComposerFillInRequested += OnComposerFillInRequested;
             vm.WorkspaceJumpToTurnRequested += OnWorkspaceJumpToTurnRequested;
             vm.ReplySourceJumpRequested += OnReplySourceJumpRequested;
             vm.SubagentRunShowRequested += OnSubagentRunShowRequested;
@@ -473,6 +474,7 @@ public partial class ChatView : UserControl
         _subscribedVm.CopyToClipboardRequested -= OnCopyToClipboardRequested;
         _subscribedVm.FocusComposerRequested -= FocusComposer;
         _subscribedVm.FocusComposerAtEndRequested -= FocusComposerAtEnd;
+        _subscribedVm.ComposerFillInRequested -= OnComposerFillInRequested;
         _subscribedVm.WorkspaceJumpToTurnRequested -= OnWorkspaceJumpToTurnRequested;
         _subscribedVm.ReplySourceJumpRequested -= OnReplySourceJumpRequested;
         _subscribedVm.SubagentRunShowRequested -= OnSubagentRunShowRequested;

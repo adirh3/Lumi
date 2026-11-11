@@ -188,13 +188,24 @@ public class AppDataSnapshotFactoryTests
     {
         var projectId = Guid.NewGuid();
         var curatedThrough = new DateTimeOffset(2026, 10, 22, 5, 0, 0, TimeSpan.FromHours(3));
+        var lastUsed = new DateTimeOffset(2026, 11, 9, 21, 30, 0, TimeSpan.FromHours(2));
         var data = new AppData
         {
             Settings = new UserSettings { EnableDailyBriefs = false },
-            Briefs = [new ContextBrief { ProjectId = projectId, Content = "## Now\n- Shipping 1.0", CuratedThrough = curatedThrough, EditedByUser = true }]
+            Briefs =
+            [
+                new ContextBrief
+                {
+                    ProjectId = projectId, Content = "## Now\n- Shipping 1.0", CuratedThrough = curatedThrough, EditedByUser = true,
+                    Starters = ["Publish 1.0.2", "Continue the mobile smoothness work"],
+                },
+            ],
+            StarterUses = [new StarterUse { Id = "plan.trip", ProjectId = projectId, Count = 3, Score = 2.5, LastUsedAt = lastUsed }],
         };
         var snapshot = InvokeCreateIndexSnapshot(data);
         data.Briefs[0].Content = "changed after the snapshot";
+        data.Briefs[0].Starters = ["changed after the snapshot"];
+        data.StarterUses[0].Count = 9;
         var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
         var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!;
 
@@ -204,7 +215,11 @@ public class AppDataSnapshotFactoryTests
         Assert.Equal("## Now\n- Shipping 1.0", brief.Content);
         Assert.Equal(curatedThrough, brief.CuratedThrough);
         Assert.True(brief.EditedByUser);
+        Assert.Equal(["Publish 1.0.2", "Continue the mobile smoothness work"], brief.Starters);
+        var use = Assert.Single(restored.StarterUses);
+        Assert.Equal(("plan.trip", projectId, 3, 2.5, lastUsed), (use.Id, use.ProjectId, use.Count, use.Score, use.LastUsedAt));
         Assert.True(JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!.EnableDailyBriefs);
+        Assert.Empty(JsonSerializer.Deserialize("{\"briefs\":[{}]}", AppDataJsonContext.Default.AppData)!.Briefs[0].Starters);
     }
 
     [Fact]

@@ -65,6 +65,12 @@ class Program
     /// <summary>When true, debug automation starts in the main app without first-run onboarding.</summary>
     public static bool SkipOnboarding { get; private set; }
 
+    /// <summary>
+    /// When true, the profile's background jobs are kept as they are but never run, so a debug instance can open a copy
+    /// of a real profile without repeating its jobs (debug only).
+    /// </summary>
+    public static bool NoBackgroundJobs { get; private set; }
+
     /// <summary>Parsed options for the UI responsiveness harness (enabled via CLI flag, debug only).</summary>
     public static UiPerf.UiHarnessOptions? UiHarnessOptions { get; private set; }
 
@@ -155,6 +161,7 @@ class Program
         OpenAgentDebugHarness = OpenInteractiveControlsFixture || args.Any(DebugAgentHarness.IsUiHarnessFlag);
         SkipOnboarding = QaSmokeOptions.Enabled || args.Contains("--skip-onboarding", StringComparer.OrdinalIgnoreCase)
             || args.Contains("--no-onboarding", StringComparer.OrdinalIgnoreCase);
+        NoBackgroundJobs = args.Contains("--no-background-jobs", StringComparer.OrdinalIgnoreCase);
         if (OpenAgentDebugHarness)
         {
             EnsureIsolatedHarnessAppDataDir("agent-debug");

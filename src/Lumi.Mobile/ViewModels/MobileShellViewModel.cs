@@ -72,29 +72,6 @@ public sealed partial class ProjectPickViewModel : ObservableObject
     public required string Name { get; init; }
 }
 
-public sealed partial class ChatStartSetup(RemoteChatSetup setup) : ObservableObject
-{
-    // The desktop's tile: the project's initial on a tint of its hue (the hue the chat's mark will
-    // wear once it starts), otherwise the agent's glyph or a sparkle on a quiet tile.
-    private readonly ChatIdentityMark? _projectMark = setup.ProjectId is { } projectId
-        ? new ChatIdentityMark(setup.Glyph, ChatIdentityMark.HueFor(projectId))
-        : null;
-
-    internal RemoteChatSetup Source { get; } = setup;
-    public string Id => Source.Id;
-    public Guid? ProjectId => Source.ProjectId;
-    public Guid? AgentId => Source.AgentId;
-    public string? Model => Source.Model;
-    public string Title => Source.Title;
-    public string Description => Source.Description;
-    public string MarkGlyph => string.IsNullOrWhiteSpace(Source.Glyph) ? "✦" : Source.Glyph;
-    public bool HasProjectMark => _projectMark is not null;
-    public IBrush? MarkBackground => _projectMark?.Background;
-    public IBrush? MarkForeground => _projectMark?.Foreground;
-    public bool HasDescription => !string.IsNullOrWhiteSpace(Source.Description);
-    [ObservableProperty] private bool _isSelected;
-}
-
 /// <summary>
 /// The new-chat greeting split around the user's name, so the name can wear the accent as it does on
 /// the desktop's launchpad. A greeting that does not contain the name stays whole in <see cref="Lead"/>.
@@ -366,6 +343,8 @@ public sealed partial class MobileShellViewModel :
         Library = new LibraryViewModel(this);
         NewChatBrief = Strings.Get("NewChatBrief");
         StartSetupsTitle = Strings.Get("UsualSetups");
+        // The phone's own starters until a PC sends its new chat.
+        RefreshLaunchpadStarters();
         Connect = new ConnectViewModel(
             Client,
             Discovery,
@@ -421,13 +400,21 @@ public sealed partial class MobileShellViewModel :
                 or nameof(MobileChatViewModel.ChatId)
                 or nameof(MobileChatViewModel.PromptText))
                 SendFromNotificationWhenReady();
+            // The names follow their ids (a project picked in the composer gets its name second), and Other shows them.
             if (e.PropertyName is nameof(MobileChatViewModel.ProjectValue)
+                or nameof(MobileChatViewModel.ProjectName)
                 or nameof(MobileChatViewModel.AgentValue)
+                or nameof(MobileChatViewModel.AgentName)
+                or nameof(MobileChatViewModel.AgentGlyph)
                 or nameof(MobileChatViewModel.Model)
                 or nameof(MobileChatViewModel.Quality)
                 or nameof(MobileChatViewModel.UseWorktree)
                 or nameof(MobileChatViewModel.ChatId))
                 RefreshSetupSelection();
+            if (e.PropertyName is nameof(MobileChatViewModel.ProjectValue))
+                RefreshLaunchpadScope();
+            if (e.PropertyName is nameof(MobileChatViewModel.Starters) && !HasLaunchpad)
+                RefreshLaunchpadStarters();
 
             if (e.PropertyName is nameof(MobileChatViewModel.IsEmpty))
                 OnPropertyChanged(nameof(IsWelcomeVisible));
@@ -571,90 +558,6 @@ public sealed partial class MobileShellViewModel :
     public ObservableCollection<ProjectPickViewModel> Projects { get; } = [];
 
     public bool HasProjects => Projects.Count > 0;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasStartSetups))]
-    private IReadOnlyList<ChatStartSetup> _startSetups = [];
-
-    public bool HasStartSetups => StartSetups.Count > 0;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(Greeting))]
-    [NotifyPropertyChangedFor(nameof(GreetingParts))]
-    private bool _hasDesktopNewChat;
-    [ObservableProperty] private string _newChatBrief = "";
-    [ObservableProperty] private string _startSetupsTitle = "";
-    private string? _desktopGreeting;
-
-    internal void ApplyNewChatExperience(RemoteNewChatExperience? experience)
-    {
-        _desktopGreeting = experience?.Greeting;
-        HasDesktopNewChat = experience is not null;
-        NewChatBrief = experience?.Brief ?? Strings.Get("NewChatBrief");
-        StartSetupsTitle = experience?.SetupsTitle ?? Strings.Get("UsualSetups");
-        StartSetups = experience?.Setups.Take(3).Select(setup => new ChatStartSetup(setup)).ToArray() ?? [];
-        Chat.ApplyNewChatStarters(experience?.Starters);
-        RefreshSetupSelection();
-        OnPropertyChanged(nameof(Greeting));
-        OnPropertyChanged(nameof(GreetingParts));
-    }
-
-    private void RefreshSetupSelection()
-    {
-        foreach (var setup in StartSetups)
-        {
-            var source = setup.Source;
-            setup.IsSelected = !Chat.HasChat
-                && source.ProjectId?.ToString() == Chat.ProjectValue
-                && source.AgentId?.ToString() == Chat.AgentValue
-                && source.UseWorktree == Chat.UseWorktree
-                && (source.Model is null || source.Model == Chat.Model)
-                && (source.Quality is null || source.Quality == Chat.Quality);
-        }
-    }
-
-    private bool CanUseStartSetup() => !Chat.HasChat && !Chat.IsBusy && !Chat.IsLoading && Chat.CanChangeProjectSelection;
-
-    [RelayCommand(CanExecute = nameof(CanUseStartSetup))]
-    private void UseStartSetup(ChatStartSetup? setup)
-    {
-        if (!CanUseStartSetup())
-        {
-            Chat.ErrorText = Strings.Get("SetupsBeforeFirstMessage");
-            return;
-        }
-        if (setup is null || !StartSetups.Contains(setup))
-        {
-            Chat.ErrorText = Strings.Get("SetupUnavailable");
-            return;
-        }
-
-        // The project lens goes first because it also sets a blank chat's project; the setup, or the
-        // draft it replaced, then has the last word.
-        if (!setup.IsSelected)
-        {
-            if (!Chat.HasDraftBeforeSetup)
-            {
-                _activeProjectBeforeSetup = ActiveProjectId;
-                Chat.RememberDraftBeforeSetup();
-            }
-            ActiveProjectId = setup.ProjectId;
-            Chat.ApplyStartSetup(setup.Source);
-        }
-        else if (Chat.HasDraftBeforeSetup)
-        {
-            // As on the desktop, tapping the applied setup again puts back the draft it replaced. A
-            // draft that simply matches a setup has nothing to put back.
-            ActiveProjectId = _activeProjectBeforeSetup;
-            Chat.RestoreDraftBeforeSetup();
-        }
-
-        RefreshSetupSelection();
-        Chat.ErrorText = null;
-    }
-
-    /// <summary>The chat list's project when a setup was first applied to the draft.</summary>
-    private Guid? _activeProjectBeforeSetup;
 
     // ── Chat action sheet ────────────────────────────────────────────────────────────────────
 
@@ -1458,6 +1361,7 @@ public sealed partial class MobileShellViewModel :
         !IsWebAppInstallPromptOpen &&
         !IsChatActionsOpen &&
         !IsProjectPickerOpen &&
+        !IsLaunchpadSheetOpen &&
         !IsDisconnectConfirmationOpen &&
         (Page != MobilePage.Chat || (!Chat.HasOpenSheet && !Chat.HasSidePanelOpen && !Chat.IsFilePreviewOpen)) &&
         (Page != MobilePage.Library || !Library.HasOpenSurface);
@@ -1888,6 +1792,9 @@ public sealed partial class MobileShellViewModel :
             return;
         }
 
+        if (DismissLaunchpadSheet())
+            return;
+
         if (Page == MobilePage.Library && Library.DismissTopmostSurface())
             return;
 
@@ -1934,6 +1841,7 @@ public sealed partial class MobileShellViewModel :
         IsDisconnectConfirmationOpen ||
         IsChatActionsOpen ||
         IsProjectPickerOpen ||
+        IsLaunchpadSheetOpen ||
         _pageHistory.Count > 0 ||
         (Page == MobilePage.Library && Library.HasOpenSurface) ||
         (Page == MobilePage.Chat && (Chat.HasOpenSheet || Chat.HasSidePanelOpen || Chat.IsFilePreviewOpen)) ||
@@ -1946,6 +1854,7 @@ public sealed partial class MobileShellViewModel :
         IsWebAppUpdateConfirmationOpen = false;
         IsDisconnectConfirmationOpen = false;
         IsProjectPickerOpen = false;
+        CloseLaunchpadSheets();
         // A preview belongs to the chat it was opened from; another page leaves it behind.
         if (value != MobilePage.Chat)
             Chat.CloseFilePreviewCommand.Execute(null);

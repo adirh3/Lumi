@@ -87,6 +87,8 @@
   <data name="SearchYourChats" xml:space="preserve"><value>搜索你的聊天</value></data>
   <data name="LoadMoreChats" xml:space="preserve"><value>加载更多聊天</value></data>
   <data name="LongPressChatActions" xml:space="preserve"><value>长按打开聊天操作</value></data>
+  <data name="LaunchpadIdeas" xml:space="preserve"><value>灵感</value></data>
+  <data name="LongPressSetupActions" xml:space="preserve"><value>长按可保留或更改此设置</value></data>
   <data name="RenameChat" xml:space="preserve"><value>重命名聊天</value></data>
   <data name="DeleteChat" xml:space="preserve"><value>删除聊天</value></data>
   <data name="ChatName" xml:space="preserve"><value>聊天名称</value></data>

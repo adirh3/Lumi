@@ -175,8 +175,31 @@ public static class DesignPreview
                 new() { Model = "gemini-3.8-flash", DisplayName = "Gemini 3.8 Flash", ProviderName = "GitHub Copilot", Cost = "0.33×", ContextSize = "1M", Status = "Needs enabling" }
             ]
         });
-        // A new chat as a paired PC describes it: its greeting and brief, the setups the user keeps
-        // starting chats with, and starters for the hour.
+        // A new chat as a paired PC with the launchpad describes it: its greeting, For you and the line under the
+        // greeting per project, a tab per kind of task, the setups row (several setups for Lumi among them), Other's
+        // places, and what waits on the user.
+        RemoteChatSetup Setup(string id, string title, string description, RemoteProject? project, RemoteLumi? agent,
+            string? model, string? effort, string? detail = null, bool worktree = false, bool variant = false, bool kept = false) => new()
+        {
+            Id = id, Title = title, Description = description,
+            Glyph = project?.Name[..1] ?? agent?.IconGlyph ?? "✦",
+            ProjectId = project?.Id, ProjectName = project?.Name,
+            AgentId = agent?.Id, AgentName = agent?.Name, AgentGlyph = agent?.IconGlyph,
+            UseWorktree = worktree, Model = model, Effort = effort,
+            Quality = effort is null ? null : char.ToUpperInvariant(effort[0]) + effort[1..],
+            Detail = detail, IsVariant = variant, IsKept = kept, CanUseWorktree = project?.IsCodingProject == true
+        };
+        static RemoteLaunchpadStarter Starter(string id, string icon, string label, string? reason = null) =>
+            new() { Id = id, Icon = icon, Label = label, Prompt = label, Reason = reason };
+        static RemoteLaunchpadTab Tab(string id, string title, params RemoteLaunchpadStarter[] starters) =>
+            new() { Id = id, Title = title, Starters = [.. starters] };
+        var lumiWorktree = Setup("lumi-worktree", lumi.Name, "Coding Lumi · Worktree · GPT-6.1 Sol · High", lumi, codingLumi,
+            "gpt-6.1-sol", "high", "Worktree · GPT-6.1 Sol", worktree: true, variant: true, kept: true);
+        RemoteLaunchpadPlace Place(RemoteProject? project, RemoteLumi? agent, string hint, bool kept = false) => new()
+        {
+            Id = project?.Id ?? agent!.Id, IsProject = project is not null, Title = project?.Name ?? agent!.Name, Hint = hint, IsKept = kept,
+            Setup = Setup($"place-{project?.Name ?? agent!.Name}", project?.Name ?? agent!.Name, "GPT-6.1 Sol", project, agent, "gpt-6.1-sol", null)
+        };
         shell.ApplyNewChatExperience(new RemoteNewChatExperience
         {
             Greeting = DateTime.Now.Hour switch
@@ -188,32 +211,100 @@ public static class DesignPreview
             },
             Brief = "1 chat needs your answer · 1 new reply",
             SetupsTitle = "Start with",
+            JustChat = Setup("just-chat", "Just chat", "GPT-6.1 Sol", null, null, "gpt-6.1-sol", null, "GPT-6.1 Sol"),
             Setups =
             [
-                new()
-                {
-                    Id = "lumi", Title = lumi.Name, Description = "Coding Lumi · Worktree · GPT-6.1 Sol · High",
-                    Glyph = "L", ProjectId = lumi.Id, ProjectName = lumi.Name, AgentId = codingLumi.Id,
-                    AgentName = codingLumi.Name, AgentGlyph = codingLumi.IconGlyph, UseWorktree = true,
-                    Model = "gpt-6.1-sol", Quality = "High"
-                },
-                new()
-                {
-                    Id = "fluent", Title = fluent.Name, Description = "Claude Opus 5.5",
-                    Glyph = "F", ProjectId = fluent.Id, ProjectName = fluent.Name, Model = "claude-opus-5.5"
-                },
-                new()
-                {
-                    Id = "planner", Title = dailyPlanner.Name, Description = "No project",
-                    Glyph = dailyPlanner.IconGlyph, AgentId = dailyPlanner.Id, AgentName = dailyPlanner.Name,
-                    AgentGlyph = dailyPlanner.IconGlyph
-                }
+                lumiWorktree,
+                Setup("lumi-opus", lumi.Name, "Claude Opus 5.5 · High", lumi, null, "claude-opus-5.5", "high", "Claude Opus 5.5", variant: true, kept: true),
+                Setup("lumi-luna", lumi.Name, "GPT-6 Luna", lumi, null, "gpt-6-luna", null, "GPT-6 Luna", variant: true),
+                Setup("fluent", fluent.Name, "Claude Opus 5.5", fluent, null, "claude-opus-5.5", null, "Claude Opus 5.5"),
+                Setup("planner", dailyPlanner.Name, "No project", null, dailyPlanner, null, null)
             ],
             Starters =
             [
                 new() { Glyph = "🌙", Label = "Recap my day", Prompt = "Recap my day: what did I work on today across my Lumi chats, what got done, and what's still open?" },
                 new() { Glyph = "🗓️", Label = "Plan tomorrow", Prompt = "Help me plan tomorrow: what should I focus on, and in what order?" },
                 new() { Glyph = "🔍", Label = "Research a topic", Prompt = "Research a topic" }
+            ],
+            Tabs =
+            [
+                Tab("plan", "Plan",
+                    Starter("plan.trip", "globe", "Plan a trip to [where?]"), Starter("plan.week", "calendar", "Plan my week around [priorities]"),
+                    Starter("plan.event", "people", "Plan [an event] for [how many] people"), Starter("plan.meals", "checklist", "Plan meals for the week"),
+                    Starter("plan.goal", "target", "Make a plan to reach [goal]"), Starter("plan.prepare", "person", "Help me prepare for [an interview]")),
+                Tab("shop", "Shop",
+                    Starter("shop.choose", "tag", "Help me choose a [product] under [budget]"), Starter("shop.compare", "overlap", "Compare [this] and [that]"),
+                    Starter("shop.deal", "search", "Find the best deal on [product]"), Starter("shop.worth-it", "question", "Is [product] worth it?"),
+                    Starter("shop.gift", "gift", "Find a gift for [who] under [budget]"), Starter("shop.reviews", "chat", "Summarize reviews of [product]")),
+                Tab("learn", "Learn",
+                    Starter("learn.research", "search", "Research [topic]"), Starter("learn.explain", "lightbulb", "Explain [topic] simply"),
+                    Starter("learn.quiz", "check-circle", "Quiz me on [topic]"), Starter("learn.news", "globe", "What's new in [topic]?"),
+                    Starter("learn.fact-check", "shield-check", "Fact-check [claim]"), Starter("learn.skill", "book", "Teach me [a skill] step by step")),
+                Tab("write", "Write",
+                    Starter("write.email", "mail", "Write an email to [who] about [what]"), Starter("write.reply", "reply", "Help me reply to [message]"),
+                    Starter("write.rewrite", "wand", "Rewrite [text] to sound [tone]"), Starter("write.post", "share", "Write a [post] about [topic]"),
+                    Starter("write.translate", "globe", "Translate [text] into [language]"), Starter("write.proofread", "pencil", "Proofread [text]")),
+                Tab("documents", "Documents",
+                    Starter("docs.summarize", "document", "Summarize [file or link]"), Starter("docs.word", "document-plus", "Turn [notes] into a Word document"),
+                    Starter("docs.slides", "layers", "Make a presentation about [topic]"), Starter("docs.sheet", "database", "Build a spreadsheet to track [what]"),
+                    Starter("docs.organize", "folder", "Organize the files in [folder]"), Starter("docs.convert", "files", "Convert [file] to [format]")),
+                Tab("money", "Money",
+                    Starter("money.spending", "wallet", "Make sense of my spending in [bank export]"), Starter("money.budget", "checklist", "Build me a monthly budget"),
+                    Starter("money.save", "target", "Help me save [amount] by [when]"), Starter("money.loan", "calendar", "Work out the monthly payment on [loan]"),
+                    Starter("money.split", "people", "Split [bill] between [people]"), Starter("money.subscriptions", "retry", "Find subscriptions I could cancel")),
+                Tab("computer", "Computer",
+                    Starter("computer.slow", "bolt", "Why is my computer slow?"), Starter("computer.space", "database", "Free up space on my computer"),
+                    Starter("computer.fix", "sliders", "Fix [what's not working] on my computer"), Starter("computer.setup", "plug", "Help me set up [device or app]"),
+                    Starter("computer.security", "shield", "Check my computer's security"), Starter("computer.backup", "copy", "Back up [what] to [where]")),
+                Tab("code", "Code",
+                    Starter("code.explain", "book", "Explain how [repo or file] works"), Starter("code.fix", "bug", "Find and fix [bug]"),
+                    Starter("code.tests", "beaker", "Add tests for [area]"), Starter("code.review", "diff", "Review my changes"),
+                    Starter("code.changes", "branch", "What changed since [when]?"), Starter("code.feature", "cube", "Build [a feature]"))
+            ],
+            Scopes =
+            [
+                new()
+                {
+                    Subtitle = "What would you like to start?",
+                    ForYou =
+                    [
+                        Starter("day.plan", "checklist", "Plan my day", "This morning"), Starter("plan.trip", "globe", "Plan a trip to [where?]", "You start these often"),
+                        Starter("shop.choose", "tag", "Help me choose a [product] under [budget]"), Starter("write.email", "mail", "Write an email to [who] about [what]"),
+                        Starter("learn.explain", "lightbulb", "Explain [topic] simply"), Starter("docs.summarize", "document", "Summarize [file or link]")
+                    ]
+                },
+                new()
+                {
+                    ProjectId = lumi.Id,
+                    Subtitle = "Lumi 1.0.1 is live; 1.0.2 is prepared but unpublished.",
+                    ForYou =
+                    [
+                        new() { Icon = "bookmark", Label = "Finish the phone launchpad and test it on Android", Prompt = "Finish the phone launchpad and test it on Android", Reason = "From Lumi's brief" },
+                        new() { Icon = "bookmark", Label = "Publish Lumi 1.0.2", Prompt = "Publish Lumi 1.0.2", Reason = "From Lumi's brief" },
+                        Starter("code.review", "diff", "Review my changes"), Starter("code.fix", "bug", "Find and fix [bug]"),
+                        Starter("code.changes", "branch", "What changed since [when]?"), Starter("code.tests", "beaker", "Add tests for [area]")
+                    ]
+                }
+            ],
+            Places =
+            [
+                Place(lumi, null, "now", kept: true), Place(fluent, null, "2h ago"), Place(travel, null, "5h ago"), Place(home, null, "yesterday"),
+                Place(null, codingLumi, "40m ago"), Place(null, dailyPlanner, "yesterday")
+            ],
+            Labels = new()
+            {
+                ForYou = "For you", JustChat = "Just chat", Other = "Other", OtherTitle = "Start in another project or with another agent",
+                OtherSearch = "Search projects and agents", OtherProjects = "Projects", OtherAgents = "Agents",
+                OtherEmpty = "No project or agent matches", Keep = "Keep", KeepOnNewChats = "Keep on new chats",
+                StartInWorktree = "Start in a worktree", DontSuggest = "Don't suggest this", StartsWith = "Starts with",
+                Customize = "Customize this setup"
+            },
+            NeedsYouCount = 2,
+            NeedsYou = "2 chats need you",
+            NeedsYouChats =
+            [
+                new() { ChatId = Guid.NewGuid(), Title = "Crash triage: indexer timeout", IsWaiting = true, StateLabel = "Asked you something", Meta = "Fluent Search · Which build should I bisect from?", TimeLabel = "2h ago" },
+                new() { ChatId = Guid.NewGuid(), Title = "Lisbon weekend itinerary", StateLabel = "Replied", Meta = "Travel · Day 1: Alfama walk, then dinner by the river", TimeLabel = "5h ago" }
             ]
         });
         shell.Chat.Reset(open.Id, open.Title, "gpt-6.1-sol");

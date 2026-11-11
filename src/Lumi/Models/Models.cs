@@ -1830,6 +1830,41 @@ public class ContextBrief
 
     /// <summary>The user changed the text after the curator last wrote it; the curator keeps those edits in mind.</summary>
     public bool EditedByUser { get; set; }
+
+    /// <summary>
+    /// In a project, up to three of the user's plans from the brief, phrased as requests a new chat can start with
+    /// ("Publish 1.0.2"). The launchpad offers them first in the project's For you; the curator keeps them with the brief.
+    /// </summary>
+    public List<string> Starters { get; set; } = [];
+}
+
+/// <summary>
+/// How often the user picked one of the launchpad's starters in one place (a project, or outside projects). The
+/// launchpad puts the user's habits in For you and the tabs they use first.
+/// </summary>
+public class StarterUse
+{
+    /// <summary>The starter's id in the launchpad's catalog.</summary>
+    public string Id { get; set; } = "";
+    public Guid? ProjectId { get; set; }
+    public int Count { get; set; }
+
+    /// <summary>The picks weighted by age as of <see cref="LastUsedAt"/>; each one's weight halves in two weeks.</summary>
+    public double Score { get; set; }
+    public DateTimeOffset LastUsedAt { get; set; }
+}
+
+/// <summary>
+/// A setup the user keeps on the new chat (<see cref="AppData.PinnedSetups"/>), or a place they asked it not to
+/// suggest (<see cref="AppData.HiddenSetups"/>, which only uses where: the project, agent and checkout).
+/// </summary>
+public class LaunchpadSetupPin
+{
+    public Guid? ProjectId { get; set; }
+    public Guid? AgentId { get; set; }
+    public bool UseWorktree { get; set; }
+    public string? ModelId { get; set; }
+    public string? Effort { get; set; }
 }
 
 /// <summary>
@@ -2170,4 +2205,11 @@ public class AppData
     public List<BackgroundJob> BackgroundJobs { get; set; } = [];
     public List<Memory> Memories { get; set; } = [];
     public List<ContextBrief> Briefs { get; set; } = [];
+    public List<StarterUse> StarterUses { get; set; } = [];
+
+    /// <summary>The setups the user keeps on the new chat, first, in the order they pinned them.</summary>
+    public List<LaunchpadSetupPin> PinnedSetups { get; set; } = [];
+
+    /// <summary>Places the new chat no longer suggests as one of the user's usual setups.</summary>
+    public List<LaunchpadSetupPin> HiddenSetups { get; set; } = [];
 }

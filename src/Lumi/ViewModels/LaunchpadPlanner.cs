@@ -10,14 +10,13 @@ using Lumi.Models;
 
 namespace Lumi.ViewModels;
 
-/// <summary>What a chat on the launchpad's "pick up" list is doing, most urgent first.</summary>
+/// <summary>What a chat is doing that the launchpad cares about, most urgent first.</summary>
 public enum LaunchpadChatState
 {
     Waiting,
     Reply,
     Working,
     Background,
-    Recent,
 }
 
 internal enum LaunchpadDayPart
@@ -48,18 +47,59 @@ internal sealed record LaunchpadSetupSpec(
 /// <summary>The personal greeting, split around the user's name so the name can carry its own emphasis.</summary>
 internal readonly record struct LaunchpadGreeting(string Lead, string Name, string Trail);
 
-internal sealed record LaunchpadStarterSpec(string Glyph, string Label, string Prompt);
+/// <summary>A conversation starter. Its label may hold blanks ("[where?]") that the user fills in before sending.</summary>
+internal sealed record LaunchpadStarterSpec(string Glyph, string Label, string Prompt)
+{
+    /// <summary>The starter's stable id, so picking it is remembered; null for one written from a project's brief.</summary>
+    public string? Id { get; init; }
 
-internal sealed record LaunchpadSetupChoice(LaunchpadSetupSpec Spec, string Title, string Meta);
+    /// <summary>The tab it belongs to (<see cref="LaunchpadStarterCatalog"/>), if any.</summary>
+    public string? CategoryId { get; init; }
+
+    /// <summary>Why For you offers it ("From Lumi's brief", "This morning"); null where it needs no reason.</summary>
+    public string? Reason { get; init; }
+}
+
+internal sealed record LaunchpadSetupChoice(LaunchpadSetupSpec Spec, string Title, string Meta)
+{
+    /// <summary>The kept setup it shows, which its menu edits; null for one learned from the user's chats.</summary>
+    public LaunchpadSetupPin? Pin { get; init; }
+
+    /// <summary>The user kept it: it stays on the new chat until they remove it.</summary>
+    public bool IsPinned => Pin is not null;
+}
+
+/// <summary>A project or agent of Other's list, when the user last worked there, and how a chat there starts.</summary>
+internal sealed record LaunchpadPlace(Guid Id, bool IsProject, string Title, string Hint, bool IsKept, LaunchpadSetupSpec Setup);
 
 /// <summary>
 /// The launchpad's decisions, kept free of UI and store state so they are cheap and testable:
-/// which chats deserve attention, which setups the user reaches for, and which starters fit the hour.
+/// which chats need the user, which setups the user reaches for, and which starters fit the moment.
 /// </summary>
-internal static class LaunchpadPlanner
+internal static partial class LaunchpadPlanner
 {
-    internal const int MaxPickUpItems = 4;
+    internal const int MaxNeedsYouItems = 6;
     internal const int MaxSetups = 3;
+
+    /// <summary>
+    /// The most kept setups the new chat shows: kept ones never count against <see cref="MaxSetups"/>, which only
+    /// limits how many learned ones fill the row. The row scrolls once they outgrow the composer.
+    /// </summary>
+    internal const int MaxKeptSetups = 10;
+
+    /// <summary>
+    /// For you holds this many starters (two lines of capsules); a project's brief gives all the plans its curator
+    /// keeps (<see cref="MaxBriefStarters"/>), the user's habits at most <see cref="MaxHabitStarters"/>.
+    /// </summary>
+    internal const int ForYouCount = 6;
+    internal const int MaxBriefStarters = Services.Context.ContextCuratorScope.MaxStarters;
+    private const int MaxHabitStarters = 2;
+
+    /// <summary>The glyph of a starter written from a project's brief.</summary>
+    internal const string BriefStarterGlyph = "🧭";
+
+    /// <summary>The longest brief headline shown under the greeting.</summary>
+    internal const int BriefHeadlineMaxLength = 120;
 
     /// <summary>A configuration must recur before it is offered as one of the user's setups.</summary>
     private const int MinSetupUses = 2;
@@ -143,37 +183,20 @@ internal static class LaunchpadPlanner
     }
 
     /// <summary>
-    /// Chats to pick up, most urgent first: waiting on an answer, then unread replies, then work in
-    /// progress. Remaining room goes to the most recent conversations, leaving out chats an active
-    /// automation keeps writing to (they surface when they have something unread).
+    /// The chats waiting on the user, most urgent first: a question to answer, then a reply not read yet. Chats that
+    /// are only working are left out: the new chat is about starting something, and the sidebar shows them.
     /// </summary>
-    internal static List<(Chat Chat, LaunchpadChatState State)> SelectPickUp(
-        IEnumerable<Chat> chats,
-        IReadOnlySet<Guid> automationChatIds,
-        int limit)
+    internal static List<(Chat Chat, LaunchpadChatState State)> SelectNeedsYou(IEnumerable<Chat> chats, int limit, out int total)
     {
-        var all = chats as IReadOnlyCollection<Chat> ?? chats.ToList();
-        var picked = all
+        var waiting = chats
             .Select(chat => (Chat: chat, State: ClassifyActive(chat)))
-            .Where(static entry => entry.State is not null)
+            .Where(static entry => entry.State is LaunchpadChatState.Waiting or LaunchpadChatState.Reply)
             .OrderBy(static entry => entry.State!.Value)
             .ThenByDescending(static entry => entry.Chat.UpdatedAt)
-            .Take(limit)
             .Select(static entry => (entry.Chat, entry.State!.Value))
             .ToList();
-
-        if (picked.Count >= limit)
-            return picked;
-
-        var pickedIds = picked.Select(static entry => entry.Chat.Id).ToHashSet();
-        picked.AddRange(all
-            .Where(chat => !pickedIds.Contains(chat.Id)
-                           && !automationChatIds.Contains(chat.Id)
-                           && HasContent(chat))
-            .OrderByDescending(static chat => chat.UpdatedAt)
-            .Take(limit - picked.Count)
-            .Select(static chat => (chat, LaunchpadChatState.Recent)));
-        return picked;
+        total = waiting.Count;
+        return waiting.Count > limit ? waiting.GetRange(0, limit) : waiting;
     }
 
     /// <summary>
@@ -247,7 +270,8 @@ internal static class LaunchpadPlanner
         return result;
     }
 
-    private static LaunchpadSetupSpec ToSetupSpec(
+    /// <summary>A chat's configuration in setup terms: where it worked, as whom, and on what it would run today.</summary>
+    internal static LaunchpadSetupSpec ToSetupSpec(
         Chat chat,
         Func<Guid, bool> projectExists,
         Func<Guid, bool> agentExists,
@@ -267,13 +291,13 @@ internal static class LaunchpadPlanner
     /// <summary>Three conversation starters that suit the time of day and whether there is history to draw on.</summary>
     internal static List<LaunchpadStarterSpec> SelectStarters(int hour, bool hasHistory)
     {
-        var planDay = new LaunchpadStarterSpec("☀️", Loc.Chat_SuggestionA, Loc.Chat_SuggestionA);
-        var research = new LaunchpadStarterSpec("🔍", Loc.Chat_SuggestionB, Loc.Chat_SuggestionB);
-        var document = new LaunchpadStarterSpec("📄", Loc.Chat_SuggestionC, Loc.Chat_SuggestionC);
-        var planTomorrow = new LaunchpadStarterSpec("🗓️", Loc.Launchpad_StarterPlanTomorrow, Loc.Launchpad_StarterPlanTomorrowPrompt);
-        var catchUp = new LaunchpadStarterSpec("📬", Loc.Launchpad_StarterCatchUp, Loc.Launchpad_StarterCatchUpPrompt);
-        var focus = new LaunchpadStarterSpec("🎯", Loc.Launchpad_StarterFocus, Loc.Launchpad_StarterFocusPrompt);
-        var recap = new LaunchpadStarterSpec("🌙", Loc.Launchpad_StarterRecap, Loc.Launchpad_StarterRecapPrompt);
+        var planDay = TimeOfDayStarter(PlanDayId)!;
+        var research = TimeOfDayStarter(ResearchId)!;
+        var document = TimeOfDayStarter(DocumentId)!;
+        var planTomorrow = TimeOfDayStarter(PlanTomorrowId)!;
+        var catchUp = TimeOfDayStarter(CatchUpId)!;
+        var focus = TimeOfDayStarter(FocusId)!;
+        var recap = TimeOfDayStarter(RecapId)!;
 
         return DayPartOf(hour) switch
         {
@@ -282,6 +306,136 @@ internal static class LaunchpadPlanner
             LaunchpadDayPart.Evening => hasHistory ? [recap, planTomorrow, research] : [planTomorrow, research, document],
             _ => hasHistory ? [recap, planTomorrow, document] : [planTomorrow, research, document],
         };
+    }
+
+    private const string PlanDayId = "day.plan";
+    private const string ResearchId = "day.research";
+    private const string DocumentId = "day.document";
+    private const string PlanTomorrowId = "day.tomorrow";
+    private const string CatchUpId = "day.catch-up";
+    private const string FocusId = "day.focus";
+    private const string RecapId = "day.recap";
+
+    /// <summary>A time-of-day starter by id, in the current language.</summary>
+    internal static LaunchpadStarterSpec? TimeOfDayStarter(string id) => id switch
+    {
+        PlanDayId => new("☀️", Loc.Chat_SuggestionA, Loc.Chat_SuggestionA) { Id = id, CategoryId = LaunchpadStarterCatalog.Plan },
+        ResearchId => new("🔍", Loc.Chat_SuggestionB, Loc.Chat_SuggestionB) { Id = id, CategoryId = LaunchpadStarterCatalog.Learn },
+        DocumentId => new("📄", Loc.Chat_SuggestionC, Loc.Chat_SuggestionC) { Id = id, CategoryId = LaunchpadStarterCatalog.Documents },
+        PlanTomorrowId => new("🗓️", Loc.Launchpad_StarterPlanTomorrow, Loc.Launchpad_StarterPlanTomorrowPrompt)
+            { Id = id, CategoryId = LaunchpadStarterCatalog.Plan },
+        CatchUpId => new("📬", Loc.Launchpad_StarterCatchUp, Loc.Launchpad_StarterCatchUpPrompt) { Id = id },
+        FocusId => new("🎯", Loc.Launchpad_StarterFocus, Loc.Launchpad_StarterFocusPrompt) { Id = id },
+        RecapId => new("🌙", Loc.Launchpad_StarterRecap, Loc.Launchpad_StarterRecapPrompt) { Id = id },
+        _ => null,
+    };
+
+    /// <summary>
+    /// For you: in a project, the plans its brief turned into starters come first; then the starters the user keeps
+    /// picking in this place; then what suits the time of day; then well-tried ones, so the list is always full. In a
+    /// coding project (<paramref name="workFirst"/>) the work comes before the hour, which is about the user's day rather
+    /// than the code. Never the same starter twice.
+    /// </summary>
+    internal static List<LaunchpadStarterSpec> SelectForYou(
+        IReadOnlyList<string> briefStarters,
+        string? briefReason,
+        IReadOnlyList<LaunchpadStarterSpec> habits,
+        IReadOnlyList<LaunchpadStarterSpec> timeOfDay,
+        IReadOnlyList<LaunchpadStarterSpec> fillers,
+        bool workFirst = false)
+    {
+        var result = new List<LaunchpadStarterSpec>(ForYouCount);
+        foreach (var text in briefStarters.Where(static text => !string.IsNullOrWhiteSpace(text)).Take(MaxBriefStarters))
+            Add(new LaunchpadStarterSpec(BriefStarterGlyph, text.Trim(), text.Trim()) { Reason = briefReason });
+        foreach (var habit in habits.Take(MaxHabitStarters))
+            Add(habit);
+        foreach (var starter in workFirst ? fillers.Concat(timeOfDay) : timeOfDay.Concat(fillers))
+            Add(starter);
+        return result;
+
+        void Add(LaunchpadStarterSpec starter)
+        {
+            if (result.Count < ForYouCount
+                && !result.Any(existing => (existing.Id is not null && existing.Id == starter.Id)
+                                           || string.Equals(existing.Prompt, starter.Prompt, StringComparison.OrdinalIgnoreCase)))
+            {
+                result.Add(starter);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Why a time-of-day starter is offered now ("This morning"): only the ones about the day itself, since researching
+    /// or writing suits any hour.
+    /// </summary>
+    internal static string? TimeOfDayReason(string? id, int hour)
+    {
+        if (id is not (PlanDayId or CatchUpId or FocusId or RecapId or PlanTomorrowId))
+            return null;
+
+        return DayPartOf(hour) switch
+        {
+            LaunchpadDayPart.Morning => Loc.Launchpad_ReasonMorning,
+            LaunchpadDayPart.Afternoon => Loc.Launchpad_ReasonAfternoon,
+            LaunchpadDayPart.Evening => Loc.Launchpad_ReasonEvening,
+            _ => Loc.Launchpad_ReasonNight,
+        };
+    }
+
+    /// <summary>
+    /// The setups the new chat offers: every one the user kept, in their order, several of one place included (Lumi on
+    /// two models, and in a worktree); then learned ones for places the user neither kept nor asked not to see, while the
+    /// row holds fewer than <paramref name="limit"/>. Each says which kept setup it is (its index in
+    /// <paramref name="pinned"/>), or -1 for a learned one. A setup is never offered twice.
+    /// </summary>
+    internal static List<(LaunchpadSetupSpec Spec, int PinIndex)> MergeSetups(
+        IReadOnlyList<LaunchpadSetupSpec> pinned,
+        IReadOnlyList<LaunchpadSetupSpec> learned,
+        IReadOnlyCollection<(Guid? ProjectId, Guid? AgentId, bool UseWorktree)> hidden,
+        int limit)
+    {
+        var result = new List<(LaunchpadSetupSpec Spec, int PinIndex)>(Math.Max(limit, pinned.Count));
+        var blocked = new HashSet<(Guid? ProjectId, Guid? AgentId, bool UseWorktree)>(hidden);
+        for (var index = 0; index < pinned.Count; index++)
+        {
+            var spec = pinned[index];
+            blocked.Add(spec.Context);
+            if (result.Count < MaxKeptSetups && !result.Exists(entry => entry.Spec == spec))
+                result.Add((spec, index));
+        }
+
+        foreach (var spec in learned)
+        {
+            if (result.Count >= limit)
+                break;
+            if (!blocked.Contains(spec.Context) && !result.Exists(entry => entry.Spec == spec))
+                result.Add((spec, -1));
+        }
+
+        return result;
+    }
+
+    [GeneratedRegex(@"(?<=[.!?…])\s+|(?<=[。！？])")]
+    private static partial Regex SentenceEnd();
+
+    /// <summary>
+    /// The brief's opening sentence, as one calm line under the greeting: where the project stands now. Briefs open with
+    /// what the project is going through (<see cref="Services.Context.ContextCuratorPrompts"/>).
+    /// </summary>
+    internal static string BriefHeadline(string? brief)
+    {
+        if (string.IsNullOrWhiteSpace(brief))
+            return "";
+
+        var paragraph = brief.Split('\n').Select(static line => line.Trim()).FirstOrDefault(static line => line.Length > 0) ?? "";
+        var text = StripMarkdown(paragraph);
+        var end = SentenceEnd().Match(text);
+        var sentence = end.Success && end.Index > 0 ? text[..end.Index].Trim() : text;
+        if (sentence.Length <= BriefHeadlineMaxLength)
+            return sentence;
+
+        var cut = sentence.LastIndexOf(' ', BriefHeadlineMaxLength - 1);
+        return (cut > BriefHeadlineMaxLength / 2 ? sentence[..cut] : sentence[..(BriefHeadlineMaxLength - 1)]).TrimEnd(',', ';', ':', ' ') + "…";
     }
 
     /// <summary>
@@ -321,26 +475,6 @@ internal static class LaunchpadPlanner
         if (local.Date < today.AddDays(7))
             return local.ToString("ddd", culture) + " " + time;
         return local.ToString("MMM d", culture);
-    }
-
-    internal static string BuildAutomationSummary(IReadOnlyCollection<BackgroundJob> jobs, DateTimeOffset now, out bool hasAutomations)
-    {
-        var active = jobs.Where(static job => job.IsEnabled).ToList();
-        hasAutomations = active.Count > 0;
-        if (!hasAutomations)
-            return "";
-
-        var count = active.Count == 1
-            ? Loc.Launchpad_AutomationsOne
-            : Format(Loc.Launchpad_AutomationsMany, active.Count);
-        var next = active
-            .Where(job => job.NextRunAt is { } at && at > now)
-            .OrderBy(static job => job.NextRunAt)
-            .FirstOrDefault();
-
-        return next?.NextRunAt is { } nextRun
-            ? count + " · " + Format(Loc.Launchpad_AutomationsNext, next.Name, FormatRunTime(nextRun, now))
-            : count;
     }
 
     /// <summary>

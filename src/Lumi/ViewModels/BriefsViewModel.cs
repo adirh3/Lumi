@@ -341,14 +341,20 @@ public partial class BriefsViewModel : ObservableObject
     [RelayCommand]
     private void ToggleShowAll() => IsShowingAll = !IsShowingAll;
 
-    /// <summary>Keeps the user's text; the curator starts from it and keeps the edits unless newer chats contradict them.</summary>
+    /// <summary>
+    /// Keeps the user's text; the curator starts from it and keeps the edits unless newer chats contradict them. Changed
+    /// text lets go of the starters taken from the old one, and the next review takes them from the new.
+    /// </summary>
     [RelayCommand]
     private void Save()
     {
         if (SelectedBrief is not { } brief)
             return;
 
-        brief.Content = EditContent.Trim();
+        var content = EditContent.Trim();
+        if (!string.Equals(brief.Content, content, StringComparison.Ordinal))
+            brief.Starters = [];
+        brief.Content = content;
         brief.UpdatedAt = DateTimeOffset.Now;
         brief.EditedByUser = true;
         _ = _dataStore.SaveAsync();
@@ -383,6 +389,7 @@ public partial class BriefsViewModel : ObservableObject
             return;
 
         brief.Content = "";
+        brief.Starters = [];
         brief.UpdatedAt = DateTimeOffset.Now;
         brief.EditedByUser = false;
         _ = _dataStore.SaveAsync();

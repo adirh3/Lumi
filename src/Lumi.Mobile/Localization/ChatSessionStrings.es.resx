@@ -87,6 +87,8 @@
   <data name="SearchYourChats" xml:space="preserve"><value>Buscar en tus chats</value></data>
   <data name="LoadMoreChats" xml:space="preserve"><value>Cargar más chats</value></data>
   <data name="LongPressChatActions" xml:space="preserve"><value>Mantén pulsado para ver las acciones del chat</value></data>
+  <data name="LaunchpadIdeas" xml:space="preserve"><value>Ideas</value></data>
+  <data name="LongPressSetupActions" xml:space="preserve"><value>Mantén pulsado para conservar o cambiar esta configuración</value></data>
   <data name="RenameChat" xml:space="preserve"><value>Cambiar nombre del chat</value></data>
   <data name="DeleteChat" xml:space="preserve"><value>Eliminar chat</value></data>
   <data name="ChatName" xml:space="preserve"><value>Nombre del chat</value></data>

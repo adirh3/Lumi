@@ -225,6 +225,12 @@
   <data name="LongPressChatActions" xml:space="preserve">
     <value>اضغط مطولًا لإجراءات المحادثة</value>
   </data>
+  <data name="LaunchpadIdeas" xml:space="preserve">
+    <value>أفكار</value>
+  </data>
+  <data name="LongPressSetupActions" xml:space="preserve">
+    <value>اضغط مطولاً للاحتفاظ بهذا الإعداد أو تغييره</value>
+  </data>
   <data name="RenameChat" xml:space="preserve">
     <value>إعادة تسمية المحادثة</value>
   </data>

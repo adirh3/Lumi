@@ -9,6 +9,7 @@ using Avalonia;
 using Avalonia.VisualTree;
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Input;
 using Avalonia.Layout;
@@ -429,14 +430,298 @@ public partial class ChatDetailView : UserControl
             if (welcome.Margin != margin)
                 welcome.Margin = margin;
 
-            // A short screen keeps the greeting, starters and setups in view and lets the mark go.
-            this.FindControl<Grid>("NoChatPlaceholder")?.Classes.Set(
-                "compact", island.Bounds.Height - top - bottom < WelcomeCompactHeight);
+            // A short screen keeps the greeting, starters and setups in view and lets the mark go, once the welcome
+            // with its mark would not fit between the bars.
+            if (this.FindControl<Grid>("NoChatPlaceholder") is { } placeholder)
+            {
+                var compact = island.Bounds.Height - top - bottom < WelcomeHeightWithMark(placeholder.Classes.Contains("compact"));
+                placeholder.Classes.Set("compact", compact);
+                if (this.FindControl<StackPanel>("WelcomeLaunch") is { } launch)
+                {
+                    var launchMargin = compact ? WelcomeLaunchCompactMargin : WelcomeLaunchMargin;
+                    if (launch.Margin != launchMargin)
+                        launch.Margin = launchMargin;
+                }
+            }
+
+            UpdateStarterRoom();
+
+            // A wider or narrower row (the phone turned, a pane opened) shows another part of it: the chat's setup
+            // comes back into view.
+            if (this.FindControl<ScrollViewer>("WelcomeSetupsScroll") is { } setupsScroll
+                && setupsScroll.Viewport.Width != _setupsViewportWidth)
+            {
+                _setupsViewportWidth = setupsScroll.Viewport.Width;
+                Dispatcher.UIThread.Post(() => BringActiveSetupIntoView(animate: false), DispatcherPriority.Loaded);
+            }
         }
     }
 
-    /// <summary>Below this much room between the bars the welcome drops Lumi's mark.</summary>
-    private const double WelcomeCompactHeight = 460;
+    private double _setupsViewportWidth;
+
+    /// <summary>The space around the greeting and the starters, tighter on a short screen.</summary>
+    private static readonly Thickness WelcomeLaunchMargin = new(12, 24);
+    private static readonly Thickness WelcomeLaunchCompactMargin = new(12, 8);
+
+    /// <summary>
+    /// The height the welcome needs with Lumi's mark, from its parts as last measured; without the mark on a short
+    /// screen, the mark's room and the margins it gave back are added in, so the welcome only shows the mark again
+    /// once it fits.
+    /// </summary>
+    private double WelcomeHeightWithMark(bool isCompact)
+    {
+        if (this.FindControl<StackPanel>("WelcomeLaunch") is not { } launch
+            || this.FindControl<Control>("WelcomeDock") is not { } dock)
+        {
+            return 0;
+        }
+
+        var height = launch.DesiredSize.Height + dock.DesiredSize.Height;
+        if (this.FindControl<Control>("WelcomeNeedsYou") is { IsVisible: true } needsYou)
+            height += needsYou.DesiredSize.Height;
+        if (isCompact && this.FindControl<Control>("WelcomeMark") is { } mark)
+        {
+            height += mark.Height + mark.Margin.Top + mark.Margin.Bottom
+                      + WelcomeLaunchMargin.Top + WelcomeLaunchMargin.Bottom
+                      - WelcomeLaunchCompactMargin.Top - WelcomeLaunchCompactMargin.Bottom;
+        }
+
+        return height;
+    }
+
+    /// <summary>A starter capsule's line: its 48 dp target.</summary>
+    private const double StarterLineHeight = 48;
+
+    private (double Width, double FontSize, IReadOnlyList<IReadOnlyList<string>>? Texts) _starterRoomKey;
+    private TextBlock? _starterMeasure;
+
+    /// <summary>
+    /// The starters keep room for the lines the tab needing the most needs at this width, two capsules sharing a line
+    /// where they fit, so switching tabs moves nothing above them: a tab needing fewer leaves the room below them.
+    /// Until a capsule is laid out, and for an older PC's starters, a line each.
+    /// </summary>
+    private void UpdateStarterRoom()
+    {
+        if (this.FindControl<ItemsControl>("WelcomeStarters") is not { } starters)
+            return;
+
+        var texts = _shell?.LaunchpadStarterTexts ?? [];
+        var capsule = texts.Count > 0
+            ? starters.GetVisualDescendants().OfType<Button>().FirstOrDefault(button => button.Classes.Contains("welcome-starter"))
+            : null;
+        var label = capsule?.GetVisualDescendants().OfType<LaunchpadStarterLabel>().FirstOrDefault();
+        var width = starters.Bounds.Width;
+        int lines;
+        if (capsule is { Bounds.Width: > 0 } && label is { Bounds.Width: > 0 } && width > 0)
+        {
+            var key = (width, label.FontSize, (IReadOnlyList<IReadOnlyList<string>>?)texts);
+            if (key == _starterRoomKey)
+                return;
+
+            _starterRoomKey = key;
+            var chrome = capsule.Bounds.Width - label.Bounds.Width;
+            var spacing = (starters.ItemsPanelRoot as WrapPanel)?.ItemSpacing ?? 0;
+            lines = texts.Max(set => StarterLines(set, width, chrome, spacing, label));
+        }
+        else
+        {
+            _starterRoomKey = default;
+            lines = starters.ItemCount;
+        }
+
+        var room = lines * StarterLineHeight;
+        if (starters.MinHeight != room)
+            starters.MinHeight = room;
+    }
+
+    /// <summary>The lines a tab's capsules take at this width, laid out as the starters' wrap panel lays them out.</summary>
+    private int StarterLines(IReadOnlyList<string> texts, double width, double chrome, double spacing, TextBlock label)
+    {
+        var measure = _starterMeasure ??= new TextBlock();
+        measure.FontFamily = label.FontFamily;
+        measure.FontSize = label.FontSize;
+        measure.FontWeight = label.FontWeight;
+        measure.FontStyle = label.FontStyle;
+        measure.LetterSpacing = label.LetterSpacing;
+
+        var lines = 0;
+        var used = 0.0;
+        foreach (var text in texts)
+        {
+            measure.Text = text;
+            measure.Measure(Size.Infinity);
+            // A pixel to spare, so rounding never pairs two capsules the panel would not.
+            var capsule = Math.Min(width, Math.Ceiling(measure.DesiredSize.Width + chrome) + 1);
+            if (lines == 0 || used + spacing + capsule > width)
+            {
+                lines++;
+                used = capsule;
+            }
+            else
+            {
+                used += spacing + capsule;
+            }
+        }
+
+        return lines;
+    }
+
+    /// <summary>A starter went in the composer: its first blank is selected, and send walks the rest.</summary>
+    private void OnStarterApplied(IReadOnlyList<string> blanks)
+    {
+        if ((_composer ?? this.FindControl<StrataChatComposer>("Composer")) is { } composer)
+            composer.BeginFillIn(blanks);
+    }
+
+    private HorizontalGlide? _setupRowGlide;
+    private HorizontalGlide? _tabsGlide;
+
+    /// <summary>
+    /// Keeps the chat's capsule in sight on the setups row, which scrolls past the screen's edges: Just chat at the
+    /// start, a setup where it is, Other with Keep beside it at the end.
+    /// </summary>
+    private void BringActiveSetupIntoView(bool animate)
+    {
+        if (_shell?.ActiveSetupKey is not { } key
+            || this.FindControl<ScrollViewer>("WelcomeSetupsScroll") is not { IsEffectivelyVisible: true } scroller
+            || this.FindControl<StackPanel>("WelcomeSetupRow") is not { } row)
+        {
+            return;
+        }
+
+        Control? first;
+        Control? last;
+        switch (key)
+        {
+            case MobileShellViewModel.JustChatKey:
+                first = last = this.FindControl<Button>("WelcomeJustChat");
+                break;
+            case MobileShellViewModel.OtherKey:
+                first = this.FindControl<Button>("WelcomeOther");
+                last = this.FindControl<Button>("WelcomeKeep") is { IsVisible: true } keep ? keep : first;
+                break;
+            default:
+                first = last = this.FindControl<ItemsControl>("WelcomeSetups") is { } setups
+                               && _shell.StartSetups.FirstOrDefault(setup => setup.Id == key) is { } active
+                    ? setups.ContainerFromItem(active)
+                    : null;
+                break;
+        }
+
+        if (first?.TranslatePoint(default, row) is not { } start
+            || last?.TranslatePoint(new Point(last.Bounds.Width, 0), row) is not { } end)
+        {
+            return;
+        }
+
+        // The row's own inset is the clearance: a capsule rests where the first one does.
+        var glide = _setupRowGlide ??= new HorizontalGlide(scroller);
+        var clearance = row.Margin.Left;
+        var offset = glide.Destination;
+        if (start.X - clearance < offset)
+            glide.To(start.X - clearance, animate);
+        else if (end.X + clearance > offset + scroller.Viewport.Width)
+            glide.To(end.X + clearance - scroller.Viewport.Width, animate);
+    }
+
+    /// <summary>The open tab glides to the middle of the strip, so the tabs on either side of it show.</summary>
+    private void OnWelcomeTabsSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ListBox { SelectedItem: { } selected } tabs)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (tabs.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault() is not { } scroller
+                || tabs.ContainerFromItem(selected) is not Control container
+                || scroller.Content is not Visual content
+                || container.TranslatePoint(new Point(container.Bounds.Width / 2, 0), content) is not { } middle)
+            {
+                return;
+            }
+
+            if (_tabsGlide?.Scroller != scroller)
+                _tabsGlide = new HorizontalGlide(scroller);
+            _tabsGlide.To(middle.X - scroller.Viewport.Width / 2, animate: true);
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Eases a horizontal scroller toward an offset a frame at a time, so it glides rather than jumps.</summary>
+    private sealed class HorizontalGlide(ScrollViewer scroller)
+    {
+        private double _target;
+        private bool _gliding;
+        private TimeSpan? _lastFrame;
+
+        public ScrollViewer Scroller => scroller;
+
+        /// <summary>Where the scroller is headed: the end of a glide under way, or where it rests.</summary>
+        public double Destination => _gliding ? _target : scroller.Offset.X;
+
+        public void To(double target, bool animate)
+        {
+            _target = Math.Clamp(target, 0, Math.Max(0, scroller.Extent.Width - scroller.Viewport.Width));
+            if (!animate || TopLevel.GetTopLevel(scroller) is not { } top)
+            {
+                _gliding = false;
+                scroller.Offset = new Vector(_target, scroller.Offset.Y);
+                return;
+            }
+
+            if (_gliding)
+                return;
+
+            _gliding = true;
+            _lastFrame = null;
+            top.RequestAnimationFrame(Step);
+        }
+
+        private void Step(TimeSpan now)
+        {
+            if (!_gliding)
+                return;
+
+            var elapsed = _lastFrame is { } last ? (now - last).TotalMilliseconds : 16;
+            _lastFrame = now;
+            // The row may have changed under the glide (a setup kept or removed): never aim past its end.
+            _target = Math.Clamp(_target, 0, Math.Max(0, scroller.Extent.Width - scroller.Viewport.Width));
+            var current = scroller.Offset.X;
+            var next = current + (_target - current) * (1 - Math.Exp(-Math.Clamp(elapsed, 1, 50) / 70));
+            if (Math.Abs(_target - next) < 0.5)
+            {
+                next = _target;
+                _gliding = false;
+            }
+
+            scroller.Offset = new Vector(next, scroller.Offset.Y);
+            if (_gliding)
+                TopLevel.GetTopLevel(scroller)?.RequestAnimationFrame(Step);
+        }
+    }
+
+    /// <summary>
+    /// Holding a setup opens its sheet, the touch equivalent of the desktop's ⋯ and right-click: keep it, change what it
+    /// starts with, or stop it being suggested.
+    /// </summary>
+    private void OnSetupHolding(object? sender, HoldingRoutedEventArgs e)
+    {
+        if (e.HoldingState != HoldingState.Started
+            || sender is not Button { DataContext: ChatStartSetup setup } button
+            || TouchScrollClickGuard.WasDragged(button))
+            return;
+
+        TouchScrollClickGuard.ConsumeHold(button);
+        _shell?.OpenSetupSheetCommand.Execute(setup);
+        e.Handled = true;
+    }
+
+    /// <summary>A mouse or trackpad on a tablet asks with a secondary click.</summary>
+    private void OnSetupContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        if (sender is Button { DataContext: ChatStartSetup setup })
+            _shell?.OpenSetupSheetCommand.Execute(setup);
+        e.Handled = true;
+    }
 
     private void OnNativeComposerEditorPropertyChanged(
         object? sender,
@@ -740,6 +1025,7 @@ public partial class ChatDetailView : UserControl
         shell.Chat.ChatSurfaceReset += OnChatSurfaceReset;
         shell.Chat.TranscriptApplied += OnTranscriptApplied;
         shell.Chat.AttachmentPickRequested += OnPickAttachment;
+        shell.StarterApplied += OnStarterApplied;
         SynchronizeObservers();
         UpdateNativeComposerVisibility();
     }
@@ -756,6 +1042,7 @@ public partial class ChatDetailView : UserControl
         _shell.Chat.ChatSurfaceReset -= OnChatSurfaceReset;
         _shell.Chat.TranscriptApplied -= OnTranscriptApplied;
         _shell.Chat.AttachmentPickRequested -= OnPickAttachment;
+        _shell.StarterApplied -= OnStarterApplied;
         _shell.PropertyChanged -= OnShellPropertyChanged;
 
         ClearObservers();
@@ -800,6 +1087,16 @@ public partial class ChatDetailView : UserControl
             else if (_shell?.IsWelcomeVisible != true)
                 StopWelcomeEntrances();
         }
+
+        // The chat's capsule glides into view when it changes, when Keep appears beside Other, and when the PC sends the
+        // row again (keeping or changing a setup can move it).
+        if (e.PropertyName is nameof(MobileShellViewModel.ActiveSetupKey)
+            or nameof(MobileShellViewModel.CanKeepDraft)
+            or nameof(MobileShellViewModel.StartSetups))
+            Dispatcher.UIThread.Post(() => BringActiveSetupIntoView(animate: true), DispatcherPriority.Loaded);
+
+        if (e.PropertyName == nameof(MobileShellViewModel.LaunchpadStarterTexts))
+            UpdateStarterRoom();
 
         if (e.PropertyName is nameof(MobileShellViewModel.IsDrawerMoving)
             or nameof(MobileShellViewModel.CanDockDrawer)

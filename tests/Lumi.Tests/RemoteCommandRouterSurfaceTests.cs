@@ -145,6 +145,235 @@ public sealed class RemoteCommandRouterSurfaceTests
     });
 
     [Fact]
+    public Task LaunchpadSetupCommands_KeepRetuneAndHideTheSetupsTheRowShows() => RunAsync(async () =>
+    {
+        Loc.Load("en");
+        var repo = CreateTempGitRepo();
+        try
+        {
+            var project = new Project { Name = "Lumi", WorkingDirectory = repo };
+            var (store, main) = LaunchpadRig(project);
+            using var _ = main;
+            var data = store.Data;
+            var router = new RemoteCommandRouter(store, main);
+            var learned = Assert.Single(RemoteProjector.BuildNewChatExperience(store, main.ChatVM).Setups);
+            Assert.Equal((project.Id, false, "gpt-6-luna", "low", false),
+                (learned.ProjectId!.Value, learned.UseWorktree, learned.Model, learned.Effort, learned.IsKept));
+
+            // The phone says what it wants, so asking twice keeps the setup once.
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                var kept = await router.ExecuteAsync(SetupCommand(RemoteProtocol.Actions.KeepSetup, learned)
+                    .With("kept", "true"), CancellationToken.None);
+                Assert.True(kept.Ok, kept.Error);
+                Assert.Equal(Loc.Remote_SetupKept, kept.Message);
+            }
+
+            Assert.Equal((project.Id, false, "gpt-6-luna", "low"), PinOf(Assert.Single(data.PinnedSetups)));
+            Assert.True(Assert.Single(RemoteProjector.BuildNewChatExperience(store, main.ChatVM).Setups).IsKept);
+
+            var released = await router.ExecuteAsync(SetupCommand(RemoteProtocol.Actions.KeepSetup, learned)
+                .With("kept", "false"), CancellationToken.None);
+            Assert.True(released.Ok, released.Error);
+            Assert.Equal(Loc.Remote_SetupNotKept, released.Message);
+            Assert.Empty(data.PinnedSetups);
+
+            // Moving a setup into a worktree keeps it there; the folder's setup is learned again beside it.
+            var moved = await router.ExecuteAsync(SetupCommand(RemoteProtocol.Actions.RetuneSetup, learned)
+                .With("toWorktree", "true"), CancellationToken.None);
+            Assert.True(moved.Ok, moved.Error);
+            Assert.Equal(Loc.Remote_SetupChanged, moved.Message);
+            Assert.Equal((project.Id, true, "gpt-6-luna", "low"), PinOf(Assert.Single(data.PinnedSetups)));
+            var row = RemoteProjector.BuildNewChatExperience(store, main.ChatVM).Setups;
+            Assert.Equal([(true, true), (false, false)], row.Select(setup => (setup.UseWorktree, setup.IsKept)));
+
+            // A model without efforts drops the setup's effort.
+            var retuned = await router.ExecuteAsync(SetupCommand(RemoteProtocol.Actions.RetuneSetup, row[0])
+                .With("toModel", "auto:balance"), CancellationToken.None);
+            Assert.True(retuned.Ok, retuned.Error);
+            Assert.Equal((project.Id, true, "auto:balance", (string?)null), PinOf(Assert.Single(data.PinnedSetups)));
+
+            var worktree = RemoteProjector.BuildNewChatExperience(store, main.ChatVM).Setups[0];
+            var hidden = await router.ExecuteAsync(SetupCommand(RemoteProtocol.Actions.HideSetup, worktree), CancellationToken.None);
+            Assert.True(hidden.Ok, hidden.Error);
+            Assert.Equal(Loc.Remote_SetupHidden, hidden.Message);
+            Assert.Empty(data.PinnedSetups);
+            Assert.Equal((project.Id, true, (string?)null, (string?)null), PinOf(Assert.Single(data.HiddenSetups)));
+            Assert.False(Assert.Single(RemoteProjector.BuildNewChatExperience(store, main.ChatVM).Setups).UseWorktree);
+
+            // The phone's draft names its model and quality as its picker shows them, a fusion tier included; keeping
+            // it keeps the folder's learned setup too, so the row loses nothing.
+            var draft = await router.ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.KeepSetup)
+                .With("projectId", project.Id.ToString()).With("worktree", "false")
+                .With("model", "auto:balance").With("quality", "Max").With("kept", "true"), CancellationToken.None);
+            Assert.True(draft.Ok, draft.Error);
+            Assert.Equal(
+                [(project.Id, false, "auto:hydrafusion-max", (string?)null), (project.Id, false, "gpt-6-luna", "low")],
+                data.PinnedSetups.Select(PinOf));
+            Assert.Single(data.HiddenSetups);
+            Assert.Equal(["auto:hydrafusion-max", "gpt-6-luna"],
+                RemoteProjector.BuildNewChatExperience(store, main.ChatVM).Setups
+                    .Where(setup => setup.IsKept).Select(setup => setup.Model!));
+        }
+        finally
+        {
+            TryDeleteDirectory(repo);
+        }
+    });
+
+    [Fact]
+    public Task LaunchpadSetupCommands_ReadThePhonesQualityInTheDesktopsLanguage() => RunAsync(async () =>
+    {
+        var repo = CreateTempGitRepo();
+        Loc.Load("he");
+        try
+        {
+            var project = new Project { Name = "Lumi", WorkingDirectory = repo };
+            var (store, main) = LaunchpadRig(project);
+            using var _ = main;
+            // The phone's picker shows the desktop's words for the effort, not its id.
+            var quality = ModelSelectionHelper.EffortToDisplay("low");
+            Assert.False(string.Equals(quality, "low", StringComparison.OrdinalIgnoreCase));
+            var kept = await new RemoteCommandRouter(store, main).ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.KeepSetup)
+                .With("projectId", project.Id.ToString()).With("worktree", "true")
+                .With("model", "gpt-6-luna").With("quality", quality).With("kept", "true"), CancellationToken.None);
+            Assert.True(kept.Ok, kept.Error);
+            Assert.Equal((project.Id, true, "gpt-6-luna", "low"), PinOf(Assert.Single(store.Data.PinnedSetups)));
+        }
+        finally
+        {
+            Loc.Load("en");
+            TryDeleteDirectory(repo);
+        }
+    });
+
+    [Fact]
+    public Task LaunchpadSetupCommands_RefuseWhatThisComputerCannotStartAndChangeNothing() => RunAsync(async () =>
+    {
+        Loc.Load("en");
+        var repo = CreateTempGitRepo();
+        try
+        {
+            var project = new Project { Name = "Lumi", WorkingDirectory = repo };
+            var notes = new Project { Name = "Notes" };
+            var (store, main) = LaunchpadRig(project, notes);
+            using var _ = main;
+            var router = new RemoteCommandRouter(store, main);
+            var learned = Assert.Single(RemoteProjector.BuildNewChatExperience(store, main.ChatVM).Setups);
+
+            await Refused(new RemoteCommand(RemoteProtocol.Actions.KeepSetup)
+                .With("projectId", Guid.NewGuid().ToString()).With("kept", "true"), Loc.Remote_SetupUnavailable);
+            await Refused(new RemoteCommand(RemoteProtocol.Actions.HideSetup)
+                .With("agentId", Guid.NewGuid().ToString()), Loc.Remote_SetupUnavailable);
+            // Just chat is no setup to keep or hide.
+            await Refused(new RemoteCommand(RemoteProtocol.Actions.KeepSetup)
+                .With("model", "gpt-6-luna").With("kept", "true"), Loc.Remote_SetupUnavailable);
+            await Refused(SetupCommand(RemoteProtocol.Actions.KeepSetup, learned),
+                Loc.Get("Remote_ArgumentRequired", "kept"));
+            await Refused(new RemoteCommand(RemoteProtocol.Actions.RetuneSetup)
+                .With("projectId", notes.Id.ToString()).With("toWorktree", "true"), Loc.Remote_SetupUnavailable);
+            await Refused(SetupCommand(RemoteProtocol.Actions.RetuneSetup, learned)
+                .With("toModel", "not-a-model"), Loc.Remote_ModelUnavailable);
+            await Refused(SetupCommand(RemoteProtocol.Actions.RetuneSetup, learned)
+                .With("toModel", "gpt-6-luna"), Loc.Remote_NothingToConfigure);
+            await Refused(SetupCommand(RemoteProtocol.Actions.RetuneSetup, learned), Loc.Remote_NothingToConfigure);
+            await Refused(new RemoteCommand(RemoteProtocol.Actions.UseStarter).With("id", "not-a-starter"),
+                Loc.Get("Remote_ArgumentInvalid", "id"));
+
+            Assert.Empty(store.Data.PinnedSetups);
+            Assert.Empty(store.Data.HiddenSetups);
+            Assert.Empty(store.Data.StarterUses);
+
+            async Task Refused(RemoteCommand command, string error)
+            {
+                var result = await router.ExecuteAsync(command, CancellationToken.None);
+                Assert.False(result.Ok, command.Action);
+                Assert.Equal(error, result.Error);
+            }
+        }
+        finally
+        {
+            TryDeleteDirectory(repo);
+        }
+    });
+
+    [Fact]
+    public Task LaunchpadSetupCommands_TakeASetupWithoutProjectOrAgent_ThatTheRowShows() => RunAsync(async () =>
+    {
+        Loc.Load("en");
+        var settings = TestSettings();
+        settings.PreferredModel = "gpt-6-luna";
+        settings.ReasoningEffort = "high";
+        // New chats start on GPT-6 Luna, high; the user's chats outside projects run it on low, a setup of its own.
+        var data = new AppData { Settings = settings };
+        data.Chats.AddRange(Enumerable.Range(1, 2).Select(daysAgo => new Chat
+        {
+            Title = $"Chat {daysAgo}",
+            LastModelUsed = "gpt-6-luna",
+            LastReasoningEffortUsed = "low",
+            MessageCount = 6,
+            CreatedAt = DateTimeOffset.Now.AddDays(-daysAgo),
+            UpdatedAt = DateTimeOffset.Now.AddDays(-daysAgo)
+        }));
+        var store = new DataStore(data);
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(),
+            startBackgroundJobs: false, initializeCopilotOnStartup: false);
+        var models = CopilotModelCatalog.BuildModels(CopilotModelCatalogTests.NativeCatalog());
+        main.ChatVM.UpdateModelCapabilities(models);
+        main.SettingsVM.UpdateModelCapabilities(models);
+        main.ChatVM.ApplyAvailableModels(models.Select(model => model.Id).ToArray(), "gpt-6-luna");
+        var router = new RemoteCommandRouter(store, main);
+        var setup = Assert.Single(RemoteProjector.BuildNewChatExperience(store, main.ChatVM).Setups);
+        Assert.Equal(((Guid?)null, (Guid?)null, "gpt-6-luna", "low"), (setup.ProjectId, setup.AgentId, setup.Model, setup.Effort));
+
+        var kept = await router.ExecuteAsync(SetupCommand(RemoteProtocol.Actions.KeepSetup, setup).With("kept", "true"),
+            CancellationToken.None);
+        Assert.True(kept.Ok, kept.Error);
+        var pin = Assert.Single(data.PinnedSetups);
+        Assert.Equal(((Guid?)null, (Guid?)null, "gpt-6-luna", "low"), (pin.ProjectId, pin.AgentId, pin.ModelId, pin.Effort));
+
+        var hidden = await router.ExecuteAsync(SetupCommand(RemoteProtocol.Actions.HideSetup, setup), CancellationToken.None);
+        Assert.True(hidden.Ok, hidden.Error);
+        Assert.Empty(data.PinnedSetups);
+        Assert.Empty(RemoteProjector.BuildNewChatExperience(store, main.ChatVM).Setups);
+
+        // Plain chat itself, on the model new chats start with, is still no setup to keep.
+        var plain = await router.ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.KeepSetup)
+            .With("model", "gpt-6-luna").With("effort", "high").With("kept", "true"), CancellationToken.None);
+        Assert.False(plain.Ok);
+        Assert.Equal(Loc.Remote_SetupUnavailable, plain.Error);
+    });
+
+    [Fact]
+    public Task UseStarter_TeachesForYouTheUsersHabitInThatProject() => RunAsync(async () =>
+    {
+        Loc.Load("en");
+        var project = new Project { Name = "Trips" };
+        var (store, main) = LaunchpadRig(project);
+        using var _ = main;
+        var router = new RemoteCommandRouter(store, main);
+        for (var pick = 0; pick < 2; pick++)
+        {
+            var used = await router.ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.UseStarter)
+                .With("id", "plan.trip").With("projectId", project.Id.ToString()), CancellationToken.None);
+            Assert.True(used.Ok, used.Error);
+            Assert.Equal(Loc.Remote_StarterNoted, used.Message);
+        }
+
+        // A project this computer no longer has counts as no project.
+        var elsewhere = await router.ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.UseStarter)
+            .With("id", "learn.quiz").With("projectId", Guid.NewGuid().ToString()), CancellationToken.None);
+        Assert.True(elsewhere.Ok, elsewhere.Error);
+
+        Assert.Equal([("plan.trip", (Guid?)project.Id, 2), ("learn.quiz", (Guid?)null, 1)],
+            store.Data.StarterUses.Select(use => (use.Id, use.ProjectId, use.Count)));
+        var forYou = RemoteProjector.BuildNewChatExperience(store, main.ChatVM).Scopes
+            .Single(scope => scope.ProjectId == project.Id).ForYou;
+        Assert.Equal("plan.trip", forYou[0].Id);
+        Assert.Equal(Loc.Launchpad_ReasonHabit, forYou[0].Reason);
+    });
+
+    [Fact]
     public Task InteractiveEditsSaveWithoutOpeningAnotherDesktopChat() => RunAsync(async () =>
     {
         var current = new Chat { Title = "Current" };
@@ -2333,6 +2562,52 @@ public sealed class RemoteCommandRouterSurfaceTests
         AutoGenerateTitles = false,
         EnableMemoryAutoSave = false
     };
+
+    /// <summary>A desktop whose new chat has learned one setup from two chats: <paramref name="project"/> on GPT-6 Luna, low effort.</summary>
+    private static (DataStore Store, MainViewModel Main) LaunchpadRig(Project project, params Project[] others)
+    {
+        var settings = TestSettings();
+        settings.PreferredModel = "gpt-6-luna";
+        settings.ReasoningEffort = "high";
+        var data = new AppData { Settings = settings };
+        data.Projects.AddRange([project, .. others]);
+        data.Chats.AddRange(Enumerable.Range(1, 2).Select(daysAgo => new Chat
+        {
+            Title = $"{project.Name} work {daysAgo}",
+            ProjectId = project.Id,
+            LastModelUsed = "gpt-6-luna",
+            LastReasoningEffortUsed = "low",
+            MessageCount = 6,
+            CreatedAt = DateTimeOffset.Now.AddDays(-daysAgo),
+            UpdatedAt = DateTimeOffset.Now.AddDays(-daysAgo)
+        }));
+        var store = new DataStore(data);
+        var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(),
+            startBackgroundJobs: false, initializeCopilotOnStartup: false);
+        var models = CopilotModelCatalog.BuildModels(CopilotModelCatalogTests.NativeCatalog());
+        main.ChatVM.UpdateModelCapabilities(models);
+        main.SettingsVM.UpdateModelCapabilities(models);
+        main.ChatVM.ApplyAvailableModels(models.Select(model => model.Id).ToArray(), "gpt-6-luna");
+        return (store, main);
+    }
+
+    /// <summary>A launchpad command naming a setup of the row as the phone does.</summary>
+    private static RemoteCommand SetupCommand(string action, RemoteChatSetup setup)
+    {
+        var command = new RemoteCommand(action).With("worktree", setup.UseWorktree ? "true" : "false");
+        if (setup.ProjectId is { } projectId)
+            command.With("projectId", projectId.ToString());
+        if (setup.AgentId is { } agentId)
+            command.With("agentId", agentId.ToString());
+        if (setup.Model is { } model)
+            command.With("model", model);
+        if (setup.Effort is { } effort)
+            command.With("effort", effort);
+        return command;
+    }
+
+    private static (Guid ProjectId, bool UseWorktree, string? Model, string? Effort) PinOf(LaunchpadSetupPin pin)
+        => (pin.ProjectId!.Value, pin.UseWorktree, pin.ModelId, pin.Effort);
 
     private static string CreateTempGitRepo()
     {

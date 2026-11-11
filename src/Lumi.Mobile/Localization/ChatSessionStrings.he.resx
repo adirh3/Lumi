@@ -87,6 +87,8 @@
   <data name="SearchYourChats" xml:space="preserve"><value>חיפוש בשיחות שלך</value></data>
   <data name="LoadMoreChats" xml:space="preserve"><value>טעינת שיחות נוספות</value></data>
   <data name="LongPressChatActions" xml:space="preserve"><value>לחיצה ארוכה לפעולות בשיחה</value></data>
+  <data name="LaunchpadIdeas" xml:space="preserve"><value>רעיונות</value></data>
+  <data name="LongPressSetupActions" xml:space="preserve"><value>לחיצה ארוכה לשמירה או לשינוי של ההגדרה</value></data>
   <data name="RenameChat" xml:space="preserve"><value>שינוי שם השיחה</value></data>
   <data name="DeleteChat" xml:space="preserve"><value>מחיקת השיחה</value></data>
   <data name="ChatName" xml:space="preserve"><value>שם השיחה</value></data>

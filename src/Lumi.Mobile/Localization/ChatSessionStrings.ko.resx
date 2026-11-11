@@ -83,6 +83,8 @@
   <data name="SearchYourChats" xml:space="preserve"><value>내 채팅 검색</value></data>
   <data name="LoadMoreChats" xml:space="preserve"><value>채팅 더 불러오기</value></data>
   <data name="LongPressChatActions" xml:space="preserve"><value>길게 눌러 채팅 작업 열기</value></data>
+  <data name="LaunchpadIdeas" xml:space="preserve"><value>아이디어</value></data>
+  <data name="LongPressSetupActions" xml:space="preserve"><value>길게 눌러 이 설정을 유지하거나 변경</value></data>
   <data name="RenameChat" xml:space="preserve"><value>채팅 이름 바꾸기</value></data>
   <data name="DeleteChat" xml:space="preserve"><value>채팅 삭제</value></data>
   <data name="ChatName" xml:space="preserve"><value>채팅 이름</value></data>

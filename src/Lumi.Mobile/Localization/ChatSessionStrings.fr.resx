@@ -87,6 +87,8 @@
   <data name="SearchYourChats" xml:space="preserve"><value>Rechercher vos conversations</value></data>
   <data name="LoadMoreChats" xml:space="preserve"><value>Charger plus de conversations</value></data>
   <data name="LongPressChatActions" xml:space="preserve"><value>Appui long pour les actions de conversation</value></data>
+  <data name="LaunchpadIdeas" xml:space="preserve"><value>Idées</value></data>
+  <data name="LongPressSetupActions" xml:space="preserve"><value>Appui long pour garder ou modifier cette configuration</value></data>
   <data name="RenameChat" xml:space="preserve"><value>Renommer la conversation</value></data>
   <data name="DeleteChat" xml:space="preserve"><value>Supprimer la conversation</value></data>
   <data name="ChatName" xml:space="preserve"><value>Nom de la conversation</value></data>

@@ -422,6 +422,10 @@ export function getNativeTextInputCaretIndex(id) {
 }
 
 export function focusNativeTextInput(id, caretIndex) {
+    selectNativeTextInput(id, caretIndex, caretIndex);
+}
+
+export function selectNativeTextInput(id, start, end) {
     if (browserRecoveryActive)
         return;
     const input = nativeTextInputs.get(id);
@@ -434,8 +438,9 @@ export function focusNativeTextInput(id, caretIndex) {
     }
     activeNativeTextInputId = id;
     input.focus({ preventScroll: true });
-    const clamped = Math.max(0, Math.min(caretIndex, input.value.length));
-    input.setSelectionRange(clamped, clamped);
+    const from = Math.max(0, Math.min(start, input.value.length));
+    const to = Math.max(from, Math.min(end, input.value.length));
+    input.setSelectionRange(from, to);
 }
 
 export function downloadUrl(url, fileName) {

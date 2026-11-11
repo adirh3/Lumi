@@ -9,6 +9,7 @@
              xmlns:input="using:Avalonia.Input"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:sa="using:StrataTheme.Animation"
+             xmlns:st="using:StrataTheme"
              x:Class="Lumi.Mobile.Views.ChatDetailView"
              x:DataType="vm:MobileShellViewModel"
              FlowDirection="{x:Static loc:ChatSessionStrings.UiFlowDirection}"
@@ -108,10 +109,11 @@
 
     <!--
       ══ The new chat ══
-      The desktop's launchpad at phone scale. Lumi's mark sits in its presence over the greeting, the
-      user's name in the accent; the starters for the hour follow as calm glass pills; and the user's
-      usual setups sit on the composer they configure, where the thumb already is. The actions are the
-      composer's own glass, so everything that can be tapped reads as one material.
+      The desktop's launchpad at phone scale. What waits on the user sits at the top as one quiet capsule; Lumi's mark
+      sits in its presence over the greeting, the user's name in the accent; For you and a tab per kind of task follow,
+      their starters as glass capsules centred line by line, as the desktop's; and the setups row sits on the composer
+      it configures, where the thumb already is. Everything that can be tapped is the composer's own glass, so it all
+      reads as one material.
     -->
     <Style Selector="Grid#NoChatPlaceholder Border.welcome-mark">
       <Setter Property="Width" Value="56" />
@@ -142,27 +144,82 @@
       <Setter Property="Margin" Value="0,8,0,0" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="StackPanel#WelcomeLaunch">
-      <Setter Property="Margin" Value="16,24" />
-    </Style>
-    <!-- Short screens keep the greeting, the starters and the setups in view, and let the mark go. -->
+    <!-- Short screens keep the greeting, the starters and the setups in view, and let the mark go (code-behind decides,
+         and tightens the space around them). -->
     <Style Selector="Grid#NoChatPlaceholder.compact Border.welcome-mark">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder.compact StackPanel#WelcomeLaunch">
-      <Setter Property="Margin" Value="16,8" />
+
+    <!-- What waits on the user: a small glass capsule, a 34 dp pill in its 48 dp target, that lists those chats. -->
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-needs-you">
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Padding" Value="13,0,11,0" />
+      <Setter Property="CornerRadius" Value="17" />
+      <Setter Property="Margin" Value="0,4,0,0" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-needs-you /template/ Panel">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-needs-you /template/ Border#PART_Surface,
+                     Grid#NoChatPlaceholder Button.welcome-needs-you:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Margin" Value="0,7" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-needs-you:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
+      <Setter Property="RenderTransform" Value="scale(0.96)" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-needs-you /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Border.welcome-needs-you-dot">
+      <Setter Property="Width" Value="7" />
+      <Setter Property="Height" Value="7" />
+      <Setter Property="CornerRadius" Value="3.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-needs-you-label">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-needs-you sc|StrataLineIcon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
 
-    <!-- A starter: a calm glass pill, 42 dp drawn inside its 48 dp target, that fills the composer. -->
+    <!-- The tabs: quiet words in a strip that runs to the screen's edges and scrolls, centred when it fits. -->
+    <Style Selector="ListBox#WelcomeTabs">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Hidden" />
+      <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+    </Style>
+
+    <!-- A starter: a glass capsule like the setups below it, a 40 dp pill in its 48 dp target, its line icon then its
+         words on one line, the blanks in the accent over a dotted line. The capsules centre line by line, as the
+         desktop's do, sharing a line where two fit. A tap fills the composer and selects the first blank. -->
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="21" />
-      <Setter Property="Padding" Value="12,8,14,8" />
+      <Setter Property="CornerRadius" Value="20" />
+      <Setter Property="Padding" Value="13,0,16,0" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
       <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
       <Setter Property="MinWidth" Value="0" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter /template/ Panel">
@@ -170,40 +227,46 @@
     </Style>
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter /template/ Border#PART_Surface,
                      Grid#NoChatPlaceholder Button.welcome-starter:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Margin" Value="0,3" />
+      <Setter Property="Margin" Value="0,4" />
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter /template/ Border#PART_FocusRing">
-      <Setter Property="Margin" Value="-2,1" />
-    </Style>
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
-      <Setter Property="RenderTransform" Value="scale(0.96)" />
+      <Setter Property="RenderTransform" Value="scale(0.97)" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter /template/ Border#PART_FocusRing">
+      <Setter Property="Margin" Value="-2,2" />
     </Style>
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter /template/ Border#PART_Aurora,
-                     Grid#NoChatPlaceholder Button.welcome-setup /template/ Border#PART_Aurora">
+                     Grid#NoChatPlaceholder Button.welcome-setup /template/ Border#PART_Aurora,
+                     Grid#NoChatPlaceholder Button.welcome-keep /template/ Border#PART_Aurora,
+                     Grid#NoChatPlaceholder Button.welcome-setup-more /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter TextBlock.welcome-starter-label">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
       <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="LetterSpacing" Value="-0.1" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="TextWrapping" Value="Wrap" />
-      <Setter Property="MaxLines" Value="2" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter TextBlock.welcome-starter-glyph">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter sc|StrataLineIcon">
-      <Setter Property="Width" Value="18" />
-      <Setter Property="Height" Value="18" />
-      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="StrokeThickness" Value="1.8" />
       <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <!-- A plan from the project's brief wears Lumi's accent among the starters, as on the desktop. -->
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter.brief sc|StrataLineIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
     </Style>
 
@@ -284,103 +347,193 @@
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
 
-    <!-- The setups' heading, as the desktop words it ("Start with"). The row beneath runs to the screen's
-         edges, so a card scrolls in from beyond them. -->
-    <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-label">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-      <Setter Property="Margin" Value="18,0,18,8" />
-    </Style>
-    <!-- A setup: a glass card on the composer with the desktop tile's mark, its place and how it runs. -->
+    <!-- The setups row on the composer, as on the desktop: Just chat, the user's setups, Other and Keep, as glass
+         capsules (a 40 dp pill in its 48 dp target). The chat's setup turns the accent, says what it starts with, and
+         carries the ⋯ that opens its sheet; holding any setup opens it too. -->
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="18" />
-      <Setter Property="Padding" Value="10,8,14,8" />
-      <Setter Property="MinHeight" Value="64" />
-      <Setter Property="MinWidth" Value="172" />
-      <Setter Property="MaxWidth" Value="248" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="CornerRadius" Value="20" />
+      <Setter Property="Padding" Value="7,0,15,0" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="0" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup.has-more">
+      <Setter Property="Padding" Value="7,0,40,0" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup /template/ Panel,
+                     Grid#NoChatPlaceholder Button.welcome-keep /template/ Panel,
+                     Grid#NoChatPlaceholder Button.welcome-setup-more /template/ Panel">
+      <Setter Property="Background" Value="Transparent" />
     </Style>
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup /template/ Border#PART_Surface,
                      Grid#NoChatPlaceholder Button.welcome-setup:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Margin" Value="0,4" />
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
-      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlassPressed}" />
       <Setter Property="ClipToBounds" Value="False" />
     </Style>
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
-      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlassPressed}" />
       <Setter Property="RenderTransform" Value="scale(0.97)" />
     </Style>
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup.selected /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSelection}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup /template/ Border#PART_FocusRing">
+      <Setter Property="Margin" Value="-2,2" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Panel.welcome-setup-badge">
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
     <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-mark">
-      <Setter Property="Width" Value="36" />
-      <Setter Property="Height" Value="36" />
-      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="CornerRadius" Value="9" />
       <Setter Property="Background" Value="{DynamicResource Brush.RowTile}" />
     </Style>
     <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-mark TextBlock">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <!-- Applied: a small accent check settles on the mark, cut out of the card by a ring of its fill. -->
-    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-check">
-      <Setter Property="Width" Value="18" />
-      <Setter Property="Height" Value="18" />
-      <Setter Property="CornerRadius" Value="9" />
-      <Setter Property="Margin" Value="0,-5,-5,0" />
-      <Setter Property="HorizontalAlignment" Value="Right" />
-      <Setter Property="VerticalAlignment" Value="Top" />
-      <Setter Property="BorderThickness" Value="2" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.ChatCanvas}" />
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="RenderTransform" Value="scale(0.4)" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="BackEaseOut" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup.selected Border.welcome-setup-check">
-      <Setter Property="Opacity" Value="1" />
-      <Setter Property="RenderTransform" Value="scale(1)" />
-    </Style>
-    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-check sc|StrataLineIcon">
-      <Setter Property="Width" Value="11" />
-      <Setter Property="Height" Value="11" />
-      <Setter Property="StrokeThickness" Value="3" />
+    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-mark sc|StrataLineIcon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="StrokeThickness" Value="2" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <!-- It starts in a worktree: a branch on the badge's lower corner, cut out of the capsule by a ring of its fill. -->
+    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-branch">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="CornerRadius" Value="7.5" />
+      <Setter Property="Margin" Value="0,0,-5,-5" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.ChatCanvas}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.RowTile}" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-branch sc|StrataLineIcon">
+      <Setter Property="Width" Value="9" />
+      <Setter Property="Height" Value="9" />
+      <Setter Property="StrokeThickness" Value="2.4" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
     </Style>
     <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-setup-title">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
       <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="TextWrapping" Value="NoWrap" />
+      <Setter Property="MaxWidth" Value="180" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-setup-meta">
+    <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-setup-detail">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="TextWrapping" Value="NoWrap" />
+      <Setter Property="MaxWidth" Value="170" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup.selected TextBlock.welcome-setup-meta">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup.selected TextBlock.welcome-setup-detail">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <!-- The chat's setup's ⋯, inside the end of its capsule. -->
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup-more">
+      <Setter Property="Width" Value="40" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup-more /template/ Border#PART_Surface,
+                     Grid#NoChatPlaceholder Button.welcome-setup-more:pointerover /template/ Border#PART_Surface,
+                     Grid#NoChatPlaceholder Button.welcome-setup-more:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup-more PathIcon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup-more:pressed PathIcon">
+      <Setter Property="Opacity" Value="0.6" />
+    </Style>
+    <!-- Keep: the setup on Other becomes the first of the user's setups, exactly as the composer has it. -->
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-keep">
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="20" />
+      <Setter Property="Padding" Value="12,0,14,0" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-keep /template/ Border#PART_Surface,
+                     Grid#NoChatPlaceholder Button.welcome-keep:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Margin" Value="0,4" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlassPressed}" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-keep:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
+      <Setter Property="RenderTransform" Value="scale(0.97)" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-keep sc|StrataLineIcon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-keep TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+
+    <!-- The launchpad's sheets: a waiting chat's state, a place's last use, a setup's kept pin. -->
+    <Style Selector="sc|StrataBottomSheet#LaunchpadNeedsYouSheet Border.launchpad-sheet-dot">
+      <Setter Property="Width" Value="8" />
+      <Setter Property="Height" Value="8" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadNeedsYouSheet TextBlock.launchpad-sheet-time">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadOtherSheet sc|StrataLineIcon.launchpad-sheet-pin">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
 
     <Style Selector="Button.transcript-nav">
@@ -801,6 +954,87 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
   </UserControl.Styles>
+
+  <UserControl.Resources>
+    <!-- A project or agent in Other's sheet: its mark, its name, when the user last worked there, and a pin when one
+         of the user's kept setups is there. -->
+    <DataTemplate x:Key="LaunchpadPlaceRow" x:DataType="vm:LaunchpadPlace">
+      <Button Classes="sheet-item"
+              AutomationProperties.Name="{Binding Title}"
+              Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).PickPlaceCommand}"
+              CommandParameter="{Binding}">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+          <Panel>
+            <Border Classes="row-tile" IsVisible="{Binding !Setup.HasProjectMark}">
+              <TextBlock Text="{Binding Setup.MarkGlyph}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <Border Classes="row-tile" IsVisible="{Binding Setup.HasProjectMark}" Background="{Binding Setup.MarkBackground}">
+              <TextBlock Text="{Binding Setup.MarkGlyph}" Foreground="{Binding Setup.MarkForeground}"
+                         FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+          </Panel>
+          <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+            <TextBlock Classes="sheet-detail" Text="{Binding Hint}" IsVisible="{Binding HasHint}" />
+          </StackPanel>
+          <sc:StrataLineIcon Grid.Column="2" Classes="launchpad-sheet-pin"
+                             Data="{x:Static sc:StrataIcons.Pin}" IsVisible="{Binding IsKept}" />
+        </Grid>
+      </Button>
+    </DataTemplate>
+    <!-- A launchpad tab: quiet words; the open one rides a glass pill (34 dp in the 48 dp target) that slides over from
+         the tab it leaves, reshaping from that tab's size to its own (Strata's SelectionIndicatorAnimationHelper moves
+         PART_SelectedPipe), beneath the words it passes. -->
+    <ControlTheme x:Key="WelcomeTabItem" TargetType="ListBoxItem">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Padding" Value="14,0" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="CornerRadius" Value="17" />
+      <Setter Property="ClipToBounds" Value="False" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel ClipToBounds="False" Background="Transparent">
+            <Border Name="PART_SelectedPipe"
+                    Margin="0,7"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    Background="{DynamicResource Brush.FloatingGlass}"
+                    BorderBrush="{DynamicResource Brush.FloatingGlassRim}"
+                    BorderThickness="1"
+                    IsHitTestVisible="False"
+                    ClipToBounds="False"
+                    Opacity="0" />
+            <Border Name="PART_Root" Padding="{TemplateBinding Padding}">
+              <ContentPresenter Name="PART_ContentPresenter"
+                                VerticalAlignment="Center"
+                                Content="{TemplateBinding Content}"
+                                ContentTemplate="{TemplateBinding ContentTemplate}"
+                                Foreground="{TemplateBinding Foreground}" />
+            </Border>
+          </Panel>
+        </ControlTemplate>
+      </Setter>
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.16" />
+        </Transitions>
+      </Setter>
+      <!-- The open tab draws first, so the pill sliding into it passes beneath the other tabs' words. -->
+      <Style Selector="^:selected">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+        <Setter Property="ZIndex" Value="-1" />
+      </Style>
+      <Style Selector="^:selected /template/ Border#PART_SelectedPipe">
+        <Setter Property="Opacity" Value="1" />
+      </Style>
+      <Style Selector="^:focus-visible /template/ Border#PART_SelectedPipe">
+        <Setter Property="Opacity" Value="1" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      </Style>
+    </ControlTheme>
+  </UserControl.Resources>
 
   <UserControl.DataTemplates>
 
@@ -1471,6 +1705,7 @@
                                PreferAutoCompleteAbove="True"
                                IsBusy="{Binding Chat.IsBusy}"
                                SendWithEnter="False"
+                               AdvancesFillInOnSend="True"
                                SteerWhileBusy="True"
                                CanAttach="True"
                                AttachCommand="{Binding Chat.PickAttachmentCommand}"
@@ -1637,9 +1872,9 @@
     </sc:StrataChatShell>
 
     <!-- A blank chat stays local until the first send. The welcome yields to the keyboard.
-         Lumi's mark, the greeting and the starters gather in the presence; the user's usual setups sit
-         on the composer, in the thumb's reach. Its margin tracks the bars (code-behind), and it scrolls
-         as one surface when a short screen cannot hold it. -->
+         What waits on the user sits at the top; Lumi's mark, the greeting, the tabs and their starters gather in the
+         presence; the setups row sits on the composer, in the thumb's reach. Its margin tracks the bars (code-behind),
+         and it scrolls as one surface when a short screen cannot hold it. -->
     <Border x:Name="WelcomeSideInset"
             Margin="0,0,0,110"
             ClipToBounds="True"
@@ -1648,10 +1883,22 @@
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Hidden">
       <Grid x:Name="NoChatPlaceholder" IsVisible="{Binding IsWelcomeVisible}"
-            RowDefinitions="*,Auto"
+            RowDefinitions="Auto,*,Auto"
             MinHeight="{Binding #WelcomeScroll.Bounds.Height}">
-        <StackPanel x:Name="WelcomeLaunch" Grid.Row="0"
-                    VerticalAlignment="Center" MaxWidth="460">
+        <!-- What waits on the user, as one quiet capsule; the chats themselves open in a sheet. -->
+        <Button x:Name="WelcomeNeedsYou" Grid.Row="0" Classes="welcome-needs-you"
+                IsVisible="{Binding HasNeedsYou}"
+                Command="{Binding OpenNeedsYouCommand}"
+                AutomationProperties.Name="{Binding NeedsYouLabel}">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Border Classes="welcome-needs-you-dot" />
+            <TextBlock Classes="welcome-needs-you-label" Text="{Binding NeedsYouLabel}" />
+            <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronRight}" />
+          </StackPanel>
+        </Button>
+
+        <StackPanel x:Name="WelcomeLaunch" Grid.Row="1" Margin="12,24"
+                    VerticalAlignment="Center" MaxWidth="560">
           <StackPanel x:Name="WelcomeHero">
             <!-- Lumi's own app icon, as the desktop's launchpad and the pairing screen show it. -->
             <Border x:Name="WelcomeMark" Classes="welcome-mark" IsHitTestVisible="False">
@@ -1663,25 +1910,58 @@
             <TextBlock x:Name="WelcomeBrief" Classes="welcome-brief" Text="{Binding NewChatBrief}" />
           </StackPanel>
 
-          <!-- Starters for the hour: a tap puts the words in the composer, to send or finish first. -->
-          <ItemsControl x:Name="WelcomeStarters" ItemsSource="{Binding Chat.Starters}" Margin="0,22,0,0">
+          <!-- For you, then a tab per kind of task. The strip runs to the screen's edges and scrolls; it centres
+               when it fits. -->
+          <ListBox x:Name="WelcomeTabs"
+                   Margin="-12,18,-12,0"
+                   AutoScrollToSelectedItem="False"
+                   SelectionChanged="OnWelcomeTabsSelectionChanged"
+                   IsVisible="{Binding HasLaunchpadTabs}"
+                   ItemsSource="{Binding LaunchpadTabs}"
+                   SelectedItem="{Binding SelectedLaunchpadTab, Mode=TwoWay}"
+                   ItemContainerTheme="{StaticResource WelcomeTabItem}"
+                   st:SelectionIndicatorAnimationHelper.Enable="True"
+                   st:SelectionIndicatorAnimationHelper.MatchSize="True"
+                   AutomationProperties.Name="{loc:Str LaunchpadIdeas}">
+            <ListBox.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="12,0" />
+              </ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:LaunchpadTab">
+                <!-- The tab's own colour (quiet, primary when open), which a TextBlock style would otherwise replace. -->
+                <TextBlock Text="{Binding Title}" Foreground="{Binding $parent[ListBoxItem].Foreground}" />
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <!-- The open tab's starters: glass capsules centred line by line, as the desktop's are, each its line icon and
+               its words, the blanks in the accent. They keep a line's room each (code-behind), so a tab whose capsules
+               pair up leaves the room below them and switching tabs moves nothing. A tap puts the words in the composer
+               and selects the first blank. -->
+          <ItemsControl x:Name="WelcomeStarters" ItemsSource="{Binding LaunchpadStarters}" Margin="0,8,0,0">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
-                <WrapPanel ItemsAlignment="Center" ItemSpacing="8" LineSpacing="2" />
+                <WrapPanel ItemsAlignment="Center" ItemSpacing="8" />
               </ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:ChatStarter">
+              <DataTemplate x:DataType="vm:LaunchpadStarter">
                 <Button Classes="welcome-starter"
-                        Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).Chat.UseSuggestionCommand}"
-                        CommandParameter="{Binding EffectivePrompt}"
-                        AutomationProperties.Name="{Binding Text}"
+                        Classes.brief="{Binding IsFromBrief}"
+                        Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).UseLaunchpadStarterCommand}"
+                        CommandParameter="{Binding}"
+                        AutomationProperties.Name="{Binding AccessibleName}"
                         AutomationProperties.HelpText="{loc:Str AddsToMessage}">
+                  <!-- A grid rather than a stack, so the words get the room the capsule has and trim when it runs out. -->
                   <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                     <sc:StrataLineIcon IsVisible="{Binding !HasGlyph}"
-                                       Data="{Binding IconKey, Converter={x:Static views:TranscriptIconConverter.Instance}}" />
+                                       Data="{Binding IconKey, Converter={x:Static views:LaunchpadIconConverter.Instance}}" />
                     <TextBlock Classes="welcome-starter-glyph" Text="{Binding Glyph}" IsVisible="{Binding HasGlyph}" />
-                    <TextBlock Grid.Column="1" Classes="welcome-starter-label" Text="{Binding Text}" />
+                    <views:LaunchpadStarterLabel Grid.Column="1" Classes="welcome-starter-label"
+                                                 Parts="{Binding Parts}"
+                                                 BlankForeground="{DynamicResource Brush.AccentText}" />
                   </Grid>
                 </Button>
               </DataTemplate>
@@ -1689,16 +1969,33 @@
           </ItemsControl>
         </StackPanel>
 
-        <!-- On the composer, as the desktop's setups are, and as wide as its column (760 plus the
-             composer host's 12 dp sides), so the first card lines up with the composer's edge. -->
-        <StackPanel x:Name="WelcomeDock" Grid.Row="1" MaxWidth="784">
-          <StackPanel x:Name="WelcomeSetupsGroup" IsVisible="{Binding HasStartSetups}">
-            <TextBlock Classes="welcome-label" Text="{Binding StartSetupsTitle}" />
-            <ScrollViewer x:Name="WelcomeSetupsScroll"
-                          HorizontalScrollBarVisibility="Hidden"
-                          VerticalScrollBarVisibility="Disabled">
-              <!-- The bottom margin keeps each card's shadow inside the scroller's clip. -->
-              <ItemsControl x:Name="WelcomeSetups" ItemsSource="{Binding StartSetups}" Margin="12,0,12,10">
+        <!-- On the composer, as the desktop's setups are, and as wide as its column (760 plus the composer host's
+             12 dp sides), so the first capsule lines up with the composer's edge. The row runs to the screen's edges,
+             so a capsule scrolls in from beyond them. -->
+        <StackPanel x:Name="WelcomeDock" Grid.Row="2" MaxWidth="784">
+          <ScrollViewer x:Name="WelcomeSetupsScroll"
+                        IsVisible="{Binding ShowsSetupRow}"
+                        HorizontalScrollBarVisibility="Hidden"
+                        VerticalScrollBarVisibility="Disabled">
+            <!-- The bottom margin keeps each capsule's shadow inside the scroller's clip. -->
+            <StackPanel x:Name="WelcomeSetupRow" Orientation="Horizontal" Spacing="8" Margin="12,0,12,8">
+              <Button x:Name="WelcomeJustChat" Classes="welcome-setup"
+                      Classes.selected="{Binding IsJustChatActive}"
+                      IsVisible="{Binding HasJustChat}"
+                      Command="{Binding UseStartSetupCommand}"
+                      CommandParameter="{Binding JustChatSetup}"
+                      AutomationProperties.Name="{Binding LaunchpadLabels.JustChat}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Border Classes="welcome-setup-mark" VerticalAlignment="Center">
+                    <TextBlock Text="✦" />
+                  </Border>
+                  <TextBlock Classes="welcome-setup-title" Text="{Binding LaunchpadLabels.JustChat}" />
+                  <TextBlock Classes="welcome-setup-detail" Text="{Binding JustChatDetail}"
+                             IsVisible="{Binding IsJustChatActive}" />
+                </StackPanel>
+              </Button>
+
+              <ItemsControl x:Name="WelcomeSetups" ItemsSource="{Binding StartSetups}" IsVisible="{Binding HasStartSetups}">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>
                     <StackPanel Orientation="Horizontal" Spacing="8" />
@@ -1706,37 +2003,82 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:ChatStartSetup">
-                    <Button x:Name="StartSetupCard" Classes="welcome-setup"
-                            Classes.selected="{Binding IsSelected}"
-                            Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).UseStartSetupCommand}"
-                            CommandParameter="{Binding}"
-                            AutomationProperties.Name="{Binding Title, StringFormat={loc:Str StartWithNamed}}"
-                            AutomationProperties.HelpText="{Binding Description}">
-                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="11">
-                        <Panel Width="36" Height="36" VerticalAlignment="Center">
-                          <Border Classes="welcome-setup-mark" IsVisible="{Binding !HasProjectMark}">
-                            <TextBlock Text="{Binding MarkGlyph}" />
-                          </Border>
-                          <Border Classes="welcome-setup-mark" IsVisible="{Binding HasProjectMark}"
-                                  Background="{Binding MarkBackground}">
-                            <TextBlock Text="{Binding MarkGlyph}" Foreground="{Binding MarkForeground}" />
-                          </Border>
-                          <Border Classes="welcome-setup-check" RenderTransformOrigin="0.5,0.5">
-                            <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Check}" />
-                          </Border>
-                        </Panel>
-                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                    <Panel>
+                      <Button x:Name="StartSetupCard" Classes="welcome-setup"
+                              Classes.selected="{Binding IsSelected}"
+                              Classes.has-more="{Binding ShowsMore}"
+                              Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).UseStartSetupCommand}"
+                              CommandParameter="{Binding}"
+                              input:InputElement.IsHoldingEnabled="True"
+                              input:InputElement.IsHoldWithMouseEnabled="True"
+                              Holding="OnSetupHolding"
+                              ContextRequested="OnSetupContextRequested"
+                              AutomationProperties.Name="{Binding AccessibleName, StringFormat={loc:Str StartWithNamed}}"
+                              AutomationProperties.HelpText="{loc:Str LongPressSetupActions}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <Panel Classes="welcome-setup-badge">
+                            <Border Classes="welcome-setup-mark" IsVisible="{Binding !HasProjectMark}">
+                              <TextBlock Text="{Binding MarkGlyph}" />
+                            </Border>
+                            <Border Classes="welcome-setup-mark" IsVisible="{Binding HasProjectMark}"
+                                    Background="{Binding MarkBackground}">
+                              <TextBlock Text="{Binding MarkGlyph}" Foreground="{Binding MarkForeground}" />
+                            </Border>
+                            <Border Classes="welcome-setup-branch" IsVisible="{Binding IsWorktree}">
+                              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Branch}" />
+                            </Border>
+                          </Panel>
                           <TextBlock Classes="welcome-setup-title" Text="{Binding Title}" />
-                          <TextBlock Classes="welcome-setup-meta" Text="{Binding Description}"
-                                     IsVisible="{Binding HasDescription}" />
+                          <TextBlock Classes="welcome-setup-detail" Text="{Binding Detail}"
+                                     IsVisible="{Binding ShowsDetail}" />
                         </StackPanel>
-                      </Grid>
-                    </Button>
+                      </Button>
+                      <Button Classes="welcome-setup-more"
+                              IsVisible="{Binding ShowsMore}"
+                              Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).OpenSetupSheetCommand}"
+                              CommandParameter="{Binding}"
+                              AutomationProperties.Name="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).LaunchpadLabels.Customize}">
+                        <PathIcon Data="M6 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z M12 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z M18 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z" />
+                      </Button>
+                    </Panel>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
-            </ScrollViewer>
-          </StackPanel>
+
+              <!-- Every other project and agent, in a sheet; the draft's own setup when the row doesn't hold it. -->
+              <Button x:Name="WelcomeOther" Classes="welcome-setup"
+                      Classes.selected="{Binding IsOtherActive}"
+                      IsVisible="{Binding HasOtherPlaces}"
+                      Command="{Binding OpenOtherSheetCommand}"
+                      AutomationProperties.Name="{Binding OtherTitle}"
+                      AutomationProperties.HelpText="{Binding LaunchpadLabels.OtherTitle}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Panel Classes="welcome-setup-badge">
+                    <Border Classes="welcome-setup-mark" IsVisible="{Binding !HasOtherMark}">
+                      <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Plus}" />
+                    </Border>
+                    <Border Classes="welcome-setup-mark" IsVisible="{Binding HasOtherMark}"
+                            Background="{Binding OtherMark.Background}">
+                      <TextBlock Text="{Binding OtherMark.Glyph}"
+                                 Foreground="{Binding OtherMark.Foreground}" />
+                    </Border>
+                  </Panel>
+                  <TextBlock Classes="welcome-setup-title" Text="{Binding OtherTitle}" />
+                  <TextBlock Classes="welcome-setup-detail" Text="{Binding OtherDetail}"
+                             IsVisible="{Binding IsOtherActive}" />
+                </StackPanel>
+              </Button>
+              <Button x:Name="WelcomeKeep" Classes="welcome-keep"
+                      IsVisible="{Binding CanKeepDraft}"
+                      Command="{Binding KeepDraftCommand}"
+                      AutomationProperties.Name="{Binding LaunchpadLabels.KeepOnNewChats}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pin}" />
+                  <TextBlock Text="{Binding LaunchpadLabels.Keep}" />
+                </StackPanel>
+              </Button>
+            </StackPanel>
+          </ScrollViewer>
           <TextBlock x:Name="WelcomeUpdateNote"
                      Text="{loc:Str SetupsRequireUpdate}"
                      IsVisible="{Binding !HasDesktopNewChat}" Classes="muted"
@@ -2201,6 +2543,150 @@
                        HorizontalAlignment="Right" />
           </Grid>
         </StackPanel>
+      </Border>
+    </sc:StrataBottomSheet>
+
+    <!-- ═══ The new chat's launchpad sheets ═══ -->
+
+    <!-- Other: every project and agent, most recently used first, searchable. One picked starts the new chat the way
+         the user last worked there; Keep on the setups row then keeps it. -->
+    <sc:StrataBottomSheet x:Name="LaunchpadOtherSheet" Classes="safe-area"
+                          IsVisible="{Binding $self.IsPresented}"
+                          IsOpen="{Binding IsOtherSheetOpen, Mode=TwoWay}"
+                          SheetMargin="{Binding SafeAreaSheetMargin}"
+                          Title="{Binding LaunchpadLabels.Other}"
+                          Description="{Binding LaunchpadLabels.OtherTitle}">
+      <Border Padding="{Binding SafeAreaSides}">
+        <DockPanel MaxHeight="520">
+          <TextBox x:Name="LaunchpadOtherSearch" DockPanel.Dock="Top" Classes="mobile"
+                   Margin="16,0,16,8"
+                   Text="{Binding OtherQuery, Mode=TwoWay}"
+                   PlaceholderText="{Binding LaunchpadLabels.OtherSearch}"
+                   AutomationProperties.Name="{Binding LaunchpadLabels.OtherSearch}" />
+          <ScrollViewer Classes="mobile-scroll sheet-scroll" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,0,8">
+              <TextBlock Classes="sheet-label" Text="{Binding LaunchpadLabels.OtherProjects}"
+                         IsVisible="{Binding HasOtherProjects}" />
+              <ItemsControl x:Name="LaunchpadOtherProjects" ItemsSource="{Binding OtherProjects}"
+                            ItemTemplate="{StaticResource LaunchpadPlaceRow}" />
+              <TextBlock Classes="sheet-label" Text="{Binding LaunchpadLabels.OtherAgents}"
+                         IsVisible="{Binding HasOtherAgents}" />
+              <ItemsControl x:Name="LaunchpadOtherAgents" ItemsSource="{Binding OtherAgents}"
+                            ItemTemplate="{StaticResource LaunchpadPlaceRow}" />
+              <TextBlock Classes="sheet-body" Margin="24,4,24,8"
+                         Text="{Binding LaunchpadLabels.OtherEmpty}"
+                         IsVisible="{Binding HasNoOtherMatch}" />
+            </StackPanel>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+    </sc:StrataBottomSheet>
+
+    <!-- A setup's sheet, as the desktop's ⋯ menu: keep it on new chats, start it in a worktree or on another model, or
+         stop it being suggested. -->
+    <sc:StrataBottomSheet x:Name="LaunchpadSetupSheet" Classes="safe-area"
+                          IsVisible="{Binding $self.IsPresented}"
+                          IsOpen="{Binding IsSetupSheetOpen, Mode=TwoWay}"
+                          SheetMargin="{Binding SafeAreaSheetMargin}"
+                          Title="{Binding SetupSheetTitle}"
+                          Description="{Binding SetupSheetDescription}">
+      <Border Padding="{Binding SafeAreaSides}">
+        <ScrollViewer Classes="mobile-scroll sheet-scroll" MaxHeight="520" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Margin="0,0,0,8">
+            <Button x:Name="LaunchpadSetupKeep" Classes="sheet-item"
+                    Command="{Binding ToggleSetupKeptCommand}">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                <Border Classes="row-tile">
+                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pin}" />
+                </Border>
+                <TextBlock Grid.Column="1" Text="{Binding LaunchpadLabels.KeepOnNewChats}" VerticalAlignment="Center" />
+                <PathIcon Grid.Column="2" Classes="sheet-check"
+                          IsVisible="{Binding SetupSheetIsKept}"
+                          Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+              </Grid>
+            </Button>
+            <Button x:Name="LaunchpadSetupWorktree" Classes="sheet-item"
+                    IsVisible="{Binding SetupSheetCanUseWorktree}"
+                    Command="{Binding ToggleSetupWorktreeCommand}">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                <Border Classes="row-tile">
+                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Branch}" />
+                </Border>
+                <TextBlock Grid.Column="1" Text="{Binding LaunchpadLabels.StartInWorktree}" VerticalAlignment="Center" />
+                <PathIcon Grid.Column="2" Classes="sheet-check"
+                          IsVisible="{Binding SetupSheetIsWorktree}"
+                          Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+              </Grid>
+            </Button>
+            <Button x:Name="LaunchpadSetupHide" Classes="sheet-item"
+                    Command="{Binding HideSetupCommand}">
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                <Border Classes="row-tile">
+                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Cross}" />
+                </Border>
+                <TextBlock Grid.Column="1" Text="{Binding LaunchpadLabels.DontSuggest}" VerticalAlignment="Center" />
+              </Grid>
+            </Button>
+
+            <TextBlock Classes="sheet-label" Text="{Binding LaunchpadLabels.StartsWith}" />
+            <ItemsControl x:Name="LaunchpadSetupModels" ItemsSource="{Binding SetupSheetModels}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:LaunchpadModelChoice">
+                  <Button Classes="sheet-item context-option" Classes.selected="{Binding IsCurrent}"
+                          AutomationProperties.Name="{Binding Title}"
+                          Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).PickSetupModelCommand}"
+                          CommandParameter="{Binding}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                      <TextBlock Text="{Binding Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                      <PathIcon Grid.Column="1" Classes="sheet-check" IsVisible="{Binding IsCurrent}"
+                                Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </sc:StrataBottomSheet>
+
+    <!-- What waits on the user: a question to answer, then replies not read yet. One tapped opens. -->
+    <sc:StrataBottomSheet x:Name="LaunchpadNeedsYouSheet" Classes="safe-area"
+                          IsVisible="{Binding $self.IsPresented}"
+                          IsOpen="{Binding IsNeedsYouSheetOpen, Mode=TwoWay}"
+                          SheetMargin="{Binding SafeAreaSheetMargin}"
+                          Title="{Binding NeedsYouLabel}">
+      <Border Padding="{Binding SafeAreaSides}">
+        <ScrollViewer Classes="mobile-scroll sheet-scroll" MaxHeight="520" HorizontalScrollBarVisibility="Disabled">
+          <ItemsControl x:Name="LaunchpadNeedsYouList" ItemsSource="{Binding NeedsYouChats}" Margin="0,0,0,8">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:LaunchpadChat">
+                <Button Classes="sheet-item"
+                        AutomationProperties.Name="{Binding Title}"
+                        AutomationProperties.HelpText="{Binding StateLabel}"
+                        Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).OpenNeedsYouChatCommand}"
+                        CommandParameter="{Binding}">
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <Border Classes="row-tile">
+                      <Panel>
+                        <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Question}" IsVisible="{Binding IsWaiting}" />
+                        <Border Classes="launchpad-sheet-dot" IsVisible="{Binding IsReply}" />
+                      </Panel>
+                    </Border>
+                    <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Classes="sheet-detail" Text="{Binding StateLabel}" />
+                      <TextBlock Classes="sheet-detail" Text="{Binding Meta}" IsVisible="{Binding HasMeta}"
+                                 TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="2" Classes="launchpad-sheet-time" VerticalAlignment="Top"
+                               Margin="0,2,0,0" Text="{Binding TimeLabel}" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
       </Border>
     </sc:StrataBottomSheet>
 

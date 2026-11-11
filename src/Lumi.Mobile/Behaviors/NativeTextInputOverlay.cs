@@ -227,6 +227,7 @@ public sealed class NativeTextInputOverlay
         private bool _hasNativeFocus;
         private bool _bringIntoViewPending;
         private bool _isApplyingNativeText;
+        private bool _selectionMirrorPending;
         private bool _disposed;
 
         public Controller(TextBox textBox)
@@ -347,6 +348,18 @@ public sealed class NativeTextInputOverlay
                 return;
             }
 
+            if (e.Property == TextBox.SelectionStartProperty || e.Property == TextBox.SelectionEndProperty)
+            {
+                // A range chosen in code (a fill-in prompt's blank) is selected in the browser's input too, once
+                // both of its ends have been set.
+                if (!_isApplyingNativeText && !_selectionMirrorPending && _session is not null)
+                {
+                    _selectionMirrorPending = true;
+                    Dispatcher.UIThread.Post(MirrorSelection);
+                }
+                return;
+            }
+
             if (e.Property == TextBox.TextProperty
                 || e.Property == TextBox.PlaceholderTextProperty
                 || e.Property == TextBox.AcceptsReturnProperty
@@ -453,6 +466,18 @@ public sealed class NativeTextInputOverlay
             _hidden = true;
             _shown = null;
             _session?.Hide();
+        }
+
+        private void MirrorSelection()
+        {
+            _selectionMirrorPending = false;
+            if (_session is null || !(_hasNativeFocus || _textBox.IsFocused))
+                return;
+
+            var start = Math.Min(_textBox.SelectionStart, _textBox.SelectionEnd);
+            var end = Math.Max(_textBox.SelectionStart, _textBox.SelectionEnd);
+            if (end > start)
+                _session.Select(start, end);
         }
 
         private void OnNativeTextChanged(string value, int caretIndex)

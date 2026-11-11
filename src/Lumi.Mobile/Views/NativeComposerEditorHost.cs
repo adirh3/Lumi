@@ -99,6 +99,8 @@ public sealed class NativeComposerEditorHost
 
     public void FocusAt(int caretIndex) => Factory.FocusAt(this, caretIndex);
 
+    public void FocusSelect(int start, int length) => Factory.FocusSelect(this, start, length);
+
     public void FocusAtEnd() => Factory.FocusAtEnd(this);
 
     internal void Blur() => Factory.Blur(this);

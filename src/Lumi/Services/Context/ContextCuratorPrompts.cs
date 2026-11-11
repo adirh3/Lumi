@@ -36,6 +36,9 @@ internal static class ContextCuratorPrompts
 
         ## How it reads
         A few short paragraphs of plain prose, usually 300 to 800 characters and never more than {briefLimit}: no headings, no lists, and no sources in the text. Start with what the project is going through and where it is heading. Name a chat in quotes when it is where the details are. Write in the language {owner} uses in these chats. Before saving, reread it sentence by sentence and remove every sentence that only reports what happened, repeats the instructions or a memory, or is about a single task that nothing else waits on. Never drop one of {owner}'s plans to make room.
+
+        ## Starters
+        A new chat in this project offers up to three starters: {owner}'s own plans that the brief states and that can start now, each as the short request {owner} would send to begin it, in the brief's language: a few words in the imperative, without dates or conditions (for example "Publish 1.0.2" or "Continue the onboarding redesign"). Work under way that the brief names is such a plan. A plan that waits on something else becomes a starter once it can start. Every update_brief call carries them, most pressing first, the ones that still hold included. Never suggest work of your own, and leave them empty only when the brief holds no plans. When only the starters are out of date (a plan the brief states is missing from them, or one of them no longer holds), call update_brief with the brief unchanged.
         {{(canWriteMemories ? MemoryRules : "")}}
         When the brief needs changes, call update_brief with the whole new brief. Then reply with one line saying what changed, or that nothing did.
         """, owner, project);

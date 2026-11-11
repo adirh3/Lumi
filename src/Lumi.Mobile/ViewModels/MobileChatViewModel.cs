@@ -1025,6 +1025,13 @@ public sealed partial class MobileChatViewModel : ObservableObject
             ?? (_modelDisplayNames.TryGetValue(model, out var display) ? display : model);
     }
 
+    /// <summary>
+    /// A model's own name as the PC names it in a setup's menu: a Fusion tier by its tier ("Copilot Fusion Max"), not by
+    /// the picker row that groups the tiers.
+    /// </summary>
+    internal string? DisplayModelName(string? model)
+        => model is { Length: > 0 } && _modelDisplayNames.TryGetValue(model, out var display) ? display : DisplayModel(model);
+
     private RemoteModelOption? FindModelRow(string? model)
         => model is null ? null : _modelRows.GetValueOrDefault(model)
             ?? _modelRows.Values.FirstOrDefault(row => row.SelectionAliases.Contains(model, StringComparer.Ordinal));

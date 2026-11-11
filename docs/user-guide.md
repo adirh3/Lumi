@@ -28,7 +28,8 @@ Quick links: [AI accounts](#ai-accounts), [voice input](#voice-input),
 - **Sharing** — Share reusable prompts, skills, agents and MCP servers as readable files or compact chat codes; preview what travels, personalize prompts for your own setup, and review capabilities before importing
 - **Projects** — Organize chats with custom instructions that shape Lumi's behavior; switch between them from the project switcher at the top of the chat list and set them up in Customize → Projects. Coding projects can optionally update their default branch once daily, including nested submodules at the exact commits recorded by the project (not their latest branch tips). Uncommitted files, staged submodule changes, and unrecorded local submodule commits block automatic updates; already-current branches can still initialize or repair their submodule checkouts
 - **Memories** — Persistent facts extracted from conversations, remembered across all sessions; review and edit them in Settings → Memories
-- **Briefs** — Each night Lumi reads the day's chats, writes down where each project stands and tidies its memories; every new chat in a project starts with its brief, so it picks up where the earlier ones left off. Read, correct or clear them in Settings → Memories, where they're a group of their own, or open one from its project's page
+- **Briefs** — Each night Lumi reads the day's chats, writes down where each project stands and tidies its memories; every new chat in a project starts with its brief, so it picks up where the earlier ones left off, and offers the plans it holds as starters under **For you**. Read, correct or clear them in Settings → Memories, where they're a group of their own, or open one from its project's page
+- **New chat ideas** — A new chat greets you with ideas in tabs: **For you** (your project's plans, the starters you keep coming back to, and a few for the time of day) and categories such as Plan, Shop, Learn, Write, Money and Code, six in each, always in the same place. A starter fills in the composer instead of sending, with its blanks (like *[where?]*) ready to type over; Tab moves to the next. Your usual setups sit on the composer: **Just chat**, the projects and agents you start with most, and **Other** to search all of them. Pick a model or checkout and press **Keep** to add that setup, so one project can sit there several ways (say, on two models, or in a worktree); when they outgrow the composer, scroll the row with the wheel or the arrows at its edges. Chats waiting on you gather in one quiet capsule at the top. Your phone's new chat offers the same ideas and setups, made for touch ([details](#mobile-conversations))
 - **Background AI model** — One configurable model for internal AI helpers, with cost-first Auto selection independent of chat and job models
 - **Context awareness** — Lumi assembles context from the active project and its brief, agent, time of day, user name, skills, and memories into every interaction
 - **System tray** — Minimize to tray with global hotkey for instant access. On macOS, clicking the Dock icon or opening Lumi again restores the hidden window and keeps the current chat, draft, and maximized or full-screen state. Quit and operating-system shutdown still exit normally when minimize-to-tray is enabled.
@@ -669,7 +670,7 @@ and tool selections are updated on startup; older tool calls keep their transcri
 | Chat titles | A new conversation starts, when automatic titles are enabled | Produces a short title from the first user message |
 | Follow-up suggestions | An eligible assistant reply completes | Proposes three short next messages in your own voice: first the answer to the reply's offer or question (it always reads the reply's ending, where those are), then the most likely next requests. When a reply stops mid-work ("Now let me check the logs:"), the first is usually **Continue**. In a project it also reads the requests you usually send there, ranked by this chat and recency, and reuses your wording when one fits ("Commit and push to main"); chats outside projects don't use them. |
 | Automatic memories | A completed exchange contains potential lasting facts, when auto-save is enabled | Saves, updates, or removes personal facts and durable project conventions using restricted memory tools |
-| Daily briefs | Once a night at 05:00 (or at the first chance after it), for each project with chats that day and then once across projects, when Daily Briefs is on; or on **Update now** | Reads the day's chats with read-only chat tools (for a project you've used in the last two weeks, also chats where you name it: one outside projects can start its review, one in another project only adds to a review that happens anyway), rewrites the project's brief as a few short paragraphs on where it stands and is heading, and repairs, merges or removes memories with evidence from the chats (only with automatic memories on). A missed night is caught up a day at a time, three days on the first run and at most a week |
+| Daily briefs | Once a night at 05:00 (or at the first chance after it), for each project with chats that day and then once across projects, when Daily Briefs is on; or on **Update now** | Reads the day's chats with read-only chat tools (for a project you've used in the last two weeks, also chats where you name it: one outside projects can start its review, one in another project only adds to a review that happens anyway), rewrites the project's brief as a few short paragraphs on where it stands and is heading, keeps up to three of your own plans from it as the project's new-chat starters, and repairs, merges or removes memories with evidence from the chats (only with automatic memories on). A missed night is caught up a day at a time, three days on the first run and at most a week |
 | Onboarding personalization | The first-run getting-to-know-you step, prefetched once the user allows a look around (or skips it) | Turns a short local summary of projects, known apps, top sites and recent-file counts — never paths or document contents — into Lumi's first words, three tailored questions and three first tasks in one tool-free call; built-in fallbacks apply when it is unavailable |
 | Reusable prompt drafts | You choose Share prompt on a completed reply | Turns the bounded, redacted conversation snapshot into a portable task |
 
@@ -706,7 +707,8 @@ source chat's model, including for Share prompt.
 Actual chat turns, scheduled job/chat-event wakes, and orchestrated chats retain their chat or
 explicitly overridden models. SDK-owned subagents, web search, and context compaction remain
 under the main session/SDK's policy, not this internal-helper setting. Memory maintenance and
-launchpad starters use deterministic local logic, not LLM calls.
+the launchpad's choice of starters use deterministic local logic, not LLM calls; the starters a
+project's brief holds are written by the nightly daily-briefs review.
 
 ### Copilot telemetry and idle sessions
 
@@ -937,8 +939,8 @@ Arbitrary markdown paths, failed reads and unrelated files remain unavailable re
 Unchanged transcript refreshes retain image downloads and resolved cache paths instead of
 cancelling them or replacing visible images; unsuccessful downloads can retry on a later refresh.
 The mobile chat drawer follows live desktop ordering and read state while retaining
-loaded history pages. New chats use the desktop launchpad's exact usual setups and
-time-aware starters, including project, agent, model, reasoning effort, and local/worktree
+loaded history pages. New chats use the desktop launchpad's exact tabs of starters, For you
+and usual setups, including project, agent, model, reasoning effort, and local/worktree
 choice. The desktop selects them from the whole chat index, not the mobile history page.
 Selecting one keeps the current draft and attachments and creates no chat until Send.
 Setup selections apply only to that chat and do not change global desktop model defaults.
@@ -1223,15 +1225,29 @@ so tool-heavy chats still open with several recent prompts and replies. Expandin
 the original steps available; older history and retained source text remain bounded and paged.
 Large history pages shrink at whole-turn boundaries to stay within the response limit.
 
-A new mobile chat opens on the desktop's launchpad at phone scale. Lumi's mark sits in the presence
-over the greeting, the user's name in the accent, with the PC's brief of what needs them beneath;
-the starters for the hour follow as calm glass pills that put their words in the composer, to send
-or finish first. The user's usual setups sit on the composer they configure, within the thumb's
-reach: a row of glass cards running to the screen's edges, each marked as the desktop marks it (its
-project's initial on the project's own hue, otherwise its agent's glyph). Applying one checks its card
-and shows its project and agent on the composer; tapping it again puts back the draft it replaced, as
-on the desktop. The welcome gives way to the keyboard, and on short screens drops the mark so the
-greeting, starters and setups stay in view.
+A new mobile chat opens on the desktop's launchpad, made for touch. Chats waiting on you (a question,
+a reply you haven't read) gather in one quiet capsule at the top whose sheet opens them. Lumi's mark
+sits in the presence over the greeting, your name in the accent, with the line the desktop shows
+beneath it (in a project, where its brief says the work stands). The desktop's tabs follow, **For
+you** and then Plan, Shop, Learn, Write, Documents, Money, Computer and Code, on a strip whose pill
+slides to the tab you tap; the open tab's six starters are the desktop's glass capsules, centred
+line by line, each with its icon and its blanks in the accent, two sharing a line where they fit.
+Switching tabs never moves the tabs under your finger. A starter never sends: it fills the composer
+and selects its first blank, and the send button becomes **Next blank** until each blank has had its
+turn, then sends. The PC notes which starters you pick, so **For you** learns your habits on either
+device.
+
+Your setups sit on the composer they configure, within the thumb's reach: **Just chat**, the
+setups you keep or usually start with (each marked as on the desktop: its project's initial on
+the project's own hue, otherwise its agent's glyph), and **Other**, a sheet that searches every
+project and agent. Tapping one checks it and shows its project and agent on the composer; tapping
+it again puts back the draft it replaced. The row glides to the chat's setup, and after picking
+from Other, **Keep** keeps it beside the rest. Hold a setup, or tap **⋯** on the one in use, for
+the desktop's choices: keep it on new chats, start it in a worktree, choose the model it starts
+with, or stop suggesting it. Changes are saved on the PC, so the desktop's new chat shows them
+too. The welcome gives way to the keyboard, and when the screen is too short for all of it, drops
+the mark so the greeting, starters and setups stay in view. Paired with a PC from before these
+ideas, the phone shows that PC's three setups and its starters for the hour.
 
 Mobile popups are floating glass sheets. Only the popup is frosted: it blurs the content
 beneath its own surface and slides with it, while the page around it stays sharp behind a

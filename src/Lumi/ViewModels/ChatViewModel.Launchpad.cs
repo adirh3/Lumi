@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Lumi.Models;
 
 namespace Lumi.ViewModels;
 
@@ -35,6 +37,24 @@ public partial class ChatViewModel
     /// page; a wake names the job to select.
     /// </summary>
     public event Action<Guid?>? OpenAutomationsRequested;
+
+    /// <summary>
+    /// Raised after the launchpad put a starter in the composer: the view focuses it and walks the user through the
+    /// starter's blanks (their exact text in the prompt; none for a starter without blanks).
+    /// </summary>
+    public event Action<IReadOnlyList<string>>? ComposerFillInRequested;
+
+    /// <summary>The project the new chat starts in, if any: the place the launchpad's starters are for.</summary>
+    internal Project? LaunchpadProject => GetCurrentProject();
+
+    /// <summary>Puts a launchpad starter in the composer, replacing the draft, with its first blank selected.</summary>
+    internal void ComposeFromLaunchpad(string prompt, IReadOnlyList<string> blanks)
+    {
+        PromptText = prompt;
+        ComposerFillInRequested?.Invoke(blanks);
+    }
+
+    internal void RequestComposerFocus() => FocusComposerRequested?.Invoke();
 
     internal void RequestRevealChat(Guid chatId)
     {

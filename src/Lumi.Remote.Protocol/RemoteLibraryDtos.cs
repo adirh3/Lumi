@@ -138,10 +138,42 @@ public sealed class RemoteSettings
 public sealed class RemoteNewChatExperience
 {
     public string Greeting { get; set; } = "";
+
+    /// <summary>What waits on the user or, with nothing waiting, the invitation; phones before the launchpad show it.</summary>
     public string Brief { get; set; } = "";
     public string SetupsTitle { get; set; } = "";
     public List<RemoteChatSetup> Setups { get; set; } = [];
+
+    /// <summary>Three starters for the hour, for phones before the launchpad; it lists them under For you.</summary>
     public List<RemoteChatStarter> Starters { get; set; } = [];
+
+    /// <summary>
+    /// What a plain chat starts with: no project, no agent, the user's default model. Null from a desktop without
+    /// <see cref="RemoteProtocol.Capabilities.LaunchpadV1"/>, as are the launchpad's other parts.
+    /// </summary>
+    public RemoteChatSetup? JustChat { get; set; }
+
+    /// <summary>The tabs after For you, always in this order, each with its starters.</summary>
+    public List<RemoteLaunchpadTab> Tabs { get; set; } = [];
+
+    /// <summary>
+    /// For you, and the line under the greeting, for each place a new chat can start: no project first, then the
+    /// projects most recently used. A project without one starts from the first.
+    /// </summary>
+    public List<RemoteLaunchpadScope> Scopes { get; set; } = [];
+
+    /// <summary>Other's list: the projects, most recently used first, then the agents, each with how it starts.</summary>
+    public List<RemoteLaunchpadPlace> Places { get; set; } = [];
+
+    /// <summary>The launchpad's own words, in the PC's language, so the phone's match its starters.</summary>
+    public RemoteLaunchpadLabels? Labels { get; set; }
+
+    /// <summary>How many chats wait on the user, and that said in words ("2 chats need you").</summary>
+    public int NeedsYouCount { get; set; }
+    public string? NeedsYou { get; set; }
+
+    /// <summary>The chats waiting on the user, most urgent first (a question, then a reply), the first few of them.</summary>
+    public List<RemoteLaunchpadChat> NeedsYouChats { get; set; } = [];
 }
 
 public sealed class RemoteChatSetup
@@ -158,6 +190,24 @@ public sealed class RemoteChatSetup
     public bool UseWorktree { get; set; }
     public string? Model { get; set; }
     public string? Quality { get; set; }
+
+    /// <summary>
+    /// What its capsule says beside its name: the agent working in the project, or the model; for one of a place's
+    /// several setups, all that tells it apart ("Worktree · GPT 6.1 Sol").
+    /// </summary>
+    public string? Detail { get; set; }
+
+    /// <summary>Another setup in the row has its name, so it always says its <see cref="Detail"/>.</summary>
+    public bool IsVariant { get; set; }
+
+    /// <summary>The user kept it on new chats, rather than Lumi suggesting it from use.</summary>
+    public bool IsKept { get; set; }
+
+    /// <summary>The reasoning effort's id (<see cref="Quality"/> is its name), so the phone can name the setup back.</summary>
+    public string? Effort { get; set; }
+
+    /// <summary>Its project's folder is a git repository, so it can start in a worktree.</summary>
+    public bool CanUseWorktree { get; set; }
 }
 
 public sealed class RemoteChatStarter
@@ -165,6 +215,101 @@ public sealed class RemoteChatStarter
     public string Glyph { get; set; } = "";
     public string Label { get; set; } = "";
     public string Prompt { get; set; } = "";
+}
+
+/// <summary>A tab of the launchpad: a kind of task and its starters.</summary>
+public sealed class RemoteLaunchpadTab
+{
+    public string Id { get; set; } = "";
+    public string Title { get; set; } = "";
+    public List<RemoteLaunchpadStarter> Starters { get; set; } = [];
+}
+
+/// <summary>For you, and the line under the greeting, where a new chat starts (a project, or none).</summary>
+public sealed class RemoteLaunchpadScope
+{
+    public Guid? ProjectId { get; set; }
+
+    /// <summary>The project brief's opening sentence, or the invitation.</summary>
+    public string Subtitle { get; set; } = "";
+    public List<RemoteLaunchpadStarter> ForYou { get; set; } = [];
+}
+
+/// <summary>A conversation starter. Picking it puts its prompt in the composer; nothing is sent.</summary>
+public sealed class RemoteLaunchpadStarter
+{
+    /// <summary>Its stable id ("plan.trip"), which the PC learns the user's habits by; null for a plan from a brief.</summary>
+    public string? Id { get; set; }
+
+    /// <summary>Its line icon, as a key the phone draws with Strata's icons ("globe").</summary>
+    public string Icon { get; set; } = "";
+
+    /// <summary>What its capsule says. A blank is a short bracketed label ("Plan a trip to [where?]").</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>What goes in the composer, blanks and all, for the user to fill in.</summary>
+    public string Prompt { get; set; } = "";
+
+    /// <summary>Why For you offers it ("From Lumi's brief", "This morning"), when it says.</summary>
+    public string? Reason { get; set; }
+}
+
+/// <summary>A project or agent in Other's list, and how a new chat there starts: the way the user last worked there.</summary>
+public sealed class RemoteLaunchpadPlace
+{
+    public Guid Id { get; set; }
+    public bool IsProject { get; set; }
+    public string Title { get; set; } = "";
+
+    /// <summary>When the user last worked there ("40m ago"), if ever.</summary>
+    public string? Hint { get; set; }
+
+    /// <summary>One of the user's kept setups is in this place.</summary>
+    public bool IsKept { get; set; }
+
+    public RemoteChatSetup Setup { get; set; } = new();
+}
+
+/// <summary>A chat waiting on the user, as the launchpad lists it.</summary>
+public sealed class RemoteLaunchpadChat
+{
+    public Guid ChatId { get; set; }
+    public string Title { get; set; } = "";
+
+    /// <summary>It asks the user something; otherwise it has a reply the user hasn't read.</summary>
+    public bool IsWaiting { get; set; }
+
+    /// <summary>"Asked you something", "Replied".</summary>
+    public string StateLabel { get; set; } = "";
+
+    /// <summary>Its project and what it asks or said last.</summary>
+    public string Meta { get; set; } = "";
+
+    /// <summary>When it last changed ("5m ago").</summary>
+    public string TimeLabel { get; set; } = "";
+}
+
+/// <summary>The launchpad's words, as the PC's launchpad says them.</summary>
+public sealed class RemoteLaunchpadLabels
+{
+    public string ForYou { get; set; } = "";
+    public string JustChat { get; set; } = "";
+    public string Other { get; set; } = "";
+    public string OtherTitle { get; set; } = "";
+    public string OtherSearch { get; set; } = "";
+    public string OtherProjects { get; set; } = "";
+    public string OtherAgents { get; set; } = "";
+    public string OtherEmpty { get; set; } = "";
+    public string Keep { get; set; } = "";
+    public string KeepOnNewChats { get; set; } = "";
+    public string StartInWorktree { get; set; } = "";
+    public string DontSuggest { get; set; } = "";
+
+    /// <summary>The setup menu's model list ("Starts with").</summary>
+    public string StartsWith { get; set; } = "";
+
+    /// <summary>What opens a setup's menu ("Customize this setup").</summary>
+    public string Customize { get; set; } = "";
 }
 
 public sealed class RemoteModelDefaults

@@ -170,7 +170,10 @@ internal sealed partial class ContextCuratorScope
             .AppendLine(CultureInfo.InvariantCulture, $"Current {label} (last changed {Brief.UpdatedAt.ToLocalTime():MMM d HH:mm}):");
         if (Brief.EditedByUser)
             sb.AppendLine(CultureInfo.InvariantCulture, $"({Owner} edited it by hand since your last run; keep those edits unless newer chats show they are out of date.)");
-        return sb.AppendLine(Brief.Content).ToString();
+        sb.AppendLine(Brief.Content);
+        if (Project is not null)
+            sb.AppendLine(Brief.Starters.Count == 0 ? "Its starters: (none)" : "Its starters: " + string.Join(" | ", Brief.Starters));
+        return sb.ToString();
     }
 
     private string ProjectBriefs()
@@ -282,12 +285,20 @@ internal sealed partial class ContextCuratorScope
                     ? "Search all chats (the owner's messages and Lumi's replies). Use it to check whether something was said or decided before."
                     : "Search this project's chats (the owner's messages and Lumi's replies). Use it to check whether something was said or decided before.",
                 AppDataJsonContext.Default.Options),
-            AIFunctionFactory.Create(
-                ([Description("The complete new brief: a few short paragraphs of plain prose")] string content) =>
-                    Safe("update_brief", () => UpdateBrief(content)),
-                "update_brief",
-                global ? "Replace the global brief." : "Replace this project's brief.",
-                AppDataJsonContext.Default.Options),
+            global
+                ? AIFunctionFactory.Create(
+                    ([Description("The complete new brief: a few short paragraphs of plain prose")] string content) =>
+                        Safe("update_brief", () => UpdateBrief(content)),
+                    "update_brief",
+                    "Replace the global brief.",
+                    AppDataJsonContext.Default.Options)
+                : AIFunctionFactory.Create(
+                    ([Description("The complete new brief: a few short paragraphs of plain prose")] string content,
+                        [Description("Up to three of the owner's own plans from the brief that can start now, most pressing first, each the short imperative request the owner would send to begin it. Give the ones that still hold again; empty only when the brief holds no plan that can start now.")] string[] starters) =>
+                        Safe("update_brief", () => UpdateBrief(content, starters)),
+                    "update_brief",
+                    "Replace this project's brief and its starters.",
+                    AppDataJsonContext.Default.Options),
         };
 
         if (CanWriteMemories)
@@ -420,7 +431,11 @@ internal sealed partial class ContextCuratorScope
         return await _history.SearchChatsAsync(query, 8, CanRead, cancellationToken).ConfigureAwait(false);
     }
 
-    internal string UpdateBrief(string content)
+    /// <summary>A brief keeps at most this many starters, each shorter than <see cref="MaxStarterLength"/> characters.</summary>
+    internal const int MaxStarters = 3;
+    internal const int MaxStarterLength = 80;
+
+    internal string UpdateBrief(string content, IReadOnlyList<string>? starters = null)
     {
         if (string.IsNullOrWhiteSpace(content))
             return "content is required.";
@@ -441,16 +456,58 @@ internal sealed partial class ContextCuratorScope
             return $"Too long: {content.Length} characters, the limit is {BriefLimit}. Shorten it and call update_brief again.";
 
         var warning = ValidateBrief(content);
-        Brief.Content = content;
-        Brief.UpdatedAt = DateTimeOffset.Now;
+        var startersNote = starters is not null && Project is not null ? SaveStarters(starters) : null;
+        // The same text again only confirms the brief (its starters may have changed): it was reviewed, not rewritten.
+        var unchanged = string.Equals(content, current, StringComparison.Ordinal);
         Brief.EditedByUser = false;
         _briefSeen = content;
-        BriefChanged = true;
-        var repeats = RepeatedMemories(content);
+        if (!unchanged)
+        {
+            Brief.Content = content;
+            Brief.UpdatedAt = DateTimeOffset.Now;
+            BriefChanged = true;
+        }
+
+        var repeats = unchanged ? "" : RepeatedMemories(content);
         var reply = warning is null
             ? "Brief saved."
             : $"Brief saved, but: {warning} Fix it and call update_brief again if it matters.";
+        if (starters is not null && Project is not null)
+        {
+            reply += $"\nStarters: {(Brief.Starters.Count == 0 ? "none" : string.Join(" | ", Brief.Starters))}."
+                     + (startersNote is null ? "" : " " + startersNote);
+        }
+
         return repeats.Length == 0 ? reply : $"{reply}\n{repeats}";
+    }
+
+    /// <summary>Keeps the starters a new chat can offer: short, one line each, without repeats.</summary>
+    private string? SaveStarters(IReadOnlyList<string> starters)
+    {
+        var kept = new List<string>(MaxStarters);
+        var tooMany = 0;
+        var tooLong = 0;
+        foreach (var raw in starters)
+        {
+            var text = string.Join(' ', (raw ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).TrimEnd('.');
+            if (text.Length == 0 || kept.Contains(text, StringComparer.OrdinalIgnoreCase))
+                continue;
+            if (text.Length > MaxStarterLength)
+                tooLong++;
+            else if (kept.Count == MaxStarters)
+                tooMany++;
+            else
+                kept.Add(text);
+        }
+
+        // A new list, never one changed in place: a save may be copying the old one on another thread.
+        Brief.Starters = kept;
+        return (tooMany, tooLong) switch
+        {
+            (0, 0) => null,
+            (_, 0) => $"Only the first {MaxStarters} starters were kept.",
+            _ => $"{tooLong} starter(s) left out for being over {MaxStarterLength} characters; shorten them and call update_brief again if they matter.",
+        };
     }
 
     [GeneratedRegex(@"(?<=[.!?;])\s+")]

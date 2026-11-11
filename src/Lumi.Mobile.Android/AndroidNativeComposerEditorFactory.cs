@@ -319,7 +319,11 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         return Math.Clamp(state.Editor.SelectionStart, 0, state.Editor.Text?.Length ?? 0);
     }
 
-    public void FocusAt(NativeComposerEditorHost host, int caretIndex)
+    public void FocusAt(NativeComposerEditorHost host, int caretIndex) =>
+        FocusSelect(host, caretIndex, 0);
+
+    /// <summary>Focuses the editor with <paramref name="length"/> characters from <paramref name="start"/> selected.</summary>
+    public void FocusSelect(NativeComposerEditorHost host, int start, int length)
     {
         if (!_states.TryGetValue(host, out var state) || state.IsDestroyed)
             return;
@@ -330,10 +334,12 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
             if (state.IsDestroyed || focusVersion != state.FocusVersion || !host.IsVisible)
                 return;
 
-            var clamped = Math.Clamp(caretIndex, 0, state.Editor.Text?.Length ?? 0);
+            var textLength = state.Editor.Text?.Length ?? 0;
+            var from = Math.Clamp(start, 0, textLength);
+            var to = Math.Clamp(start + Math.Max(0, length), from, textLength);
             host.SetInputFocusFromNative(true);
             state.Editor.RequestFocus();
-            state.Editor.SetSelection(clamped);
+            state.Editor.SetSelection(from, to);
             TryShowKeyboard(host, state, focusVersion);
         });
     }

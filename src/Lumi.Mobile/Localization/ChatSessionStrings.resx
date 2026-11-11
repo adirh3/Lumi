@@ -87,6 +87,8 @@
   <data name="SearchYourChats" xml:space="preserve"><value>Search your chats</value></data>
   <data name="LoadMoreChats" xml:space="preserve"><value>Load more chats</value></data>
   <data name="LongPressChatActions" xml:space="preserve"><value>Long press for chat actions</value></data>
+  <data name="LaunchpadIdeas" xml:space="preserve"><value>Ideas</value></data>
+  <data name="LongPressSetupActions" xml:space="preserve"><value>Long press to keep or change this setup</value></data>
   <data name="RenameChat" xml:space="preserve"><value>Rename chat</value></data>
   <data name="DeleteChat" xml:space="preserve"><value>Delete chat</value></data>
   <data name="ChatName" xml:space="preserve"><value>Chat name</value></data>

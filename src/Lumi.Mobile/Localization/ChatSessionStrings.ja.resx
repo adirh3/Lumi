@@ -225,6 +225,12 @@
   <data name="LongPressChatActions" xml:space="preserve">
     <value>長押しでチャットの操作</value>
   </data>
+  <data name="LaunchpadIdeas" xml:space="preserve">
+    <value>アイデア</value>
+  </data>
+  <data name="LongPressSetupActions" xml:space="preserve">
+    <value>長押しでこの設定を残す・変更する</value>
+  </data>
   <data name="RenameChat" xml:space="preserve">
     <value>チャット名を変更</value>
   </data>

@@ -73,6 +73,10 @@ internal sealed class RemoteCommandRouter
             RemoteProtocol.Actions.ConfigureChat => await ConfigureChatAsync(command),
             RemoteProtocol.Actions.ConfigureFeature => await ConfigureFeatureAsync(command),
             RemoteProtocol.Actions.PinModel => await PinModelAsync(command),
+            RemoteProtocol.Actions.KeepSetup => await KeepSetupAsync(command),
+            RemoteProtocol.Actions.HideSetup => await HideSetupAsync(command),
+            RemoteProtocol.Actions.RetuneSetup => await RetuneSetupAsync(command),
+            RemoteProtocol.Actions.UseStarter => await UseStarterAsync(command),
             _ => Fail(Loc.Get("Remote_UnknownAction", command.Action))
         };
     }
@@ -271,6 +275,128 @@ internal sealed class RemoteCommandRouter
 
         await _dataStore.SaveAsync().ConfigureAwait(true);
         return Success(pinned ? Loc.Remote_ModelPinned : Loc.Remote_ModelUnpinned);
+    }
+
+    /// <summary>
+    /// The setup a launchpad command names (its project, agent, checkout, model and effort), as the launchpad's
+    /// <paramref name="row"/> holds it; null when it names a project or agent this computer no longer has, or names
+    /// neither and isn't one of the row's setups on another model (plain chat is no setup). A setup from the row names
+    /// its effort as the row holds it (<c>effort</c>); the phone's draft names it as its picker shows it (<c>quality</c>,
+    /// in the desktop's language), which is read as the desktop reads its own draft.
+    /// </summary>
+    private LaunchpadSetupSpec? ReadSetup(RemoteCommand command, IReadOnlyList<LaunchpadSetupChoice> row)
+    {
+        var data = _dataStore.Data;
+        var projectId = command.GetGuid("projectId");
+        var agentId = command.GetGuid("agentId");
+        if (projectId is { } project && !data.Projects.ToArray().Any(candidate => candidate.Id == project))
+            return null;
+        if (agentId is { } agent && !data.Agents.ToArray().Any(candidate => candidate.Id == agent))
+            return null;
+
+        var model = command.Get("model") is { Length: > 0 } requestedModel ? requestedModel : null;
+        string? effort = null;
+        if (command.Get("effort") is { Length: > 0 } rowEffort)
+        {
+            effort = rowEffort;
+        }
+        else if (command.Get("quality") is { Length: > 0 } quality)
+        {
+            if (model is not null)
+                model = _main.ChatVM.ResolveModelQualitySelection(model, quality);
+            effort = _main.ChatVM.ResolveReasoningEffortForModel(ModelSelectionHelper.DisplayToEffort(quality), model);
+        }
+
+        var spec = new LaunchpadSetupSpec(
+            projectId,
+            agentId,
+            projectId is not null && command.GetBool("worktree") == true,
+            model,
+            effort);
+        return spec is { ProjectId: null, AgentId: null } && !row.Any(choice => choice.Spec == spec) ? null : spec;
+    }
+
+    private List<LaunchpadSetupChoice> LaunchpadRow() =>
+        LaunchpadViewModel.BuildSetupChoices(_dataStore, _main.ChatVM, DateTimeOffset.Now);
+
+    /// <summary>
+    /// Keeps a setup on new chats, or stops keeping it, as the launchpad's Keep and its menu do. The phone states what it
+    /// wants rather than toggling, so a repeated request is harmless.
+    /// </summary>
+    private async Task<RemoteCommandResult> KeepSetupAsync(RemoteCommand command)
+    {
+        var row = LaunchpadRow();
+        if (ReadSetup(command, row) is not { } spec)
+            return Fail(Loc.Remote_SetupUnavailable);
+        if (command.GetBool("kept") is not { } kept)
+            return Fail(Loc.Get("Remote_ArgumentRequired", "kept"));
+
+        if (kept)
+            LaunchpadSetupKeeper.Keep(_dataStore.Data, row, spec);
+        else
+            LaunchpadSetupKeeper.StopKeeping(_dataStore.Data, row, spec);
+        await _dataStore.SaveAsync().ConfigureAwait(true);
+        return Success(kept ? Loc.Remote_SetupKept : Loc.Remote_SetupNotKept);
+    }
+
+    /// <summary>Takes a setup off the new chat, as the launchpad's "Don't suggest this" does.</summary>
+    private async Task<RemoteCommandResult> HideSetupAsync(RemoteCommand command)
+    {
+        var row = LaunchpadRow();
+        if (ReadSetup(command, row) is not { } spec)
+            return Fail(Loc.Remote_SetupUnavailable);
+
+        LaunchpadSetupKeeper.Hide(_dataStore.Data, row, spec);
+        await _dataStore.SaveAsync().ConfigureAwait(true);
+        return Success(Loc.Remote_SetupHidden);
+    }
+
+    /// <summary>
+    /// Changes what a setup starts with from now on (its checkout, its model), as the launchpad's menu does, which keeps
+    /// it so the choice holds.
+    /// </summary>
+    private async Task<RemoteCommandResult> RetuneSetupAsync(RemoteCommand command)
+    {
+        var row = LaunchpadRow();
+        if (ReadSetup(command, row) is not { } spec)
+            return Fail(Loc.Remote_SetupUnavailable);
+
+        var changed = spec;
+        if (command.GetBool("toWorktree") is { } useWorktree)
+        {
+            var project = _dataStore.Data.Projects.ToArray().FirstOrDefault(candidate => candidate.Id == spec.ProjectId);
+            if (useWorktree && !LaunchpadViewModel.CanUseWorktree(project))
+                return Fail(Loc.Remote_SetupUnavailable);
+            changed = changed with { UseWorktree = useWorktree };
+        }
+
+        if (command.Get("toModel") is { Length: > 0 } model)
+        {
+            if (!_main.ChatVM.AvailableModels.Contains(model, StringComparer.Ordinal))
+                return Fail(Loc.Remote_ModelUnavailable);
+            changed = changed with { ModelId = model, Effort = _main.ChatVM.ResolveReasoningEffortForModel(spec.Effort, model) };
+        }
+
+        if (changed == spec)
+            return Fail(Loc.Remote_NothingToConfigure);
+
+        LaunchpadSetupKeeper.Retune(_dataStore.Data, row, spec, changed);
+        await _dataStore.SaveAsync().ConfigureAwait(true);
+        return Success(Loc.Remote_SetupChanged);
+    }
+
+    /// <summary>Remembers a starter the phone picked, so For you learns the user's habits wherever they start chats.</summary>
+    private async Task<RemoteCommandResult> UseStarterAsync(RemoteCommand command)
+    {
+        if (command.Get("id") is not { Length: > 0 } id || LaunchpadStarterCatalog.Find(id) is null)
+            return Fail(Loc.Get("Remote_ArgumentInvalid", "id"));
+        var projectId = command.GetGuid("projectId");
+        if (projectId is { } project && !_dataStore.Data.Projects.ToArray().Any(candidate => candidate.Id == project))
+            projectId = null;
+
+        LaunchpadStarterUse.Record(_dataStore.Data.StarterUses, id, projectId, DateTimeOffset.Now);
+        await _dataStore.SaveAsync().ConfigureAwait(true);
+        return Success(Loc.Remote_StarterNoted);
     }
 
     private async Task<RemoteCommandResult> EditMessageAsync(RemoteCommand command, CancellationToken cancellationToken)

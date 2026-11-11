@@ -335,7 +335,7 @@ public partial class App : Application
                 forceOnboarding: Program.ForceOnboarding,
                 startBackgroundJobs: !Program.IsMemoryCheck &&
 #if DEBUG
-                    Program.QaSmokeOptions is not { Enabled: true }
+                    Program.QaSmokeOptions is not { Enabled: true } && !Program.NoBackgroundJobs
 #else
                     true
 #endif
