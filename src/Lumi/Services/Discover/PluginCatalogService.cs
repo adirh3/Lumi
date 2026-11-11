@@ -62,7 +62,8 @@ public sealed record MarketplaceRemoveOutcome(bool Removed, IReadOnlyList<string
 /// <remarks>
 /// The runtime's browse call names each plugin but says little else, so a marketplace hosted on
 /// GitHub also has its <c>marketplace.json</c> read for authors, versions and where each plugin
-/// lives — which is what lets Discover preview a plugin before it is added.
+/// lives. This optional metadata may be unavailable for private Git sources authenticated as
+/// another identity; it must not prevent an explicit runtime update.
 /// </remarks>
 public sealed class PluginCatalogService
 {
@@ -71,6 +72,7 @@ public sealed class PluginCatalogService
     private readonly GitHubRepoReader _reader;
     private readonly PluginInspector _inspector;
     private readonly ConcurrentDictionary<string, Task<IReadOnlyList<MarketplaceListing>>> _manifests = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _failedRefreshes = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, Task<PluginContents>> _contents = new(StringComparer.OrdinalIgnoreCase);
 
     public PluginCatalogService(CopilotService copilotService, GitHubRepoReader? reader = null)
@@ -125,9 +127,9 @@ public sealed class PluginCatalogService
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            // The catalog only adds detail; the runtime's list is still complete without it. A slow
-            // GitHub surfaces as HttpClient's timeout, a cancellation the caller never asked for.
-            System.Diagnostics.Debug.WriteLine($"[Plugins] Catalog of '{marketplace.Name}' unavailable: {ex.Message}");
+            // Metadata access uses the Copilot identity, not necessarily the Git identity.
+            // Neither failure nor missing metadata means the installed plugin is current.
+            System.Diagnostics.Debug.WriteLine($"[Plugins] Catalog metadata unavailable: {ex.GetType().Name}");
             listings = [];
         }
 
@@ -144,7 +146,7 @@ public sealed class PluginCatalogService
                     plugin.Name,
                     marketplace.Name,
                     plugin.Description ?? detail?.Description,
-                    detail?.Version,
+                    _failedRefreshes.Contains(marketplace.Name) ? null : detail?.Version,
                     detail?.Author,
                     detail?.AuthorUrl,
                     detail?.Homepage,
@@ -213,7 +215,15 @@ public sealed class PluginCatalogService
     {
         _manifests.Clear();
         _contents.Clear();
-        await Client.Rpc.Plugins.Marketplaces.RefreshAsync(null, cancellationToken).ConfigureAwait(false);
+        var result = await Client.Rpc.Plugins.Marketplaces.RefreshAsync(null, cancellationToken).ConfigureAwait(false);
+        _failedRefreshes.Clear();
+        foreach (var entry in result?.Results ?? [])
+        {
+            if (!entry.Success)
+                _failedRefreshes.Add(entry.Name);
+        }
+        if (_failedRefreshes.Count > 0)
+            throw new InvalidOperationException(Loc.Get(nameof(Loc.Discover_RefreshFailed), string.Join(", ", _failedRefreshes)));
     }
 
     /// <summary>What a plugin adds, read from its repository before it is installed.</summary>

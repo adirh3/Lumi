@@ -7,11 +7,16 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Controls;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Discover;
 using Lumi.ViewModels;
+using Lumi.Views;
 using Xunit;
 
 namespace Lumi.Tests;
@@ -19,6 +24,239 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class DiscoverGridUiTests
 {
+    [Theory]
+    [InlineData(null, true, "Update from source")]
+    [InlineData("0.3.1", true, "Update to 0.3.1")]
+    [InlineData("0.3.0", false, "Update to 0.3.0")]
+    public async Task PluginDetail_DistinguishesUnknownFromKnownUpdates(string? candidate, bool canUpdate, string label)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc();
+            var vm = PluginDetail(fixture, rpc, candidate);
+            Assert.Equal(canUpdate, vm.CanUpdate);
+            Assert.Equal(label, vm.UpdateButtonText);
+            Assert.Equal(candidate is null, vm.IsUpdateUnknown);
+            Assert.Equal(candidate == "0.3.1", vm.OpenCard!.HasUpdate);
+
+            vm.OpenCard.Installation = vm.OpenCard.Installation! with { IsManaged = true };
+            Assert.False(vm.CanUpdate);
+            vm.OpenCard.Installation = null;
+            Assert.False(vm.CanUpdate);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PluginDetail_RefreshKeepsTheOpenOperationAndClearsMissingVersionHints()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc();
+            var vm = PluginDetail(fixture, rpc, "0.3.1");
+            var open = vm.OpenCard!;
+            var installed = open.Installation!;
+            open.IsBusy = true;
+
+            vm.ApplyPlugins([], [installed]);
+            Assert.Same(open, vm.OpenCard);
+            Assert.True(vm.IsDetailBusy);
+            Assert.True(vm.IsUpdateUnknown);
+            Assert.False(vm.CanUpdate);
+
+            vm.ApplyPlugins([open.Listing! with { Version = "0.3.2" }], [installed]);
+            Assert.Same(open, vm.OpenCard);
+            Assert.True(vm.IsDetailBusy);
+            Assert.False(vm.CanUpdate);
+            open.IsBusy = false;
+            Assert.True(vm.CanUpdate);
+            Assert.Equal("0.3.2", open.Listing!.Version);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PluginDetail_FailedUpdatePreservesVersion_AndMissingVersionNeverClaimsCurrent()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc { FailUpdate = true };
+            var vm = PluginDetail(fixture, rpc, "0.3.1");
+            await vm.UpdateCommand.ExecuteAsync(null);
+            Assert.Contains("os error 5", vm.ActionError);
+            Assert.Equal("0.3.0", vm.OpenCard!.Installation!.Version);
+            Assert.False(vm.HasResult);
+            Assert.False(vm.IsDetailBusy);
+
+            rpc.FailUpdate = false;
+            rpc.UpdatedVersion = null;
+            await vm.UpdateCommand.ExecuteAsync(null);
+            Assert.Null(vm.OpenCard.Installation.Version);
+            Assert.False(vm.OpenCard.HasVersion);
+            Assert.Equal(Loc.Discover_UpdatedVersionUnknown, vm.ResultMessage);
+            Assert.True(vm.IsUpdateUnknown);
+            Assert.False(vm.HasActionError);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PluginRefreshFailure_IsVisibleInEveryGalleryFilter()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc { RefreshSucceeds = false };
+            fixture.WriteCatalog("0.3.1");
+            var vm = PluginGallery(fixture, rpc);
+            await vm.EnsureLoadedAsync();
+            Assert.True(Assert.Single(vm.PluginPreview).HasUpdate);
+            await vm.RefreshCommand.ExecuteAsync(null);
+            Assert.True(vm.HasPluginError);
+            Assert.True(Assert.Single(vm.PluginPreview).IsUpdateUnknown);
+
+            var view = new DiscoverView { DataContext = vm };
+            var window = new Window { Content = view, Width = 1100, Height = 900 };
+            window.Show();
+            try
+            {
+                Action[] filters =
+                [
+                    () => vm.ShowAllCommand.Execute(null),
+                    () => vm.ShowPluginsCommand.Execute(null),
+                    () => vm.ShowInstalledCommand.Execute(null),
+                    () => vm.ShowServersCommand.Execute(null),
+                    () => Assert.Single(vm.SourceRows, row => row.Kind == DiscoverKind.Plugin).SelectCommand.Execute(null),
+                ];
+                foreach (var filter in filters)
+                {
+                    filter();
+                    Dispatcher.UIThread.RunJobs();
+                    window.UpdateLayout();
+                    var error = Assert.Single(view.GetVisualDescendants().OfType<TextBlock>(),
+                        text => text.Text == vm.PluginError);
+                    Assert.True(error.IsEffectivelyVisible, $"Refresh error hidden in {vm.Filter} ({vm.SourceKey}).");
+                    Assert.True(error.Bounds.Width > 0);
+                    Assert.True(error.Bounds.Height > 0);
+                }
+            }
+            finally
+            {
+                view.DataContext = null;
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PluginRefreshFailure_RetryRepeatsRefreshUntilRecovery_ThenOnlyReloadsLoadFailures()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc { RefreshSucceeds = false };
+            fixture.WriteCatalog("0.3.1");
+            var vm = PluginGallery(fixture, rpc);
+            await vm.EnsureLoadedAsync();
+            await vm.RefreshCommand.ExecuteAsync(null);
+            Assert.Equal(1, rpc.Calls.Count(call => call == "refresh"));
+            var view = new DiscoverView { DataContext = vm };
+            var window = new Window { Content = view, Width = 1100, Height = 900 };
+            window.Show();
+            try
+            {
+                async Task RetryPluginError()
+                {
+                    Dispatcher.UIThread.RunJobs();
+                    window.UpdateLayout();
+                    var button = Assert.Single(view.GetVisualDescendants().OfType<Button>(),
+                        button => button.IsEffectivelyVisible && button.Content?.ToString() == Loc.Discover_Retry);
+                    await Assert.IsAssignableFrom<IAsyncRelayCommand>(button.Command).ExecuteAsync(null);
+                }
+
+                await RetryPluginError();
+                Assert.Equal(2, rpc.Calls.Count(call => call == "refresh"));
+                Assert.True(vm.HasPluginError);
+                Assert.Null(Assert.Single(vm.PluginPreview).Listing!.Version);
+
+                rpc.RefreshSucceeds = true;
+                await RetryPluginError();
+                Assert.Equal(3, rpc.Calls.Count(call => call == "refresh"));
+                Assert.False(vm.HasPluginError);
+                var recovered = Assert.Single(vm.PluginPreview);
+                Assert.Equal("0.3.1", recovered.Listing!.Version);
+                Assert.True(recovered.HasUpdate);
+
+                rpc.FailList = true;
+                await vm.RetryCommand.ExecuteAsync(null);
+                Assert.True(vm.HasPluginError);
+                rpc.FailList = false;
+                await RetryPluginError();
+                Assert.False(vm.HasPluginError);
+                Assert.Equal(3, rpc.Calls.Count(call => call == "refresh"));
+            }
+            finally
+            {
+                view.DataContext = null;
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PluginRefreshFailure_ServerRetryDoesNotClearItOrRefreshMarketplaces()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc { RefreshSucceeds = false };
+            fixture.WriteCatalog("0.3.1");
+            var registryAvailable = false;
+            var vm = PluginGallery(fixture, rpc, _ => registryAvailable ? Page(0, 0, null) : null);
+            await vm.EnsureLoadedAsync();
+            await vm.RefreshCommand.ExecuteAsync(null);
+            Assert.True(vm.HasServerError);
+            Assert.True(vm.HasPluginError);
+            var refreshError = vm.PluginError;
+
+            registryAvailable = true;
+            await vm.RetryCommand.ExecuteAsync(null);
+            Assert.False(vm.HasServerError);
+            Assert.Equal(refreshError, vm.PluginError);
+            Assert.Equal(1, rpc.Calls.Count(call => call == "refresh"));
+            Assert.Null(Assert.Single(vm.PluginPreview).Listing!.Version);
+        }, CancellationToken.None);
+    }
+
+    private static DiscoverViewModel PluginGallery(
+        PluginCatalogFixture fixture, PluginCatalogRpc rpc, Func<string, string?>? registry = null)
+        => new(
+            new DataStore(
+                new AppData { Settings = new UserSettings { McpRegistryUrls = ["https://registry.test"] } },
+                Path.Combine(fixture.Root, "skills")),
+            fixture.Service(rpc),
+            new McpRegistryClient(new HttpClient(new StubRegistry(registry ?? (_ => Page(0, 0, null))))),
+            static () => null);
+
+    private static DiscoverViewModel PluginDetail(PluginCatalogFixture fixture, PluginCatalogRpc rpc, string? candidate)
+    {
+        var vm = PluginGallery(fixture, rpc);
+        var card = DiscoverCard.ForPlugin(Plugin("private-plugin", "Fixture") with { Marketplace = "private-plugin", Version = candidate }, _ => { });
+        card.Installation = new("private-plugin", "private-plugin", "0.3.0", true, null, false);
+        vm.OpenCard = card;
+        return vm;
+    }
+
     [Fact]
     public async Task Grid_ShowsAPageAtATime_BuildsItAfterTheClick_AndFetchesMoreAtTheEnd()
     {

@@ -1,4 +1,8 @@
 {
+  "Discover_UpdateFromSource": "עדכון מהמקור",
+  "Discover_UpdateUnknown": "הגרסה הזמינה אינה ידועה. עדכון מהמקור מבקש מ-Copilot להתקין את הגרסה שהמקור מציע.",
+  "Discover_UpdatedVersionUnknown": "Copilot השלים את העדכון אך לא דיווח על גרסה מותקנת. יש לרענן כדי לבדוק את ההתקנה.",
+  "Discover_RefreshFailed": "לא ניתן לרענן את מקורות התוספים הבאים: {0}. הגרסאות הזמינות בהם אינן ידועות.",
   "App_Name": "לומי",
   "Setup_SectionTitle": "הגדרה בצעד אחד",
   "Setup_SectionCaption": "תוספים רשמיים לכלים שכבר בשימוש",

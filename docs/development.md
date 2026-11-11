@@ -909,3 +909,33 @@ The local MCP proxy is organized by responsibility:
 - `McpStdioServerConnection` owns backend lifecycle; `.Discovery`, `.Process`, and `.Transport` keep catalog validation, process management, and message forwarding separate.
 - `McpDiscoveryCache` stores snapshots, while `McpDiscoverySession` holds each client's advertised contract.
 - `JsonRpc` contains the shared message-format helpers.
+
+### Discover plugin versions
+
+SDK 1.0.30-preview.1 exposes only plugin names, descriptions and assignment through `plugins.marketplaces.browse`.
+Its catalog search/install-plan APIs describe Agent Finder resources, not the user's registered
+marketplaces. The runtime has internal `browsePluginCatalog` / `checkPluginUpdate` operations, but
+the SDK does not expose them for these sources. The upstream fix should expose a typed available
+version/update status (including unknown/error) resolved with the runtime's Git credentials and
+effective source/ref. Lumi deliberately does not duplicate native cache layouts or Git authentication.
+
+Existing GitHub catalog metadata remains optional. `GitHubRepoRef` accepts HTTPS userinfo and runtime
+`GitHub:`, `URL:` and `Git:` descriptions while retaining only the repository coordinates, never URL
+credentials. When metadata is missing, inaccessible or uncomparable, Discover explicitly shows
+unknown and allows **Update from source** through the existing SDK update call. It does not claim
+that a newer version exists. A private Git source can therefore be updated without its GitHub HTTP
+metadata being readable by the Copilot account. Precise version badges for those sources await the
+SDK metadata API. Refresh failures surface and suppress stale hints for the failed marketplaces.
+The plugin error banner is shared by every gallery filter. Its **Retry** repeats a failed native
+marketplace refresh before loading the catalogs; ordinary load retries still only reload them.
+Reloading for a connector error does not dismiss an outstanding marketplace-refresh failure.
+
+Runtime experiments must isolate both `COPILOT_HOME` and `COPILOT_CACHE_HOME`; the latter is
+independent of the configuration home. Never infer the cause of an access-denied error from an
+unrelated directory-in-use reproduction.
+
+Updates remain runtime-owned. Lumi publishes `PluginsChanged` only after a successful update RPC;
+`ChatSessionStore` then reconfigures idle sessions and defers live-session changes. Do not preemptively
+stop connectors or active/background work to make an update succeed. Discover uses the SDK's
+update outcome, never a catalog candidate, as the new installed version. A missing version in
+that outcome remains unknown until a subsequent runtime listing reports it.

@@ -77,6 +77,7 @@ public sealed partial class DiscoverViewModel : ObservableObject
     private CancellationTokenSource? _serverSearchCts;
     private Task? _loading;
     private bool _pluginsNeedConnection;
+    private string? _pluginRefreshError;
     private List<DiscoverCard> _gridItems = [];
     private int _gridRequested = GridPageSize;
     private bool _isGridFillScheduled;
@@ -261,11 +262,15 @@ public sealed partial class DiscoverViewModel : ObservableObject
         try
         {
             if (_plugins.IsAvailable)
+            {
                 await _plugins.RefreshAsync(CancellationToken.None);
+                _pluginRefreshError = null;
+            }
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[Discover] Marketplace refresh failed: {ex.Message}");
+            _pluginRefreshError = Describe(ex);
         }
 
         _loading = LoadAllAsync();
@@ -329,6 +334,9 @@ public sealed partial class DiscoverViewModel : ObservableObject
         _loading = LoadAllAsync();
         return _loading;
     }
+
+    [RelayCommand]
+    private Task RetryPluginsAsync() => _pluginRefreshError is not null ? RefreshAsync() : RetryAsync();
 
     private void SetFilter(DiscoverFilter filter, string? sourceKey)
     {
@@ -450,7 +458,7 @@ public sealed partial class DiscoverViewModel : ObservableObject
 
         _pluginsNeedConnection = false;
         IsLoadingPlugins = true;
-        PluginError = null;
+        PluginError = _pluginRefreshError;
         try
         {
             var marketplaces = await _plugins.ListMarketplacesAsync(CancellationToken.None);
@@ -913,6 +921,15 @@ public sealed partial class DiscoverViewModel : ObservableObject
             })
             .ToList();
         ApplyInstallState();
+        if (OpenCard is { IsPlugin: true } open)
+        {
+            var listing = _pluginCards.FirstOrDefault(card => card.Key == open.Key)?.Listing
+                ?? (open.Listing is { } previous ? previous with { Version = null } : null);
+            if (listing is not null)
+                open.ApplyListing(listing);
+            open.Installation = installed.FirstOrDefault(plugin => DiscoverCard.PluginKey(plugin.Name, plugin.Marketplace) == open.Key);
+            NotifyDetail();
+        }
     }
 
     /// <summary>

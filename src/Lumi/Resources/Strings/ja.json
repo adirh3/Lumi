@@ -1,4 +1,8 @@
 {
+  "Discover_UpdateFromSource": "ソースから更新",
+  "Discover_UpdateUnknown": "利用可能なバージョンは不明です。「ソースから更新」は、このソースが提供するバージョンのインストールを Copilot に依頼します。",
+  "Discover_UpdatedVersionUnknown": "Copilot は更新を完了しましたが、インストール済みバージョンを報告しませんでした。再読み込みしてインストールを確認してください。",
+  "Discover_RefreshFailed": "次のマーケットプレイスを再読み込みできませんでした: {0}。利用可能なバージョンは不明です。",
   "App_Name": "Lumi",
   "Setup_SectionTitle": "ワンステップでセットアップ",
   "Setup_SectionCaption": "お使いのツール向けの公式プラグイン",
