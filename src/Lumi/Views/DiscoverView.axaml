@@ -237,6 +237,14 @@
             </Button>
           </Panel>
 
+          <Border x:Name="DiscoverPluginErrorBanner" Classes="dc-banner danger" IsVisible="{Binding HasPluginError}">
+            <DockPanel>
+              <Button x:Name="DiscoverPluginRetryButton" DockPanel.Dock="Right" Classes="mg-button" Content="{loc:Str Discover_Retry}"
+                      Command="{Binding RetryPluginsCommand}" Margin="12,0,0,0" />
+              <TextBlock Classes="dc-body" Text="{Binding PluginError}" VerticalAlignment="Center" />
+            </DockPanel>
+          </Border>
+
           <!-- ── Everything: a front page with both kinds ── -->
           <StackPanel Spacing="34" IsVisible="{Binding IsAll}">
 
@@ -290,12 +298,6 @@
                 </StackPanel>
               </Border>
               <ContentControl Content="{Binding}" IsVisible="{Binding IsLoadingPlugins}" ContentTemplate="{StaticResource DiscoverSkeleton}" />
-              <Border Classes="dc-banner danger" IsVisible="{Binding HasPluginError}">
-                <DockPanel>
-                  <Button DockPanel.Dock="Right" Classes="mg-button" Content="{loc:Str Discover_Retry}" Command="{Binding RetryCommand}" Margin="12,0,0,0" />
-                  <TextBlock Classes="dc-body" Text="{Binding PluginError}" VerticalAlignment="Center" />
-                </DockPanel>
-              </Border>
               <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_NoPlugins}" IsVisible="{Binding ShowPluginEmpty}" />
               <ItemsControl x:Name="DiscoverPluginPreview" ItemsSource="{Binding PluginPreview}"
                             ItemTemplate="{StaticResource DiscoverCardTemplate}" IsVisible="{Binding HasPluginPreview}">

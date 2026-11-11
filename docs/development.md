@@ -926,6 +926,9 @@ unknown and allows **Update from source** through the existing SDK update call. 
 that a newer version exists. A private Git source can therefore be updated without its GitHub HTTP
 metadata being readable by the Copilot account. Precise version badges for those sources await the
 SDK metadata API. Refresh failures surface and suppress stale hints for the failed marketplaces.
+The plugin error banner is shared by every gallery filter. Its **Retry** repeats a failed native
+marketplace refresh before loading the catalogs; ordinary load retries still only reload them.
+Reloading for a connector error does not dismiss an outstanding marketplace-refresh failure.
 
 Runtime experiments must isolate both `COPILOT_HOME` and `COPILOT_CACHE_HOME`; the latter is
 independent of the configuration home. Never infer the cause of an access-denied error from an

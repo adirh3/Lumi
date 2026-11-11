@@ -167,6 +167,7 @@ internal sealed class PluginCatalogRpc : IDisposable
     private readonly IDisposable _sdkRpc;
     public CopilotClient Client { get; }
     public bool RefreshSucceeds { get; set; } = true;
+    public bool FailList { get; set; }
     public bool FailUpdate { get; set; }
     public string? UpdatedVersion { get; set; } = "0.3.1";
     public List<string> Calls { get; } = [];
@@ -202,7 +203,11 @@ internal sealed class PluginCatalogRpc : IDisposable
     }
 
     [JsonRpcMethod("plugins.marketplaces.refresh", UseSingleObjectParameterDeserialization = true)]
-    public object Refresh(object request) => new { results = new[] { new { name = "private-plugin", success = RefreshSucceeds, error = RefreshSucceeds ? null : "Access denied" } } };
+    public object Refresh(object request)
+    {
+        Calls.Add("refresh");
+        return new { results = new[] { new { name = "private-plugin", success = RefreshSucceeds, error = RefreshSucceeds ? null : "Access denied" } } };
+    }
 
     [JsonRpcMethod("plugins.update", UseSingleObjectParameterDeserialization = true)]
     public object Update(object request)
@@ -217,6 +222,8 @@ internal sealed class PluginCatalogRpc : IDisposable
     public object List()
     {
         Calls.Add("list");
+        if (FailList)
+            throw new InvalidOperationException("The installed plugin list is unavailable.");
         return new { plugins = new[] { new { name = "private-plugin", marketplace = "private-plugin", version = "0.3.0", enabled = true } } };
     }
 

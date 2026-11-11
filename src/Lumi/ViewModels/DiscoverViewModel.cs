@@ -77,6 +77,7 @@ public sealed partial class DiscoverViewModel : ObservableObject
     private CancellationTokenSource? _serverSearchCts;
     private Task? _loading;
     private bool _pluginsNeedConnection;
+    private string? _pluginRefreshError;
     private List<DiscoverCard> _gridItems = [];
     private int _gridRequested = GridPageSize;
     private bool _isGridFillScheduled;
@@ -258,22 +259,22 @@ public sealed partial class DiscoverViewModel : ObservableObject
     [RelayCommand]
     private async Task RefreshAsync()
     {
-        string? refreshError = null;
         try
         {
             if (_plugins.IsAvailable)
+            {
                 await _plugins.RefreshAsync(CancellationToken.None);
+                _pluginRefreshError = null;
+            }
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[Discover] Marketplace refresh failed: {ex.Message}");
-            refreshError = Describe(ex);
+            _pluginRefreshError = Describe(ex);
         }
 
         _loading = LoadAllAsync();
         await _loading;
-        if (refreshError is not null)
-            PluginError = refreshError;
     }
 
     /// <summary>The Copilot runtime connected (or reconnected): plugins can load now.</summary>
@@ -333,6 +334,9 @@ public sealed partial class DiscoverViewModel : ObservableObject
         _loading = LoadAllAsync();
         return _loading;
     }
+
+    [RelayCommand]
+    private Task RetryPluginsAsync() => _pluginRefreshError is not null ? RefreshAsync() : RetryAsync();
 
     private void SetFilter(DiscoverFilter filter, string? sourceKey)
     {
@@ -454,7 +458,7 @@ public sealed partial class DiscoverViewModel : ObservableObject
 
         _pluginsNeedConnection = false;
         IsLoadingPlugins = true;
-        PluginError = null;
+        PluginError = _pluginRefreshError;
         try
         {
             var marketplaces = await _plugins.ListMarketplacesAsync(CancellationToken.None);

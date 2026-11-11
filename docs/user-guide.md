@@ -508,6 +508,8 @@ names them by what they do, and keeps "MCP" for the protocol, config files and r
   read from its repository before you install.
   Catalog details and GitHub previews may be unavailable for private Git sources that use a different
   identity than the signed-in Copilot account. **Refresh** fetches marketplace catalogs again.
+  If a marketplace refresh fails, the error stays visible across the gallery filters; its
+  **Retry** fetches the marketplaces again before restoring any available-version hints.
   When a version cannot be determined, the plugin page
   says so and offers **Update from source**, not a claim that it is current or that an update exists.
   This action can install a different version; it is not a read-only check. Only a proven newer
