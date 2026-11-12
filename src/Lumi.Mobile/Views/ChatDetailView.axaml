@@ -7,6 +7,7 @@
              xmlns:proto="using:Lumi.Remote.Protocol"
              xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              xmlns:input="using:Avalonia.Input"
+             xmlns:textInput="using:Avalonia.Input.TextInput"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:sa="using:StrataTheme.Animation"
              xmlns:st="using:StrataTheme"
@@ -239,10 +240,7 @@
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter /template/ Border#PART_FocusRing">
       <Setter Property="Margin" Value="-2,2" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter /template/ Border#PART_Aurora,
-                     Grid#NoChatPlaceholder Button.welcome-setup /template/ Border#PART_Aurora,
-                     Grid#NoChatPlaceholder Button.welcome-keep /template/ Border#PART_Aurora,
-                     Grid#NoChatPlaceholder Button.welcome-setup-more /template/ Border#PART_Aurora">
+    <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
     <Style Selector="Grid#NoChatPlaceholder Button.welcome-starter TextBlock.welcome-starter-label">
@@ -347,10 +345,19 @@
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
 
-    <!-- The setups row on the composer, as on the desktop: Just chat, the user's setups, Other and Keep, as glass
-         capsules (a 40 dp pill in its 48 dp target). The chat's setup turns the accent, says what it starts with, and
-         carries the ⋯ that opens its sheet; holding any setup opens it too. -->
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup">
+    <!--
+      ══ The starters ══
+      On the composer, as on the desktop: the starters the user kept, by their names, then the places Lumi learned they
+      start in (Just chat among them), each a glass capsule (a 40 dp pill in its 48 dp target) of a badge and a name. The
+      lit one turns the accent and carries the ⋯ that opens its sheet; holding any opens it too. What the screen has no
+      room for gathers into a stack of badges, whose speed dial rises above it over a scrim; with room for all, a round +
+      opens the new starter sheet. A draft no starter fits shows where it starts, dashed, with a pin that keeps it. The
+      row lives in the welcome and the speed dial over the whole island, so their rules share the island as their owner.
+    -->
+    <Style Selector="Panel#ChatIslandContent Panel.welcome-setup-host">
+      <Setter Property="Margin" Value="4,0" />
+    </Style>
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -361,61 +368,53 @@
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup.has-more">
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup.has-more">
       <Setter Property="Padding" Value="7,0,40,0" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup /template/ Panel,
-                     Grid#NoChatPlaceholder Button.welcome-keep /template/ Panel,
-                     Grid#NoChatPlaceholder Button.welcome-setup-more /template/ Panel">
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup /template/ Panel,
+                     Panel#ChatIslandContent Button.welcome-setup-more /template/ Panel,
+                     Panel#ChatIslandContent Button.welcome-new-starter /template/ Panel,
+                     Panel#ChatIslandContent Button.welcome-draft-body /template/ Panel,
+                     Panel#ChatIslandContent Button.welcome-draft-pin /template/ Panel">
       <Setter Property="Background" Value="Transparent" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup /template/ Border#PART_Surface,
-                     Grid#NoChatPlaceholder Button.welcome-setup:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup /template/ Border#PART_Aurora,
+                     Panel#ChatIslandContent Button.welcome-setup-more /template/ Border#PART_Aurora,
+                     Panel#ChatIslandContent Button.welcome-new-starter /template/ Border#PART_Aurora,
+                     Panel#ChatIslandContent Button.welcome-draft-body /template/ Border#PART_Aurora,
+                     Panel#ChatIslandContent Button.welcome-draft-pin /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup /template/ Border#PART_Surface,
+                     Panel#ChatIslandContent Button.welcome-setup:pointerover /template/ Border#PART_Surface">
       <Setter Property="Margin" Value="0,4" />
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlassPressed}" />
       <Setter Property="ClipToBounds" Value="False" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup:pressed /template/ Border#PART_Surface">
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
       <Setter Property="RenderTransform" Value="scale(0.97)" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup.selected /template/ Border#PART_Surface">
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup.selected /template/ Border#PART_Surface,
+                     Panel#ChatIslandContent Button.welcome-setup.open /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSelection}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup /template/ Border#PART_FocusRing">
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup /template/ Border#PART_FocusRing">
       <Setter Property="Margin" Value="-2,2" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Panel.welcome-setup-badge">
+
+    <!-- A starter's face: its badge (a branch on its corner when it starts in a worktree), its name and, when another
+         starter shares the name, what tells them apart: a branch, then its agent, model or effort. -->
+    <Style Selector="Panel#ChatIslandContent Panel.starter-badge">
       <Setter Property="Width" Value="26" />
       <Setter Property="Height" Value="26" />
       <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-mark">
-      <Setter Property="Width" Value="26" />
-      <Setter Property="Height" Value="26" />
-      <Setter Property="CornerRadius" Value="9" />
-      <Setter Property="Background" Value="{DynamicResource Brush.RowTile}" />
-    </Style>
-    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-mark TextBlock">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="HorizontalAlignment" Value="Center" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-    </Style>
-    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-mark sc|StrataLineIcon">
-      <Setter Property="Width" Value="14" />
-      <Setter Property="Height" Value="14" />
-      <Setter Property="StrokeThickness" Value="2" />
-      <Setter Property="HorizontalAlignment" Value="Center" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
     <!-- It starts in a worktree: a branch on the badge's lower corner, cut out of the capsule by a ring of its fill. -->
-    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-branch">
+    <Style Selector="Panel#ChatIslandContent Border.starter-branch">
       <Setter Property="Width" Value="15" />
       <Setter Property="Height" Value="15" />
       <Setter Property="CornerRadius" Value="7.5" />
@@ -426,7 +425,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.ChatCanvas}" />
       <Setter Property="Background" Value="{DynamicResource Brush.RowTile}" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Border.welcome-setup-branch sc|StrataLineIcon">
+    <Style Selector="Panel#ChatIslandContent Border.starter-branch sc|StrataLineIcon">
       <Setter Property="Width" Value="9" />
       <Setter Property="Height" Value="9" />
       <Setter Property="StrokeThickness" Value="2.4" />
@@ -434,28 +433,39 @@
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-setup-title">
+    <Style Selector="Panel#ChatIslandContent TextBlock.starter-title">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="TextWrapping" Value="NoWrap" />
-      <Setter Property="MaxWidth" Value="180" />
+      <Setter Property="MaxWidth" Value="150" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-setup-detail">
+    <Style Selector="Panel#ChatIslandContent sc|StrataLineIcon.starter-tell-branch">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Panel#ChatIslandContent TextBlock.starter-tell">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="TextWrapping" Value="NoWrap" />
-      <Setter Property="MaxWidth" Value="170" />
+      <Setter Property="MaxWidth" Value="110" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup.selected TextBlock.welcome-setup-detail">
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup.selected sc|StrataLineIcon.starter-tell-branch">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
     </Style>
-    <!-- The chat's setup's ⋯, inside the end of its capsule. -->
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup-more">
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup.selected TextBlock.starter-tell">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+
+    <!-- The lit starter's ⋯, inside the end of its capsule. -->
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup-more">
       <Setter Property="Width" Value="40" />
       <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
       <Setter Property="MinWidth" Value="0" />
@@ -463,58 +473,151 @@
       <Setter Property="HorizontalAlignment" Value="Right" />
       <Setter Property="Background" Value="Transparent" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup-more /template/ Border#PART_Surface,
-                     Grid#NoChatPlaceholder Button.welcome-setup-more:pointerover /template/ Border#PART_Surface,
-                     Grid#NoChatPlaceholder Button.welcome-setup-more:pressed /template/ Border#PART_Surface">
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup-more /template/ Border#PART_Surface,
+                     Panel#ChatIslandContent Button.welcome-setup-more:pointerover /template/ Border#PART_Surface,
+                     Panel#ChatIslandContent Button.welcome-setup-more:pressed /template/ Border#PART_Surface,
+                     Panel#ChatIslandContent Button.welcome-draft-body /template/ Border#PART_Surface,
+                     Panel#ChatIslandContent Button.welcome-draft-body:pointerover /template/ Border#PART_Surface,
+                     Panel#ChatIslandContent Button.welcome-draft-body:pressed /template/ Border#PART_Surface,
+                     Panel#ChatIslandContent Button.welcome-draft-pin /template/ Border#PART_Surface,
+                     Panel#ChatIslandContent Button.welcome-draft-pin:pointerover /template/ Border#PART_Surface,
+                     Panel#ChatIslandContent Button.welcome-draft-pin:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup-more PathIcon">
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup-more PathIcon">
       <Setter Property="Width" Value="16" />
       <Setter Property="Height" Value="16" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-setup-more:pressed PathIcon">
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup-more:pressed PathIcon,
+                     Panel#ChatIslandContent Button.welcome-draft-pin:pressed sc|StrataLineIcon">
       <Setter Property="Opacity" Value="0.6" />
     </Style>
-    <!-- Keep: the setup on Other becomes the first of the user's setups, exactly as the composer has it. -->
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-keep">
+
+    <!-- The stack: the first three overflowed starters' badges, overlapping, and how many there are. -->
+    <Style Selector="Panel#ChatIslandContent Button.welcome-setup.stack">
+      <Setter Property="Padding" Value="6,0,14,0" />
+    </Style>
+    <Style Selector="Panel#ChatIslandContent Border.welcome-stack-badge">
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.ChatCanvas}" />
+    </Style>
+    <Style Selector="Panel#ChatIslandContent TextBlock.welcome-stack-count">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Margin" Value="6,0,0,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+
+    <!-- With room for every starter: a round +, a 40 dp disc in its 48 dp target, that opens the new starter sheet. -->
+    <Style Selector="Panel#ChatIslandContent Button.welcome-new-starter">
+      <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="4,0" />
+      <Setter Property="CornerRadius" Value="20" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Panel#ChatIslandContent Button.welcome-new-starter /template/ Border#PART_Surface,
+                     Panel#ChatIslandContent Button.welcome-new-starter:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Margin" Value="4" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlassPressed}" />
+    </Style>
+    <Style Selector="Panel#ChatIslandContent Button.welcome-new-starter:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
+      <Setter Property="RenderTransform" Value="scale(0.94)" />
+    </Style>
+    <Style Selector="Panel#ChatIslandContent Button.welcome-new-starter sc|StrataLineIcon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+
+    <!-- Dashed: the draft's own setup while no starter fits it, and the speed dial's New starter. -->
+    <Style Selector="Panel#ChatIslandContent Rectangle.welcome-dashed-rim">
+      <Setter Property="Margin" Value="0,4" />
+      <Setter Property="RadiusX" Value="20" />
+      <Setter Property="RadiusY" Value="20" />
+      <Setter Property="StrokeThickness" Value="1.2" />
+      <Setter Property="StrokeDashArray" Value="3,2.5" />
+      <Setter Property="Stroke" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Fill" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+    <Style Selector="Panel#ChatIslandContent Button.welcome-draft-body,
+                     Panel#ChatIslandContent Button.welcome-draft-pin">
       <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
       <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
       <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
       <Setter Property="CornerRadius" Value="20" />
-      <Setter Property="Padding" Value="12,0,14,0" />
-      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-keep /template/ Border#PART_Surface,
-                     Grid#NoChatPlaceholder Button.welcome-keep:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Margin" Value="0,4" />
-      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
-      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlassPressed}" />
+    <Style Selector="Panel#ChatIslandContent Button.welcome-draft-body">
+      <Setter Property="Padding" Value="7,0,2,0" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-keep:pressed /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
+    <Style Selector="Panel#ChatIslandContent Button.welcome-draft-pin">
+      <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Panel#ChatIslandContent Button.welcome-draft-pin sc|StrataLineIcon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <Style Selector="Panel#ChatIslandContent Button.welcome-draft-body:pressed StackPanel">
+      <Setter Property="Opacity" Value="0.7" />
+    </Style>
+
+    <!-- The speed dial: the overflowed starters rise in a column above the stack, the nearest first, then New starter. -->
+    <Style Selector="Panel#StarterDialLayer ItemsControl#StarterDialItems > ContentPresenter">
+      <Setter Property="DockPanel.Dock" Value="Bottom" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+    </Style>
+    <!-- Over the scrim its capsules are solid cards, raised as the message menu is, so they read as lifted in either theme;
+         the lit one keeps its accent rim. -->
+    <Style Selector="Panel#StarterDialLayer Button.welcome-setup /template/ Border#PART_Surface,
+                     Panel#StarterDialLayer Button.welcome-setup:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceCard}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.MessageMenu}" />
+    </Style>
+    <Style Selector="Panel#StarterDialLayer Button.welcome-setup.selected /template/ Border#PART_Surface">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Panel#StarterDialLayer Button.welcome-setup:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceCard}" />
       <Setter Property="RenderTransform" Value="scale(0.97)" />
     </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-keep sc|StrataLineIcon">
+    <Style Selector="Panel#StarterDialLayer Rectangle.welcome-dashed-rim">
+      <Setter Property="Fill" Value="{DynamicResource Brush.SurfaceCard}" />
+    </Style>
+    <Style Selector="Panel#StarterDialLayer Panel.starter-dial-new sc|StrataLineIcon">
       <Setter Property="Width" Value="15" />
       <Setter Property="Height" Value="15" />
       <Setter Property="StrokeThickness" Value="2" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
-    </Style>
-    <Style Selector="Grid#NoChatPlaceholder Button.welcome-keep TextBlock">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
-      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
     </Style>
 
-    <!-- The launchpad's sheets: a waiting chat's state, a place's last use, a setup's kept pin. -->
+    <!-- The launchpad's sheets: a waiting chat's state, a starter's heading and notes, its icons and models, a place's pin. -->
     <Style Selector="sc|StrataBottomSheet#LaunchpadNeedsYouSheet Border.launchpad-sheet-dot">
       <Setter Property="Width" Value="8" />
       <Setter Property="Height" Value="8" />
@@ -528,12 +631,131 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="sc|StrataBottomSheet#LaunchpadOtherSheet sc|StrataLineIcon.launchpad-sheet-pin">
-      <Setter Property="Width" Value="15" />
-      <Setter Property="Height" Value="15" />
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet TextBlock.launchpad-sheet-heading">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeSubtitle}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet sc|StrataLineIcon.launchpad-sheet-branch">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
       <Setter Property="StrokeThickness" Value="2" />
       <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet PathIcon.launchpad-sheet-note-icon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Margin" Value="0,2,0,0" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet TextBlock.launchpad-sheet-note">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="LineHeight" Value="{DynamicResource Font.LineHeightMeta}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet TextBlock.launchpad-sheet-row-label">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <!-- An icon a kept starter can wear: a 40 dp disc in its 48 dp target, ringed in the accent while it's the starter's. -->
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Button.launchpad-icon-choice">
+      <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="2" />
+      <Setter Property="CornerRadius" Value="24" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Button.launchpad-icon-choice /template/ Border#PART_Surface,
+                     sc|StrataBottomSheet#LaunchpadSetupSheet Button.launchpad-icon-choice:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Button.launchpad-icon-choice.current /template/ Border#PART_Surface">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSelection}" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Button.launchpad-icon-choice:pressed /template/ Border#PART_Surface">
+      <Setter Property="RenderTransform" Value="scale(0.92)" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Button.launchpad-icon-choice /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <!-- The model list's radio: a ring, filled with the accent's dot for the starter's model. -->
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Border.launchpad-radio">
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Border.launchpad-radio.checked">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Border.launchpad-radio-dot">
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Border.launchpad-radio.checked Border.launchpad-radio-dot">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <!-- The new starter's places: the check on its own, and the way back to its form; its Add, under the form. -->
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet sc|StrataLineIcon.launchpad-place-check">
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Button.launchpad-sheet-back">
+      <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="24" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Button.launchpad-sheet-back /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Button.launchpad-sheet-back:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SheetRowPressed}" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Button.launchpad-sheet-back /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Button.launchpad-sheet-back sc|StrataLineIcon">
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet Button.launchpad-add-starter">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="Margin" Value="16,8,16,12" />
     </Style>
 
     <Style Selector="Button.transcript-nav">
@@ -956,29 +1178,59 @@
   </UserControl.Styles>
 
   <UserControl.Resources>
-    <!-- A project or agent in Other's sheet: its mark, its name, when the user last worked there, and a pin when one
-         of the user's kept setups is there. -->
+    <!-- A starter's badge, drawn on a 28 dp face that scales to wherever it sits: its project's initial on the project's
+         hue, its agent's emoji, a sparkle, or the line icon the user gave it. -->
+    <DataTemplate x:Key="LaunchpadBadgeFace" x:DataType="vm:LaunchpadBadge">
+      <Viewbox Stretch="Uniform">
+        <Panel Width="28" Height="28">
+          <Border CornerRadius="14" Background="{DynamicResource Brush.RowTile}" />
+          <Border CornerRadius="14" Background="{Binding MarkBackground}" IsVisible="{Binding HasProjectMark}" />
+          <TextBlock Text="{Binding Glyph}" Foreground="{Binding MarkForeground}" IsVisible="{Binding HasProjectMark}"
+                     FontSize="12.5" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding Glyph}" IsVisible="{Binding HasGlyph}" FontSize="13.5"
+                     Foreground="{DynamicResource Brush.TextSecondary}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <sc:StrataLineIcon Data="{Binding IconKey, Converter={x:Static views:LaunchpadIconConverter.Instance}}"
+                             IsVisible="{Binding HasIcon}" Width="15" Height="15" StrokeThickness="1.9"
+                             Foreground="{DynamicResource Brush.TextSecondary}"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Panel>
+      </Viewbox>
+    </DataTemplate>
+
+    <!-- A starter's face on its capsule: its badge, a branch on the badge's corner when it starts in a worktree, its name
+         and, when another starter shares the name, what tells them apart. -->
+    <DataTemplate x:Key="StarterFace" x:DataType="vm:ChatStartSetup">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Panel Classes="starter-badge">
+          <ContentControl Content="{Binding Badge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+          <Border Classes="starter-branch" IsVisible="{Binding IsWorktree}">
+            <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Branch}" />
+          </Border>
+        </Panel>
+        <TextBlock Classes="starter-title" Text="{Binding Title}" />
+        <sc:StrataLineIcon Classes="starter-tell-branch" Data="{x:Static sc:StrataIcons.Branch}"
+                           IsVisible="{Binding TellsWorktree}" />
+        <TextBlock Classes="starter-tell" Text="{Binding Detail}" IsVisible="{Binding HasDetail}" />
+      </StackPanel>
+    </DataTemplate>
+
+    <!-- A place in the new starter's places: its badge, its name and when the user last worked there; a check marks where
+         the starter starts. -->
     <DataTemplate x:Key="LaunchpadPlaceRow" x:DataType="vm:LaunchpadPlace">
       <Button Classes="sheet-item"
+              Padding="16,10"
               AutomationProperties.Name="{Binding Title}"
               Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).PickPlaceCommand}"
               CommandParameter="{Binding}">
         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-          <Panel>
-            <Border Classes="row-tile" IsVisible="{Binding !Setup.HasProjectMark}">
-              <TextBlock Text="{Binding Setup.MarkGlyph}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-            </Border>
-            <Border Classes="row-tile" IsVisible="{Binding Setup.HasProjectMark}" Background="{Binding Setup.MarkBackground}">
-              <TextBlock Text="{Binding Setup.MarkGlyph}" Foreground="{Binding Setup.MarkForeground}"
-                         FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
-            </Border>
-          </Panel>
+          <ContentControl Width="36" Height="36" VerticalAlignment="Center"
+                            Content="{Binding Setup.PlaceBadge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
           <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
             <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
             <TextBlock Classes="sheet-detail" Text="{Binding Hint}" IsVisible="{Binding HasHint}" />
           </StackPanel>
-          <sc:StrataLineIcon Grid.Column="2" Classes="launchpad-sheet-pin"
-                             Data="{x:Static sc:StrataIcons.Pin}" IsVisible="{Binding IsKept}" />
+          <sc:StrataLineIcon Grid.Column="2" Classes="launchpad-place-check" Data="{x:Static sc:StrataIcons.Check}"
+                             IsVisible="{Binding IsCurrent}" />
         </Grid>
       </Button>
     </DataTemplate>
@@ -1969,45 +2221,26 @@
           </ItemsControl>
         </StackPanel>
 
-        <!-- On the composer, as the desktop's setups are, and as wide as its column (760 plus the composer host's
-             12 dp sides), so the first capsule lines up with the composer's edge. The row runs to the screen's edges,
-             so a capsule scrolls in from beyond them. -->
+        <!-- On the composer, as the desktop's starters are, and never wider than its column (760 plus the composer host's
+             12 dp sides): the starters that fit, centred, then the draft's dashed chip while no starter fits it, then
+             the stack of those that don't fit, or, with room for all, the new starter "+". -->
         <StackPanel x:Name="WelcomeDock" Grid.Row="2" MaxWidth="784">
-          <ScrollViewer x:Name="WelcomeSetupsScroll"
-                        IsVisible="{Binding ShowsSetupRow}"
-                        HorizontalScrollBarVisibility="Hidden"
-                        VerticalScrollBarVisibility="Disabled">
-            <!-- The bottom margin keeps each capsule's shadow inside the scroller's clip. -->
-            <StackPanel x:Name="WelcomeSetupRow" Orientation="Horizontal" Spacing="8" Margin="12,0,12,8">
-              <Button x:Name="WelcomeJustChat" Classes="welcome-setup"
-                      Classes.selected="{Binding IsJustChatActive}"
-                      IsVisible="{Binding HasJustChat}"
-                      Command="{Binding UseStartSetupCommand}"
-                      CommandParameter="{Binding JustChatSetup}"
-                      AutomationProperties.Name="{Binding LaunchpadLabels.JustChat}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                  <Border Classes="welcome-setup-mark" VerticalAlignment="Center">
-                    <TextBlock Text="✦" />
-                  </Border>
-                  <TextBlock Classes="welcome-setup-title" Text="{Binding LaunchpadLabels.JustChat}" />
-                  <TextBlock Classes="welcome-setup-detail" Text="{Binding JustChatDetail}"
-                             IsVisible="{Binding IsJustChatActive}" />
-                </StackPanel>
-              </Button>
-
+          <Panel x:Name="WelcomeSetupsHost" IsVisible="{Binding ShowsSetupRow}" Margin="8,0,8,8">
+            <StackPanel x:Name="WelcomeSetupRow" Orientation="Horizontal" HorizontalAlignment="Center"
+                        AutomationProperties.Name="{Binding StartSetupsTitle}">
               <ItemsControl x:Name="WelcomeSetups" ItemsSource="{Binding StartSetups}" IsVisible="{Binding HasStartSetups}">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>
-                    <StackPanel Orientation="Horizontal" Spacing="8" />
+                    <StackPanel Orientation="Horizontal" />
                   </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:ChatStartSetup">
-                    <Panel>
+                    <Panel Classes="welcome-setup-host" IsVisible="{Binding IsInRow}">
                       <Button x:Name="StartSetupCard" Classes="welcome-setup"
                               Classes.selected="{Binding IsSelected}"
                               Classes.has-more="{Binding ShowsMore}"
-                              Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).UseStartSetupCommand}"
+                              Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).UseStartSetupCommand}"
                               CommandParameter="{Binding}"
                               input:InputElement.IsHoldingEnabled="True"
                               input:InputElement.IsHoldWithMouseEnabled="True"
@@ -2015,29 +2248,13 @@
                               ContextRequested="OnSetupContextRequested"
                               AutomationProperties.Name="{Binding AccessibleName, StringFormat={loc:Str StartWithNamed}}"
                               AutomationProperties.HelpText="{loc:Str LongPressSetupActions}">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                          <Panel Classes="welcome-setup-badge">
-                            <Border Classes="welcome-setup-mark" IsVisible="{Binding !HasProjectMark}">
-                              <TextBlock Text="{Binding MarkGlyph}" />
-                            </Border>
-                            <Border Classes="welcome-setup-mark" IsVisible="{Binding HasProjectMark}"
-                                    Background="{Binding MarkBackground}">
-                              <TextBlock Text="{Binding MarkGlyph}" Foreground="{Binding MarkForeground}" />
-                            </Border>
-                            <Border Classes="welcome-setup-branch" IsVisible="{Binding IsWorktree}">
-                              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Branch}" />
-                            </Border>
-                          </Panel>
-                          <TextBlock Classes="welcome-setup-title" Text="{Binding Title}" />
-                          <TextBlock Classes="welcome-setup-detail" Text="{Binding Detail}"
-                                     IsVisible="{Binding ShowsDetail}" />
-                        </StackPanel>
+                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource StarterFace}" />
                       </Button>
                       <Button Classes="welcome-setup-more"
                               IsVisible="{Binding ShowsMore}"
-                              Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).OpenSetupSheetCommand}"
+                              Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).OpenSetupSheetCommand}"
                               CommandParameter="{Binding}"
-                              AutomationProperties.Name="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).LaunchpadLabels.Customize}">
+                              AutomationProperties.Name="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).LaunchpadLabels.Customize}">
                         <PathIcon Data="M6 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z M12 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z M18 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z" />
                       </Button>
                     </Panel>
@@ -2045,40 +2262,81 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
 
-              <!-- Every other project and agent, in a sheet; the draft's own setup when the row doesn't hold it. -->
-              <Button x:Name="WelcomeOther" Classes="welcome-setup"
-                      Classes.selected="{Binding IsOtherActive}"
-                      IsVisible="{Binding HasOtherPlaces}"
-                      Command="{Binding OpenOtherSheetCommand}"
-                      AutomationProperties.Name="{Binding OtherTitle}"
-                      AutomationProperties.HelpText="{Binding LaunchpadLabels.OtherTitle}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                  <Panel Classes="welcome-setup-badge">
-                    <Border Classes="welcome-setup-mark" IsVisible="{Binding !HasOtherMark}">
-                      <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Plus}" />
-                    </Border>
-                    <Border Classes="welcome-setup-mark" IsVisible="{Binding HasOtherMark}"
-                            Background="{Binding OtherMark.Background}">
-                      <TextBlock Text="{Binding OtherMark.Glyph}"
-                                 Foreground="{Binding OtherMark.Foreground}" />
-                    </Border>
-                  </Panel>
-                  <TextBlock Classes="welcome-setup-title" Text="{Binding OtherTitle}" />
-                  <TextBlock Classes="welcome-setup-detail" Text="{Binding OtherDetail}"
-                             IsVisible="{Binding IsOtherActive}" />
+              <!-- No starter fits the draft: where it starts, dashed, and a pin that keeps it. Its face opens the new
+                   starter sheet, to save it under a name or start elsewhere. -->
+              <Panel x:Name="WelcomeDraftChip" Classes="welcome-setup-host" IsVisible="{Binding HasUnsavedDraft}">
+                <Rectangle Classes="welcome-dashed-rim" />
+                <StackPanel Orientation="Horizontal">
+                  <Button x:Name="WelcomeDraftSetup" Classes="welcome-draft-body"
+                          Command="{Binding OpenNewStarterSheetCommand}"
+                          AutomationProperties.Name="{Binding DraftSetupAccessibleName}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <ContentControl Width="26" Height="26" VerticalAlignment="Center"
+                                        Content="{Binding DraftSetup.Badge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+                      <TextBlock Classes="starter-title" Text="{Binding DraftSetup.Title}" />
+                    </StackPanel>
+                  </Button>
+                  <Button x:Name="WelcomeKeepDraft" Classes="welcome-draft-pin"
+                          Command="{Binding KeepDraftCommand}"
+                          AutomationProperties.Name="{Binding LaunchpadLabels.Keep}">
+                    <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pin}" />
+                  </Button>
                 </StackPanel>
-              </Button>
-              <Button x:Name="WelcomeKeep" Classes="welcome-keep"
-                      IsVisible="{Binding CanKeepDraft}"
-                      Command="{Binding KeepDraftCommand}"
-                      AutomationProperties.Name="{Binding LaunchpadLabels.KeepOnNewChats}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pin}" />
-                  <TextBlock Text="{Binding LaunchpadLabels.Keep}" />
-                </StackPanel>
+              </Panel>
+
+              <!-- What doesn't fit: their first badges, overlapping, and how many; a tap raises the speed dial. -->
+              <Panel Classes="welcome-setup-host" IsVisible="{Binding HasStarterStack}">
+                <Button x:Name="WelcomeStarterStack" Classes="welcome-setup stack"
+                        Classes.open="{Binding IsStarterDialOpen}"
+                        Classes.selected="{Binding IsStarterStackSelected}"
+                        Command="{Binding ToggleStarterDialCommand}"
+                        AutomationProperties.Name="{Binding StarterStackAccessibleName}">
+                  <StackPanel Orientation="Horizontal">
+                    <ItemsControl ItemsSource="{Binding StarterStackPreview}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <StackPanel Orientation="Horizontal" Spacing="-8" />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:LaunchpadBadge">
+                          <Border Classes="welcome-stack-badge">
+                            <ContentControl Content="{Binding}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="WelcomeStarterStackCount" Classes="welcome-stack-count" Text="{Binding StarterStackLabel}" />
+                  </StackPanel>
+                </Button>
+              </Panel>
+
+              <Button x:Name="WelcomeNewStarter" Classes="welcome-new-starter"
+                      IsVisible="{Binding ShowsNewStarterButton}"
+                      Command="{Binding OpenNewStarterSheetCommand}"
+                      AutomationProperties.Name="{Binding LaunchpadLabels.NewStarter}">
+                <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Plus}" />
               </Button>
             </StackPanel>
-          </ScrollViewer>
+
+            <!-- Measures each starter's capsule as the row would show it, the overflowed ones included (code-behind):
+                 the row shows the ones that fit. It takes no room and never shows. -->
+            <Canvas Width="0" Height="0" ClipToBounds="True" IsHitTestVisible="False"
+                    HorizontalAlignment="Left" VerticalAlignment="Top">
+              <ContentControl x:Name="StarterMeasure" Opacity="0" Focusable="False">
+                <ContentControl.ContentTemplate>
+                  <DataTemplate x:DataType="vm:ChatStartSetup">
+                    <Panel Classes="welcome-setup-host">
+                      <Button Classes="welcome-setup" Classes.has-more="{Binding ShowsMore}" Focusable="False"
+                              AutomationProperties.AccessibilityView="Raw">
+                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource StarterFace}" />
+                      </Button>
+                    </Panel>
+                  </DataTemplate>
+                </ContentControl.ContentTemplate>
+              </ContentControl>
+            </Canvas>
+          </Panel>
           <TextBlock x:Name="WelcomeUpdateNote"
                      Text="{loc:Str SetupsRequireUpdate}"
                      IsVisible="{Binding !HasDesktopNewChat}" Classes="muted"
@@ -2093,6 +2351,64 @@
             Background="{DynamicResource Brush.ChatCanvas}">
       <views:GitChangesView DataContext="{Binding Chat}" />
     </Border>
+
+    <!-- The stack's speed dial: the starters the row has no room for rise in a column above it, the nearest first and
+         New starter last, end-aligned with the stack, over a scrim that leaves only the stack lit. A tap on one starts the
+         chat there and folds them back, as a tap anywhere else or Back does. The layer reads in the row's direction, so it
+         measures the stack where the row lays it out, and ending the column there ends it at the stack either way. -->
+    <Panel x:Name="StarterDialLayer"
+           IsVisible="{Binding IsStarterDialOpen}"
+           SizeChanged="OnStarterDialLayerSizeChanged">
+      <Border x:Name="StarterDialDismissArea" Background="Transparent"
+              PointerPressed="OnStarterDialDismissPressed" />
+      <Path x:Name="StarterDialScrim" Classes="message-menu-scrim" IsHitTestVisible="False" />
+      <Canvas x:Name="StarterDialCanvas">
+        <ScrollViewer x:Name="StarterDialScroll" Classes="mobile-scroll"
+                      HorizontalScrollBarVisibility="Disabled">
+          <StackPanel x:Name="StarterDial">
+            <Panel x:Name="StarterDialNewStarter" Classes="welcome-setup-host starter-dial-new" HorizontalAlignment="Right"
+                   IsVisible="{Binding HasLaunchpad}">
+              <Rectangle Classes="welcome-dashed-rim" />
+              <Button Classes="welcome-draft-body" Padding="7,0,15,0"
+                      Command="{Binding OpenNewStarterSheetCommand}"
+                      AutomationProperties.Name="{Binding LaunchpadLabels.NewStarter}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Border Width="26" Height="26" CornerRadius="13" Background="{DynamicResource Brush.AccentSelection}">
+                    <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Plus}" />
+                  </Border>
+                  <TextBlock Classes="starter-title" Text="{Binding LaunchpadLabels.NewStarter}" />
+                </StackPanel>
+              </Button>
+            </Panel>
+            <ItemsControl x:Name="StarterDialItems" ItemsSource="{Binding StarterDialItems}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <DockPanel LastChildFill="False" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ChatStartSetup">
+                  <Panel Classes="welcome-setup-host">
+                    <Button Classes="welcome-setup"
+                            Classes.selected="{Binding IsSelected}"
+                            Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).UseStartSetupCommand}"
+                            CommandParameter="{Binding}"
+                            input:InputElement.IsHoldingEnabled="True"
+                            input:InputElement.IsHoldWithMouseEnabled="True"
+                            Holding="OnSetupHolding"
+                            ContextRequested="OnSetupContextRequested"
+                            AutomationProperties.Name="{Binding AccessibleName, StringFormat={loc:Str StartWithNamed}}"
+                            AutomationProperties.HelpText="{loc:Str LongPressSetupActions}">
+                      <ContentControl Content="{Binding}" ContentTemplate="{StaticResource StarterFace}" />
+                    </Button>
+                  </Panel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </ScrollViewer>
+      </Canvas>
+    </Panel>
     </Panel>
     </layout:Island>
 
@@ -2548,105 +2864,226 @@
 
     <!-- ═══ The new chat's launchpad sheets ═══ -->
 
-    <!-- Other: every project and agent, most recently used first, searchable. One picked starts the new chat the way
-         the user last worked there; Keep on the setups row then keeps it. -->
-    <sc:StrataBottomSheet x:Name="LaunchpadOtherSheet" Classes="safe-area"
-                          IsVisible="{Binding $self.IsPresented}"
-                          IsOpen="{Binding IsOtherSheetOpen, Mode=TwoWay}"
-                          SheetMargin="{Binding SafeAreaSheetMargin}"
-                          Title="{Binding LaunchpadLabels.Other}"
-                          Description="{Binding LaunchpadLabels.OtherTitle}">
-      <Border Padding="{Binding SafeAreaSides}">
-        <DockPanel MaxHeight="520">
-          <TextBox x:Name="LaunchpadOtherSearch" DockPanel.Dock="Top" Classes="mobile"
-                   Margin="16,0,16,8"
-                   Text="{Binding OtherQuery, Mode=TwoWay}"
-                   PlaceholderText="{Binding LaunchpadLabels.OtherSearch}"
-                   AutomationProperties.Name="{Binding LaunchpadLabels.OtherSearch}" />
-          <ScrollViewer Classes="mobile-scroll sheet-scroll" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Margin="0,0,0,8">
-              <TextBlock Classes="sheet-label" Text="{Binding LaunchpadLabels.OtherProjects}"
-                         IsVisible="{Binding HasOtherProjects}" />
-              <ItemsControl x:Name="LaunchpadOtherProjects" ItemsSource="{Binding OtherProjects}"
-                            ItemTemplate="{StaticResource LaunchpadPlaceRow}" />
-              <TextBlock Classes="sheet-label" Text="{Binding LaunchpadLabels.OtherAgents}"
-                         IsVisible="{Binding HasOtherAgents}" />
-              <ItemsControl x:Name="LaunchpadOtherAgents" ItemsSource="{Binding OtherAgents}"
-                            ItemTemplate="{StaticResource LaunchpadPlaceRow}" />
-              <TextBlock Classes="sheet-body" Margin="24,4,24,8"
-                         Text="{Binding LaunchpadLabels.OtherEmpty}"
-                         IsVisible="{Binding HasNoOtherMatch}" />
-            </StackPanel>
-          </ScrollViewer>
-        </DockPanel>
-      </Border>
-    </sc:StrataBottomSheet>
-
-    <!-- A setup's sheet, as the desktop's ⋯ menu: keep it on new chats, start it in a worktree or on another model, or
-         stop it being suggested. -->
+    <!-- A starter's sheet, as the desktop's card, which makes new starters too. A learned one says where it starts, how
+         often the user starts there and that it follows the default model, and keeps, renames or stops suggesting it. A
+         kept one edits its name, its icon, its checkout and its model, or removes it; its name is kept on Done and as the
+         sheet closes. The new starter sheet is that form for a starter not kept yet, filled from the draft: its place
+         opens its places, and nothing is kept until Add. -->
     <sc:StrataBottomSheet x:Name="LaunchpadSetupSheet" Classes="safe-area"
                           IsVisible="{Binding $self.IsPresented}"
                           IsOpen="{Binding IsSetupSheetOpen, Mode=TwoWay}"
                           SheetMargin="{Binding SafeAreaSheetMargin}"
                           Title="{Binding SetupSheetTitle}"
-                          Description="{Binding SetupSheetDescription}">
+                          AutomationProperties.Name="{Binding SetupSheetAccessibleName}">
       <Border Padding="{Binding SafeAreaSides}">
-        <ScrollViewer Classes="mobile-scroll sheet-scroll" MaxHeight="520" HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Margin="0,0,0,8">
-            <Button x:Name="LaunchpadSetupKeep" Classes="sheet-item"
-                    Command="{Binding ToggleSetupKeptCommand}">
-              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                <Border Classes="row-tile">
-                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pin}" />
-                </Border>
-                <TextBlock Grid.Column="1" Text="{Binding LaunchpadLabels.KeepOnNewChats}" VerticalAlignment="Center" />
-                <PathIcon Grid.Column="2" Classes="sheet-check"
-                          IsVisible="{Binding SetupSheetIsKept}"
-                          Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-              </Grid>
-            </Button>
-            <Button x:Name="LaunchpadSetupWorktree" Classes="sheet-item"
-                    IsVisible="{Binding SetupSheetCanUseWorktree}"
-                    Command="{Binding ToggleSetupWorktreeCommand}">
-              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                <Border Classes="row-tile">
-                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Branch}" />
-                </Border>
-                <TextBlock Grid.Column="1" Text="{Binding LaunchpadLabels.StartInWorktree}" VerticalAlignment="Center" />
-                <PathIcon Grid.Column="2" Classes="sheet-check"
-                          IsVisible="{Binding SetupSheetIsWorktree}"
-                          Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-              </Grid>
-            </Button>
-            <Button x:Name="LaunchpadSetupHide" Classes="sheet-item"
-                    Command="{Binding HideSetupCommand}">
-              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                <Border Classes="row-tile">
-                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Cross}" />
-                </Border>
-                <TextBlock Grid.Column="1" Text="{Binding LaunchpadLabels.DontSuggest}" VerticalAlignment="Center" />
-              </Grid>
-            </Button>
-
-            <TextBlock Classes="sheet-label" Text="{Binding LaunchpadLabels.StartsWith}" />
-            <ItemsControl x:Name="LaunchpadSetupModels" ItemsSource="{Binding SetupSheetModels}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:LaunchpadModelChoice">
-                  <Button Classes="sheet-item context-option" Classes.selected="{Binding IsCurrent}"
-                          AutomationProperties.Name="{Binding Title}"
-                          Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).PickSetupModelCommand}"
-                          CommandParameter="{Binding}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                      <TextBlock Text="{Binding Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                      <PathIcon Grid.Column="1" Classes="sheet-check" IsVisible="{Binding IsCurrent}"
-                                Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+        <Panel>
+          <DockPanel IsVisible="{Binding !IsChoosingStarterPlace}">
+            <Button x:Name="LaunchpadAddStarter" DockPanel.Dock="Bottom" Classes="sheet-action primary launchpad-add-starter"
+                    IsVisible="{Binding IsSetupSheetNew}"
+                    Content="{Binding LaunchpadLabels.AddStarter}"
+                    Command="{Binding AddStarterCommand}" />
+            <ScrollViewer Classes="mobile-scroll sheet-scroll" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Margin="0,0,0,8" IsEnabled="{Binding !IsSetupSheetBusy}">
+                <StackPanel x:Name="LaunchpadStarterLearned" IsVisible="{Binding ShowsSetupSheetLearned}">
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14" Margin="24,0,24,8">
+                    <ContentControl Width="44" Height="44" VerticalAlignment="Center"
+                                      Content="{Binding SetupSheetStarter.PlaceBadge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Classes="launchpad-sheet-heading" Text="{Binding SetupSheetStarter.PlaceTitle}" />
+                        <sc:StrataLineIcon Classes="launchpad-sheet-branch" Data="{x:Static sc:StrataIcons.Branch}"
+                                           IsVisible="{Binding SetupSheetStarter.IsWorktree}" />
+                      </StackPanel>
+                      <TextBlock Classes="sheet-body" Text="{Binding SetupSheetStarter.Note}"
+                                 IsVisible="{Binding SetupSheetStarter.HasNote}" />
+                    </StackPanel>
+                  </Grid>
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="24,4,24,10"
+                        IsVisible="{Binding SetupSheetStarter.IsDefaultModel}">
+                    <PathIcon Classes="launchpad-sheet-note-icon" Data="{DynamicResource Mobile.Icon.Sparkle}" />
+                    <TextBlock Grid.Column="1" Classes="launchpad-sheet-note" Text="{Binding LaunchpadLabels.DefaultModelNote}" />
+                  </Grid>
+                  <Button x:Name="LaunchpadStarterKeep" Classes="sheet-item" Command="{Binding KeepStarterCommand}">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                      <Border Classes="row-tile">
+                        <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pin}" />
+                      </Border>
+                      <TextBlock Grid.Column="1" Text="{Binding LaunchpadLabels.Keep}" VerticalAlignment="Center" />
                     </Grid>
                   </Button>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </StackPanel>
-        </ScrollViewer>
+                  <Button x:Name="LaunchpadStarterRename" Classes="sheet-item" Command="{Binding RenameStarterCommand}">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                      <Border Classes="row-tile">
+                        <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pencil}" />
+                      </Border>
+                      <TextBlock Grid.Column="1" Text="{Binding LaunchpadLabels.Rename}" VerticalAlignment="Center" />
+                    </Grid>
+                  </Button>
+                  <Button x:Name="LaunchpadStarterHide" Classes="sheet-item"
+                          IsVisible="{Binding SetupSheetStarter.CanHide}"
+                          Command="{Binding HideStarterCommand}">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                      <Border Classes="row-tile">
+                        <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Cross}" />
+                      </Border>
+                      <TextBlock Grid.Column="1" Text="{Binding LaunchpadLabels.DontSuggest}" VerticalAlignment="Center" />
+                    </Grid>
+                  </Button>
+                </StackPanel>
+
+                <StackPanel x:Name="LaunchpadStarterKept" IsVisible="{Binding ShowsSetupSheetForm}">
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" Margin="20,0,16,4">
+                    <ContentControl Width="44" Height="44" VerticalAlignment="Center"
+                                      Content="{Binding SetupSheetStarter.Badge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+                    <TextBox x:Name="LaunchpadStarterName" Grid.Column="1" Classes="mobile"
+                             Text="{Binding SetupSheetName, Mode=TwoWay}"
+                             PlaceholderText="{Binding SetupSheetStarter.PlaceTitle}"
+                             MaxLength="40"
+                             textInput:TextInputOptions.ReturnKeyType="Done"
+                             KeyDown="OnStarterNameKeyDown"
+                             AutomationProperties.Name="{Binding LaunchpadLabels.Name}" />
+                  </Grid>
+                  <ItemsControl x:Name="LaunchpadStarterIcons" ItemsSource="{Binding SetupSheetIcons}" Margin="16,4,16,4"
+                                AutomationProperties.Name="{Binding LaunchpadLabels.Icon}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <WrapPanel />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:LaunchpadIconChoice">
+                        <Button Classes="launchpad-icon-choice" Classes.current="{Binding IsCurrent}"
+                                Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).PickStarterIconCommand}"
+                                CommandParameter="{Binding}"
+                                AutomationProperties.Name="{Binding AccessibleName}">
+                          <ContentControl Width="30" Height="30"
+                                            Content="{Binding Badge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Margin="24,8,24,8" MinHeight="40"
+                        IsVisible="{Binding SetupSheetStarter.IsKept}">
+                    <TextBlock Classes="launchpad-sheet-row-label" Text="{Binding LaunchpadLabels.StartsIn}" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                      <ContentControl Width="24" Height="24" VerticalAlignment="Center"
+                                        Content="{Binding SetupSheetStarter.PlaceBadge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+                      <TextBlock Classes="sheet-value" Text="{Binding SetupSheetStarter.PlaceTitle}" />
+                    </StackPanel>
+                  </Grid>
+                  <Button x:Name="LaunchpadStarterPlace" Classes="sheet-item" Padding="24,8,16,8"
+                          IsVisible="{Binding IsSetupSheetNew}"
+                          Command="{Binding ChooseStarterPlaceCommand}"
+                          AutomationProperties.Name="{Binding LaunchpadLabels.StartsIn}">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                      <TextBlock Classes="launchpad-sheet-row-label" Text="{Binding LaunchpadLabels.StartsIn}" />
+                      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                        <ContentControl Width="24" Height="24" VerticalAlignment="Center"
+                                          Content="{Binding SetupSheetStarter.PlaceBadge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+                        <TextBlock Classes="sheet-value" Text="{Binding SetupSheetStarter.PlaceTitle}" />
+                      </StackPanel>
+                      <PathIcon Grid.Column="2" Classes="sheet-chevron" Data="{DynamicResource Mobile.Icon.ChevronRight}" />
+                    </Grid>
+                  </Button>
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Margin="24,0,16,4"
+                        IsVisible="{Binding SetupSheetStarter.CanUseWorktree}">
+                    <TextBlock Classes="launchpad-sheet-row-label" Text="{Binding LaunchpadLabels.StartInWorktree}" />
+                    <ToggleSwitch x:Name="LaunchpadStarterWorktree" Grid.Column="1"
+                                  IsChecked="{Binding SetupSheetWorktree, Mode=TwoWay}"
+                                  OnContent="" OffContent=""
+                                  AutomationProperties.Name="{Binding LaunchpadLabels.StartInWorktree}" />
+                  </Grid>
+                  <TextBlock Classes="sheet-label" Text="{Binding LaunchpadLabels.Model}" />
+                  <TextBlock Classes="sheet-body" Margin="24,0,24,6" Text="{Binding SetupSheetStarter.Note}"
+                             IsVisible="{Binding SetupSheetStarter.HasNote}" />
+                  <ItemsControl x:Name="LaunchpadStarterModels" ItemsSource="{Binding SetupSheetModels}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:LaunchpadModelChoice">
+                        <Button Classes="sheet-item context-option" Classes.selected="{Binding IsCurrent}"
+                                AutomationProperties.Name="{Binding Title}"
+                                Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).PickStarterModelCommand}"
+                                CommandParameter="{Binding}">
+                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                            <Border Classes="launchpad-radio" Classes.checked="{Binding IsCurrent}">
+                              <Border Classes="launchpad-radio-dot" />
+                            </Border>
+                            <TextBlock Grid.Column="1" Text="{Binding Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Hint}" IsVisible="{Binding HasHint}" />
+                          </Grid>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <!-- Its own model's efforts, as the model sheet offers them (Copilot Fusion's tiers among them). -->
+                  <StackPanel x:Name="LaunchpadStarterQualities" IsVisible="{Binding HasSetupSheetQualities}" Margin="0,8,0,0">
+                    <TextBlock Classes="sheet-label" Text="{Binding SetupSheetQualityName}" />
+                    <Border Classes="segment-track">
+                      <ItemsControl ItemsSource="{Binding SetupSheetQualities}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate>
+                            <UniformGrid Rows="1" />
+                          </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:LaunchpadQualityChoice">
+                            <Button Classes="segment" Classes.selected="{Binding IsCurrent}"
+                                    AutomationProperties.Name="{Binding Title}"
+                                    Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).PickStarterQualityCommand}"
+                                    CommandParameter="{Binding}">
+                              <TextBlock Text="{Binding Title}" />
+                            </Button>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </Border>
+                  </StackPanel>
+                  <Button x:Name="LaunchpadStarterRemove" Classes="sheet-item destructive" Margin="8,8,8,1"
+                          IsVisible="{Binding SetupSheetStarter.IsKept}"
+                          Command="{Binding RemoveStarterCommand}">
+                    <TextBlock Text="{Binding LaunchpadLabels.Remove}" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Brush.DangerDefault}" />
+                  </Button>
+                </StackPanel>
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
+
+          <!-- The new starter's places, in place of its form: Just chat, the projects (most recently used first) and the
+               agents, its own checked. Picking one, or Back, returns to the form. -->
+          <DockPanel x:Name="LaunchpadStarterPlaces" IsVisible="{Binding IsChoosingStarterPlace}">
+            <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*" ColumnSpacing="4" Margin="8,0,16,0">
+              <Button x:Name="LaunchpadStarterPlacesBack" Classes="launchpad-sheet-back"
+                      Command="{Binding BackToStarterFormCommand}"
+                      AutomationProperties.Name="{loc:Str Back}">
+                <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronLeft}" />
+              </Button>
+              <TextBlock Grid.Column="1" Classes="launchpad-sheet-heading" Text="{Binding LaunchpadLabels.StartsIn}" />
+            </Grid>
+            <TextBox x:Name="LaunchpadPlaceSearch" DockPanel.Dock="Top" Classes="mobile"
+                     Margin="16,8,16,8"
+                     Text="{Binding PlaceQuery, Mode=TwoWay}"
+                     PlaceholderText="{Binding LaunchpadLabels.Search}"
+                     AutomationProperties.Name="{Binding LaunchpadLabels.Search}" />
+            <ScrollViewer Classes="mobile-scroll sheet-scroll" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Margin="0,0,0,8">
+                <ContentControl x:Name="LaunchpadPlaceJustChat" Content="{Binding JustChatPlace}"
+                                ContentTemplate="{StaticResource LaunchpadPlaceRow}"
+                                IsVisible="{Binding HasJustChatPlace}" />
+                <TextBlock Classes="sheet-label" Text="{Binding LaunchpadLabels.Projects}"
+                           IsVisible="{Binding HasPlaceProjects}" />
+                <ItemsControl x:Name="LaunchpadPlaceProjects" ItemsSource="{Binding PlaceProjects}"
+                              ItemTemplate="{StaticResource LaunchpadPlaceRow}" />
+                <TextBlock Classes="sheet-label" Text="{Binding LaunchpadLabels.Agents}"
+                           IsVisible="{Binding HasPlaceAgents}" />
+                <ItemsControl x:Name="LaunchpadPlaceAgents" ItemsSource="{Binding PlaceAgents}"
+                              ItemTemplate="{StaticResource LaunchpadPlaceRow}" />
+                <TextBlock Classes="sheet-body" Margin="24,4,24,8"
+                           Text="{Binding LaunchpadLabels.NoMatch}"
+                           IsVisible="{Binding HasNoPlaceMatch}" />
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
+        </Panel>
       </Border>
     </sc:StrataBottomSheet>
 

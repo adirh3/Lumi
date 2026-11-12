@@ -1855,16 +1855,29 @@ public class StarterUse
 }
 
 /// <summary>
-/// A setup the user keeps on the new chat (<see cref="AppData.PinnedSetups"/>), or a place they asked it not to
+/// A starter the user keeps on the new chat (<see cref="AppData.PinnedSetups"/>), or a place they asked it not to
 /// suggest (<see cref="AppData.HiddenSetups"/>, which only uses where: the project, agent and checkout).
 /// </summary>
 public class LaunchpadSetupPin
 {
+    /// <summary>Which kept starter it is, whatever it starts with: its card and the phone edit it by this.</summary>
+    public Guid Id { get; set; } = Guid.NewGuid();
+
     public Guid? ProjectId { get; set; }
     public Guid? AgentId { get; set; }
     public bool UseWorktree { get; set; }
+
+    /// <summary>The model it starts with, or null for the user's default model, whatever that is when it's used.</summary>
     public string? ModelId { get; set; }
+
+    /// <summary>Its reasoning effort, or null for the model's default.</summary>
     public string? Effort { get; set; }
+
+    /// <summary>What the user named it ("UI dev"); null shows its place's name.</summary>
+    public string? Name { get; set; }
+
+    /// <summary>The icon the user gave it (<see cref="ViewModels.LaunchpadPlanner.StarterIcons"/>); null shows its place's badge.</summary>
+    public string? Icon { get; set; }
 }
 
 /// <summary>

@@ -305,11 +305,12 @@ public static class RemoteProtocol
 
         /// <summary>
         /// The new chat's launchpad reaches the phone whole (<see cref="RemoteNewChatExperience.Tabs"/>, For you per
-        /// place, Other's list, kept setups), and the phone keeps, hides or retunes setups and tells the PC which
-        /// starters it picks (<see cref="Actions.KeepSetup"/>, <see cref="Actions.HideSetup"/>,
-        /// <see cref="Actions.RetuneSetup"/>, <see cref="Actions.UseStarter"/>).
+        /// place, the starters with Just chat among them, their icons and the default model, the new starter card's
+        /// places), and the phone keeps, names, hides or retunes starters and tells the PC which conversation starters it
+        /// picks (<see cref="Actions.KeepSetup"/>, <see cref="Actions.HideSetup"/>, <see cref="Actions.RetuneSetup"/>,
+        /// <see cref="Actions.UseStarter"/>). A PC with the earlier launchpad sent tabs without starter icons.
         /// </summary>
-        public const string LaunchpadV1 = "launchpad-v1";
+        public const string LaunchpadV2 = "launchpad-v2";
 
         public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
         public static IReadOnlyList<string> Server { get; } =
@@ -325,7 +326,7 @@ public static class RemoteProtocol
             MessageEditingV1,
             PhoneNotificationsV1,
             ExplorerPicturesV1,
-            LaunchpadV1
+            LaunchpadV2
         ];
     }
 
@@ -445,19 +446,28 @@ public static class RemoteProtocol
         public const string UnregisterWebPush = "unregister_web_push";
 
         /// <summary>
-        /// Keeps a setup on new chats (<c>kept=true</c>, first of the user's setups) or stops keeping it
-        /// (<c>kept=false</c>). The setup is named whole: <c>projectId</c>, <c>agentId</c>, <c>worktree</c>,
-        /// <c>model</c> and <c>effort</c> (or, for a draft, <c>quality</c> as the model picker shows it), any of them
-        /// absent.
+        /// Keeps a starter on new chats (<c>kept=true</c>, after the user's others) or lets it go (<c>kept=false</c>). It
+        /// is named whole: <c>projectId</c>, <c>agentId</c>, <c>worktree</c>, and its <c>model</c> and <c>effort</c> unless
+        /// it starts with the default model; the phone names a model and effort as the model picker shows them
+        /// (<c>model</c>, and <c>quality</c>, empty for a model without efforts), and a draft on the PC's default model is
+        /// kept on the default model unless <c>ownModel=true</c> says the model was chosen for the starter. Keeping a
+        /// recipe kept already keeps it once; a starter made in the new starter sheet, under its <c>name</c> and
+        /// <c>icon</c> (one of <see cref="RemoteProtocol.LaunchpadIcons"/>; empty for its place's), joins any other kept
+        /// the same way. A kept starter is also named by its <c>id</c> (<see cref="RemoteChatSetup.Id"/>), which picks it
+        /// out from another kept the same way.
         /// </summary>
         public const string KeepSetup = "keep_setup";
 
-        /// <summary>Stops suggesting a setup, named as for <see cref="KeepSetup"/>.</summary>
+        /// <summary>Stops suggesting a learned starter's place, named as for <see cref="KeepSetup"/>. Just chat stays.</summary>
         public const string HideSetup = "hide_setup";
 
         /// <summary>
-        /// Changes what a setup, named as for <see cref="KeepSetup"/>, starts with from now on, which keeps it: its
-        /// checkout (<c>toWorktree</c>) and/or its model (<c>toModel</c>, with the effort this computer picks for it).
+        /// Changes a starter, named as for <see cref="KeepSetup"/>, from now on, which keeps a learned one: its checkout
+        /// (<c>toWorktree</c>), its model (<c>toModel</c>, with the effort this computer picks for it, or
+        /// <c>toDefaultModel=true</c>), its effort as the model picker names it (<c>toQuality</c>, for <c>toModel</c> or
+        /// the model it has; a Copilot Fusion tier is one), its name (<c>toName</c>; empty for its place's) and its icon
+        /// (<c>toIcon</c>, one of <see cref="RemoteProtocol.LaunchpadIcons"/>; empty for its place's badge). A kept
+        /// starter named by its <c>id</c> changes as the PC holds it, so only what is asked changes.
         /// </summary>
         public const string RetuneSetup = "retune_setup";
 

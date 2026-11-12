@@ -430,8 +430,8 @@ internal static class RemoteProjector
 
     /// <summary>
     /// The new chat's launchpad, as the desktop's shows it: its greeting, its tabs, For you and the line under the greeting
-    /// for no project and the projects most recently used, the setups row with Just chat, and Other's list, each bounded
-    /// so a profile with many projects stays small.
+    /// for no project and the projects most recently used, the setups row with Just chat, and the new starter's places,
+    /// each bounded so a profile with many projects stays small.
     /// </summary>
     internal static RemoteNewChatExperience BuildNewChatExperience(DataStore dataStore, ChatViewModel owner)
     {
@@ -443,7 +443,7 @@ internal static class RemoteProjector
         var projects = data.Projects.ToArray().ToDictionary(static project => project.Id);
         var agents = data.Agents.ToArray().ToDictionary(static agent => agent.Id);
         var row = LaunchpadViewModel.BuildSetupChoices(dataStore, owner, now);
-        var places = LaunchpadViewModel.BuildPlaces(dataStore, owner, MaxLaunchpadPlaceProjects, MaxLaunchpadPlaceAgents);
+        var places = LaunchpadViewModel.BuildPlaces(dataStore, MaxLaunchpadPlaceProjects, MaxLaunchpadPlaceAgents);
         var needsYou = LaunchpadPlanner.SelectNeedsYou(chats, MaxLaunchpadNeedsYouChats, out var waiting);
         var plain = LaunchpadViewModel.PlainSetupFor(dataStore, owner);
 
@@ -458,11 +458,10 @@ internal static class RemoteProjector
             SetupsTitle = Loc.Launchpad_SetupsTitle,
             Setups = row.Select(choice =>
             {
-                var (detail, isVariant) = LaunchpadViewModel.DescribeDetail(choice, row, projects, agents);
-                var setup = ProjectSetup(choice.Spec, choice.Title, choice.Meta, projects, agents);
-                setup.Detail = BoundRequired(detail, RemoteProtocol.MobileMetadataTextLimit);
-                setup.IsVariant = isVariant;
-                setup.IsKept = choice.IsPinned;
+                var setup = ProjectSetup(choice, plain, projects, agents);
+                var (tellsWorktree, tell) = LaunchpadViewModel.DescribeTell(choice, row, agents);
+                setup.TellsWorktree = tellsWorktree;
+                setup.Detail = BoundOptional(tell, RemoteProtocol.MobileMetadataTextLimit);
                 return setup;
             }).ToList(),
             Starters = LaunchpadPlanner.SelectStarters(now.Hour, hasHistory).Select(starter => new RemoteChatStarter
@@ -471,7 +470,8 @@ internal static class RemoteProjector
                 Label = starter.Label,
                 Prompt = starter.Prompt
             }).ToList(),
-            JustChat = ProjectSetup(plain, Loc.Launchpad_JustChat, ChatViewModel.FormatModelDisplay(plain.ModelId) ?? "", projects, agents),
+            DefaultModel = ChatViewModel.FormatModelDisplay(plain.ModelId),
+            StarterIcons = [.. LaunchpadPlanner.StarterIcons],
             Tabs = LaunchpadStarterCatalog.Order.Select(id => new RemoteLaunchpadTab
             {
                 Id = id,
@@ -493,25 +493,32 @@ internal static class RemoteProjector
                 IsProject = place.IsProject,
                 Title = BoundRequired(place.Title, RemoteProtocol.MobileMetadataTextLimit),
                 Hint = BoundOptional(place.Hint, RemoteProtocol.MobileMetadataTextLimit),
-                IsKept = place.IsKept,
-                Setup = ProjectSetup(place.Setup, place.Title, "", projects, agents)
+                Setup = ProjectSetup(LaunchpadViewModel.DescribeSetup(place.StarterSetup, projects, agents), plain, projects, agents)
             }).ToList(),
             Labels = new RemoteLaunchpadLabels
             {
                 ForYou = Loc.Launchpad_CategoryForYou,
-                JustChat = Loc.Launchpad_JustChat,
-                Other = Loc.Launchpad_Other,
-                OtherTitle = Loc.Launchpad_OtherTooltip,
-                OtherSearch = Loc.Launchpad_OtherSearch,
-                OtherProjects = Loc.Launchpad_OtherProjects,
-                OtherAgents = Loc.Launchpad_OtherAgents,
-                OtherEmpty = Loc.Launchpad_OtherEmpty,
+                NewStarter = Loc.Launchpad_NewStarter,
+                AddStarter = Loc.Launchpad_NewStarterAdd,
+                Search = Loc.Launchpad_OtherSearch,
+                Projects = Loc.Launchpad_OtherProjects,
+                Agents = Loc.Launchpad_OtherAgents,
+                NoMatch = Loc.Launchpad_OtherEmpty,
+                DraftSetup = Loc.Launchpad_DraftSetup,
                 Keep = Loc.Launchpad_KeepSetup,
-                KeepOnNewChats = Loc.Launchpad_SetupKeep,
-                StartInWorktree = Loc.Launchpad_SetupWorktree,
+                Rename = Loc.Launchpad_StarterRename,
                 DontSuggest = Loc.Launchpad_SetupHide,
-                StartsWith = Loc.Launchpad_SetupStartsWith,
-                Customize = Loc.Launchpad_SetupMore
+                Remove = Loc.Launchpad_StarterRemove,
+                StartInWorktree = Loc.Launchpad_SetupWorktree,
+                StartsIn = Loc.Launchpad_StarterStartsIn,
+                Name = Loc.Launchpad_StarterName,
+                Icon = Loc.Launchpad_StarterIcon,
+                Model = Loc.Launchpad_StarterModel,
+                DefaultModel = Loc.Launchpad_StarterDefaultModel,
+                DefaultModelNote = Loc.Launchpad_StarterDefaultNote,
+                Customize = Loc.Launchpad_StarterMore,
+                MoreStarters = Loc.Launchpad_StarterStack,
+                MoreStarter = Loc.Launchpad_StarterStackOne
             },
             NeedsYouCount = waiting,
             NeedsYou = waiting switch
@@ -553,7 +560,7 @@ internal static class RemoteProjector
     /// <summary>The most projects whose For you and subtitle the phone gets; another project's new chat uses no project's.</summary>
     internal const int MaxLaunchpadScopes = 24;
 
-    /// <summary>The most projects and agents Other's list holds on the phone, most recently used first.</summary>
+    /// <summary>The most projects and agents the new starter's places hold on the phone, most recently used first.</summary>
     internal const int MaxLaunchpadPlaceProjects = 60;
     internal const int MaxLaunchpadPlaceAgents = 30;
 
@@ -569,21 +576,27 @@ internal static class RemoteProjector
         Reason = BoundOptional(starter.Reason, RemoteProtocol.MobileMetadataTextLimit)
     };
 
-    /// <summary>A setup as the phone names it back: its place, checkout, model and effort, with the words to show.</summary>
+    /// <summary>
+    /// A starter as the phone shows it and names it back: its place, checkout, and its model and effort unless it starts
+    /// with the default model (<see cref="RemoteChatSetup.Model"/> then says what that is now), with its words.
+    /// </summary>
     private static RemoteChatSetup ProjectSetup(
-        LaunchpadSetupSpec spec,
-        string title,
-        string meta,
+        LaunchpadSetupChoice choice,
+        LaunchpadSetupSpec plain,
         IReadOnlyDictionary<Guid, Project> projects,
         IReadOnlyDictionary<Guid, LumiAgent> agents)
     {
+        var spec = choice.Spec;
         var project = spec.ProjectId is { } projectId ? projects.GetValueOrDefault(projectId) : null;
         var agent = spec.AgentId is { } agentId ? agents.GetValueOrDefault(agentId) : null;
+        var start = LaunchpadViewModel.Resolve(spec, plain);
+        var note = LaunchpadStarterEditor.UsesTextOf(choice);
         return new RemoteChatSetup
         {
-            Id = $"{spec.ProjectId:N}:{spec.AgentId:N}:{spec.UseWorktree}:{spec.ModelId}:{spec.Effort}",
-            Title = BoundRequired(title, RemoteProtocol.MobileMetadataTextLimit),
-            Description = BoundRequired(meta, RemoteProtocol.MobileMetadataTextLimit),
+            // A kept starter is named by its own id, which outlives changes to what it starts with.
+            Id = choice.Pin is { } pin ? pin.Id.ToString("N") : $"{spec.ProjectId:N}:{spec.AgentId:N}:{spec.UseWorktree}:{spec.ModelId}:{spec.Effort}",
+            Title = BoundRequired(choice.Title, RemoteProtocol.MobileMetadataTextLimit),
+            Description = BoundRequired(choice.Meta, RemoteProtocol.MobileMetadataTextLimit),
             Glyph = project is not null ? LaunchpadProjectBadge.InitialOf(project.Name) : agent?.IconGlyph ?? "✦",
             ProjectId = spec.ProjectId,
             ProjectName = project?.Name,
@@ -591,9 +604,15 @@ internal static class RemoteProjector
             AgentName = agent?.Name,
             AgentGlyph = agent?.IconGlyph,
             UseWorktree = spec.UseWorktree,
-            Model = spec.ModelId,
-            Quality = spec.Effort is null ? null : ModelSelectionHelper.EffortToDisplay(spec.Effort),
-            Effort = spec.Effort,
+            Model = start.ModelId,
+            Quality = start.Effort is null ? null : ModelSelectionHelper.EffortToDisplay(start.Effort),
+            Effort = start.Effort,
+            IsDefaultModel = spec.ModelId is null,
+            PlaceTitle = BoundOptional(choice.PlaceTitle, RemoteProtocol.MobileMetadataTextLimit),
+            Icon = choice.Icon,
+            IsKept = choice.IsPinned,
+            CanHide = !choice.IsPinned && !spec.IsJustChat,
+            Note = BoundOptional(note.Length > 0 ? note : LaunchpadStarterEditor.RetiredNoteOf(choice), RemoteProtocol.MobileMetadataTextLimit),
             CanUseWorktree = LaunchpadViewModel.CanUseWorktree(project)
         };
     }

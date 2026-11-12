@@ -95,131 +95,541 @@ public sealed partial class LaunchpadChatItem : ObservableObject
     private void Open() => _open(this);
 }
 
-/// <summary>One of the user's usual chat setups, applied to the draft with a click and adjusted from its menu.</summary>
+/// <summary>
+/// How a starter shows where it starts: the line icon the user gave it, else its project's initial on the project's hue,
+/// its agent's emoji, or a glyph (an agent without an emoji, or Just chat's sparkle).
+/// </summary>
+public sealed class LaunchpadBadge
+{
+    private readonly LaunchpadProjectBadge? _project;
+
+    private LaunchpadBadge(LaunchpadProjectBadge? project, string? glyphText, Geometry? icon, Geometry? lineIcon)
+    {
+        _project = project;
+        GlyphText = glyphText;
+        Icon = icon;
+        LineIcon = lineIcon;
+    }
+
+    public bool HasInitial => _project is not null;
+    public string Initial => _project?.Initial ?? "";
+    public IBrush? InitialForeground => _project?.Foreground;
+    public IBrush? InitialBackground => _project?.Background;
+    public string? GlyphText { get; }
+    public bool HasGlyphText => !string.IsNullOrEmpty(GlyphText);
+
+    /// <summary>A filled glyph: an agent's, or Just chat's sparkle.</summary>
+    public Geometry? Icon { get; }
+    public bool HasIcon => Icon is not null;
+
+    /// <summary>The line icon the user chose for the starter, drawn as Strata's line icons are.</summary>
+    public Geometry? LineIcon { get; }
+    public bool HasLineIcon => LineIcon is not null;
+
+    /// <summary>What it shows, for telling whether a refreshed starter looks the same.</summary>
+    internal (Guid?, string, string?, Geometry?, Geometry?) Look => (_project?.ProjectId, Initial, GlyphText, Icon, LineIcon);
+
+    internal static LaunchpadBadge For(Project? project, LumiAgent? agent, string? iconKey = null)
+    {
+        if (iconKey is not null)
+            return new LaunchpadBadge(null, null, null, LaunchpadStarterCatalog.IconOfKey(iconKey));
+        if (project is not null)
+            return new LaunchpadBadge(LaunchpadProjectBadge.For(project), null, null, null);
+        if (!string.IsNullOrWhiteSpace(agent?.IconGlyph))
+            return new LaunchpadBadge(null, agent!.IconGlyph, null, null);
+        return new LaunchpadBadge(null, null, agent is not null ? WorkspaceIcons.Agents : WorkspaceIcons.Sparkle, null);
+    }
+}
+
+/// <summary>
+/// A starter on the new chat: one click starts the draft there, and its card (a right-click, or its ⋯) keeps, renames,
+/// retunes or dismisses it. The row shows its name and, when another starter shares it, what tells the two apart.
+/// </summary>
 public sealed partial class LaunchpadSetupItem : ObservableObject
 {
-    private readonly LaunchpadProjectBadge? _badge;
-    private readonly LaunchpadSetupActions _actions;
+    private readonly Action<LaunchpadSetupItem> _select;
+    private readonly Action<LaunchpadSetupItem> _edit;
 
     internal LaunchpadSetupItem(
         LaunchpadSetupChoice choice,
-        string detail,
-        bool isVariant,
-        LaunchpadProjectBadge? badge,
-        Geometry? icon,
-        string? glyphText,
+        LaunchpadBadge badge,
+        bool tellsWorktree,
+        string tellText,
         bool canUseWorktree,
-        IReadOnlyList<LaunchpadModelChoice> modelChoices,
-        LaunchpadSetupActions actions)
+        Action<LaunchpadSetupItem> select,
+        Action<LaunchpadSetupItem> edit)
     {
         Choice = choice;
-        Spec = choice.Spec;
-        Title = choice.Title;
-        Meta = choice.Meta;
-        Pin = choice.Pin;
-        Detail = detail;
-        IsVariant = isVariant;
-        _badge = badge;
-        Icon = icon;
-        GlyphText = glyphText;
+        Badge = badge;
+        TellsWorktree = tellsWorktree;
+        TellText = tellText;
         CanUseWorktree = canUseWorktree;
-        ModelChoices = modelChoices;
-        _actions = actions;
+        _select = select;
+        _edit = edit;
     }
 
-    internal LaunchpadSetupChoice Choice { get; }
-
-    internal LaunchpadSetupSpec Spec { get; }
-
-    /// <summary>The kept setup this is, which its menu edits; null for one learned from the user's chats.</summary>
-    internal LaunchpadSetupPin? Pin { get; }
-
-    public string Title { get; }
-
-    /// <summary>Everything the setup brings (agent, checkout, model, effort): the tooltip and the phone's description.</summary>
-    public string Meta { get; }
+    internal LaunchpadSetupChoice Choice { get; private set; }
+    internal LaunchpadSetupSpec Spec => Choice.Spec;
 
     /// <summary>
-    /// What it starts with, beside its name while it's the chat's setup or always when it's a variant: the agent working
-    /// in the project, or the model (with the effort, when that's all that tells two variants apart).
+    /// What an edit of its name, icon or checkout changes it from: a kept starter's own recipe, with a model this computer
+    /// no longer offers (which <see cref="Spec"/> starts without), else what it starts with.
     /// </summary>
-    public string Detail { get; }
+    internal LaunchpadSetupSpec Recipe => Pin is { } pin ? LaunchpadSetupKeeper.SpecOf(pin) : Spec;
 
-    /// <summary>The row holds another setup with this name (Lumi on two models, say), so this one says what it starts with.</summary>
-    public bool IsVariant { get; }
+    /// <summary>The kept starter this is, which its card edits; null for one learned from the user's chats.</summary>
+    internal LaunchpadSetupPin? Pin => Choice.Pin;
 
-    public bool IsWorktree => Spec.UseWorktree;
-    public Geometry? Icon { get; }
-    public string? GlyphText { get; }
-    public bool HasBadge => _badge is not null;
-    public string BadgeInitial => _badge?.Initial ?? "";
-    public IBrush? BadgeForeground => _badge?.Foreground;
-    public IBrush? BadgeBackground => _badge?.Background;
-    public bool HasIcon => Icon is not null;
-    public bool HasGlyphText => !string.IsNullOrEmpty(GlyphText);
+    /// <summary>Which starter it is through refreshes: the very kept starter, or the place Lumi learned.</summary>
+    internal object Identity => (object?)Choice.Pin ?? Choice.Spec;
+
+    /// <summary>Its name: the user's for a kept one they named, else its place's.</summary>
+    public string Title => Choice.Title;
+
+    /// <summary>Its place's name, which a name of its own replaces.</summary>
+    public string PlaceTitle => Choice.PlaceTitle;
+
+    /// <summary>Everything it starts with ("Lumi · Worktree · Default model"): its tooltip.</summary>
+    public string Meta => Choice.Meta;
+
+    /// <summary>How many recent chats started in its place.</summary>
+    public int Uses => Choice.Uses;
+
+    public LaunchpadBadge Badge { get; private set; }
 
     /// <summary>The user kept it, so it stays on the new chat whatever they use most.</summary>
-    public bool IsPinned => Pin is not null;
+    public bool IsKept => Choice.IsPinned;
+
+    public bool IsJustChat => Spec.IsJustChat;
+
+    /// <summary>It starts in a worktree: a branch on its badge's corner.</summary>
+    public bool IsWorktree => Spec.UseWorktree;
+
+    /// <summary>Another starter has its name and stays in the project's folder, so this one says ⑂ after its name.</summary>
+    public bool TellsWorktree { get; private set; }
+
+    /// <summary>What else tells it from another starter of its name (its agent, model or effort), after its name.</summary>
+    public string TellText { get; private set; }
+
+    public bool HasTellText => TellText.Length > 0;
 
     /// <summary>Its project is a git repository, so it can start in a worktree.</summary>
-    public bool CanUseWorktree { get; }
+    public bool CanUseWorktree { get; private set; }
 
-    /// <summary>The models it can start with, its own checked.</summary>
-    public IReadOnlyList<LaunchpadModelChoice> ModelChoices { get; }
+    /// <summary>Lumi can stop suggesting it: a learned place, other than Just chat, which is always there.</summary>
+    public bool CanHide => !IsKept && !IsJustChat;
 
+    /// <summary>What the row shows of it, for telling whether a refreshed starter looks the same.</summary>
+    internal object Look => (Choice, Badge.Look, TellsWorktree, TellText, CanUseWorktree);
+
+    /// <summary>Takes what a refreshed starter of the same identity shows, keeping this capsule on the row.</summary>
+    internal void Update(LaunchpadSetupItem refreshed)
+    {
+        Choice = refreshed.Choice;
+        Badge = refreshed.Badge;
+        TellsWorktree = refreshed.TellsWorktree;
+        TellText = refreshed.TellText;
+        CanUseWorktree = refreshed.CanUseWorktree;
+        OnPropertyChanged(string.Empty);
+    }
+
+    /// <summary>It is the draft's starter, lit on the row.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ToolTip))]
     private bool _isActive;
 
-    /// <summary>True when clicking the applied setup restores the draft it replaced.</summary>
+    /// <summary>True when clicking the applied starter restores the draft it replaced.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ToolTip))]
     private bool _canUndo;
 
+    /// <summary>It has room on the row; the others gather into its stack.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsOverflowed))]
+    private bool _isInRow = true;
+
+    public bool IsOverflowed => !IsInRow;
+
+    /// <summary>The first learned starter the row shows after kept ones, which a divider sets apart.</summary>
+    [ObservableProperty] private bool _hasDividerBefore;
+
     public string ToolTip => IsActive
         ? CanUndo ? Loc.Launchpad_SetupActiveTooltip : Loc.Launchpad_SetupAppliedTooltip
-        : string.Format(Loc.Culture, Loc.Launchpad_SetupTooltip, Meta.Length > 0 ? $"{Title} · {Meta}" : Title);
+        : Meta;
+
+    /// <summary>Its name as a screen reader says it, with what tells it apart.</summary>
+    public string AccessibleName => string.Join(" · ",
+        new[] { Title, TellsWorktree ? Loc.Git_Worktree : "", TellText }.Where(static part => part.Length > 0));
 
     [RelayCommand]
-    private void Select() => _actions.Select(this);
+    private void Select() => _select(this);
 
-    /// <summary>Keeps it on the new chat, or lets it go back to being suggested by use.</summary>
+    /// <summary>Opens its card.</summary>
     [RelayCommand]
-    private void ToggleKeep() => _actions.ToggleKeep(this);
-
-    [RelayCommand]
-    private void ToggleWorktree() => _actions.SetWorktree(this, !Spec.UseWorktree);
-
-    /// <summary>Takes it off the new chat; once nothing is kept in its place, that place isn't suggested either.</summary>
-    [RelayCommand]
-    private void Hide() => _actions.Hide(this);
-
-    internal void StartWith(string modelId) => _actions.SetModel(this, modelId);
+    private void Edit() => _edit(this);
 }
 
-/// <summary>What a setup's chip and menu do, kept by the launchpad that made it.</summary>
-internal sealed record LaunchpadSetupActions(
-    Action<LaunchpadSetupItem> Select,
-    Action<LaunchpadSetupItem> ToggleKeep,
-    Action<LaunchpadSetupItem> Hide,
-    Action<LaunchpadSetupItem, string> SetModel,
-    Action<LaunchpadSetupItem, bool> SetWorktree);
+/// <summary>The new starter card's "+", which a full row's stack folds into its shelf after the starters it holds.</summary>
+public sealed class LaunchpadNewStarterTile
+{
+    public static LaunchpadNewStarterTile Instance { get; } = new();
 
-/// <summary>A model a setup can start with, in its menu.</summary>
+    private LaunchpadNewStarterTile()
+    {
+    }
+}
+
+/// <summary>A model a kept starter can start with, in its card: the default model, or a chosen one.</summary>
 public sealed class LaunchpadModelChoice
 {
-    internal LaunchpadModelChoice(string modelId, string title, bool isCurrent, Action select)
+    internal LaunchpadModelChoice(string? modelId, string title, string hint, bool isCurrent, Action select)
     {
         ModelId = modelId;
+        Title = title;
+        Hint = hint;
+        IsCurrent = isCurrent;
+        SelectCommand = new RelayCommand(select);
+    }
+
+    /// <summary>The model, or null for the user's default, whatever that is when the starter is used.</summary>
+    public string? ModelId { get; }
+    public string Title { get; }
+
+    /// <summary>For the default model, what it is now.</summary>
+    public string Hint { get; }
+    public bool HasHint => Hint.Length > 0;
+    public bool IsCurrent { get; }
+    public IRelayCommand SelectCommand { get; }
+
+    /// <summary>What the card shows of it, so a rebuilt card can keep the rows it already shows.</summary>
+    internal object Look => (ModelId, Title, Hint, IsCurrent);
+}
+
+/// <summary>
+/// An effort a kept starter's own model can work at, in its card, as the composer's picker offers them: a reasoning
+/// effort, or a Copilot Fusion tier.
+/// </summary>
+public sealed class LaunchpadQualityChoice
+{
+    internal LaunchpadQualityChoice(string title, bool isCurrent, Action select)
+    {
         Title = title;
         IsCurrent = isCurrent;
         SelectCommand = new RelayCommand(select);
     }
 
-    public string ModelId { get; }
     public string Title { get; }
     public bool IsCurrent { get; }
     public IRelayCommand SelectCommand { get; }
+
+    internal object Look => (Title, IsCurrent);
+}
+
+/// <summary>An icon a kept starter can wear, in its card: its place's badge, or a line icon.</summary>
+public sealed class LaunchpadIconChoice
+{
+    internal LaunchpadIconChoice(string? key, LaunchpadBadge badge, bool isCurrent, Action select)
+    {
+        Key = key;
+        Badge = badge;
+        IsCurrent = isCurrent;
+        SelectCommand = new RelayCommand(select);
+    }
+
+    /// <summary>The icon's key (<see cref="LaunchpadPlanner.StarterIcons"/>), or null for the place's badge.</summary>
+    public string? Key { get; }
+    public LaunchpadBadge Badge { get; }
+    public bool IsCurrent { get; }
+    public IRelayCommand SelectCommand { get; }
+
+    internal object Look => (Key, Badge.Look, IsCurrent);
+}
+
+/// <summary>
+/// A starter's card, where starters are made and changed. A learned starter's says how often the user starts there and
+/// that it starts with the default model, and offers Keep, Rename and Don't suggest; a kept one's edits its name, icon,
+/// checkout and model, or removes it. The new starter card (<see cref="IsNew"/>) is that form for a starter not kept yet,
+/// filled from the draft: its place is chosen from a list too, and nothing is kept until Add. The card follows its starter
+/// through the row's refreshes, and a learned starter it keeps or renames becomes the kept one.
+/// </summary>
+public sealed partial class LaunchpadStarterEditor : ObservableObject
+{
+    private readonly LaunchpadViewModel _owner;
+    private List<LaunchpadPlaceItem> _projectPlaces = [];
+    private List<LaunchpadPlaceItem> _agentPlaces = [];
+
+    internal LaunchpadStarterEditor(LaunchpadViewModel owner) => _owner = owner;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsOpen), nameof(IsKept), nameof(IsLearned), nameof(ShowsForm), nameof(Heading),
+        nameof(UsesText), nameof(HasUsesText), nameof(CanHide), nameof(CanUseWorktree), nameof(IsWorktree),
+        nameof(NamePlaceholder), nameof(PlaceAccessibleName), nameof(PlaceBadge), nameof(Badge), nameof(RetiredModelNote),
+        nameof(HasRetiredModelNote))]
+    private LaunchpadSetupItem? _target;
+
+    /// <summary>The card makes a new starter: <see cref="Target"/> is the one Add keeps, as the card has it so far.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsLearned), nameof(ShowsForm), nameof(CanUseWorktree))]
+    private bool _isNew;
+
+    /// <summary>The new starter's places show in place of its form, to choose where it starts.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowsForm))]
+    private bool _isChoosingPlace;
+
+    /// <summary>The name being typed; a kept starter keeps it on Enter, when the field loses focus, or as the card closes.</summary>
+    [ObservableProperty] private string _name = "";
+
+    [ObservableProperty] private IReadOnlyList<LaunchpadModelChoice> _models = [];
+    [ObservableProperty] private IReadOnlyList<LaunchpadIconChoice> _icons = [];
+
+    /// <summary>The efforts its own model offers (none on the default model, which brings the default's).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasQualities))]
+    private IReadOnlyList<LaunchpadQualityChoice> _qualities = [];
+
+    public bool HasQualities => Qualities.Count > 1;
+
+    /// <summary>The name the card last showed, so a refresh keeps one the user has typed since.</summary>
+    private string _shownName = "";
+
+    /// <summary>The icons show under the name while the user picks one.</summary>
+    [ObservableProperty] private bool _isChoosingIcon;
+
+    /// <summary>What the new starter's places are filtered by.</summary>
+    [ObservableProperty] private string _placeQuery = "";
+
+    /// <summary>Just chat, first among the places while the search allows it.</summary>
+    [ObservableProperty] private LaunchpadPlaceItem? _justChatPlace;
+    [ObservableProperty] private bool _hasJustChatPlace;
+    [ObservableProperty] private bool _hasPlaceProjects;
+    [ObservableProperty] private bool _hasPlaceAgents;
+    [ObservableProperty] private bool _hasNoPlaceMatch;
+
+    public ObservableCollection<LaunchpadPlaceItem> PlaceProjects { get; } = [];
+    public ObservableCollection<LaunchpadPlaceItem> PlaceAgents { get; } = [];
+
+    public bool IsOpen => Target is not null;
+    public bool IsKept => Target?.IsKept == true;
+    public bool IsLearned => Target is { IsKept: false } && !IsNew;
+
+    /// <summary>The form a kept starter's card and the new starter card share: its name, icon, place, checkout and model.</summary>
+    public bool ShowsForm => (IsKept || IsNew) && !IsChoosingPlace;
+
+    /// <summary>A learned starter's place in words: "Lumi, in a worktree".</summary>
+    public string Heading => Target is null ? ""
+        : Target.IsWorktree ? string.Format(Loc.Culture, Loc.Launchpad_StarterInWorktree, Target.PlaceTitle)
+        : Target.PlaceTitle;
+
+    /// <summary>"174 of your chats in the last 30 days."</summary>
+    public string UsesText => Target is { } target ? UsesTextOf(target.Choice) : "";
+
+    public bool HasUsesText => UsesText.Length > 0;
+    public bool CanHide => Target?.CanHide == true;
+    public bool CanUseWorktree => (IsKept || IsNew) && Target is { CanUseWorktree: true };
+    public bool IsWorktree => Target?.IsWorktree == true;
+    public string NamePlaceholder => Target?.PlaceTitle ?? "";
+
+    /// <summary>A new starter's place as a screen reader says its row: "Starts in, Lumi".</summary>
+    public string PlaceAccessibleName => $"{Loc.Launchpad_StarterStartsIn}, {NamePlaceholder}";
+
+    /// <summary>Where it starts, as its place's badge shows it, in the card's "Starts in" row.</summary>
+    public LaunchpadBadge? PlaceBadge { get; private set; }
+
+    /// <summary>Its own badge, on the card's icon button: the icon it wears, else its place's.</summary>
+    public LaunchpadBadge? Badge => Target?.Badge;
+
+    /// <summary>It was kept on a model this computer no longer offers, so it starts with the default model.</summary>
+    public string RetiredModelNote => Target is { } target ? RetiredNoteOf(target.Choice) : "";
+
+    public bool HasRetiredModelNote => RetiredModelNote.Length > 0;
+
+    /// <summary>How often the user starts in a learned starter's place, in words; empty for a kept one.</summary>
+    internal static string UsesTextOf(LaunchpadSetupChoice choice) => choice is { IsPinned: false, Uses: > 0 }
+        ? string.Format(Loc.Culture, Loc.Launchpad_StarterUses, choice.Uses, LaunchpadPlanner.SetupWindowDays)
+        : "";
+
+    /// <summary>That a kept starter's model is no longer offered, so it starts with the default model; empty otherwise.</summary>
+    internal static string RetiredNoteOf(LaunchpadSetupChoice choice) => choice.RetiredModelId is { } retired
+        ? string.Format(Loc.Culture, Loc.Launchpad_StarterModelRetired, ChatViewModel.FormatModelDisplay(retired) ?? retired)
+        : "";
+
+    /// <summary>Raised when the card should give its name field keyboard focus (after Rename).</summary>
+    public event Action? NameFocusRequested;
+
+    /// <summary>
+    /// Shows a starter, or the same one afresh: a new starter (<paramref name="isNew"/>) is the same one however it changes,
+    /// until <paramref name="fresh"/> starts the card on another. The name field keeps a name the user has typed since it
+    /// last showed one, and a list that shows the same choices keeps its rows, so a click that moved focus out of the name
+    /// (which keeps the name and so rebuilds the card) still lands on its row.
+    /// </summary>
+    internal void Show(LaunchpadSetupItem target, LaunchpadBadge placeBadge, IReadOnlyList<LaunchpadModelChoice> models,
+        IReadOnlyList<LaunchpadIconChoice> icons, IReadOnlyList<LaunchpadQualityChoice> qualities, bool isNew = false,
+        bool fresh = false)
+    {
+        var same = !fresh && (ReferenceEquals(Target, target) || (isNew && IsNew));
+        var refreshedInPlace = ReferenceEquals(Target, target);
+        if (fresh)
+        {
+            IsChoosingIcon = false;
+            PlaceQuery = "";
+        }
+
+        if (fresh || !isNew)
+            IsChoosingPlace = false;
+        PlaceBadge = placeBadge;
+        IsNew = isNew;
+        Target = target;
+        // The row refreshes a starter in place, which assigning it again doesn't announce: everything the card reads from
+        // it (its checkout, badge, retired model, uses) may have changed.
+        if (refreshedInPlace)
+            OnPropertyChanged(string.Empty);
+        var title = target.IsKept ? target.Title : "";
+        if (!same || string.Equals(Name.Trim(), _shownName, StringComparison.Ordinal))
+            Name = title;
+        _shownName = title;
+        if (!same || !models.Select(static model => model.Look).SequenceEqual(Models.Select(static model => model.Look)))
+            Models = models;
+        if (!same || !icons.Select(static icon => icon.Look).SequenceEqual(Icons.Select(static icon => icon.Look)))
+            Icons = icons;
+        if (!same || !qualities.Select(static quality => quality.Look).SequenceEqual(Qualities.Select(static quality => quality.Look)))
+            Qualities = qualities;
+    }
+
+    /// <summary>Gives the new starter's place list its places: Just chat, the projects and the agents.</summary>
+    internal void ShowPlaces(LaunchpadPlaceItem justChat, List<LaunchpadPlaceItem> projects, List<LaunchpadPlaceItem> agents)
+    {
+        JustChatPlace = justChat;
+        _projectPlaces = projects;
+        _agentPlaces = agents;
+        FilterPlaces();
+    }
+
+    internal void Close()
+    {
+        Target = null;
+        IsNew = false;
+        IsChoosingPlace = false;
+        IsChoosingIcon = false;
+        PlaceQuery = "";
+        Models = [];
+        Icons = [];
+        Qualities = [];
+        JustChatPlace = null;
+        _projectPlaces = [];
+        _agentPlaces = [];
+        FilterPlaces();
+    }
+
+    internal void RequestNameFocus() => NameFocusRequested?.Invoke();
+
+    partial void OnPlaceQueryChanged(string value) => FilterPlaces();
+
+    private void FilterPlaces()
+    {
+        var query = PlaceQuery.Trim();
+        Fill(PlaceProjects, _projectPlaces);
+        Fill(PlaceAgents, _agentPlaces);
+        HasJustChatPlace = JustChatPlace is { } justChat && Matches(justChat);
+        HasPlaceProjects = PlaceProjects.Count > 0;
+        HasPlaceAgents = PlaceAgents.Count > 0;
+        HasNoPlaceMatch = JustChatPlace is not null && !HasJustChatPlace && !HasPlaceProjects && !HasPlaceAgents;
+
+        bool Matches(LaunchpadPlaceItem item)
+            => query.Length == 0 || item.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase);
+
+        void Fill(ObservableCollection<LaunchpadPlaceItem> target, List<LaunchpadPlaceItem> source)
+        {
+            target.Clear();
+            foreach (var item in source)
+            {
+                if (Matches(item))
+                    target.Add(item);
+            }
+        }
+    }
+
+    /// <summary>Picks the first place the search shows, as Enter in it does.</summary>
+    internal void SelectFirstPlace()
+        => (HasJustChatPlace ? JustChatPlace : PlaceProjects.FirstOrDefault() ?? PlaceAgents.FirstOrDefault())
+            ?.SelectCommand.Execute(null);
+
+    [RelayCommand]
+    private void Keep()
+    {
+        if (Target is { } target)
+            _owner.KeepStarter(target, focusName: false);
+    }
+
+    /// <summary>Keeps a learned starter, and gives its name field focus.</summary>
+    [RelayCommand]
+    private void Rename()
+    {
+        if (Target is { } target)
+            _owner.KeepStarter(target, focusName: true);
+    }
+
+    [RelayCommand]
+    private void Hide()
+    {
+        if (Target is { } target)
+            _owner.HideStarter(target);
+    }
+
+    [RelayCommand]
+    private void Remove()
+    {
+        if (Target is { } target)
+            _owner.RemoveStarter(target);
+    }
+
+    [RelayCommand]
+    private void ToggleWorktree()
+    {
+        if (Target is not { } target)
+            return;
+
+        var changed = target.Recipe with { UseWorktree = !target.IsWorktree };
+        if (IsNew)
+            _owner.ChangeNewStarter(changed);
+        else
+            _owner.EditStarter(target, changed);
+    }
+
+    [RelayCommand]
+    private void ToggleIcons() => IsChoosingIcon = !IsChoosingIcon;
+
+    /// <summary>Opens the new starter's places, its own marked, in place of its form.</summary>
+    [RelayCommand]
+    private void ChoosePlace()
+    {
+        if (!IsNew)
+            return;
+
+        _owner.ShowNewStarterPlaces();
+        PlaceQuery = "";
+        IsChoosingPlace = true;
+    }
+
+    /// <summary>Back to the new starter's form, where it starts unchanged.</summary>
+    [RelayCommand]
+    private void BackToForm() => IsChoosingPlace = false;
+
+    /// <summary>Keeps the new starter as the card has it.</summary>
+    [RelayCommand]
+    private void Add()
+    {
+        if (IsNew)
+            _owner.AddNewStarter();
+    }
+
+    /// <summary>Keeps the typed name, if it changed.</summary>
+    [RelayCommand]
+    private void CommitName()
+    {
+        if (Target is { IsKept: true } target && !string.Equals(Name.Trim(), target.Title, StringComparison.Ordinal))
+            _owner.EditStarter(target, target.Recipe, name: Name);
+    }
 }
 
 /// <summary>One of the launchpad's tabs: For you, or a kind of thing to start.</summary>
@@ -279,61 +689,48 @@ public sealed partial class LaunchpadStarterItem : ObservableObject
     private void Use() => _use(this);
 }
 
-/// <summary>A project or agent the launchpad's Other list can start a chat in or with, and pin to the new chat.</summary>
-public sealed partial class LaunchpadOtherItem : ObservableObject
+/// <summary>
+/// A place a new starter can start in, in its card's list: Just chat, a project or an agent. A project brings the
+/// checkout the user last worked there in; the new starter's own place is marked.
+/// </summary>
+public sealed partial class LaunchpadPlaceItem : ObservableObject
 {
-    private readonly LaunchpadProjectBadge? _badge;
-    private readonly Action<LaunchpadOtherItem> _select;
-    private readonly Action<LaunchpadOtherItem> _togglePin;
+    private readonly Action<LaunchpadPlaceItem> _select;
 
-    internal LaunchpadOtherItem(Guid id, bool isProject, string title, string meta, LaunchpadProjectBadge? badge,
-        string? glyphText, bool isPinned, Action<LaunchpadOtherItem> select, Action<LaunchpadOtherItem> togglePin)
+    internal LaunchpadPlaceItem(LaunchpadSetupSpec setup, string title, string hint, LaunchpadBadge badge,
+        Action<LaunchpadPlaceItem> select)
     {
-        Id = id;
-        IsProject = isProject;
+        Setup = setup;
         Title = title;
-        Meta = meta;
-        _badge = badge;
-        GlyphText = glyphText;
-        _isPinned = isPinned;
+        Meta = hint;
+        Badge = badge;
         _select = select;
-        _togglePin = togglePin;
     }
 
-    internal Guid Id { get; }
-    internal bool IsProject { get; }
+    /// <summary>Where a starter there starts: the place alone, on the default model, with its checkout.</summary>
+    internal LaunchpadSetupSpec Setup { get; }
 
     public string Title { get; }
+
+    /// <summary>When the user last worked there ("40m ago").</summary>
     public string Meta { get; }
     public bool HasMeta => Meta.Length > 0;
-    public string? GlyphText { get; }
-    public bool HasBadge => _badge is not null;
-    public string BadgeInitial => _badge?.Initial ?? "";
-    public IBrush? BadgeForeground => _badge?.Foreground;
-    public IBrush? BadgeBackground => _badge?.Background;
-    public bool HasGlyphText => !HasBadge && !string.IsNullOrEmpty(GlyphText);
-    public bool HasIcon => !HasBadge && !HasGlyphText;
-    public Geometry Icon => WorkspaceIcons.Agents;
+    public LaunchpadBadge Badge { get; }
 
-    /// <summary>It has a chip on the new chat, which its pin keeps there.</summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(PinTooltip))]
-    private bool _isPinned;
-
-    public string PinTooltip => IsPinned ? Loc.Launchpad_OtherUnpin : Loc.Launchpad_OtherPin;
+    /// <summary>It is where the new starter starts.</summary>
+    [ObservableProperty] private bool _isCurrent;
 
     [RelayCommand]
     private void Select() => _select(this);
-
-    [RelayCommand]
-    private void TogglePin() => _togglePin(this);
 }
 
 /// <summary>
 /// Lumi's launchpad: the new-chat surface. It greets the user, says how many chats wait on them, and offers what to
 /// start: For you (the project's plans from its brief, the user's habits, what suits the hour) and a tab per kind of
-/// task, each with starters whose blanks the user fills in the composer. Above the composer it offers where to start:
-/// Just chat, the setups the user keeps starting with, and every other project and agent.
+/// task, each with starters whose blanks the user fills in the composer. On the composer it offers where to start: the
+/// starters the user kept, in their order and by their names, then the places Lumi learned they start in (Just chat
+/// among them), each on the default model unless the user chose another. The draft's starter is lit; one that doesn't
+/// fit the row gathers into its stack, and the new starter card makes another, filled from the draft.
 /// <para>It only observes the store while a chat view is in the new-chat state (<see cref="Activate"/> /
 /// <see cref="Deactivate"/>), so cached drafts and open chats hold no subscriptions.</para>
 /// </summary>
@@ -350,27 +747,44 @@ public sealed partial class LaunchpadViewModel : ObservableObject
     private bool _refreshQueued;
     private bool _setupsStale = true;
     private bool _hasHistory;
-    private string _setupModelsKey = "";
-    private LaunchpadSetupSpec? _plainDefaultAtOpen;
-    private readonly LaunchpadSetupActions _setupActions;
 
-    private List<LaunchpadOtherItem> _otherProjects = [];
-    private List<LaunchpadOtherItem> _otherAgents = [];
+    /// <summary>
+    /// The default model when the new chat opened. Picking a model for a new chat also makes it the default, so a model
+    /// picked since is the draft's own choice, which keeping the draft keeps.
+    /// </summary>
+    private string? _defaultModelAtOpen;
+
+    /// <summary>The kept starter the card follows once the row is rebuilt (one it just kept), and whether its name takes focus.</summary>
+    private LaunchpadSetupPin? _editorPin;
+    private bool _focusEditorName;
+
+    /// <summary>What the card's starter looked like when the card showed it, so a change shows it afresh.</summary>
+    private object? _editorLook;
+
+    /// <summary>The starter the new starter card makes, as it has it so far, and the icon it gives it (null: its place's).</summary>
+    private LaunchpadSetupSpec _newStarter = LaunchpadSetupSpec.JustChat;
+    private string? _newStarterIcon;
 
     internal LaunchpadViewModel(ChatViewModel owner, DataStore dataStore, ChatEventHub chatEvents)
     {
         _owner = owner;
         _dataStore = dataStore;
         _chatEvents = chatEvents;
-        _setupActions = new LaunchpadSetupActions(SelectSetup, ToggleKeepSetup, HideSetup, SetSetupModel, SetSetupWorktree);
+        Editor = new LaunchpadStarterEditor(this);
     }
 
     public ObservableCollection<LaunchpadChatItem> NeedsYouItems { get; } = [];
+
+    /// <summary>The starters: the kept ones in the user's order, then the places Lumi learned, Just chat among them.</summary>
     public ObservableCollection<LaunchpadSetupItem> Setups { get; } = [];
     public ObservableCollection<LaunchpadCategoryItem> Categories { get; } = [];
     public ObservableCollection<LaunchpadStarterItem> Suggestions { get; } = [];
-    public ObservableCollection<LaunchpadOtherItem> OtherProjects { get; } = [];
-    public ObservableCollection<LaunchpadOtherItem> OtherAgents { get; } = [];
+
+    /// <summary>What the stack's shelf holds while it's open: the starters the row has no room for, then the new starter "+".</summary>
+    public ObservableCollection<object> ShelfItems { get; } = [];
+
+    /// <summary>The card a starter opens, which the new starter card is too.</summary>
+    public LaunchpadStarterEditor Editor { get; }
 
     [ObservableProperty] private string _greetingLead = "";
     [ObservableProperty] private string _greetingName = "";
@@ -381,64 +795,47 @@ public sealed partial class LaunchpadViewModel : ObservableObject
 
     [ObservableProperty] private string _needsYouLabel = "";
     [ObservableProperty] private bool _hasNeedsYou;
-    [ObservableProperty] private bool _hasSetups;
     [ObservableProperty] private LaunchpadCategoryItem? _selectedCategory;
 
-    /// <summary>The draft is a plain chat: no project and no agent.</summary>
-    [ObservableProperty] private bool _isJustChatActive;
-    [ObservableProperty] private string _justChatMeta = "";
-
-    /// <summary>The setup the draft starts with, when the row holds it, which the row keeps in sight as it scrolls.</summary>
+    /// <summary>The draft's starter, lit on the row (or, without room beside the kept starters, in the stack).</summary>
     [ObservableProperty] private LaunchpadSetupItem? _activeSetup;
 
     /// <summary>
-    /// The draft starts somewhere the row has no chip for (picked from Other, or in the composer): the Other chip shows
-    /// that place, so the row always says where the chat starts.
+    /// Where the draft starts, as a starter shows it: the dashed chip on the row while no starter fits the draft
+    /// (<see cref="HasUnsavedDraft"/>).
     /// </summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOtherBadge), nameof(HasOtherGlyph), nameof(ShowOtherAddIcon), nameof(CanKeepDraft))]
-    private bool _isOtherActive;
-    [ObservableProperty] private string _otherTitle = Loc.Launchpad_Other;
-    [ObservableProperty] private string _otherMeta = "";
+    [ObservableProperty] private LaunchpadSetupItem? _draftPlace;
 
-    /// <summary>
-    /// The draft is a setup the row doesn't hold (set up in the composer, or picked from Other), so the Other chip offers
-    /// to keep it: one click makes it the first of the user's setups, model, checkout and all.
-    /// </summary>
-    public bool CanKeepDraft => IsOtherActive;
+    /// <summary>No starter fits the draft (a project picked in the composer, say), so the row shows where it starts, with a pin.</summary>
+    [ObservableProperty] private bool _hasUnsavedDraft;
 
-    /// <summary>The setup Keep would keep, in words, for its tooltip and accessible name.</summary>
+    /// <summary>What the dashed chip's pin keeps, in words.</summary>
     [ObservableProperty] private string _keepDraftTooltip = "";
 
+    /// <summary>How many starters the row has no room for, gathered into its stack, and the first three's badges.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOtherBadge), nameof(HasOtherGlyph), nameof(ShowOtherAddIcon),
-        nameof(OtherBadgeInitial), nameof(OtherBadgeForeground), nameof(OtherBadgeBackground))]
-    private LaunchpadProjectBadge? _otherBadge;
+    [NotifyPropertyChangedFor(nameof(HasOverflow), nameof(OverflowLabel), nameof(OverflowAccessibleName))]
+    private int _overflowCount;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOtherGlyph), nameof(ShowOtherAddIcon))]
-    private string? _otherGlyph;
+    [ObservableProperty] private IReadOnlyList<LaunchpadBadge> _overflowPreview = [];
 
-    public bool HasOtherBadge => IsOtherActive && OtherBadge is not null;
-    public bool HasOtherGlyph => IsOtherActive && OtherBadge is null && !string.IsNullOrEmpty(OtherGlyph);
-    public bool ShowOtherAddIcon => !HasOtherBadge && !HasOtherGlyph;
-    public bool HasOtherMeta => OtherMeta.Length > 0;
-    public string OtherBadgeInitial => OtherBadge?.Initial ?? "";
-    public IBrush? OtherBadgeForeground => OtherBadge?.Foreground;
-    public IBrush? OtherBadgeBackground => OtherBadge?.Background;
+    /// <summary>The draft's starter is in the stack (the row's room went to kept starters), so the stack wears its light.</summary>
+    [ObservableProperty] private bool _isOverflowActive;
 
-    partial void OnOtherMetaChanged(string value) => OnPropertyChanged(nameof(HasOtherMeta));
-
-    [ObservableProperty] private string _otherQuery = "";
-    [ObservableProperty] private bool _hasOtherProjects;
-    [ObservableProperty] private bool _hasOtherAgents;
-    [ObservableProperty] private bool _hasNoOtherMatch;
+    public bool HasOverflow => OverflowCount > 0;
+    public string OverflowLabel => "+" + OverflowCount.ToString(Loc.Culture);
+    public string OverflowAccessibleName => OverflowCount == 1
+        ? Loc.Launchpad_StarterStackOne
+        : string.Format(Loc.Culture, Loc.Launchpad_StarterStack, OverflowCount);
 
     /// <summary>Raised before the launchpad opens a chat, so the view can close what it has open.</summary>
     public event Action? ChatOpening;
 
-    /// <summary>Raised when a project or agent is picked from the Other list.</summary>
-    public event Action? OtherPicked;
+    /// <summary>Raised when a starter's card should open beside it.</summary>
+    public event Action<LaunchpadSetupItem>? EditorRequested;
+
+    /// <summary>Raised when the starters changed (added, removed, renamed), so the view fits the row again.</summary>
+    public event Action? RowChanged;
 
     internal bool IsActive => _activeViews > 0;
 
@@ -449,7 +846,7 @@ public sealed partial class LaunchpadViewModel : ObservableObject
             return;
 
         _setupsStale = true;
-        _plainDefaultAtOpen = null;
+        _defaultModelAtOpen = _dataStore.Data.Settings.PreferredModel;
         // A new chat starts on For you.
         SelectedCategory = null;
         _chatEvents.EventPublished += OnChatEventPublished;
@@ -473,6 +870,8 @@ public sealed partial class LaunchpadViewModel : ObservableObject
         _clock?.Stop();
         _clock = null;
         WatchChats([]);
+        Editor.Close();
+        ShelfItems.Clear();
     }
 
     /// <summary>Forces teardown when the owning surface is disposed, however many views were attached.</summary>
@@ -497,117 +896,115 @@ public sealed partial class LaunchpadViewModel : ObservableObject
         RefreshSuggestions();
     }
 
-    partial void OnOtherQueryChanged(string value) => FilterOther();
-
-    /// <summary>Plain chat again: no project, no agent, the default model. Already plain, it only returns to the composer.</summary>
+    /// <summary>
+    /// Opens the new starter card on the draft as a starter would keep it: its place and checkout, and its model when the
+    /// user picked one since the new chat opened, else the default model; no name or icon of its own yet.
+    /// </summary>
     [RelayCommand]
-    private async Task SelectJustChat()
+    private void OpenNewStarter()
     {
-        if (IsJustChatActive)
-        {
-            _owner.RequestComposerFocus();
-            return;
-        }
-
-        try
-        {
-            await _owner.ToggleLaunchpadSetupAsync(PlainSetup(), isActive: false);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.TraceWarning($"[Launchpad] Starting a plain chat failed: {ex}");
-        }
+        _newStarter = _owner.GetLaunchpadDraftSetup() is { } draft ? RecipeOf(draft) : LaunchpadSetupSpec.JustChat;
+        _newStarterIcon = null;
+        ShowNewStarter(fresh: true);
     }
 
-    /// <summary>Fills the Other list as it opens: every project, most recently used first, then every agent.</summary>
-    [RelayCommand]
-    private void OpenOther()
+    /// <summary>Shows the new starter in its card as it is so far; <paramref name="fresh"/> starts the card on it.</summary>
+    private void ShowNewStarter(bool fresh = false)
     {
         var data = _dataStore.Data;
-        var chats = data.Chats.ToArray();
-        var projectActivity = new Dictionary<Guid, DateTimeOffset>();
-        var agentActivity = new Dictionary<Guid, DateTimeOffset>();
-        foreach (var chat in chats)
+        var projects = data.Projects.ToArray().ToDictionary(static project => project.Id);
+        var agents = data.Agents.ToArray().ToDictionary(static agent => agent.Id);
+        var project = _newStarter.ProjectId is { } projectId ? projects.GetValueOrDefault(projectId) : null;
+        var agent = _newStarter.AgentId is { } agentId ? agents.GetValueOrDefault(agentId) : null;
+        var canUseWorktree = CanUseWorktree(project);
+
+        // A place deleted meanwhile is no place to start, and only a git project starts in a worktree.
+        _newStarter = _newStarter with
         {
-            if (chat.ProjectId is { } projectId && (!projectActivity.TryGetValue(projectId, out var seen) || chat.UpdatedAt > seen))
-                projectActivity[projectId] = chat.UpdatedAt;
-            if (chat.AgentId is { } agentId && (!agentActivity.TryGetValue(agentId, out var used) || chat.UpdatedAt > used))
-                agentActivity[agentId] = chat.UpdatedAt;
-        }
-
-        var pins = data.PinnedSetups.ToArray();
-        _otherProjects = data.Projects.ToArray()
-            .OrderByDescending(project => projectActivity.GetValueOrDefault(project.Id))
-            .ThenBy(project => project.Name, StringComparer.CurrentCultureIgnoreCase)
-            .Select(project => new LaunchpadOtherItem(project.Id, isProject: true, project.Name,
-                projectActivity.TryGetValue(project.Id, out var at) ? LibraryViewModel.FormatRelativeTime(at) : "",
-                LaunchpadProjectBadge.For(project), glyphText: null,
-                pins.Any(pin => IsKeptAt(pin, project.Id, isProject: true)), SelectOther, TogglePinOther))
-            .ToList();
-        _otherAgents = data.Agents.ToArray()
-            .OrderByDescending(agent => agentActivity.GetValueOrDefault(agent.Id))
-            .ThenBy(agent => agent.Name, StringComparer.CurrentCultureIgnoreCase)
-            .Select(agent => new LaunchpadOtherItem(agent.Id, isProject: false, agent.Name,
-                agentActivity.TryGetValue(agent.Id, out var at) ? LibraryViewModel.FormatRelativeTime(at) : "",
-                badge: null, string.IsNullOrWhiteSpace(agent.IconGlyph) ? null : agent.IconGlyph,
-                pins.Any(pin => IsKeptAt(pin, agent.Id, isProject: false)), SelectOther, TogglePinOther))
-            .ToList();
-
-        if (OtherQuery.Length > 0)
-            OtherQuery = "";
-        else
-            FilterOther();
-    }
-
-    private void FilterOther()
-    {
-        var query = OtherQuery.Trim();
-        Fill(OtherProjects, _otherProjects);
-        Fill(OtherAgents, _otherAgents);
-        HasOtherProjects = OtherProjects.Count > 0;
-        HasOtherAgents = OtherAgents.Count > 0;
-        HasNoOtherMatch = !HasOtherProjects && !HasOtherAgents;
-
-        void Fill(ObservableCollection<LaunchpadOtherItem> target, List<LaunchpadOtherItem> source)
-        {
-            target.Clear();
-            foreach (var item in source)
+            ProjectId = project?.Id,
+            AgentId = agent?.Id,
+            UseWorktree = _newStarter.UseWorktree && canUseWorktree,
+        };
+        var placeBadge = LaunchpadBadge.For(project, agent);
+        var item = new LaunchpadSetupItem(DescribeSetup(_newStarter, projects, agents),
+            LaunchpadBadge.For(project, agent, _newStarterIcon), false, "", canUseWorktree, static _ => { }, static _ => { });
+        Editor.Show(item, placeBadge,
+            ModelChoices(() => _newStarter, ChangeNewStarter),
+            IconChoices(placeBadge, _newStarterIcon, icon =>
             {
-                if (query.Length == 0 || item.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase))
-                    target.Add(item);
-            }
-        }
+                _newStarterIcon = icon;
+                ShowNewStarter();
+            }),
+            QualityChoices(() => _newStarter, ChangeNewStarter),
+            isNew: true,
+            fresh: fresh);
     }
 
-    /// <summary>Picks the first match, as Enter in the Other list's search does.</summary>
-    internal void SelectFirstOther() => (OtherProjects.FirstOrDefault() ?? OtherAgents.FirstOrDefault())?.SelectCommand.Execute(null);
-
-    private async void SelectOther(LaunchpadOtherItem item)
+    /// <summary>Changes what the new starter starts with, in its card; nothing is kept until Add.</summary>
+    internal void ChangeNewStarter(LaunchpadSetupSpec changed)
     {
-        OtherPicked?.Invoke();
-        try
-        {
-            await _owner.ToggleLaunchpadSetupAsync(SetupFor(item), isActive: false);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.TraceWarning($"[Launchpad] Starting in {item.Title} failed: {ex}");
-        }
+        if (!Editor.IsNew)
+            return;
+
+        _newStarter = changed;
+        ShowNewStarter();
     }
 
     /// <summary>
-    /// A project or agent picked from the Other list starts the way the user last worked there: that chat's agent or
-    /// project, checkout and model. Never used yet, it keeps the draft's model.
+    /// Fills the new starter's places: Just chat, then every project, most recently used first, then every agent. A
+    /// project brings the checkout the user last worked there in; its own place is marked.
     /// </summary>
-    private LaunchpadSetupSpec SetupFor(LaunchpadOtherItem item) => SetupFor(_dataStore, _owner, item.Id, item.IsProject);
-
-    internal static LaunchpadSetupSpec SetupFor(DataStore dataStore, ChatViewModel owner, Guid id, bool isProject)
+    internal void ShowNewStarterPlaces()
     {
-        var automationChatIds = AutomationChatIds(dataStore);
-        var latest = dataStore.Data.Chats.ToArray()
-            .Where(chat => CanTeachSetup(chat, automationChatIds) && (isProject ? chat.ProjectId == id : chat.AgentId == id))
-            .MaxBy(static chat => chat.UpdatedAt);
-        return SetupFrom(dataStore.Data, id, isProject, latest, CreateModelResolver(owner));
+        var data = _dataStore.Data;
+        var projects = data.Projects.ToArray().ToDictionary(static project => project.Id);
+        var agents = data.Agents.ToArray().ToDictionary(static agent => agent.Id);
+        var places = BuildPlaces(_dataStore, int.MaxValue, int.MaxValue);
+        var justChat = Place(LaunchpadSetupSpec.JustChat, Loc.Launchpad_JustChat, "", LaunchpadBadge.For(null, null));
+        var projectPlaces = places.Where(static place => place.IsProject)
+            .Select(place => Place(place.StarterSetup, place.Title, place.Hint, LaunchpadBadge.For(projects.GetValueOrDefault(place.Id), null)))
+            .ToList();
+        var agentPlaces = places.Where(static place => !place.IsProject)
+            .Select(place => Place(place.StarterSetup, place.Title, place.Hint, LaunchpadBadge.For(null, agents.GetValueOrDefault(place.Id))))
+            .ToList();
+        Editor.ShowPlaces(justChat, projectPlaces, agentPlaces);
+
+        LaunchpadPlaceItem Place(LaunchpadSetupSpec setup, string title, string hint, LaunchpadBadge badge)
+            => new(setup, title, hint, badge, ChooseNewStarterPlace)
+            {
+                IsCurrent = setup.ProjectId == _newStarter.ProjectId && setup.AgentId == _newStarter.AgentId,
+            };
+    }
+
+    /// <summary>Starts the new starter in another place, with that place's checkout; its own place leaves it as it is.</summary>
+    private void ChooseNewStarterPlace(LaunchpadPlaceItem place)
+    {
+        if (!Editor.IsNew)
+            return;
+
+        if (!place.IsCurrent)
+        {
+            _newStarter = _newStarter with
+            {
+                ProjectId = place.Setup.ProjectId,
+                AgentId = place.Setup.AgentId,
+                UseWorktree = place.Setup.UseWorktree,
+            };
+        }
+
+        Editor.IsChoosingPlace = false;
+        ShowNewStarter();
+    }
+
+    /// <summary>Keeps the new starter card's starter after the user's others, under the name and icon it gave it.</summary>
+    internal void AddNewStarter()
+    {
+        if (!Editor.IsNew)
+            return;
+
+        LaunchpadSetupKeeper.Add(_dataStore.Data, _newStarter, Editor.Name, _newStarterIcon);
+        Editor.Close();
+        SaveStarters();
     }
 
     /// <summary>A chat that shows how the user starts in its place: the user's own, with something in it.</summary>
@@ -616,32 +1013,26 @@ public sealed partial class LaunchpadViewModel : ObservableObject
            && string.IsNullOrWhiteSpace(chat.SdkAgentName)
            && !automationChatIds.Contains(chat.Id);
 
-    private static LaunchpadSetupSpec SetupFrom(
-        AppData data,
-        Guid id,
-        bool isProject,
-        Chat? latest,
-        Func<string?, string?, (string? Model, string? Effort)> resolveModel)
+    private static LaunchpadSetupSpec SetupFrom(AppData data, Guid id, bool isProject, Chat? latest)
     {
         if (latest is null)
             return isProject ? new(id, null, false, null, null) : new(null, id, false, null, null);
 
         var projects = data.Projects.Select(static project => project.Id).ToHashSet();
         var agents = data.Agents.Select(static agent => agent.Id).ToHashSet();
-        var spec = LaunchpadPlanner.ToSetupSpec(latest, projects.Contains, agents.Contains, resolveModel);
+        var spec = LaunchpadPlanner.ToSetupSpec(latest, projects.Contains, agents.Contains);
         return isProject ? spec with { ProjectId = id } : spec with { AgentId = id };
     }
 
     /// <summary>
-    /// Other's list for the phone: the projects, most recently used first, then the agents, each with when the user last
-    /// worked there and how a chat there starts (<see cref="SetupFor(DataStore, ChatViewModel, Guid, bool)"/>), found in
-    /// one pass over the chats.
+    /// The new starter's places for the desktop and the phone: the projects, most recently used first, then the agents,
+    /// each with when the user last worked there and how a chat there started then (<see cref="SetupFrom"/>: its
+    /// checkout), found in one pass over the chats.
     /// </summary>
-    internal static List<LaunchpadPlace> BuildPlaces(DataStore dataStore, ChatViewModel owner, int maxProjects, int maxAgents)
+    internal static List<LaunchpadPlace> BuildPlaces(DataStore dataStore, int maxProjects, int maxAgents)
     {
         var data = dataStore.Data;
         var automationChatIds = AutomationChatIds(dataStore);
-        var resolveModel = CreateModelResolver(owner);
         var projectActivity = new Dictionary<Guid, DateTimeOffset>();
         var agentActivity = new Dictionary<Guid, DateTimeOffset>();
         var projectLatest = new Dictionary<Guid, Chat>();
@@ -655,7 +1046,6 @@ public sealed partial class LaunchpadViewModel : ObservableObject
                 Note(agentActivity, agentLatest, agentId, chat, teaches);
         }
 
-        var pins = data.PinnedSetups.ToArray();
         var places = new List<LaunchpadPlace>();
         foreach (var project in data.Projects.ToArray()
                      .OrderByDescending(project => projectActivity.GetValueOrDefault(project.Id))
@@ -663,8 +1053,7 @@ public sealed partial class LaunchpadViewModel : ObservableObject
                      .Take(maxProjects))
         {
             places.Add(new LaunchpadPlace(project.Id, IsProject: true, project.Name, HintOf(projectActivity, project.Id),
-                pins.Any(pin => IsKeptAt(pin, project.Id, isProject: true)),
-                SetupFrom(data, project.Id, isProject: true, projectLatest.GetValueOrDefault(project.Id), resolveModel)));
+                SetupFrom(data, project.Id, isProject: true, projectLatest.GetValueOrDefault(project.Id))));
         }
 
         foreach (var agent in data.Agents.ToArray()
@@ -673,8 +1062,7 @@ public sealed partial class LaunchpadViewModel : ObservableObject
                      .Take(maxAgents))
         {
             places.Add(new LaunchpadPlace(agent.Id, IsProject: false, agent.Name, HintOf(agentActivity, agent.Id),
-                pins.Any(pin => IsKeptAt(pin, agent.Id, isProject: false)),
-                SetupFrom(data, agent.Id, isProject: false, agentLatest.GetValueOrDefault(agent.Id), resolveModel)));
+                SetupFrom(data, agent.Id, isProject: false, agentLatest.GetValueOrDefault(agent.Id))));
         }
 
         return places;
@@ -691,91 +1079,172 @@ public sealed partial class LaunchpadViewModel : ObservableObject
             => activity.TryGetValue(id, out var at) ? LibraryViewModel.FormatRelativeTime(at) : "";
     }
 
-    /// <summary>
-    /// Pins a project or agent from the Other list to the new chat: it joins the end of the row, starting the way the
-    /// user last worked there, and the variants the row shows there stay. Pinned already, it lets go of every setup kept
-    /// there. A place is pinned while any kept setup is in it: an agent's, in whatever project it was last used.
-    /// </summary>
-    private void TogglePinOther(LaunchpadOtherItem item)
+    /// <summary>The row's starters, as the keeper finds them.</summary>
+    private List<LaunchpadSetupChoice> Row() => Setups.Select(static setup => setup.Choice).ToList();
+
+    /// <summary>Opens a starter's card beside it.</summary>
+    private void OpenEditor(LaunchpadSetupItem item)
+    {
+        ShowEditor(item);
+        EditorRequested?.Invoke(item);
+    }
+
+    private void ShowEditor(LaunchpadSetupItem item)
     {
         var data = _dataStore.Data;
-        var removed = data.PinnedSetups.RemoveAll(pin => IsKeptAt(pin, item.Id, item.IsProject));
-        if (removed == 0)
-            LaunchpadSetupKeeper.Keep(data, ShownRow(), SetupFor(item), joinsTheEnd: true);
-
-        item.IsPinned = removed == 0;
-        SaveSetupPins();
-    }
-
-    /// <summary>Whether a kept setup is in a project or agent of the Other list.</summary>
-    internal static bool IsKeptAt(LaunchpadSetupPin pin, Guid id, bool isProject)
-        => isProject ? pin.ProjectId == id : pin.AgentId == id;
-
-    /// <summary>Keeps a learned setup on the new chat, or lets a kept one go back to being suggested by use.</summary>
-    private void ToggleKeepSetup(LaunchpadSetupItem setup)
-    {
-        if (setup.IsPinned)
-            LaunchpadSetupKeeper.StopKeeping(_dataStore.Data, ShownRow(), setup.Spec);
+        var project = item.Spec.ProjectId is { } projectId ? data.Projects.ToArray().FirstOrDefault(p => p.Id == projectId) : null;
+        var agent = item.Spec.AgentId is { } agentId ? data.Agents.ToArray().FirstOrDefault(a => a.Id == agentId) : null;
+        var placeBadge = LaunchpadBadge.For(project, agent);
+        if (item.IsKept)
+        {
+            // Every choice reads the starter as it is when clicked, so the card can keep its rows across a refresh.
+            Editor.Show(item, placeBadge,
+                ModelChoices(() => item.Spec, changed => EditStarter(item, changed)),
+                IconChoices(placeBadge, item.Choice.Icon, icon => EditStarter(item, item.Recipe, icon: icon ?? "")),
+                QualityChoices(() => item.Spec, changed => EditStarter(item, changed)));
+        }
         else
-            LaunchpadSetupKeeper.Keep(_dataStore.Data, ShownRow(), setup.Spec);
-        SaveSetupPins();
+        {
+            Editor.Show(item, placeBadge, [], [], []);
+        }
+
+        _editorLook = item.Look;
     }
 
     /// <summary>
-    /// Takes the setup off the new chat. Once nothing is kept in its place, the place isn't suggested by use either, so
-    /// the setup doesn't come straight back as a learned one.
+    /// The models a starter's card offers, after the default model, as the composer's picker lists them: Copilot Fusion
+    /// once, its tiers being its efforts. Picking one changes the starter (as <paramref name="current"/> reads it when
+    /// clicked) to that model, at the effort it had where the model offers it.
     /// </summary>
-    private void HideSetup(LaunchpadSetupItem setup)
+    private List<LaunchpadModelChoice> ModelChoices(Func<LaunchpadSetupSpec> current, Action<LaunchpadSetupSpec> change)
     {
-        LaunchpadSetupKeeper.Hide(_dataStore.Data, setup.Pin, setup.Spec);
-        SaveSetupPins();
+        var model = current().ModelId;
+        List<LaunchpadModelChoice> models =
+        [
+            new(null, Loc.Launchpad_StarterDefaultModel, ChatViewModel.FormatModelDisplay(PlainSetup().ModelId) ?? "",
+                model is null, () =>
+                {
+                    if (current() is { ModelId: not null } spec)
+                        change(spec.Place);
+                }),
+        ];
+        foreach (var option in _owner.CreateModelOptions(_owner.AvailableModels))
+        {
+            models.Add(new LaunchpadModelChoice(option.Id, option.DisplayName, "", IsModelOf(option, model), () =>
+            {
+                var spec = current();
+                if (!IsModelOf(option, spec.ModelId))
+                    change(spec with { ModelId = option.Id, Effort = _owner.ResolveReasoningEffortForModel(spec.Effort, option.Id) });
+            }));
+        }
+
+        return models;
+
+        static bool IsModelOf(ModelOption option, string? model) => model is not null
+            && (string.Equals(option.Id, model, StringComparison.Ordinal) || option.SelectionAliases.Contains(model, StringComparer.Ordinal));
     }
 
-    /// <summary>Starts the setup on another model from now on, which keeps it so the choice holds.</summary>
-    private void SetSetupModel(LaunchpadSetupItem setup, string modelId)
-        => KeepAs(setup, setup.Spec with { ModelId = modelId, Effort = _owner.ResolveReasoningEffortForModel(setup.Spec.Effort, modelId) });
-
-    private void SetSetupWorktree(LaunchpadSetupItem setup, bool useWorktree)
-        => KeepAs(setup, setup.Spec with { UseWorktree = useWorktree });
-
-    /// <summary>
-    /// Keeps the changed setup in place of the one the user adjusted (a learned one is kept from now on). Its other kept
-    /// variants stay, and so do the learned ones the row shows there; one the change made identical to it goes, since a
-    /// setup is kept once.
-    /// </summary>
-    private void KeepAs(LaunchpadSetupItem setup, LaunchpadSetupSpec changed)
+    /// <summary>The efforts a starter's own model offers in its card (Copilot Fusion's tiers among them); none on the default model.</summary>
+    private List<LaunchpadQualityChoice> QualityChoices(Func<LaunchpadSetupSpec> current, Action<LaunchpadSetupSpec> change)
     {
-        LaunchpadSetupKeeper.Retune(_dataStore.Data, ShownRow(), setup.Pin, setup.Spec, changed);
-        SaveSetupPins();
+        var spec = current();
+        if (spec.ModelId is not { } model || _owner.GetQualityLevelsFor(model) is not { Length: > 1 } levels)
+            return [];
+
+        var selected = _owner.GetAutoTierQualityFor(model) ?? (spec.Effort is { } effort ? ModelSelectionHelper.EffortToDisplay(effort) : null);
+        return levels.Select(level => new LaunchpadQualityChoice(level, level == selected, () =>
+        {
+            if (current() is { ModelId: { } chosen } now)
+            {
+                var (tuned, tunedEffort) = _owner.ResolveModelQuality(chosen, level);
+                change(now with { ModelId = tuned, Effort = tunedEffort });
+            }
+        })).ToList();
+    }
+
+    /// <summary>The icons a starter can wear in its card: its place's badge (null), then the line icons.</summary>
+    private static List<LaunchpadIconChoice> IconChoices(LaunchpadBadge placeBadge, string? icon, Action<string?> change)
+    {
+        List<LaunchpadIconChoice> icons = [new(null, placeBadge, icon is null, () => change(null))];
+        icons.AddRange(LaunchpadPlanner.StarterIcons.Select(key => new LaunchpadIconChoice(
+            key, LaunchpadBadge.For(null, null, key), key == icon, () => change(key))));
+        return icons;
+    }
+
+    /// <summary>Keeps a learned starter on the new chat; Rename then gives its name field focus.</summary>
+    internal void KeepStarter(LaunchpadSetupItem item, bool focusName)
+    {
+        _editorPin = item.Pin ?? LaunchpadSetupKeeper.Keep(_dataStore.Data, Row(), item.Spec);
+        _focusEditorName = focusName;
+        SaveStarters();
     }
 
     /// <summary>
-    /// Keeps the setup the Other chip shows, exactly as the composer has it, as the first of the user's setups. Setups
-    /// kept for the same project stay, so one project can be kept on several models and checkouts; a place the user
-    /// dismissed comes back.
+    /// Changes a starter from now on (what it starts with, its name or its icon): a learned one is kept so the change
+    /// holds. A name typed in its card goes along, so picking a model mid-rename keeps it. The card follows the starter.
     /// </summary>
+    internal void EditStarter(LaunchpadSetupItem item, LaunchpadSetupSpec changed, string? name = null, string? icon = null)
+    {
+        if (name is null && item.IsKept && ReferenceEquals(Editor.Target, item)
+            && !string.Equals(Editor.Name.Trim(), item.Title, StringComparison.Ordinal))
+        {
+            name = Editor.Name;
+        }
+
+        _editorPin = LaunchpadSetupKeeper.Edit(_dataStore.Data, Row(), item.Pin, changed, name, icon);
+        SaveStarters();
+    }
+
+    /// <summary>Lets a kept starter go; its place comes back as a learned one if the user still starts there.</summary>
+    internal void RemoveStarter(LaunchpadSetupItem item)
+    {
+        Editor.Close();
+        if (item.Pin is { } pin)
+            LaunchpadSetupKeeper.StopKeeping(_dataStore.Data, pin);
+        SaveStarters();
+    }
+
+    /// <summary>Stops suggesting a learned place.</summary>
+    internal void HideStarter(LaunchpadSetupItem item)
+    {
+        Editor.Close();
+        LaunchpadSetupKeeper.Hide(_dataStore.Data, item.Spec);
+        SaveStarters();
+    }
+
+    /// <summary>Keeps the draft's setup, the dashed chip's, as the last of the user's starters.</summary>
     [RelayCommand]
     private void KeepDraft()
     {
-        if (!IsOtherActive
-            || _owner.HasLaunchpadIncompatibleAgent
-            || _owner.GetLaunchpadDraftSetup() is not { } draft
-            || draft is { ProjectId: null, AgentId: null })
-        {
+        if (DraftRecipe() is not { } recipe)
             return;
-        }
 
-        LaunchpadSetupKeeper.Keep(_dataStore.Data, ShownRow(), draft);
-        SaveSetupPins();
+        LaunchpadSetupKeeper.Keep(_dataStore.Data, Row(), recipe);
+        SaveStarters();
     }
 
-    /// <summary>The setups the row shows, as the keeper finds them.</summary>
-    private List<LaunchpadSetupChoice> ShownRow() => Setups.Select(static setup => setup.Choice).ToList();
+    /// <summary>
+    /// The draft as a starter keeps it (<see cref="RecipeOf"/>); null without a draft a starter can keep (a Copilot
+    /// agent's, say).
+    /// </summary>
+    private LaunchpadSetupSpec? DraftRecipe()
+        => _owner.HasLaunchpadIncompatibleAgent || _owner.GetLaunchpadDraftSetup() is not { } draft ? null : RecipeOf(draft);
 
-    private void SaveSetupPins()
+    /// <summary>
+    /// A draft as a starter keeps it: its place, with its model only when the user picked another since the new chat
+    /// opened, else the default model.
+    /// </summary>
+    private LaunchpadSetupSpec RecipeOf(LaunchpadSetupSpec draft)
+        => draft.ModelId is null || string.Equals(draft.ModelId, _defaultModelAtOpen, StringComparison.Ordinal)
+            ? draft.Place
+            : draft;
+
+    /// <summary>Saves the user's starters and rebuilds the row at once, so the card follows the starter it edits.</summary>
+    private void SaveStarters()
     {
         _setupsStale = true;
-        QueueRefresh();
+        if (IsActive)
+            Refresh();
         _ = _dataStore.SaveAsync();
     }
 
@@ -995,27 +1464,71 @@ public sealed partial class LaunchpadViewModel : ObservableObject
 
     private void RefreshSetups(DateTimeOffset now)
     {
-        var projects = _dataStore.Data.Projects.ToDictionary(static project => project.Id);
-        var agents = _dataStore.Data.Agents.ToDictionary(static agent => agent.Id);
-        var models = _owner.AvailableModels.ToList();
-        var modelsKey = string.Join('\n', models);
-        // Picking a model on a new chat also makes it the default, which Just chat follows; the setups keep the default
-        // the launchpad opened with, so trying a model (to keep a setup with it, say) doesn't reshuffle the row.
-        _plainDefaultAtOpen ??= PlainSetup();
-        var choices = BuildSetupChoices(_dataStore, _owner, now, _plainDefaultAtOpen);
-        var items = choices.Select(choice => CreateSetupItem(choice, choices, projects, agents, models)).ToList();
-        if (modelsKey == _setupModelsKey && items.Select(Describe).SequenceEqual(Setups.Select(Describe)))
+        var data = _dataStore.Data;
+        var projects = data.Projects.ToArray().ToDictionary(static project => project.Id);
+        var agents = data.Agents.ToArray().ToDictionary(static agent => agent.Id);
+        var choices = BuildSetupChoices(_dataStore, _owner, now);
+        var items = choices.Select(choice => CreateSetupItem(choice, choices, projects, agents)).ToList();
+        var changed = false;
+        if (items.Select(static item => item.Identity).SequenceEqual(Setups.Select(static item => item.Identity)))
+        {
+            // The same starters in the same order keep their capsules, so nothing under the pointer is replaced.
+            for (var index = 0; index < items.Count; index++)
+            {
+                if (Equals(items[index].Look, Setups[index].Look))
+                    continue;
+
+                Setups[index].Update(items[index]);
+                changed = true;
+            }
+        }
+        else
+        {
+            Setups.Clear();
+            foreach (var item in items)
+                Setups.Add(item);
+            changed = true;
+        }
+
+        RetargetEditor();
+        if (changed)
+            RowChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Keeps the open card on its starter once the row is refreshed: the kept starter it just made or edited, else the
+    /// same one, shown afresh when it changed. It closes once its starter is gone. A new starter's card shows it afresh,
+    /// as a model or a place may have come or gone.
+    /// </summary>
+    private void RetargetEditor()
+    {
+        var pin = _editorPin;
+        _editorPin = null;
+        var focusName = _focusEditorName;
+        _focusEditorName = false;
+        if (Editor.IsNew)
+        {
+            ShowNewStarter();
+            return;
+        }
+
+        if (Editor.Target is not { } target)
             return;
 
-        _setupModelsKey = modelsKey;
-        Setups.Clear();
-        foreach (var item in items)
-            Setups.Add(item);
-        HasSetups = Setups.Count > 0;
+        pin ??= target.Pin;
+        var next = pin is not null
+            ? Setups.FirstOrDefault(setup => ReferenceEquals(setup.Pin, pin))
+            : Setups.FirstOrDefault(setup => !setup.IsKept && setup.Spec == target.Spec);
+        if (next is null)
+        {
+            Editor.Close();
+            return;
+        }
 
-        // The kept setup is compared by reference: the menu edits that very one.
-        static (LaunchpadSetupSpec, string, string, string, bool, LaunchpadSetupPin?, bool) Describe(LaunchpadSetupItem item)
-            => (item.Spec, item.Title, item.Meta, item.Detail, item.IsVariant, item.Pin, item.CanUseWorktree);
+        if (!ReferenceEquals(next, target) || !Equals(next.Look, _editorLook))
+            ShowEditor(next);
+        if (focusName)
+            Editor.RequestNameFocus();
     }
 
     /// <summary>What a new chat would run today for a chat's last model and effort: nothing unavailable or unsupported.</summary>
@@ -1038,124 +1551,105 @@ public sealed partial class LaunchpadViewModel : ObservableObject
 
     private LaunchpadSetupSpec PlainSetup() => PlainSetup(_dataStore, CreateModelResolver(_owner));
 
-    /// <summary>What Just chat starts with: no project, no agent, and the user's default model.</summary>
+    /// <summary>What a plain chat starts with: no project, no agent, and the user's default model.</summary>
     internal static LaunchpadSetupSpec PlainSetupFor(DataStore dataStore, ChatViewModel owner)
         => PlainSetup(dataStore, CreateModelResolver(owner));
+
+    /// <summary>What a starter starts the draft with: the default model, and its effort, for one on the default model.</summary>
+    internal static LaunchpadSetupSpec Resolve(LaunchpadSetupSpec spec, LaunchpadSetupSpec plain)
+        => spec.ModelId is null ? spec with { ModelId = plain.ModelId, Effort = plain.Effort } : spec;
+
+    private LaunchpadSetupSpec Resolve(LaunchpadSetupSpec spec) => spec.ModelId is null ? Resolve(spec, PlainSetup()) : spec;
 
     private static HashSet<Guid> AutomationChatIds(DataStore dataStore) => dataStore.SnapshotBackgroundJobs()
         .Where(static job => job.IsEnabled).Select(static job => job.ChatId).ToHashSet();
 
     /// <summary>
-    /// The setups the new chat offers, the phone's included: every one the user kept, in their order (one project on
-    /// several models included), then the ones they keep starting with, leaving out places they asked not to see.
-    /// <paramref name="plainDefault"/> is what Just chat starts with (the user's default model unless given), which no
-    /// learned setup repeats.
+    /// The starters the new chat offers, the phone's included: every one the user kept, in their order, then the places
+    /// they keep starting in, leaving out places they asked not to see and those a kept starter is exactly. A kept
+    /// starter whose model this computer no longer offers starts with the default model, and says so in its card.
     /// </summary>
-    internal static List<LaunchpadSetupChoice> BuildSetupChoices(
-        DataStore dataStore,
-        ChatViewModel owner,
-        DateTimeOffset now,
-        LaunchpadSetupSpec? plainDefault = null)
+    internal static List<LaunchpadSetupChoice> BuildSetupChoices(DataStore dataStore, ChatViewModel owner, DateTimeOffset now)
     {
         var data = dataStore.Data;
-        var automationChatIds = dataStore.SnapshotBackgroundJobs()
-            .Where(static job => job.IsEnabled).Select(static job => job.ChatId).ToHashSet();
-        var projects = data.Projects.ToDictionary(static project => project.Id);
-        var agents = data.Agents.ToDictionary(static agent => agent.Id);
+        var projects = data.Projects.ToArray().ToDictionary(static project => project.Id);
+        var agents = data.Agents.ToArray().ToDictionary(static agent => agent.Id);
         var resolveModel = CreateModelResolver(owner);
         var kept = data.PinnedSetups.ToArray()
             .Where(pin => (pin.ProjectId is not { } projectId || projects.ContainsKey(projectId))
                           && (pin.AgentId is not { } agentId || agents.ContainsKey(agentId)))
-            .Select(pin =>
-            {
-                var (model, effort) = resolveModel(pin.ModelId, pin.Effort);
-                return (Pin: pin, Spec: new LaunchpadSetupSpec(
-                    pin.ProjectId, pin.AgentId, pin.UseWorktree && pin.ProjectId is not null, model, effort));
-            })
-            .Where(static entry => !entry.Spec.IsEmpty)
+            .Select(Kept)
             .ToList();
-        var pinned = kept.Select(static entry => entry.Spec).ToList();
         var hidden = data.HiddenSetups.ToArray().Select(static pin => (pin.ProjectId, pin.AgentId, pin.UseWorktree)).ToList();
         var learned = LaunchpadPlanner.SelectSetups(
-            data.Chats,
-            automationChatIds,
+            data.Chats.ToArray(),
+            AutomationChatIds(dataStore),
             now,
             projects.ContainsKey,
             agents.ContainsKey,
-            resolveModel,
-            plainDefault: plainDefault ?? PlainSetup(dataStore, resolveModel),
-            LaunchpadPlanner.MaxSetups + pinned.Count + hidden.Count);
+            LaunchpadPlanner.MaxLearnedSetups + kept.Count + hidden.Count);
 
-        return LaunchpadPlanner.MergeSetups(pinned, learned, hidden, LaunchpadPlanner.MaxSetups)
-            .Select(entry => DescribeSetup(entry.Spec, projects, agents) with
+        return LaunchpadPlanner.MergeSetups(kept.Select(static entry => entry.Spec).ToList(), learned, hidden,
+                LaunchpadPlanner.MaxLearnedSetups)
+            .Select(entry =>
             {
-                Pin = entry.PinIndex >= 0 ? kept[entry.PinIndex].Pin : null,
+                var pin = entry.PinIndex >= 0 ? kept[entry.PinIndex].Pin : null;
+                return DescribeSetup(entry.Spec, projects, agents, pin?.Name) with
+                {
+                    Pin = pin,
+                    Uses = entry.Uses,
+                    RetiredModelId = entry.PinIndex >= 0 ? kept[entry.PinIndex].Retired : null,
+                };
             })
             .ToList();
+
+        // A kept starter on a model this computer no longer offers starts with the default model.
+        (LaunchpadSetupPin Pin, LaunchpadSetupSpec Spec, string? Retired) Kept(LaunchpadSetupPin pin)
+        {
+            var place = new LaunchpadSetupSpec(pin.ProjectId, pin.AgentId, pin.UseWorktree && pin.ProjectId is not null, null, null);
+            if (pin.ModelId is null)
+                return (pin, place, null);
+
+            var (model, effort) = resolveModel(pin.ModelId, pin.Effort);
+            return model is null ? (pin, place, pin.ModelId) : (pin, place with { ModelId = model, Effort = effort }, null);
+        }
     }
 
-    private static LaunchpadSetupChoice DescribeSetup(
+    /// <summary>A place's name: its project's, else its agent's, else Just chat.</summary>
+    internal static string PlaceTitle(Project? project, LumiAgent? agent) => project?.Name ?? agent?.Name ?? Loc.Launchpad_JustChat;
+
+    /// <summary>A starter in words: its name (the given one, else its place's) and everything it starts with.</summary>
+    internal static LaunchpadSetupChoice DescribeSetup(
         LaunchpadSetupSpec spec,
         IReadOnlyDictionary<Guid, Project> projects,
-        IReadOnlyDictionary<Guid, LumiAgent> agents)
+        IReadOnlyDictionary<Guid, LumiAgent> agents,
+        string? name = null)
     {
-        var project = spec.ProjectId is { } projectId && projects.TryGetValue(projectId, out var p) ? p : null;
-        var agent = spec.AgentId is { } agentId && agents.TryGetValue(agentId, out var a) ? a : null;
-        var model = ChatViewModel.FormatModelDisplay(spec.ModelId);
-
-        string title;
-        var meta = new List<string>(4);
-        if (project is not null)
-        {
-            title = project.Name;
-            if (agent is not null)
-                meta.Add(agent.Name);
-        }
-        else if (agent is not null)
-        {
-            title = agent.Name;
-        }
-        else
-        {
-            title = model ?? Loc.Launchpad_SetupNoProject;
-        }
-
+        var project = spec.ProjectId is { } projectId ? projects.GetValueOrDefault(projectId) : null;
+        var agent = spec.AgentId is { } agentId ? agents.GetValueOrDefault(agentId) : null;
+        var place = PlaceTitle(project, agent);
+        var meta = new List<string>(5) { place };
+        if (project is not null && agent is not null)
+            meta.Add(agent.Name);
         if (spec.UseWorktree)
             meta.Add(Loc.Git_Worktree);
-        if (model is not null && !string.Equals(model, title, StringComparison.Ordinal))
-            meta.Add(model);
+        meta.Add(ChatViewModel.FormatModelDisplay(spec.ModelId) ?? Loc.Launchpad_StarterDefaultModel);
         if (spec.Effort is { } effort)
             meta.Add(ModelSelectionHelper.EffortToDisplay(effort));
-        if (project is null)
-            meta.Add(Loc.Launchpad_SetupNoProject);
-
-        return new LaunchpadSetupChoice(spec, title, string.Join(" · ", meta));
+        return new LaunchpadSetupChoice(spec, string.IsNullOrWhiteSpace(name) ? place : name, place, string.Join(" · ", meta));
     }
 
     private LaunchpadSetupItem CreateSetupItem(
         LaunchpadSetupChoice choice,
         IReadOnlyList<LaunchpadSetupChoice> row,
         IReadOnlyDictionary<Guid, Project> projects,
-        IReadOnlyDictionary<Guid, LumiAgent> agents,
-        IReadOnlyList<string> models)
+        IReadOnlyDictionary<Guid, LumiAgent> agents)
     {
-        var spec = choice.Spec;
-        var project = spec.ProjectId is { } projectId ? projects.GetValueOrDefault(projectId) : null;
-        var agent = spec.AgentId is { } agentId ? agents.GetValueOrDefault(agentId) : null;
-        var badge = project is null ? null : LaunchpadProjectBadge.For(project);
-        var glyph = project is null && !string.IsNullOrWhiteSpace(agent?.IconGlyph) ? agent.IconGlyph : null;
-        var icon = project is not null || glyph is not null
-            ? null
-            : agent is not null ? WorkspaceIcons.Agents : WorkspaceIcons.Sparkle;
-        var (detail, isVariant) = DescribeDetail(choice, row, projects, agents);
-        var canUseWorktree = CanUseWorktree(project);
-        LaunchpadSetupItem? item = null;
-        var modelChoices = models
-            .Select(id => new LaunchpadModelChoice(id, ChatViewModel.FormatModelDisplay(id) ?? id,
-                string.Equals(id, spec.ModelId, StringComparison.Ordinal), () => SetSetupModel(item!, id)))
-            .ToList();
-        item = new LaunchpadSetupItem(choice, detail, isVariant, badge, icon, glyph, canUseWorktree, modelChoices, _setupActions);
-        return item;
+        var project = choice.Spec.ProjectId is { } projectId ? projects.GetValueOrDefault(projectId) : null;
+        var agent = choice.Spec.AgentId is { } agentId ? agents.GetValueOrDefault(agentId) : null;
+        var (tellsWorktree, tellText) = DescribeTell(choice, row, agents);
+        return new LaunchpadSetupItem(choice, LaunchpadBadge.For(project, agent, choice.Icon), tellsWorktree, tellText,
+            CanUseWorktree(project), SelectSetup, OpenEditor);
     }
 
     /// <summary>A project whose folder is a git repository can start in a worktree.</summary>
@@ -1163,104 +1657,134 @@ public sealed partial class LaunchpadViewModel : ObservableObject
         => project is { WorkingDirectory: { Length: > 0 } directory } && GitService.IsGitRepo(directory);
 
     /// <summary>
-    /// What a setup's capsule says beside its name: the agent working in the project, or the model; the rest is in the
-    /// tooltip. A variant (another setup in the row has its name) says all that tells it apart, so Lumi on two models, or
-    /// in a worktree and in its folder, reads as two setups.
+    /// What tells a starter from others of its name on the row (Lumi in a worktree and in its folder, say): ⑂ when it
+    /// starts in a worktree and another doesn't, and its agent, model or effort where another's differs. Nothing while no
+    /// other starter shares its name.
     /// </summary>
-    internal static (string Detail, bool IsVariant) DescribeDetail(
+    internal static (bool Worktree, string Text) DescribeTell(
         LaunchpadSetupChoice choice,
         IReadOnlyList<LaunchpadSetupChoice> row,
-        IReadOnlyDictionary<Guid, Project> projects,
         IReadOnlyDictionary<Guid, LumiAgent> agents)
     {
         var spec = choice.Spec;
-        var project = spec.ProjectId is { } projectId ? projects.GetValueOrDefault(projectId) : null;
-        var agent = spec.AgentId is { } agentId ? agents.GetValueOrDefault(agentId) : null;
-        var model = ChatViewModel.FormatModelDisplay(spec.ModelId);
-        var modelDetail = model is not null && !string.Equals(model, choice.Title, StringComparison.Ordinal) ? model : null;
         var siblings = row.Where(other => !ReferenceEquals(other, choice)
-                                          && string.Equals(other.Title, choice.Title, StringComparison.Ordinal)).ToList();
+                                          && string.Equals(other.Title, choice.Title, StringComparison.CurrentCultureIgnoreCase))
+            .ToList();
         if (siblings.Count == 0)
+            return (false, "");
+
+        var parts = new List<string>(3);
+        if (spec.AgentId is { } agentId && siblings.Any(other => other.Spec.AgentId != agentId)
+            && agents.TryGetValue(agentId, out var agent))
         {
-            var detail = project is not null && agent is not null
-                ? agent.Name
-                : modelDetail ?? (project is null && agent is null ? Loc.Launchpad_SetupNoProject : "");
-            return (detail, false);
+            parts.Add(agent.Name);
         }
 
-        var parts = new List<string>(4);
-        if (project is not null && agent is not null)
-            parts.Add(agent.Name);
-        if (spec.UseWorktree && siblings.Any(other => !other.Spec.UseWorktree))
-            parts.Add(Loc.Git_Worktree);
-        if (modelDetail is not null)
-            parts.Add(modelDetail);
-        var onlyEffortDiffers = siblings.Any(other => other.Spec with { Effort = spec.Effort } == spec);
-        if ((onlyEffortDiffers || parts.Count == 0) && spec.Effort is { } effort)
+        if (spec.ModelId is { } model && siblings.Any(other => !string.Equals(other.Spec.ModelId, model, StringComparison.Ordinal)))
+            parts.Add(ChatViewModel.FormatModelDisplay(model) ?? model);
+        if (spec.Effort is { } effort && siblings.Any(other => other.Spec with { Effort = effort } == spec))
             parts.Add(ModelSelectionHelper.EffortToDisplay(effort));
-        return (string.Join(" · ", parts), true);
+        return (spec.UseWorktree && siblings.Any(other => !other.Spec.UseWorktree), string.Join(" · ", parts));
     }
 
+    /// <summary>
+    /// Lights the draft's starter: the most specific one that fits it (a chosen model over the default one). Without one,
+    /// the row shows where the draft starts, which its pin keeps.
+    /// </summary>
     private void RefreshSetupActivity()
     {
         var draft = _owner.HasLaunchpadIncompatibleAgent ? null : _owner.GetLaunchpadDraftSetup();
         var canUndo = _owner.IsLaunchpadSetupApplied;
-        // One setup is the chat's: the one it is exactly, else one that leaves the model or effort to the chat.
-        var active = draft is null
-            ? null
-            : Setups.FirstOrDefault(setup => setup.Spec == draft) ?? Setups.FirstOrDefault(setup => Matches(setup.Spec, draft));
-        foreach (var setup in Setups)
+        var lit = LaunchpadPlanner.IndexOfMatch(Setups.Select(static setup => setup.Spec).ToList(), draft);
+        for (var index = 0; index < Setups.Count; index++)
         {
-            setup.IsActive = ReferenceEquals(setup, active);
-            setup.CanUndo = canUndo;
+            Setups[index].IsActive = index == lit;
+            Setups[index].CanUndo = canUndo;
         }
 
-        ActiveSetup = active;
-        // Just chat is the plain draft no setup claims: a setup on another model, without project or agent, is that setup.
-        IsJustChatActive = active is null && draft is { ProjectId: null, AgentId: null };
-        JustChatMeta = ChatViewModel.FormatModelDisplay(IsJustChatActive ? draft!.ModelId : PlainSetup().ModelId) ?? "";
+        ActiveSetup = lit >= 0 ? Setups[lit] : null;
+        IsOverflowActive = ActiveSetup is { IsInRow: false };
+        HasUnsavedDraft = draft is not null && lit < 0;
+        if (draft is null || DraftRecipe() is not { } recipe)
+        {
+            DraftPlace = null;
+            KeepDraftTooltip = "";
+            return;
+        }
 
-        IsOtherActive = draft is not null && !IsJustChatActive && active is null;
-        var project = IsOtherActive ? _owner.LaunchpadProject : null;
-        var agent = IsOtherActive ? _owner.ActiveAgent : null;
-        OtherTitle = project?.Name ?? agent?.Name ?? Loc.Launchpad_Other;
-        OtherMeta = IsOtherActive ? ChatViewModel.FormatModelDisplay(draft!.ModelId) ?? "" : "";
-        KeepDraftTooltip = IsOtherActive ? string.Format(Loc.Culture, Loc.Launchpad_KeepSetupTooltip, DescribeDraft(draft!)) : "";
-        if (project is null)
-            OtherBadge = null;
-        else if (OtherBadge is not { } badge || badge.ProjectId != project.Id || badge.Initial != LaunchpadProjectBadge.InitialOf(project.Name))
-            OtherBadge = LaunchpadProjectBadge.For(project);
-        OtherGlyph = project is null ? agent?.IconGlyph : null;
+        var data = _dataStore.Data;
+        var projects = data.Projects.ToArray().ToDictionary(static project => project.Id);
+        var agents = data.Agents.ToArray().ToDictionary(static agent => agent.Id);
+        var place = DescribeSetup(draft.Place, projects, agents);
+        if (DraftPlace is not { } shown || shown.Choice != place)
+        {
+            var project = draft.ProjectId is { } projectId ? projects.GetValueOrDefault(projectId) : null;
+            var agent = draft.AgentId is { } agentId ? agents.GetValueOrDefault(agentId) : null;
+            DraftPlace = new LaunchpadSetupItem(place, LaunchpadBadge.For(project, agent), false, "", false,
+                _ => _owner.RequestComposerFocus(), _ => { });
+        }
+
+        KeepDraftTooltip = string.Format(Loc.Culture, Loc.Launchpad_KeepSetupTooltip, DescribeSetup(recipe, projects, agents).Meta);
     }
 
-    private static bool Matches(LaunchpadSetupSpec setup, LaunchpadSetupSpec draft)
-        => setup.ProjectId == draft.ProjectId
-           && setup.AgentId == draft.AgentId
-           && setup.UseWorktree == draft.UseWorktree
-           && (setup.ModelId is null || string.Equals(setup.ModelId, draft.ModelId, StringComparison.Ordinal))
-           && (setup.Effort is null || string.Equals(setup.Effort, draft.Effort, StringComparison.Ordinal));
-
-    /// <summary>A draft in a setup's words: "Lumi · Worktree · Claude Opus 5.5 · High".</summary>
-    private string DescribeDraft(LaunchpadSetupSpec draft)
+    /// <summary>
+    /// Shows on the row the starters the view found room for (<see cref="LaunchpadPlanner.FitRow"/>) and gathers the rest
+    /// into its stack; a divider sets the learned starters the row shows apart from the kept ones before them.
+    /// </summary>
+    internal void ApplyRowFit(IReadOnlyList<bool> shown)
     {
-        var data = _dataStore.Data;
-        var choice = DescribeSetup(
-            draft,
-            data.Projects.ToArray().ToDictionary(static project => project.Id),
-            data.Agents.ToArray().ToDictionary(static agent => agent.Id));
-        return choice.Meta.Length > 0 ? $"{choice.Title} · {choice.Meta}" : choice.Title;
+        if (shown.Count != Setups.Count)
+            return;
+
+        var keptShown = false;
+        var dividerPlaced = false;
+        var overflow = 0;
+        var preview = new List<LaunchpadBadge>(3);
+        for (var index = 0; index < Setups.Count; index++)
+        {
+            var setup = Setups[index];
+            setup.IsInRow = shown[index];
+            var divider = shown[index] && !setup.IsKept && keptShown && !dividerPlaced;
+            setup.HasDividerBefore = divider;
+            dividerPlaced |= divider;
+            keptShown |= shown[index] && setup.IsKept;
+            if (shown[index])
+                continue;
+
+            overflow++;
+            if (preview.Count < 3)
+                preview.Add(setup.Badge);
+        }
+
+        OverflowCount = overflow;
+        if (!preview.Select(static badge => badge.Look).SequenceEqual(OverflowPreview.Select(static badge => badge.Look)))
+            OverflowPreview = preview;
+        IsOverflowActive = Setups.Any(static setup => setup.IsActive && !setup.IsInRow);
+    }
+
+    /// <summary>Fills the stack's shelf as it opens: the starters the row has no room for, in order, then the new starter "+".</summary>
+    internal void OpenShelf()
+    {
+        ShelfItems.Clear();
+        foreach (var setup in Setups)
+        {
+            if (!setup.IsInRow)
+                ShelfItems.Add(setup);
+        }
+
+        ShelfItems.Add(LaunchpadNewStarterTile.Instance);
     }
 
     private async void SelectSetup(LaunchpadSetupItem setup)
     {
         try
         {
-            await _owner.ToggleLaunchpadSetupAsync(setup.Spec, setup.IsActive);
+            await _owner.ToggleLaunchpadSetupAsync(Resolve(setup.Spec), setup.IsActive);
         }
         catch (Exception ex)
         {
             // Applying reads git state for the worktree toggle; a failure leaves the draft as far as it got.
-            System.Diagnostics.Trace.TraceWarning($"[Launchpad] Applying a setup failed: {ex}");
+            System.Diagnostics.Trace.TraceWarning($"[Launchpad] Applying a starter failed: {ex}");
         }
     }
 
@@ -1318,7 +1842,6 @@ public sealed partial class LaunchpadViewModel : ObservableObject
                 break;
             case nameof(ChatViewModel.ModelCatalogVersion):
                 _setupsStale = true;
-                _plainDefaultAtOpen = null;
                 QueueRefresh();
                 break;
         }
@@ -1327,7 +1850,6 @@ public sealed partial class LaunchpadViewModel : ObservableObject
     private void OnAvailableModelsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         _setupsStale = true;
-        _plainDefaultAtOpen = null;
         QueueRefresh();
     }
 

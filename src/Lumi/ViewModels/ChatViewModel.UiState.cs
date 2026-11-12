@@ -561,6 +561,16 @@ public partial class ChatViewModel
     internal string ResolveModelQualitySelection(string model, string? quality)
         => CopilotModelCatalog.ResolveAutoTierQuality(model, quality, _modelOptionMetadata.Keys) ?? model;
 
+    /// <summary>
+    /// The model and effort a quality label picks for <paramref name="model"/>, as the composer's quality control applies
+    /// it: a Copilot Fusion tier is a model of its own (with no effort), anything else keeps the model at that effort.
+    /// </summary>
+    internal (string Model, string? Effort) ResolveModelQuality(string model, string quality)
+    {
+        var selection = ResolveModelQualitySelection(model, quality);
+        return (selection, ResolveReasoningEffortForModel(ModelSelectionHelper.DisplayToEffort(quality), selection));
+    }
+
     public string[]? GetContextWindowTiersFor(string? modelId) =>
         ModelSelectionHelper.GetContextWindowTiers(modelId, _modelsWithLongContext);
 

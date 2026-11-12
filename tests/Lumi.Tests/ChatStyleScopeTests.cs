@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
@@ -53,113 +54,287 @@ public sealed class ChatStyleScopeTests
     });
 
     [Fact]
-    public Task SetupCapsulesOnTheComposerKeepTheirStyles_AndTheChatsSetupOpensToSayWhatItStartsWith() => WithWindow((window, chat) =>
+    public Task TheStartersRowKeepsItsStyles_NeverOutgrowsTheComposer_AndGathersTheRestIntoItsShelf() => WithWindow((window, chat) =>
     {
         var model = Assert.IsType<ChatViewModel>(chat.DataContext);
-        // Hold the launchpad still, so these capsules stay the ones on screen.
-        model.Launchpad.Deactivate();
-        model.Launchpad.Setups.Clear();
-        var setup = NewSetup(_ => { });
-        model.Launchpad.Setups.Add(setup);
-        model.Launchpad.HasSetups = true;
-        Pump(window);
-
+        var launchpad = model.Launchpad;
+        var setups = chat.FindControl<StackPanel>("LaunchpadSetups")!;
+        var row = chat.FindControl<StackPanel>("LaunchpadSetupRow")!;
         var tiles = chat.FindControl<ItemsControl>("LaunchpadSetupTiles")!;
-        var capsule = tiles.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains("launchpad-setup"));
-        var title = tiles.GetVisualDescendants().OfType<TextBlock>()
-            .Single(control => control.Classes.Contains("launchpad-setup-title"));
-        var meta = tiles.GetVisualDescendants().OfType<TextBlock>()
-            .Single(control => control.Classes.Contains("launchpad-setup-meta"));
-        var detail = tiles.GetVisualDescendants().OfType<Border>()
-            .Single(control => control.Classes.Contains("launchpad-setup-detail"));
-        var icon = tiles.GetVisualDescendants().OfType<PathIcon>()
-            .Single(control => control.Classes.Contains("launchpad-setup-glyph") && control.IsVisible);
-        Assert.Equal(new CornerRadius(19), capsule.CornerRadius);
-        Assert.Equal(38, capsule.Height);
+        // Kept starters first, in the user's order, then the places Lumi learned, Just chat among them.
+        Assert.Equal(["UI dev", "Lumi"], launchpad.Setups.Where(setup => setup.IsKept).Select(setup => setup.Title));
+        Assert.Contains(launchpad.Setups, setup => setup.IsJustChat);
+
+        var uiDev = Capsule(tiles, launchpad.Setups[0]);
+        Assert.Equal(new CornerRadius(19), uiDev.CornerRadius);
+        Assert.Equal(38, uiDev.Height);
+        var title = uiDev.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Classes.Contains("launchpad-setup-title"));
+        Assert.Equal("UI dev", title.Text);
         Assert.Equal(13, title.FontSize);
         Assert.Equal(FontWeight.SemiBold, title.FontWeight);
-        Assert.Equal(12, meta.FontSize);
-        Assert.Equal("GPT 6 Luna", meta.Text);
-        Assert.Equal(14, icon.Width);
+        // The icon its user gave it is drawn as Strata's line icons are.
+        Assert.True(uiDev.GetVisualDescendants().OfType<StrataLineIcon>()
+            .Single(icon => icon.Classes.Contains("launchpad-badge-line")).IsEffectivelyVisible);
 
-        // Only the chat's setup says what it starts with, in the accent; the others are their names, so the row stays light.
-        Assert.Equal(0d, detail.GetBaseValue(Layoutable.MaxWidthProperty).Value);
-        setup.IsActive = true;
+        // The kept Lumi starts in a worktree and the Lumi Lumi learned doesn't: a branch on its badge, and ⑂ after its name.
+        var keptLumi = Capsule(tiles, launchpad.Setups[1]);
+        Assert.True(keptLumi.GetVisualDescendants().OfType<Border>()
+            .Single(branch => branch.Classes.Contains("launchpad-setup-branch")).IsEffectivelyVisible);
+        Assert.True(keptLumi.GetVisualDescendants().OfType<StrataLineIcon>()
+            .Single(icon => icon.Classes.Contains("launchpad-setup-tell-branch")).IsEffectivelyVisible);
+        // The draft starts in Lumi's folder: the place Lumi learned there is lit, on the row beside the kept starters.
+        var learnedLumi = launchpad.Setups.Single(setup => setup is { IsKept: false, Title: "Lumi" });
+        model.SetProjectId(learnedLumi.Spec.ProjectId!.Value);
         Pump(window);
-        Assert.True(detail.GetBaseValue(Layoutable.MaxWidthProperty).Value > 100);
-        Assert.Equal(1d, detail.GetBaseValue(Visual.OpacityProperty).Value);
-        AssertBrush(chat, "Brush.AccentDefault", meta.Foreground);
-        setup.IsActive = false;
-        Pump(window);
-        Assert.Equal(0d, detail.GetBaseValue(Layoutable.MaxWidthProperty).Value);
+        Assert.Same(learnedLumi, launchpad.ActiveSetup);
+        Assert.True(learnedLumi.IsInRow);
+        Assert.True(learnedLumi.HasDividerBefore, "A hairline sets the learned starters apart from the kept ones");
+        Assert.Single(launchpad.Setups, setup => setup.HasDividerBefore);
+        Assert.False(Capsule(tiles, learnedLumi).GetVisualDescendants().OfType<StrataLineIcon>()
+            .Single(icon => icon.Classes.Contains("launchpad-setup-tell-branch")).IsVisible);
 
-        // A variant (one project kept on two models) always says what it starts with, quietly until it's the chat's.
-        var variant = NewSetup(_ => { }, title: "Lumi", detail: "Claude Opus 5.5", isVariant: true);
-        model.Launchpad.Setups.Add(variant);
+        // A starter's ⋯ shows on hover above its corner, whole: the row's clip leaves it room, and nothing between it and
+        // that clip cuts it (an items control clips by default).
+        window.MouseMove(Center(window, uiDev));
         Pump(window);
-        var variantCapsule = tiles.GetVisualDescendants().OfType<Button>()
-            .Single(button => button.Classes.Contains("launchpad-setup") && button.DataContext == variant);
-        var variantDetail = variantCapsule.GetVisualDescendants().OfType<Border>()
-            .Single(control => control.Classes.Contains("launchpad-setup-detail"));
-        var variantMeta = variantDetail.GetVisualDescendants().OfType<TextBlock>().Single();
-        Assert.Contains("variant", variantCapsule.Classes);
-        Assert.True(variantDetail.GetBaseValue(Layoutable.MaxWidthProperty).Value > 100);
-        AssertBrush(chat, "Brush.TextTertiary", variantMeta.Foreground);
-
-        // Keep stays closed (no room, no focus) until Other shows a setup the row doesn't hold.
-        var keep = chat.FindControl<Button>("LaunchpadKeepSetupButton")!;
-        Assert.Equal(0d, keep.GetBaseValue(Layoutable.MaxWidthProperty).Value);
-        Assert.False(keep.Focusable);
-        var row = chat.FindControl<Control>("LaunchpadSetupRow")!;
-        Assert.Equal(HorizontalAlignment.Center, row.HorizontalAlignment);
-
-        // A setup's ⋯ shows on hover above its corner, whole: nothing between it and the rail's room clips it.
-        window.MouseMove(Center(capsule));
-        Pump(window);
-        var more = capsule.GetVisualParent()!.GetVisualChildren().OfType<Button>()
-            .Single(button => button.Classes.Contains("launchpad-setup-more"));
+        var more = MoreOf(uiDev);
         Assert.True(more.IsEffectivelyVisible);
-        var scroller = chat.FindControl<ScrollViewer>("LaunchpadSetupScroller")!;
-        Assert.True(more.TranslatePoint(default, tiles)!.Value.Y >= 0, "The ⋯ rises above the setups' own clip");
-        Assert.True(more.TranslatePoint(default, scroller)!.Value.Y >= 0, "The ⋯ rises above the rail's clip");
+        Assert.True(more.TranslatePoint(default, setups)!.Value.Y >= 0, "The ⋯ rises above the row's clip");
+        Assert.Empty(ClippingBetween(more, setups));
         window.MouseMove(new Point(0, 0));
         Pump(window);
+        Assert.False(more.IsVisible);
 
-        // However many setups the user keeps, the row is never wider than the composer: Just chat and Other hold its
-        // ends and the setups between them scroll, faded where more lie, by the wheel or the arrows.
-        for (var index = 0; index < 6; index++)
-            model.Launchpad.Setups.Add(NewSetup(_ => { }, title: "Lumi", detail: $"A rather long model name {index}", isVariant: true));
-        Pump(window);
-        var composer = chat.FindControl<StackPanel>("ComposerContainer")!;
-        var rail = chat.FindControl<Panel>("LaunchpadSetupRail")!;
-        Assert.True(row.Bounds.Width <= composer.Bounds.Width + 0.5, $"{row.Bounds.Width} > {composer.Bounds.Width}");
-        Assert.True(scroller.Extent.Width > scroller.Viewport.Width + 1);
-        Assert.Contains("can-forward", rail.Classes);
-        Assert.DoesNotContain("can-back", rail.Classes);
-        Assert.NotNull(scroller.OpacityMask);
-        Assert.True(chat.FindControl<Button>("LaunchpadJustChat")!.IsEffectivelyVisible);
-        Assert.True(chat.FindControl<Button>("LaunchpadOtherButton")!.IsEffectivelyVisible);
-        Assert.True(chat.FindControl<Button>("LaunchpadSetupsForward")!.IsVisible);
-        Assert.False(chat.FindControl<Button>("LaunchpadSetupsBack")!.IsVisible);
+        // However many starters there are, the row is never wider than the composer: the rest gather into the stack,
+        // which takes the place of the row's +.
+        Assert.True(launchpad.HasOverflow);
+        Assert.True(row.Bounds.Width <= setups.Bounds.Width + 0.5, $"{row.Bounds.Width} > {setups.Bounds.Width}");
+        var overflowed = launchpad.Setups.Where(setup => !setup.IsInRow).ToList();
+        Assert.Equal(launchpad.OverflowCount, overflowed.Count);
+        Assert.Equal("+" + overflowed.Count, launchpad.OverflowLabel);
+        var stack = chat.FindControl<Button>("LaunchpadStackButton")!;
+        Assert.True(stack.IsEffectivelyVisible);
+        Assert.False(chat.FindControl<Button>("LaunchpadNewStarterButton")!.IsVisible);
+        // Its badges overlap, the last one past the end of their panel, and show whole.
+        var lastBadge = stack.GetVisualDescendants().OfType<Border>().Last(badge => badge.Classes.Contains("launchpad-stack-badge"));
+        Assert.Empty(ClippingBetween(lastBadge, stack));
 
-        window.MouseWheel(Center(rail), new Vector(0, -1));
+        // The stack's shelf unfolds them in order, then +, no wider than the row.
+        var shelf = chat.FindControl<Popup>("LaunchpadShelf")!;
+        var shelfClosed = 0;
+        shelf.Closed += (_, _) => shelfClosed++;
+        stack.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Pump(window);
-        Assert.True(scroller.Offset.X > 0);
-        Assert.Contains("can-back", rail.Classes);
-        Assert.True(chat.FindControl<Button>("LaunchpadSetupsBack")!.IsVisible);
+        try
+        {
+            Assert.True(shelf.IsOpen);
+            Assert.Contains("open", stack.Classes);
+            Assert.Equal(overflowed.Cast<object>().Append(LaunchpadNewStarterTile.Instance), launchpad.ShelfItems);
+            Assert.Equal(setups.Bounds.Width, chat.FindControl<Border>("LaunchpadShelfRoot")!.MaxWidth);
+            Assert.Equal(overflowed.Count + 1, chat.FindControl<ItemsControl>("LaunchpadShelfTiles")!
+                .GetVisualDescendants().OfType<Button>().Count(button => button.Classes.Contains("launchpad-setup")));
+        }
+        finally
+        {
+            // The shelf fades out before it closes.
+            shelf.IsOpen = false;
+            RenderUntil(window, () => shelfClosed > 0);
+        }
 
-        chat.FindControl<Button>("LaunchpadSetupsForward")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-        Pump(window);
-        Assert.True(scroller.Offset.X > scroller.Viewport.Width / 2);
-        chat.FindControl<Button>("LaunchpadSetupsBack")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-        chat.FindControl<Button>("LaunchpadSetupsBack")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-        Pump(window);
-        Assert.Equal(0, scroller.Offset.X);
-        Assert.DoesNotContain("can-back", rail.Classes);
+        Assert.Equal(1, shelfClosed);
+        Assert.DoesNotContain("open", stack.Classes);
 
-        Point Center(Control control) => control.TranslatePoint(
-            new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)!.Value;
+        // A learned starter lit from the stack comes onto the row only in a learned one's place: the kept starters never
+        // leave the row for it, and while it has no room there the stack wears its light.
+        var far = launchpad.Setups.Last(setup => setup is { IsKept: false, IsInRow: false, IsJustChat: false });
+        model.SetProjectId(far.Spec.ProjectId!.Value);
+        Pump(window);
+        Assert.Same(far, launchpad.ActiveSetup);
+        Assert.All(launchpad.Setups.Where(static setup => setup.IsKept), setup => Assert.True(setup.IsInRow));
+        Assert.Equal(!far.IsInRow, stack.Classes.Contains("active"));
+    }, SeedStarters);
+
+    [Fact]
+    public Task AStartersCard_OpensOnARightClickOrItsMore_ForALearnedOrAKeptStarter() => WithWindow((window, chat) =>
+    {
+        var model = Assert.IsType<ChatViewModel>(chat.DataContext);
+        var launchpad = model.Launchpad;
+        var tiles = chat.FindControl<ItemsControl>("LaunchpadSetupTiles")!;
+        var card = Assert.IsAssignableFrom<PopupFlyoutBase>(FlyoutBase.GetAttachedFlyout(chat.FindControl<Control>("LaunchpadSetupRow")!));
+        try
+        {
+            // A learned starter's card offers to keep, rename or stop suggesting it. (Lumi, the first place learned, is on the row.)
+            var learned = launchpad.Setups.Single(setup => setup is { IsKept: false, Title: "Lumi" });
+            model.SetProjectId(learned.Spec.ProjectId!.Value);
+            Pump(window);
+            Assert.True(learned.IsInRow);
+            var point = Center(window, Capsule(tiles, learned));
+            window.MouseDown(point, MouseButton.Right);
+            window.MouseUp(point, MouseButton.Right);
+            Pump(window);
+            Assert.True(card.IsOpen);
+            Assert.Same(learned, launchpad.Editor.Target);
+            Assert.True(chat.FindControl<Button>("LaunchpadStarterKeepButton")!.IsEffectivelyVisible);
+            Assert.True(chat.FindControl<Button>("LaunchpadStarterRenameButton")!.IsEffectivelyVisible);
+            Assert.True(chat.FindControl<Button>("LaunchpadStarterHideButton")!.IsEffectivelyVisible);
+            Assert.False(chat.FindControl<TextBox>("LaunchpadStarterName")!.IsEffectivelyVisible);
+            var cardContent = chat.FindControl<Control>("LaunchpadStarterCard")!;
+            card.Hide();
+            RenderUntil(window, () => TopLevel.GetTopLevel(cardContent) is null);
+            Assert.Null(launchpad.Editor.Target);
+
+            // A kept one's ⋯ opens its card: its name, then what it starts with, the default model first.
+            var uiDev = Capsule(tiles, launchpad.Setups[0]);
+            window.MouseMove(Center(window, uiDev));
+            Pump(window);
+            var moreButton = MoreOf(uiDev);
+            var more = Center(window, moreButton);
+            window.MouseDown(more, MouseButton.Left);
+            window.MouseUp(more, MouseButton.Left);
+            Pump(window);
+            Assert.True(card.IsOpen, $"⋯ visible: {moreButton.IsEffectivelyVisible}, at {more}, bounds {moreButton.Bounds}; "
+                + $"card target: {launchpad.Editor.Target?.Title ?? "none"}; old card attached: {TopLevel.GetTopLevel(cardContent) is not null}");
+            Assert.Same(launchpad.Setups[0], launchpad.Editor.Target);
+            var name = chat.FindControl<TextBox>("LaunchpadStarterName")!;
+            Assert.True(name.IsEffectivelyVisible);
+            Assert.Equal("UI dev", name.Text);
+            Assert.False(chat.FindControl<Button>("LaunchpadStarterKeepButton")!.IsEffectivelyVisible);
+            var models = chat.FindControl<ItemsControl>("LaunchpadStarterModels")!;
+            var defaultModel = Assert.IsType<LaunchpadModelChoice>(models.Items[0]);
+            Assert.Null(defaultModel.ModelId);
+            Assert.Equal(Loc.Launchpad_StarterDefaultModel, defaultModel.Title);
+        }
+        finally
+        {
+            card.Hide();
+            Pump(window);
+        }
+
+        Assert.Null(launchpad.Editor.Target);
+    }, SeedStarters);
+
+    [Fact]
+    public Task TheNewStarterCard_IsTheStartersCard_OpenedFromThePlusAboveTheRowsEnd() => WithWindow((window, chat) =>
+    {
+        var launchpad = Assert.IsType<ChatViewModel>(chat.DataContext).Launchpad;
+        var row = chat.FindControl<StackPanel>("LaunchpadSetupRow")!;
+        var card = Assert.IsAssignableFrom<PopupFlyoutBase>(FlyoutBase.GetAttachedFlyout(row));
+        var plus = chat.FindControl<Button>("LaunchpadNewStarterButton")!;
+        Assert.True(plus.IsEffectivelyVisible);
+        // The window focuses the composer a moment after it opens; that settles before the + is used, as it would for a user.
+        var input = chat.GetVisualDescendants().OfType<TextBox>().First(static box => box.Name == "PART_Input");
+        RenderUntil(window, () => input.IsFocused);
+        try
+        {
+            var point = Center(window, plus);
+            window.MouseDown(point, MouseButton.Left);
+            window.MouseUp(point, MouseButton.Left);
+            Pump(window);
+            Assert.True(card.IsOpen);
+            Assert.True(launchpad.Editor.IsNew);
+
+            // A kept starter's form, its name first, with its place to choose and Add where Remove would be.
+            var name = chat.FindControl<TextBox>("LaunchpadStarterName")!;
+            Assert.True(name.IsEffectivelyVisible);
+            RenderUntil(window, () => name.IsFocused);
+            Assert.True(name.IsFocused);
+            Assert.Equal("", name.Text);
+            Assert.Equal("Just chat", name.PlaceholderText);
+            var place = chat.FindControl<Button>("LaunchpadStarterPlaceButton")!;
+            Assert.True(place.IsEffectivelyVisible);
+            Assert.True(chat.FindControl<Button>("LaunchpadAddStarterButton")!.IsEffectivelyVisible);
+            Assert.True(chat.FindControl<ItemsControl>("LaunchpadStarterModels")!.IsEffectivelyVisible);
+            Assert.False(chat.FindControl<Button>("LaunchpadStarterRemoveButton")!.IsEffectivelyVisible);
+            Assert.False(chat.FindControl<Button>("LaunchpadStarterKeepButton")!.IsEffectivelyVisible);
+
+            // It hangs above the row's end, its rim in line with the +.
+            var content = chat.FindControl<Control>("LaunchpadStarterCard")!;
+            var cardRight = content.PointToScreen(new Point(content.Bounds.Width, 0)).X;
+            var plusRight = plus.PointToScreen(new Point(plus.Bounds.Width, 0)).X;
+            Assert.InRange(cardRight - plusRight, -8, 8);
+
+            // Starts in opens its places in place of the form, the search first; Escape there goes back to the form.
+            place.Command!.Execute(null);
+            Pump(window);
+            var search = chat.FindControl<TextBox>("LaunchpadPlaceSearch")!;
+            Assert.True(search.IsEffectivelyVisible);
+            RenderUntil(window, () => search.IsFocused);
+            Assert.True(search.IsFocused);
+            Assert.False(name.IsEffectivelyVisible);
+            Assert.Equal(["Lumi"], launchpad.Editor.PlaceProjects.Select(static item => item.Title));
+            search.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape, Source = search });
+            Pump(window);
+            Assert.True(card.IsOpen);
+            Assert.False(launchpad.Editor.IsChoosingPlace);
+            Assert.True(name.IsEffectivelyVisible);
+        }
+        finally
+        {
+            card.Hide();
+            Pump(window);
+        }
+
+        Assert.False(launchpad.Editor.IsNew);
+    }, data =>
+    {
+        var lumi = new Project { Name = "Lumi" };
+        data.Projects.Add(lumi);
+        for (var use = 0; use < 3; use++)
+        {
+            data.Chats.Add(new Chat
+            {
+                Title = $"Lumi {use}", ProjectId = lumi.Id, MessageCount = 6,
+                CreatedAt = DateTimeOffset.Now.AddDays(-1 - use), UpdatedAt = DateTimeOffset.Now.AddDays(-1 - use),
+            });
+        }
     });
+
+    /// <summary>
+    /// A profile with more starters than the composer holds: two kept ones (UI dev, on Opus with an icon of its own, and
+    /// Lumi in a worktree), then the places the user started chats in this week.
+    /// </summary>
+    private static void SeedStarters(AppData data)
+    {
+        string[] names = ["Lumi", "Fluent Search", "Research notes", "Trips and travel", "Home automation", "Reading list"];
+        var projects = names.Select(name => new Project { Name = name }).ToList();
+        data.Projects.AddRange(projects);
+        for (var index = 0; index < projects.Count; index++)
+        {
+            for (var use = 0; use < 7 - index; use++)
+            {
+                data.Chats.Add(new Chat
+                {
+                    Title = $"{projects[index].Name} {use}",
+                    ProjectId = projects[index].Id,
+                    MessageCount = 6,
+                    CreatedAt = DateTimeOffset.Now.AddDays(-1 - use),
+                    UpdatedAt = DateTimeOffset.Now.AddDays(-1 - use),
+                });
+            }
+        }
+
+        data.PinnedSetups.Add(new LaunchpadSetupPin
+        {
+            ProjectId = projects[0].Id, UseWorktree = true, ModelId = "claude-opus-5.5", Name = "UI dev", Icon = "layers",
+        });
+        data.PinnedSetups.Add(new LaunchpadSetupPin { ProjectId = projects[0].Id, UseWorktree = true });
+    }
+
+    private static Button Capsule(ItemsControl tiles, LaunchpadSetupItem setup) => tiles.GetVisualDescendants().OfType<Button>()
+        .Single(button => button.Classes.Contains("launchpad-setup") && ReferenceEquals(button.DataContext, setup));
+
+    private static Button MoreOf(Button capsule) => capsule.GetVisualParent()!.GetVisualChildren().OfType<Button>()
+        .Single(button => button.Classes.Contains("launchpad-setup-more"));
+
+    /// <summary>The visuals between <paramref name="control"/> and <paramref name="owner"/> that would cut it at their bounds.</summary>
+    private static List<string> ClippingBetween(Visual control, Visual owner) => control.GetVisualAncestors()
+        .TakeWhile(ancestor => !ReferenceEquals(ancestor, owner))
+        .Where(static ancestor => ancestor.ClipToBounds)
+        .Select(static ancestor => ancestor.GetType().Name + (ancestor is Control { Name: { } name } ? "#" + name : ""))
+        .ToList();
+
+    private static Point Center(Window window, Control control) => control.TranslatePoint(
+        new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)!.Value;
 
     [Fact]
     public Task TheOpenTabsPillPassesBeneathTheOtherTabs_AndSwitchingTabsMovesNothing() => WithWindow((window, chat) =>
@@ -260,62 +435,6 @@ public sealed class ChatStyleScopeTests
         static LaunchpadStarterLabel Label(Control capsule) => capsule.GetVisualDescendants().OfType<LaunchpadStarterLabel>().Single();
     });
 
-    [Fact]
-    public Task ASetupsMenuKeepsItChangesWhatItStartsWithOrStopsSuggestingIt() => WithWindow((window, chat) =>
-    {
-        var model = Assert.IsType<ChatViewModel>(chat.DataContext);
-        var calls = new List<string>();
-        model.Launchpad.Setups.Add(NewSetup(calls.Add));
-        model.Launchpad.HasSetups = true;
-        Pump(window);
-
-        var tile = chat.FindControl<ItemsControl>("LaunchpadSetupTiles")!;
-        var chip = tile.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains("launchpad-setup"));
-        var menu = Assert.IsType<ContextMenu>(chip.ContextMenu);
-        menu.Open(chip);
-        Pump(window);
-        try
-        {
-            var items = menu.Items.OfType<MenuItem>().ToList();
-            Assert.Equal(["Keep on new chats", "Starts with", "Start in a worktree", "Don't suggest this"],
-                items.Select(item => item.Header as string));
-            Assert.All(items, item => Assert.True(item.IsVisible));
-            var models = Assert.IsAssignableFrom<IEnumerable<LaunchpadModelChoice>>(items[1].ItemsSource).ToList();
-            Assert.Equal(["GPT 6 Luna", "GPT 6 Sol"], models.Select(choice => choice.Title));
-            Assert.True(models[0].IsCurrent);
-
-            items[0].Command!.Execute(null);
-            models[1].SelectCommand.Execute(null);
-            items[2].Command!.Execute(null);
-            items[3].Command!.Execute(null);
-            Assert.Equal(["keep", "gpt-6-sol", "worktree:True", "hide"], calls);
-        }
-        finally
-        {
-            menu.Close();
-        }
-    });
-
-    private static LaunchpadSetupItem NewSetup(Action<string> calls, string title = "Daily work", string detail = "GPT 6 Luna",
-        bool isVariant = false)
-    {
-        LaunchpadSetupItem? setup = null;
-        setup = new LaunchpadSetupItem(
-            new LaunchpadSetupChoice(new LaunchpadSetupSpec(null, null, false, "gpt-6-luna", null), title, "Project and agent"),
-            detail, isVariant, null, StrataIcons.Branch, null, canUseWorktree: true,
-            [
-                new LaunchpadModelChoice("gpt-6-luna", "GPT 6 Luna", true, () => setup!.StartWith("gpt-6-luna")),
-                new LaunchpadModelChoice("gpt-6-sol", "GPT 6 Sol", false, () => setup!.StartWith("gpt-6-sol")),
-            ],
-            new LaunchpadSetupActions(
-                _ => calls("select"),
-                _ => calls("keep"),
-                _ => calls("hide"),
-                (_, modelId) => calls(modelId),
-                (_, worktree) => calls($"worktree:{worktree}")));
-        return setup;
-    }
-
     [Theory]
     [InlineData("HeaderGitChangesButton")]
     [InlineData("ComposerGitChangesButton")]
@@ -360,7 +479,7 @@ public sealed class ChatStyleScopeTests
         }
     });
 
-    private static async Task WithWindow(Action<MainWindow, ChatView> check)
+    private static async Task WithWindow(Action<MainWindow, ChatView> check, Action<AppData>? seed = null)
     {
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(() =>
@@ -371,7 +490,9 @@ public sealed class ChatStyleScopeTests
                 IsOnboarded = true, AutoSaveChats = false, EnableMemoryAutoSave = false,
                 EnableDailyBriefs = false, AllowAppSetupSuggestions = false, ShowAnimations = false,
             };
-            using var main = new MainViewModel(new DataStore(new AppData { Settings = settings }),
+            var data = new AppData { Settings = settings };
+            seed?.Invoke(data);
+            using var main = new MainViewModel(new DataStore(data),
                 TestCopilot.Shared, new UpdateService(), startBackgroundJobs: false, initializeCopilotOnStartup: false);
             var window = new MainWindow { DataContext = main, Width = 1100, Height = 820 };
             window.Show();
@@ -389,6 +510,18 @@ public sealed class ChatStyleScopeTests
         Assert.True(control.TryFindResource(key, control.ActualThemeVariant, out var expected));
         Assert.Equal(Assert.IsAssignableFrom<ISolidColorBrush>(expected).Color,
             Assert.IsAssignableFrom<ISolidColorBrush>(actual).Color);
+    }
+
+    /// <summary>Renders frames, so animations (a popup's fade-out, say) run, until <paramref name="done"/> or three seconds.</summary>
+    private static void RenderUntil(Window window, Func<bool> done)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (!done() && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(16);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Pump(window);
+        }
     }
 
     private static void Pump(Window window)

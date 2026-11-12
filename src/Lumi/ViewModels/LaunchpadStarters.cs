@@ -219,7 +219,10 @@ internal static class LaunchpadStarterCatalog
     };
 
     /// <summary>A starter's line icon (<see cref="IconKeyOf"/>).</summary>
-    internal static Geometry IconOf(string? id) => IconKeyOf(id) switch
+    internal static Geometry IconOf(string? id) => IconOfKey(IconKeyOf(id));
+
+    /// <summary>The line icon an icon key names (<see cref="Lumi.Remote.Protocol.RemoteProtocol.LaunchpadIcons"/>).</summary>
+    internal static Geometry IconOfKey(string? key) => key switch
     {
         "bookmark" => StrataIcons.Bookmark,
         "globe" => StrataIcons.Globe,

@@ -278,11 +278,14 @@ internal static class AppDataSnapshotFactory
     private static List<LaunchpadSetupPin> CopySetupPins(List<LaunchpadSetupPin> pins) => pins.ToArray()
         .Select(static pin => new LaunchpadSetupPin
         {
+            Id = pin.Id,
             ProjectId = pin.ProjectId,
             AgentId = pin.AgentId,
             UseWorktree = pin.UseWorktree,
             ModelId = pin.ModelId,
-            Effort = pin.Effort
+            Effort = pin.Effort,
+            Name = pin.Name,
+            Icon = pin.Icon
         })
         .ToList();
 

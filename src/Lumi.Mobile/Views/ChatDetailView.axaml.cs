@@ -14,6 +14,7 @@ using Avalonia.Interactivity;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Lumi.Mobile.Services;
@@ -21,6 +22,7 @@ using Lumi.Mobile.ViewModels;
 using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 using Lumi.Mobile.Behaviors;
 using Lumi.Remote.Protocol;
+using StrataTheme.Animation;
 using StrataTheme.Controls;
 
 namespace Lumi.Mobile.Views;
@@ -99,6 +101,19 @@ public partial class ChatDetailView : UserControl
         // the chat's island, so it glows within the island's curve and never over the canvas.
         if (this.FindControl<Panel>("ChatIslandContent") is { } island)
             _presence = new MobilePresenceController(island);
+
+        // A wider or narrower row (the phone turned, a pane opened) or capsules of another size (the text size) fit the
+        // starters again.
+        if (this.FindControl<Panel>("WelcomeSetupsHost") is { } setupsHost)
+            setupsHost.SizeChanged += OnStarterRowSizeChanged;
+        if (this.FindControl<StackPanel>("WelcomeSetupRow") is { } setupRow)
+            setupRow.SizeChanged += OnStarterRowSizeChanged;
+    }
+
+    private void OnStarterRowSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (Math.Abs(e.NewSize.Width - e.PreviousSize.Width) > 0.5)
+            QueueStarterRowFit();
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -445,19 +460,8 @@ public partial class ChatDetailView : UserControl
             }
 
             UpdateStarterRoom();
-
-            // A wider or narrower row (the phone turned, a pane opened) shows another part of it: the chat's setup
-            // comes back into view.
-            if (this.FindControl<ScrollViewer>("WelcomeSetupsScroll") is { } setupsScroll
-                && setupsScroll.Viewport.Width != _setupsViewportWidth)
-            {
-                _setupsViewportWidth = setupsScroll.Viewport.Width;
-                Dispatcher.UIThread.Post(() => BringActiveSetupIntoView(animate: false), DispatcherPriority.Loaded);
-            }
         }
     }
-
-    private double _setupsViewportWidth;
 
     /// <summary>The space around the greeting and the starters, tighter on a short screen.</summary>
     private static readonly Thickness WelcomeLaunchMargin = new(12, 24);
@@ -573,55 +577,221 @@ public partial class ChatDetailView : UserControl
             composer.BeginFillIn(blanks);
     }
 
-    private HorizontalGlide? _setupRowGlide;
     private HorizontalGlide? _tabsGlide;
 
-    /// <summary>
-    /// Keeps the chat's capsule in sight on the setups row, which scrolls past the screen's edges: Just chat at the
-    /// start, a setup where it is, Other with Keep beside it at the end.
-    /// </summary>
-    private void BringActiveSetupIntoView(bool animate)
+    // The stack's capsule around its badges and count (ChatDetailView.axaml): its host's margins (4 + 4), rim (1 + 1),
+    // padding (6 + 14), the first badge's overlap given back (8) and the count's margin (6); each badge adds 16 once
+    // they overlap.
+    private const double StarterStackChrome = 44;
+    private const double StarterStackBadge = 16;
+
+    private bool _starterFitQueued;
+    private TextBlock? _stackCountMeasure;
+
+    private void QueueStarterRowFit()
     {
-        if (_shell?.ActiveSetupKey is not { } key
-            || this.FindControl<ScrollViewer>("WelcomeSetupsScroll") is not { IsEffectivelyVisible: true } scroller
-            || this.FindControl<StackPanel>("WelcomeSetupRow") is not { } row)
+        if (_starterFitQueued)
+            return;
+
+        _starterFitQueued = true;
+        Dispatcher.UIThread.Post(FitStarterRow, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Shows on the starters row as many starters as fit the composer's width, in order, and the lit one always; the rest
+    /// gather into the stack. Each starter is measured as its capsule would show it, so one in the stack is measured too.
+    /// </summary>
+    private void FitStarterRow()
+    {
+        _starterFitQueued = false;
+        if (_shell is not { ShowsSetupRow: true } shell
+            || this.FindControl<Panel>("WelcomeSetupsHost") is not { Bounds.Width: > 0 } host
+            || this.FindControl<ContentControl>("StarterMeasure") is not { } measure)
         {
             return;
         }
 
-        Control? first;
-        Control? last;
-        switch (key)
+        var setups = shell.StartSetups;
+        var widths = new double[setups.Count];
+        for (var index = 0; index < setups.Count; index++)
         {
-            case MobileShellViewModel.JustChatKey:
-                first = last = this.FindControl<Button>("WelcomeJustChat");
-                break;
-            case MobileShellViewModel.OtherKey:
-                first = this.FindControl<Button>("WelcomeOther");
-                last = this.FindControl<Button>("WelcomeKeep") is { IsVisible: true } keep ? keep : first;
-                break;
-            default:
-                first = last = this.FindControl<ItemsControl>("WelcomeSetups") is { } setups
-                               && _shell.StartSetups.FirstOrDefault(setup => setup.Id == key) is { } active
-                    ? setups.ContainerFromItem(active)
-                    : null;
-                break;
+            // Another content reuses the template's controls, whose measures stay valid: measure them all again.
+            measure.Content = setups[index];
+            LayoutHelper.InvalidateSelfAndChildrenMeasure(measure);
+            measure.Measure(Size.Infinity);
+            widths[index] = measure.DesiredSize.Width;
         }
 
-        if (first?.TranslatePoint(default, row) is not { } start
-            || last?.TranslatePoint(new Point(last.Bounds.Width, 0), row) is not { } end)
+        measure.Content = null;
+        var draft = 0d;
+        if (shell.HasUnsavedDraft && this.FindControl<Control>("WelcomeDraftChip") is { } chip)
+        {
+            LayoutHelper.InvalidateSelfAndChildrenMeasure(chip);
+            chip.Measure(Size.Infinity);
+            draft = chip.DesiredSize.Width;
+        }
+
+        var newStarter = this.FindControl<Button>("WelcomeNewStarter") is { } plus
+            ? plus.Width + plus.Margin.Left + plus.Margin.Right
+            : 0;
+        shell.FitStarterRow(widths, host.Bounds.Width, draft, newStarter, StarterStackWidth(setups.Count));
+    }
+
+    /// <summary>The stack's width at most: three badges and the count of every starter.</summary>
+    private double StarterStackWidth(int count)
+    {
+        var text = this.FindControl<TextBlock>("WelcomeStarterStackCount");
+        var measure = _stackCountMeasure ??= new TextBlock();
+        measure.FontFamily = text?.FontFamily ?? measure.FontFamily;
+        measure.FontSize = text?.FontSize ?? measure.FontSize;
+        measure.FontWeight = text?.FontWeight ?? measure.FontWeight;
+        measure.Text = "+" + count.ToString(System.Globalization.CultureInfo.CurrentCulture);
+        measure.Measure(Size.Infinity);
+        return StarterStackChrome + StarterStackBadge * Math.Min(3, count) + Math.Ceiling(measure.DesiredSize.Width);
+    }
+
+    private bool _starterDialLayoutQueued;
+    private bool _starterDialEntrancePending;
+
+    private void OnStarterDialOpenChanged()
+    {
+        if (_shell?.IsStarterDialOpen == true)
+        {
+            // The column waits, unseen, until it stands above the stack and its starters can rise in.
+            if (this.FindControl<ScrollViewer>("StarterDialScroll") is { } column)
+                column.Opacity = 0;
+            _starterDialEntrancePending = true;
+            QueueStarterDialLayout();
+            return;
+        }
+
+        this.FindControl<Avalonia.Controls.Shapes.Path>("StarterDialScrim")?.Classes.Set("shown", false);
+    }
+
+    private void QueueStarterDialLayout()
+    {
+        if (_starterDialLayoutQueued)
+            return;
+
+        _starterDialLayoutQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _starterDialLayoutQueued = false;
+            LayoutStarterDial();
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Raises the speed dial above the stack: its column ends where the stack ends, the nearest starter just above it,
+    /// scrolling once there are more than the room above the stack holds; the scrim dims everything but the stack, whose
+    /// capsule it rises from.
+    /// </summary>
+    private void LayoutStarterDial()
+    {
+        if (_shell is not { IsStarterDialOpen: true } shell
+            || this.FindControl<Panel>("StarterDialLayer") is not { Bounds.Width: > 0 } layer
+            || this.FindControl<ScrollViewer>("StarterDialScroll") is not { } column
+            || this.FindControl<Avalonia.Controls.Shapes.Path>("StarterDialScrim") is not { } scrim)
         {
             return;
         }
 
-        // The row's own inset is the clearance: a capsule rests where the first one does.
-        var glide = _setupRowGlide ??= new HorizontalGlide(scroller);
-        var clearance = row.Margin.Left;
-        var offset = glide.Destination;
-        if (start.X - clearance < offset)
-            glide.To(start.X - clearance, animate);
-        else if (end.X + clearance > offset + scroller.Viewport.Width)
-            glide.To(end.X + clearance - scroller.Viewport.Width, animate);
+        // Without the stack on screen there is nothing for the starters to rise from.
+        if (this.FindControl<Button>("WelcomeStarterStack") is not { IsEffectivelyVisible: true } stack
+            || stack.TransformToVisual(layer) is not { } stackToLayer)
+        {
+            shell.CloseStarterDialCommand.Execute(null);
+            return;
+        }
+
+        var screen = new Rect(layer.Bounds.Size);
+        var stackBounds = new Rect(stack.Bounds.Size).TransformToAABB(stackToLayer);
+        // The capsule's surface stands 4 dp inside its 48 dp target, as every starter's does.
+        var lit = stackBounds.Deflate(new Thickness(0, 4));
+        scrim.Data = new CombinedGeometry(
+            GeometryCombineMode.Exclude,
+            new RectangleGeometry(screen),
+            new RectangleGeometry(lit, lit.Height / 2, lit.Height / 2));
+
+        var header = this.FindControl<Border>("ChatHeaderSideInset");
+        var top = (header?.TranslatePoint(new Point(0, header.Bounds.Height), layer)?.Y ?? shell.SafeArea.Top) + StarterDialGap;
+        column.MaxWidth = Math.Max(0, screen.Width - 2 * StarterDialEdge);
+        column.MaxHeight = Math.Max(0, stackBounds.Top - StarterDialGap - top);
+        column.Measure(Size.Infinity);
+        var size = column.DesiredSize;
+        // The column's capsules stand in hosts like the stack's, so ending it where the stack's host ends lines them up.
+        var hostMargin = (stack.Parent as Control)?.Margin ?? default;
+        var end = stackBounds.Right + hostMargin.Right - size.Width;
+        Canvas.SetLeft(column, Math.Clamp(end, StarterDialEdge, Math.Max(StarterDialEdge, screen.Width - StarterDialEdge - size.Width)));
+        Canvas.SetTop(column, stackBounds.Top - size.Height);
+        scrim.Classes.Set("shown", true);
+
+        if (!_starterDialEntrancePending)
+            return;
+
+        _starterDialEntrancePending = false;
+        Dispatcher.UIThread.Post(() =>
+        {
+            // The nearest starter sits at the column's foot: it shows first, and the column rises from there.
+            column.Offset = new Vector(0, Math.Max(0, column.Extent.Height - column.Viewport.Height));
+            column.Opacity = 1;
+            if (this.FindControl<ItemsControl>("StarterDialItems") is not { } items)
+                return;
+
+            var delay = 0;
+            foreach (var container in items.GetRealizedContainers())
+            {
+                SlideFadeEntrance.PlayComposited(container, offsetY: 14, duration: TimeSpan.FromMilliseconds(240),
+                    delay: TimeSpan.FromMilliseconds(delay));
+                delay += 28;
+            }
+
+            if (this.FindControl<Control>("StarterDialNewStarter") is { IsVisible: true } newStarter)
+            {
+                SlideFadeEntrance.PlayComposited(newStarter, offsetY: 14, duration: TimeSpan.FromMilliseconds(240),
+                    delay: TimeSpan.FromMilliseconds(delay));
+            }
+        }, DispatcherPriority.Loaded);
+    }
+
+    private const double StarterDialGap = 8;
+    private const double StarterDialEdge = 12;
+
+    private void OnStarterDialLayerSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (_shell?.IsStarterDialOpen == true)
+            QueueStarterDialLayout();
+    }
+
+    /// <summary>A tap anywhere but the speed dial's starters folds it, the stack's own included.</summary>
+    private void OnStarterDialDismissPressed(object? sender, PointerPressedEventArgs e)
+    {
+        e.Handled = true;
+        _shell?.CloseStarterDialCommand.Execute(null);
+    }
+
+    /// <summary>Rename kept the starter: its name, selected, is ready to type over.</summary>
+    private void OnStarterNameFocusRequested()
+        => Dispatcher.UIThread.Post(() =>
+        {
+            if (this.FindControl<TextBox>("LaunchpadStarterName") is not { IsEffectivelyVisible: true } name)
+                return;
+
+            if (NativeTextInputOverlay.TryFocus(name))
+                return;
+
+            name.Focus();
+            name.SelectAll();
+        }, DispatcherPriority.Loaded);
+
+    /// <summary>Done keeps a kept starter's name; a new starter's waits for Add.</summary>
+    private void OnStarterNameKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || _shell is null || _shell.IsSetupSheetNew)
+            return;
+
+        e.Handled = true;
+        _shell.CommitStarterNameCommand.Execute(null);
     }
 
     /// <summary>The open tab glides to the middle of the strip, so the tabs on either side of it show.</summary>
@@ -654,9 +824,6 @@ public partial class ChatDetailView : UserControl
         private TimeSpan? _lastFrame;
 
         public ScrollViewer Scroller => scroller;
-
-        /// <summary>Where the scroller is headed: the end of a glide under way, or where it rests.</summary>
-        public double Destination => _gliding ? _target : scroller.Offset.X;
 
         public void To(double target, bool animate)
         {
@@ -759,6 +926,8 @@ public partial class ChatDetailView : UserControl
             IsNavigationCoveringContent: false,
             IsModalSheetPresented: false,
             IsChatActionsOpen: false,
+            // The speed dial's scrim dims the composer, which a native editor would draw over.
+            IsStarterDialOpen: false,
             HasPageOverlay: false,
             // A native editor draws over everything, so it waits out a preview over the chat and the
             // pane's own movement.
@@ -1026,6 +1195,7 @@ public partial class ChatDetailView : UserControl
         shell.Chat.TranscriptApplied += OnTranscriptApplied;
         shell.Chat.AttachmentPickRequested += OnPickAttachment;
         shell.StarterApplied += OnStarterApplied;
+        shell.StarterNameFocusRequested += OnStarterNameFocusRequested;
         SynchronizeObservers();
         UpdateNativeComposerVisibility();
     }
@@ -1043,6 +1213,7 @@ public partial class ChatDetailView : UserControl
         _shell.Chat.TranscriptApplied -= OnTranscriptApplied;
         _shell.Chat.AttachmentPickRequested -= OnPickAttachment;
         _shell.StarterApplied -= OnStarterApplied;
+        _shell.StarterNameFocusRequested -= OnStarterNameFocusRequested;
         _shell.PropertyChanged -= OnShellPropertyChanged;
 
         ClearObservers();
@@ -1088,12 +1259,24 @@ public partial class ChatDetailView : UserControl
                 StopWelcomeEntrances();
         }
 
-        // The chat's capsule glides into view when it changes, when Keep appears beside Other, and when the PC sends the
-        // row again (keeping or changing a setup can move it).
-        if (e.PropertyName is nameof(MobileShellViewModel.ActiveSetupKey)
-            or nameof(MobileShellViewModel.CanKeepDraft)
-            or nameof(MobileShellViewModel.StartSetups))
-            Dispatcher.UIThread.Post(() => BringActiveSetupIntoView(animate: true), DispatcherPriority.Loaded);
+        // The row fits its starters again when they change, when another is lit (it may take a learned one's place), and
+        // while the draft's dashed chip comes or goes.
+        if (e.PropertyName is nameof(MobileShellViewModel.StartSetups)
+            or nameof(MobileShellViewModel.ActiveStartSetup)
+            or nameof(MobileShellViewModel.HasUnsavedDraft)
+            or nameof(MobileShellViewModel.DraftSetup)
+            or nameof(MobileShellViewModel.HasLaunchpad))
+            QueueStarterRowFit();
+
+        if (e.PropertyName == nameof(MobileShellViewModel.IsStarterDialOpen))
+        {
+            OnStarterDialOpenChanged();
+            UpdateNativeComposerVisibility();
+        }
+        else if (e.PropertyName == nameof(MobileShellViewModel.StarterDialItems) && _shell?.IsStarterDialOpen == true)
+        {
+            QueueStarterDialLayout();
+        }
 
         if (e.PropertyName == nameof(MobileShellViewModel.LaunchpadStarterTexts))
             UpdateStarterRoom();

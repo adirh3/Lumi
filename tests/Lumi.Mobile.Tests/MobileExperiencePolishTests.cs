@@ -1049,12 +1049,11 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Pump(window);
             }
             var sheets = view.GetVisualDescendants().OfType<StrataBottomSheet>().ToArray();
-            Assert.Equal(22, sheets.Length);
+            Assert.Equal(21, sheets.Length);
             Assert.Contains(sheets, sheet => sheet.Name == "MessageEditSheet");
             Assert.Contains(sheets, sheet => sheet.Name == "MessageSelectionSheet");
             Assert.Contains(sheets, sheet => sheet.Name == "NotificationsPromptSheet");
             Assert.Contains(sheets, sheet => sheet.Name == "WebAppInstallSheet");
-            Assert.Contains(sheets, sheet => sheet.Name == "LaunchpadOtherSheet");
             Assert.Contains(sheets, sheet => sheet.Name == "LaunchpadSetupSheet");
             Assert.Contains(sheets, sheet => sheet.Name == "LaunchpadNeedsYouSheet");
             foreach (var sheet in sheets)

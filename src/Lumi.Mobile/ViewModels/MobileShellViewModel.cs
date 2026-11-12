@@ -400,7 +400,7 @@ public sealed partial class MobileShellViewModel :
                 or nameof(MobileChatViewModel.ChatId)
                 or nameof(MobileChatViewModel.PromptText))
                 SendFromNotificationWhenReady();
-            // The names follow their ids (a project picked in the composer gets its name second), and Other shows them.
+            // The names follow their ids (a project picked in the composer gets its name second), and the draft's chip shows them.
             if (e.PropertyName is nameof(MobileChatViewModel.ProjectValue)
                 or nameof(MobileChatViewModel.ProjectName)
                 or nameof(MobileChatViewModel.AgentValue)
@@ -1361,7 +1361,7 @@ public sealed partial class MobileShellViewModel :
         !IsWebAppInstallPromptOpen &&
         !IsChatActionsOpen &&
         !IsProjectPickerOpen &&
-        !IsLaunchpadSheetOpen &&
+        !IsLaunchpadSurfaceOpen &&
         !IsDisconnectConfirmationOpen &&
         (Page != MobilePage.Chat || (!Chat.HasOpenSheet && !Chat.HasSidePanelOpen && !Chat.IsFilePreviewOpen)) &&
         (Page != MobilePage.Library || !Library.HasOpenSurface);
@@ -1841,7 +1841,7 @@ public sealed partial class MobileShellViewModel :
         IsDisconnectConfirmationOpen ||
         IsChatActionsOpen ||
         IsProjectPickerOpen ||
-        IsLaunchpadSheetOpen ||
+        IsLaunchpadSurfaceOpen ||
         _pageHistory.Count > 0 ||
         (Page == MobilePage.Library && Library.HasOpenSurface) ||
         (Page == MobilePage.Chat && (Chat.HasOpenSheet || Chat.HasSidePanelOpen || Chat.IsFilePreviewOpen)) ||

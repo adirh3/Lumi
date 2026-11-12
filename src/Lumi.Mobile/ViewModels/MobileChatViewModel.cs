@@ -1036,7 +1036,47 @@ public sealed partial class MobileChatViewModel : ObservableObject
         => model is null ? null : _modelRows.GetValueOrDefault(model)
             ?? _modelRows.Values.FirstOrDefault(row => row.SelectionAliases.Contains(model, StringComparer.Ordinal));
 
-    public string ModelEffortName => FindModelRow(Model)?.SelectionAliases.Count > 0
+    /// <summary>The models the picker lists, in its order: Copilot Fusion once for its tiers, as the PC lists them.</summary>
+    internal IReadOnlyList<string> PickerModels()
+        => OrderPinnedFirst(AvailableModels.Where(model => FindModelRow(model) is not { } row || row.Model == model).ToArray()).ToList();
+
+    /// <summary>A picker row's name, as the model sheet shows it.</summary>
+    internal string PickerModelName(string model)
+        => _modelRows.TryGetValue(model, out var row) && row.DisplayName is { Length: > 0 } name ? name : DisplayModel(model) ?? model;
+
+    /// <summary>Whether a picker row is the one <paramref name="model"/> selects: Copilot Fusion's for any of its tiers.</summary>
+    internal bool IsPickerModel(string row, string? model)
+        => model is not null
+           && (string.Equals(row, model, StringComparison.OrdinalIgnoreCase)
+               || _modelRows.GetValueOrDefault(row)?.SelectionAliases.Contains(model, StringComparer.Ordinal) == true);
+
+    /// <summary>The efforts a model offers, as its picker names them: reasoning efforts, or Copilot Fusion's tiers.</summary>
+    internal IReadOnlyList<string> QualityLevelsOf(string? model)
+        => model is not null && _modelEfforts.TryGetValue(model, out var levels) ? levels : [];
+
+    /// <summary>A Copilot Fusion tier as its picker names it among the tiers ("High"); null for any other model.</summary>
+    internal string? TierQualityOf(string? model)
+        => FindModelRow(model) is { SelectionAliases.Count: > 0 } ? _modelDefaults.GetValueOrDefault(model!)?.Quality : null;
+
+    /// <summary>The effort a new chat on a model starts at, as its picker names it; null for a model without efforts.</summary>
+    internal string? DefaultQualityOf(string? model) => model is null ? null : _modelDefaults.GetValueOrDefault(model)?.Quality;
+
+    /// <summary>The model a picker row works at an effort: Copilot Fusion's tier for it, else the row's own model.</summary>
+    internal string ModelAtQuality(string model, string quality)
+        => FindModelRow(model) is { SelectionAliases.Count: > 0 } row
+           && row.SelectionAliases.FirstOrDefault(alias => _modelDefaults.TryGetValue(alias, out var defaults)
+                                                            && string.Equals(defaults.Quality, quality, StringComparison.OrdinalIgnoreCase)) is { } tier
+            ? tier
+            : model;
+
+    /// <summary>The model is the PC's default for new chats (or none is chosen), which a starter on the default model follows.</summary>
+    internal bool IsPreferredModel(string? model)
+        => string.IsNullOrEmpty(model) || string.Equals(model, _preferredModel, StringComparison.Ordinal);
+
+    public string ModelEffortName => EffortNameOf(Model);
+
+    /// <summary>What a model's efforts are called: Copilot Fusion's tiers, or reasoning effort.</summary>
+    internal string EffortNameOf(string? model) => FindModelRow(model)?.SelectionAliases.Count > 0
         ? Strings.Get("FusionEffort") : Strings.Get("ReasoningEffort");
 
     public string ModelEffortDescription => FindModelRow(Model)?.SelectionAliases.Count > 0

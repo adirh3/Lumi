@@ -29,7 +29,7 @@ Quick links: [AI accounts](#ai-accounts), [voice input](#voice-input),
 - **Projects** — Organize chats with custom instructions that shape Lumi's behavior; switch between them from the project switcher at the top of the chat list and set them up in Customize → Projects. Coding projects can optionally update their default branch once daily, including nested submodules at the exact commits recorded by the project (not their latest branch tips). Uncommitted files, staged submodule changes, and unrecorded local submodule commits block automatic updates; already-current branches can still initialize or repair their submodule checkouts
 - **Memories** — Persistent facts extracted from conversations, remembered across all sessions; review and edit them in Settings → Memories
 - **Briefs** — Each night Lumi reads the day's chats, writes down where each project stands and tidies its memories; every new chat in a project starts with its brief, so it picks up where the earlier ones left off, and offers the plans it holds as starters under **For you**. Read, correct or clear them in Settings → Memories, where they're a group of their own, or open one from its project's page
-- **New chat ideas** — A new chat greets you with ideas in tabs: **For you** (your project's plans, the starters you keep coming back to, and a few for the time of day) and categories such as Plan, Shop, Learn, Write, Money and Code, six in each, always in the same place. A starter fills in the composer instead of sending, with its blanks (like *[where?]*) ready to type over; Tab moves to the next. Your usual setups sit on the composer: **Just chat**, the projects and agents you start with most, and **Other** to search all of them. Pick a model or checkout and press **Keep** to add that setup, so one project can sit there several ways (say, on two models, or in a worktree); when they outgrow the composer, scroll the row with the wheel or the arrows at its edges. Chats waiting on you gather in one quiet capsule at the top. Your phone's new chat offers the same ideas and setups, made for touch ([details](#mobile-conversations))
+- **New chat ideas** — A new chat greets you with ideas in tabs: **For you** (your project's plans, the starters you keep coming back to, and a few for the time of day) and categories such as Plan, Shop, Learn, Write, Money and Code, six in each, always in the same place. A starter fills in the composer instead of sending, with its blanks (like *[where?]*) ready to type over; Tab moves to the next. Your starters sit on the composer: **Just chat** and the projects and agents you start chats in most, which start on your default model (so a new model reaches them by itself), after the ones you keep. Keep one, or the setup you picked with the pin on its dashed capsule, or make one with **+**: the card a kept starter has, filled from your chat, where you choose where it starts (Just chat, a project or an agent), its worktree, a model and effort of its own if you like, a name and an icon (say, *UI dev*: Lumi in a worktree on Opus), then **Add starter**, without changing your chat; one project can have several. Right-click a starter, or use its **⋯**, to keep, rename, change or stop suggesting it; a kept one's model and its effort are chosen as in the composer's model picker. When they outgrow the composer, the rest gather into a stack whose shelf unfolds them, with **+** at its end; the starters you keep always hold their places on the row, and when the starter your chat uses is in the stack, the stack lights up. Chats waiting on you gather in one quiet capsule at the top. Your phone's new chat offers the same ideas and setups, made for touch ([details](#mobile-conversations))
 - **Background AI model** — One configurable model for internal AI helpers, with cost-first Auto selection independent of chat and job models
 - **Context awareness** — Lumi assembles context from the active project and its brief, agent, time of day, user name, skills, and memories into every interaction
 - **System tray** — Minimize to tray with global hotkey for instant access. On macOS, clicking the Dock icon or opening Lumi again restores the hidden window and keeps the current chat, draft, and maximized or full-screen state. Quit and operating-system shutdown still exit normally when minimize-to-tray is enabled.
@@ -1237,17 +1237,24 @@ and selects its first blank, and the send button becomes **Next blank** until ea
 turn, then sends. The PC notes which starters you pick, so **For you** learns your habits on either
 device.
 
-Your setups sit on the composer they configure, within the thumb's reach: **Just chat**, the
-setups you keep or usually start with (each marked as on the desktop: its project's initial on
-the project's own hue, otherwise its agent's glyph), and **Other**, a sheet that searches every
-project and agent. Tapping one checks it and shows its project and agent on the composer; tapping
-it again puts back the draft it replaced. The row glides to the chat's setup, and after picking
-from Other, **Keep** keeps it beside the rest. Hold a setup, or tap **⋯** on the one in use, for
-the desktop's choices: keep it on new chats, start it in a worktree, choose the model it starts
-with, or stop suggesting it. Changes are saved on the PC, so the desktop's new chat shows them
-too. The welcome gives way to the keyboard, and when the screen is too short for all of it, drops
-the mark so the greeting, starters and setups stay in view. Paired with a PC from before these
-ideas, the phone shows that PC's three setups and its starters for the hour.
+Your starters sit on the composer they configure, within the thumb's reach, as on the desktop:
+the ones you keep, then **Just chat** and the projects and agents you start chats in most (each
+marked by the icon you gave it, else its project's initial on the project's own hue or its
+agent's glyph). Tapping one checks it and shows its project and agent on the composer; tapping
+it again puts back the draft it replaced. When no starter fits your chat, a dashed capsule shows
+where it starts, with a pin that keeps it. The row shows as many as fit your screen; the rest
+gather into a stack whose speed dial rises above it, and the round **+** (or the dial's **New
+starter**, or the dashed capsule) opens a new starter: the sheet a kept starter has, filled from
+your chat. Tap **Starts in** to pick Just chat, a project or an agent, set its worktree, model and
+effort, name it and give it an icon, then **Add starter**; your chat stays as it was. The
+starters you keep hold their places: one you pick from the stack takes a suggested one's place,
+or, without room, stays in the stack, which lights up to show it's there. Hold
+a starter, or tap **⋯** on the lit one, for the desktop's choices: keep, rename or stop suggesting
+one Lumi learned; change a kept one's name, icon, worktree, model or effort, or remove it. Changes are
+saved on the PC, so the desktop's new chat shows them too. The welcome gives way to the keyboard,
+and when the screen is too short for all of it, drops the mark so the greeting, starters and
+setups stay in view. Paired with a PC from before these ideas, the phone shows that PC's three
+setups and its starters for the hour.
 
 Mobile popups are floating glass sheets. Only the popup is frosted: it blurs the content
 beneath its own surface and slides with it, while the page around it stays sharp behind a

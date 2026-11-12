@@ -142,16 +142,24 @@ public sealed class RemoteNewChatExperience
     /// <summary>What waits on the user or, with nothing waiting, the invitation; phones before the launchpad show it.</summary>
     public string Brief { get; set; } = "";
     public string SetupsTitle { get; set; } = "";
+
+    /// <summary>
+    /// The starters: the ones the user kept, in their order, then the places Lumi learned they start in, Just chat among
+    /// them. A PC before the launchpad sends its three usual setups.
+    /// </summary>
     public List<RemoteChatSetup> Setups { get; set; } = [];
 
     /// <summary>Three starters for the hour, for phones before the launchpad; it lists them under For you.</summary>
     public List<RemoteChatStarter> Starters { get; set; } = [];
 
     /// <summary>
-    /// What a plain chat starts with: no project, no agent, the user's default model. Null from a desktop without
-    /// <see cref="RemoteProtocol.Capabilities.LaunchpadV1"/>, as are the launchpad's other parts.
+    /// The model a starter on the default model starts with now ("GPT 6.1 Sol"), for its sheet. Null from a desktop
+    /// without <see cref="RemoteProtocol.Capabilities.LaunchpadV2"/>, as are the launchpad's other parts.
     /// </summary>
-    public RemoteChatSetup? JustChat { get; set; }
+    public string? DefaultModel { get; set; }
+
+    /// <summary>The icons a kept starter can wear instead of its place's badge, as keys (<see cref="RemoteProtocol.LaunchpadIcons"/>).</summary>
+    public List<string> StarterIcons { get; set; } = [];
 
     /// <summary>The tabs after For you, always in this order, each with its starters.</summary>
     public List<RemoteLaunchpadTab> Tabs { get; set; } = [];
@@ -162,7 +170,7 @@ public sealed class RemoteNewChatExperience
     /// </summary>
     public List<RemoteLaunchpadScope> Scopes { get; set; } = [];
 
-    /// <summary>Other's list: the projects, most recently used first, then the agents, each with how it starts.</summary>
+    /// <summary>The new starter sheet's places: the projects, most recently used first, then the agents, each with how it last started.</summary>
     public List<RemoteLaunchpadPlace> Places { get; set; } = [];
 
     /// <summary>The launchpad's own words, in the PC's language, so the phone's match its starters.</summary>
@@ -176,11 +184,23 @@ public sealed class RemoteNewChatExperience
     public List<RemoteLaunchpadChat> NeedsYouChats { get; set; } = [];
 }
 
+/// <summary>
+/// A starter (or, from a PC before the launchpad, a usual setup): where a new chat starts and with what. The phone names
+/// it back whole in the launchpad's commands: its project, agent, checkout, and its model and effort unless it starts with
+/// the default model, and a kept one by its <see cref="Id"/> too.
+/// </summary>
 public sealed class RemoteChatSetup
 {
+    /// <summary>Which starter it is: a kept one's own id (unchanged by edits to what it starts with), else its recipe.</summary>
     public string Id { get; set; } = "";
+
+    /// <summary>Its name: the one the user gave it, else its place's.</summary>
     public string Title { get; set; } = "";
+
+    /// <summary>Everything it starts with, in words: "Lumi · Worktree · Default model".</summary>
     public string Description { get; set; } = "";
+
+    /// <summary>Its badge's text: its project's initial, its agent's emoji, or a sparkle.</summary>
     public string Glyph { get; set; } = "";
     public Guid? ProjectId { get; set; }
     public string? ProjectName { get; set; }
@@ -188,23 +208,43 @@ public sealed class RemoteChatSetup
     public string? AgentName { get; set; }
     public string? AgentGlyph { get; set; }
     public bool UseWorktree { get; set; }
+
+    /// <summary>The model applying it starts with: for one on the default model, the default model now.</summary>
     public string? Model { get; set; }
     public string? Quality { get; set; }
 
+    /// <summary>The reasoning effort's id (<see cref="Quality"/> is its name).</summary>
+    public string? Effort { get; set; }
+
     /// <summary>
-    /// What its capsule says beside its name: the agent working in the project, or the model; for one of a place's
-    /// several setups, all that tells it apart ("Worktree · GPT 6.1 Sol").
+    /// It starts with the user's default model, whatever that is when it's used, so the phone names it back without a
+    /// model or effort; <see cref="Model"/> says what that is now.
     /// </summary>
+    public bool IsDefaultModel { get; set; }
+
+    /// <summary>Its place's name ("Lumi"), which a name of its own replaces.</summary>
+    public string? PlaceTitle { get; set; }
+
+    /// <summary>The line icon the user gave it (<see cref="RemoteProtocol.LaunchpadIcons"/>), which replaces its badge.</summary>
+    public string? Icon { get; set; }
+
+    /// <summary>Another starter has its name and stays in the project's folder, so this one shows ⑂ after its name.</summary>
+    public bool TellsWorktree { get; set; }
+
+    /// <summary>What else tells it from another starter of its name (its agent, model or effort), after its name.</summary>
     public string? Detail { get; set; }
 
-    /// <summary>Another setup in the row has its name, so it always says its <see cref="Detail"/>.</summary>
-    public bool IsVariant { get; set; }
-
-    /// <summary>The user kept it on new chats, rather than Lumi suggesting it from use.</summary>
+    /// <summary>The user kept it on new chats, rather than Lumi learning it from where they start.</summary>
     public bool IsKept { get; set; }
 
-    /// <summary>The reasoning effort's id (<see cref="Quality"/> is its name), so the phone can name the setup back.</summary>
-    public string? Effort { get; set; }
+    /// <summary>Lumi can stop suggesting it: a learned place other than Just chat.</summary>
+    public bool CanHide { get; set; }
+
+    /// <summary>
+    /// What its sheet says under its name: how often the user starts there ("174 of your chats in the last 30 days."),
+    /// or that its model is no longer offered.
+    /// </summary>
+    public string? Note { get; set; }
 
     /// <summary>Its project's folder is a git repository, so it can start in a worktree.</summary>
     public bool CanUseWorktree { get; set; }
@@ -254,7 +294,10 @@ public sealed class RemoteLaunchpadStarter
     public string? Reason { get; set; }
 }
 
-/// <summary>A project or agent in Other's list, and how a new chat there starts: the way the user last worked there.</summary>
+/// <summary>
+/// A project or agent a new starter can start in, in the new starter sheet's places, and how a chat there last started
+/// (its <see cref="RemoteChatSetup.UseWorktree"/>, which a project's place brings).
+/// </summary>
 public sealed class RemoteLaunchpadPlace
 {
     public Guid Id { get; set; }
@@ -263,9 +306,6 @@ public sealed class RemoteLaunchpadPlace
 
     /// <summary>When the user last worked there ("40m ago"), if ever.</summary>
     public string? Hint { get; set; }
-
-    /// <summary>One of the user's kept setups is in this place.</summary>
-    public bool IsKept { get; set; }
 
     public RemoteChatSetup Setup { get; set; } = new();
 }
@@ -293,23 +333,41 @@ public sealed class RemoteLaunchpadChat
 public sealed class RemoteLaunchpadLabels
 {
     public string ForYou { get; set; } = "";
-    public string JustChat { get; set; } = "";
-    public string Other { get; set; } = "";
-    public string OtherTitle { get; set; } = "";
-    public string OtherSearch { get; set; } = "";
-    public string OtherProjects { get; set; } = "";
-    public string OtherAgents { get; set; } = "";
-    public string OtherEmpty { get; set; } = "";
+
+    /// <summary>The new starter sheet's title, and its + on a full row's speed dial.</summary>
+    public string NewStarter { get; set; } = "";
+
+    /// <summary>The new starter sheet's button, which keeps the starter it makes ("Add starter").</summary>
+    public string AddStarter { get; set; } = "";
+    public string Search { get; set; } = "";
+    public string Projects { get; set; } = "";
+    public string Agents { get; set; } = "";
+    public string NoMatch { get; set; } = "";
+
+    /// <summary>"This chat's setup": the draft's own chip, when no starter fits it.</summary>
+    public string DraftSetup { get; set; } = "";
     public string Keep { get; set; } = "";
-    public string KeepOnNewChats { get; set; } = "";
-    public string StartInWorktree { get; set; } = "";
+    public string Rename { get; set; } = "";
     public string DontSuggest { get; set; } = "";
+    public string Remove { get; set; } = "";
+    public string StartInWorktree { get; set; } = "";
+    public string StartsIn { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Icon { get; set; } = "";
+    public string Model { get; set; } = "";
+    public string DefaultModel { get; set; } = "";
 
-    /// <summary>The setup menu's model list ("Starts with").</summary>
-    public string StartsWith { get; set; } = "";
+    /// <summary>"Starts with your default model, so it moves when your default does."</summary>
+    public string DefaultModelNote { get; set; } = "";
 
-    /// <summary>What opens a setup's menu ("Customize this setup").</summary>
+    /// <summary>What opens a starter's sheet ("Customize this starter").</summary>
     public string Customize { get; set; } = "";
+
+    /// <summary>The stack's name, with how many starters it holds ("{0} more starters").</summary>
+    public string MoreStarters { get; set; } = "";
+
+    /// <summary>The stack's name when it holds one starter ("1 more starter").</summary>
+    public string MoreStarter { get; set; } = "";
 }
 
 public sealed class RemoteModelDefaults

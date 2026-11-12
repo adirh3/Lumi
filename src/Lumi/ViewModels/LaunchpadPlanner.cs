@@ -28,8 +28,9 @@ internal enum LaunchpadDayPart
 }
 
 /// <summary>
-/// A new-chat configuration learned from how the user actually starts chats: where (project and
-/// local/worktree checkout), as whom (Lumi agent) and with which model and reasoning effort.
+/// How a new chat starts: where (project and local/worktree checkout), as whom (Lumi agent) and with which model and
+/// reasoning effort. A starter's null model is the user's default model, whatever that is when it's used, and its null
+/// effort the model's default; a draft's are what the composer has.
 /// </summary>
 internal sealed record LaunchpadSetupSpec(
     Guid? ProjectId,
@@ -38,10 +39,17 @@ internal sealed record LaunchpadSetupSpec(
     string? ModelId,
     string? Effort)
 {
-    /// <summary>Where and as whom the setup works, ignoring the model — the axis setups are diversified on.</summary>
+    /// <summary>The place: where and as whom it starts, ignoring the model, which is what Lumi learns starters by.</summary>
     internal (Guid? ProjectId, Guid? AgentId, bool UseWorktree) Context => (ProjectId, AgentId, UseWorktree);
 
-    internal bool IsEmpty => ProjectId is null && AgentId is null && ModelId is null;
+    /// <summary>A plain chat: no project, no agent.</summary>
+    internal bool IsJustChat => ProjectId is null && AgentId is null;
+
+    /// <summary>Just chat on the default model, the starter that is always there.</summary>
+    internal static LaunchpadSetupSpec JustChat { get; } = new(null, null, false, null, null);
+
+    /// <summary>The place alone, on the default model: the starter Lumi learns from where the user starts chats.</summary>
+    internal LaunchpadSetupSpec Place => this with { ModelId = null, Effort = null };
 }
 
 /// <summary>The personal greeting, split around the user's name so the name can carry its own emphasis.</summary>
@@ -60,17 +68,36 @@ internal sealed record LaunchpadStarterSpec(string Glyph, string Label, string P
     public string? Reason { get; init; }
 }
 
-internal sealed record LaunchpadSetupChoice(LaunchpadSetupSpec Spec, string Title, string Meta)
+/// <summary>A starter on the new chat: what it starts, its name, and whether the user kept it or Lumi learned it.</summary>
+/// <param name="Title">Its name: the one the user gave it, else its place's.</param>
+/// <param name="PlaceTitle">Its place's name ("Lumi", "Just chat"), which a starter without a name of its own shows.</param>
+/// <param name="Meta">Everything it starts with, in words: "Lumi · Worktree · Default model".</param>
+internal sealed record LaunchpadSetupChoice(LaunchpadSetupSpec Spec, string Title, string PlaceTitle, string Meta)
 {
-    /// <summary>The kept setup it shows, which its menu edits; null for one learned from the user's chats.</summary>
+    /// <summary>The kept starter it shows, which its editor edits; null for one learned from the user's chats.</summary>
     public LaunchpadSetupPin? Pin { get; init; }
 
     /// <summary>The user kept it: it stays on the new chat until they remove it.</summary>
     public bool IsPinned => Pin is not null;
+
+    /// <summary>How many of the user's recent chats started in its place (<see cref="LaunchpadPlanner.SetupWindowDays"/>); 0 for a kept one.</summary>
+    public int Uses { get; init; }
+
+    /// <summary>The icon the user gave it (<see cref="LaunchpadPlanner.StarterIcons"/>); null shows its place's badge.</summary>
+    public string? Icon => Pin?.Icon;
+
+    /// <summary>It was kept on a model this computer no longer offers, so it starts with the default model instead.</summary>
+    public string? RetiredModelId { get; init; }
 }
 
-/// <summary>A project or agent of Other's list, when the user last worked there, and how a chat there starts.</summary>
-internal sealed record LaunchpadPlace(Guid Id, bool IsProject, string Title, string Hint, bool IsKept, LaunchpadSetupSpec Setup);
+/// <summary>A project or agent of the new starter's places, when the user last worked there, and how a chat there started then.</summary>
+internal sealed record LaunchpadPlace(Guid Id, bool IsProject, string Title, string Hint, LaunchpadSetupSpec Setup)
+{
+    /// <summary>Where a new starter there starts: the place alone, on the default model; a project in its last chat's checkout.</summary>
+    internal LaunchpadSetupSpec StarterSetup => IsProject
+        ? new LaunchpadSetupSpec(Id, null, Setup.UseWorktree, null, null)
+        : new LaunchpadSetupSpec(null, Id, false, null, null);
+}
 
 /// <summary>
 /// The launchpad's decisions, kept free of UI and store state so they are cheap and testable:
@@ -79,13 +106,25 @@ internal sealed record LaunchpadPlace(Guid Id, bool IsProject, string Title, str
 internal static partial class LaunchpadPlanner
 {
     internal const int MaxNeedsYouItems = 6;
-    internal const int MaxSetups = 3;
 
     /// <summary>
-    /// The most kept setups the new chat shows: kept ones never count against <see cref="MaxSetups"/>, which only
-    /// limits how many learned ones fill the row. The row scrolls once they outgrow the composer.
+    /// The most places Lumi suggests from use, besides Just chat, which is always there. Kept starters never count
+    /// against it; what doesn't fit the row gathers into its stack.
     /// </summary>
-    internal const int MaxKeptSetups = 10;
+    internal const int MaxLearnedSetups = 6;
+
+    /// <summary>The most kept starters the new chat shows, in the user's order.</summary>
+    internal const int MaxKeptSetups = 16;
+
+    /// <summary>The longest name a starter keeps.</summary>
+    internal const int MaxStarterNameLength = 40;
+
+    /// <summary>
+    /// The icons a kept starter can wear instead of its place's badge, each a key both ends draw
+    /// (<see cref="Lumi.Remote.Protocol.RemoteProtocol.LaunchpadIcons"/>).
+    /// </summary>
+    internal static readonly IReadOnlyList<string> StarterIcons =
+        ["layers", "bug", "lightbulb", "search", "book", "pencil", "beaker", "cube", "target", "chat"];
 
     /// <summary>
     /// For you holds this many starters (two lines of capsules); a project's brief gives all the plans its curator
@@ -101,12 +140,15 @@ internal static partial class LaunchpadPlanner
     /// <summary>The longest brief headline shown under the greeting.</summary>
     internal const int BriefHeadlineMaxLength = 120;
 
-    /// <summary>A configuration must recur before it is offered as one of the user's setups.</summary>
+    /// <summary>A place must recur before it is offered as one of the user's starters.</summary>
     private const int MinSetupUses = 2;
 
     internal const int PreviewMaxLength = 140;
 
-    private static readonly TimeSpan SetupWindow = TimeSpan.FromDays(30);
+    /// <summary>How far back Lumi looks for where the user starts chats.</summary>
+    internal const int SetupWindowDays = 30;
+
+    private static readonly TimeSpan SetupWindow = TimeSpan.FromDays(SetupWindowDays);
 
     /// <summary>Recent habits outweigh old ones: a chat's vote halves roughly every ten days.</summary>
     private const double SetupDecayDays = 14;
@@ -200,20 +242,16 @@ internal static partial class LaunchpadPlanner
     }
 
     /// <summary>
-    /// The configurations the user keeps starting chats with, ranked by recency-weighted use.
-    /// The first pass keeps one setup per place (project, agent, checkout) so the row covers the
-    /// different kinds of work instead of three model variants of the same one.
-    /// <paramref name="resolveModel"/> maps a chat's last model and effort to what a new chat would
-    /// use today: no model when it is unavailable, and only an effort the model supports.
+    /// The places the user keeps starting chats in (project, agent and checkout, never the model), ranked by
+    /// recency-weighted use, each with how many recent chats started there. They start with the default model, so a
+    /// new default carries them along. Just chat is always among them: where its use ranks it, else last.
     /// </summary>
-    internal static List<LaunchpadSetupSpec> SelectSetups(
+    internal static List<(LaunchpadSetupSpec Spec, int Uses)> SelectSetups(
         IEnumerable<Chat> chats,
         IReadOnlySet<Guid> automationChatIds,
         DateTimeOffset now,
         Func<Guid, bool> projectExists,
         Func<Guid, bool> agentExists,
-        Func<string?, string?, (string? Model, string? Effort)> resolveModel,
-        LaunchpadSetupSpec? plainDefault,
         int limit)
     {
         var votes = new Dictionary<LaunchpadSetupSpec, (double Score, int Uses)>();
@@ -232,60 +270,36 @@ internal static partial class LaunchpadPlanner
             if (age > SetupWindow)
                 continue;
 
-            var spec = ToSetupSpec(chat, projectExists, agentExists, resolveModel);
-            if (spec.IsEmpty)
-                continue;
-
+            var spec = ToSetupSpec(chat, projectExists, agentExists);
             var weight = Math.Exp(-age.TotalDays / SetupDecayDays);
             votes[spec] = votes.TryGetValue(spec, out var vote)
                 ? (vote.Score + weight, vote.Uses + 1)
                 : (weight, 1);
         }
 
-        var ranked = votes
-            .Where(entry => entry.Value.Uses >= MinSetupUses && entry.Key != plainDefault)
+        var result = votes
+            .Where(static entry => entry.Value.Uses >= MinSetupUses)
             .OrderByDescending(static entry => entry.Value.Score)
             .ThenByDescending(static entry => entry.Value.Uses)
-            .Select(static entry => entry.Key)
+            .Take(limit)
+            .Select(static entry => (entry.Key, entry.Value.Uses))
             .ToList();
-
-        var result = new List<LaunchpadSetupSpec>(limit);
-        var places = new HashSet<(Guid?, Guid?, bool)>();
-        foreach (var spec in ranked)
-        {
-            if (result.Count == limit)
-                break;
-            if (places.Add(spec.Context))
-                result.Add(spec);
-        }
-
-        foreach (var spec in ranked)
-        {
-            if (result.Count == limit)
-                break;
-            if (!result.Contains(spec))
-                result.Add(spec);
-        }
-
+        if (!result.Exists(static entry => entry.Key.IsJustChat))
+            result.Add((LaunchpadSetupSpec.JustChat, votes.GetValueOrDefault(LaunchpadSetupSpec.JustChat).Uses));
         return result;
     }
 
-    /// <summary>A chat's configuration in setup terms: where it worked, as whom, and on what it would run today.</summary>
-    internal static LaunchpadSetupSpec ToSetupSpec(
-        Chat chat,
-        Func<Guid, bool> projectExists,
-        Func<Guid, bool> agentExists,
-        Func<string?, string?, (string? Model, string? Effort)> resolveModel)
+    /// <summary>A chat's place in starter terms: the project and agent it worked in (if they still exist) and its checkout.</summary>
+    internal static LaunchpadSetupSpec ToSetupSpec(Chat chat, Func<Guid, bool> projectExists, Func<Guid, bool> agentExists)
     {
         var projectId = chat.ProjectId is { } project && projectExists(project) ? project : (Guid?)null;
         var agentId = chat.AgentId is { } agent && agentExists(agent) ? agent : (Guid?)null;
-        var (model, effort) = resolveModel(chat.LastModelUsed, chat.LastReasoningEffortUsed);
         return new LaunchpadSetupSpec(
             projectId,
             agentId,
             projectId is not null && !string.IsNullOrWhiteSpace(chat.WorktreePath),
-            model,
-            model is null ? null : effort);
+            null,
+            null);
     }
 
     /// <summary>Three conversation starters that suit the time of day and whether there is history to draw on.</summary>
@@ -383,36 +397,144 @@ internal static partial class LaunchpadPlanner
     }
 
     /// <summary>
-    /// The setups the new chat offers: every one the user kept, in their order, several of one place included (Lumi on
-    /// two models, and in a worktree); then learned ones for places the user neither kept nor asked not to see, while the
-    /// row holds fewer than <paramref name="limit"/>. Each says which kept setup it is (its index in
-    /// <paramref name="pinned"/>), or -1 for a learned one. A setup is never offered twice.
+    /// The starters the new chat offers: every one the user kept, in their order (two may start the same way, under their
+    /// own names); then the places Lumi learned, while they number fewer than <paramref name="limit"/>, leaving out places
+    /// the user asked not to see and any a kept starter repeats exactly (a renamed place stands in for it). Just chat is
+    /// never left out, short of a kept starter that is exactly it. Each says which kept starter it is (its index in
+    /// <paramref name="kept"/>), or -1 for a learned one, and how often its place was used.
     /// </summary>
-    internal static List<(LaunchpadSetupSpec Spec, int PinIndex)> MergeSetups(
-        IReadOnlyList<LaunchpadSetupSpec> pinned,
-        IReadOnlyList<LaunchpadSetupSpec> learned,
+    internal static List<(LaunchpadSetupSpec Spec, int PinIndex, int Uses)> MergeSetups(
+        IReadOnlyList<LaunchpadSetupSpec> kept,
+        IReadOnlyList<(LaunchpadSetupSpec Spec, int Uses)> learned,
         IReadOnlyCollection<(Guid? ProjectId, Guid? AgentId, bool UseWorktree)> hidden,
         int limit)
     {
-        var result = new List<(LaunchpadSetupSpec Spec, int PinIndex)>(Math.Max(limit, pinned.Count));
-        var blocked = new HashSet<(Guid? ProjectId, Guid? AgentId, bool UseWorktree)>(hidden);
-        for (var index = 0; index < pinned.Count; index++)
-        {
-            var spec = pinned[index];
-            blocked.Add(spec.Context);
-            if (result.Count < MaxKeptSetups && !result.Exists(entry => entry.Spec == spec))
-                result.Add((spec, index));
-        }
+        var result = new List<(LaunchpadSetupSpec Spec, int PinIndex, int Uses)>(kept.Count + limit + 1);
+        for (var index = 0; index < kept.Count && result.Count < MaxKeptSetups; index++)
+            result.Add((kept[index], index, 0));
 
-        foreach (var spec in learned)
+        var learnedCount = 0;
+        foreach (var (spec, uses) in learned)
         {
-            if (result.Count >= limit)
-                break;
-            if (!blocked.Contains(spec.Context) && !result.Exists(entry => entry.Spec == spec))
-                result.Add((spec, -1));
+            if (result.Exists(entry => entry.Spec == spec))
+                continue;
+            if (!spec.IsJustChat && (learnedCount >= limit || hidden.Contains(spec.Context)))
+                continue;
+
+            result.Add((spec, -1, uses));
+            if (!spec.IsJustChat)
+                learnedCount++;
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// How closely a starter fits a draft: -1 when it starts elsewhere or with another model or effort; otherwise how
+    /// much it pins down (a chosen model counts more than a chosen effort), so the most specific starter wins.
+    /// </summary>
+    internal static int MatchScore(LaunchpadSetupSpec starter, LaunchpadSetupSpec draft)
+    {
+        if (starter.Context != draft.Context
+            || (starter.ModelId is not null && !string.Equals(starter.ModelId, draft.ModelId, StringComparison.Ordinal))
+            || (starter.Effort is not null && !string.Equals(starter.Effort, draft.Effort, StringComparison.Ordinal)))
+        {
+            return -1;
+        }
+
+        return (starter.ModelId is null ? 0 : 2) + (starter.Effort is null ? 0 : 1);
+    }
+
+    /// <summary>The draft's starter: the most specific one that fits it, the first in the row on a tie; -1 for none.</summary>
+    internal static int IndexOfMatch(IReadOnlyList<LaunchpadSetupSpec> row, LaunchpadSetupSpec? draft)
+    {
+        if (draft is null)
+            return -1;
+
+        var best = -1;
+        var bestScore = -1;
+        for (var index = 0; index < row.Count; index++)
+        {
+            var score = MatchScore(row[index], draft);
+            if (score > bestScore)
+            {
+                best = index;
+                bestScore = score;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Which starters the row shows within <paramref name="available"/> pixels; the rest gather into its stack. All of them
+    /// when they fit beside <paramref name="endWidth"/> (the new starter button); otherwise, beside the stack, as many as
+    /// fit in order. The draft's own (<paramref name="keepIndex"/>) joins them in the place of learned starters from the
+    /// row's end, never of kept ones, which hold their places whatever is lit; without such room it stays in the stack,
+    /// which then wears its light. A divider (<paramref name="dividerWidth"/>) separates kept starters from learned ones
+    /// while both show. <paramref name="fixedWidth"/> is what the row always shows besides them (the draft's chip, when it
+    /// has no starter).
+    /// </summary>
+    internal static bool[] FitRow(
+        IReadOnlyList<double> widths,
+        IReadOnlyList<bool> isKept,
+        double available,
+        double fixedWidth,
+        double endWidth,
+        double stackWidth,
+        double dividerWidth,
+        int keepIndex)
+    {
+        var count = widths.Count;
+        var shown = new bool[count];
+        Array.Fill(shown, true);
+        if (Width() + fixedWidth + endWidth <= available)
+            return shown;
+
+        Array.Fill(shown, false);
+        var budget = available - fixedWidth - stackWidth;
+        for (var index = 0; index < count; index++)
+        {
+            shown[index] = true;
+            if (Width() <= budget)
+                continue;
+
+            shown[index] = false;
+            break;
+        }
+
+        if (keepIndex >= 0 && keepIndex < count && !shown[keepIndex])
+        {
+            var fitted = (bool[])shown.Clone();
+            shown[keepIndex] = true;
+            for (var index = count - 1; index >= 0 && Width() > budget; index--)
+            {
+                if (index != keepIndex && !isKept[index])
+                    shown[index] = false;
+            }
+
+            if (Width() > budget)
+                Array.Copy(fitted, shown, count);
+        }
+
+        return shown;
+
+        double Width()
+        {
+            var total = 0d;
+            bool anyKept = false, anyLearned = false;
+            for (var index = 0; index < count; index++)
+            {
+                if (!shown[index])
+                    continue;
+
+                total += widths[index];
+                anyKept |= isKept[index];
+                anyLearned |= !isKept[index];
+            }
+
+            return anyKept && anyLearned ? total + dividerWidth : total;
+        }
     }
 
     [GeneratedRegex(@"(?<=[.!?…])\s+|(?<=[。！？])")]

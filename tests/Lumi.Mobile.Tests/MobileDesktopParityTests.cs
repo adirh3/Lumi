@@ -390,23 +390,31 @@ public sealed class MobileDesktopParityTests
             Title = "Lumi", Description = "Coding Lumi · Worktree", Glyph = "L", ProjectId = projectId,
             ProjectName = "Lumi", AgentName = "Coding Lumi", AgentGlyph = "⚡"
         });
-        Assert.True(project.HasProjectMark);
-        Assert.Equal("L", project.MarkGlyph);
+        Assert.True(project.Badge.HasProjectMark);
+        Assert.Equal("L", project.Badge.Glyph);
         Assert.Equal(ChatIdentityMark.HueFor(projectId),
-            Assert.IsAssignableFrom<ISolidColorBrush>(project.MarkForeground).Color);
+            Assert.IsAssignableFrom<ISolidColorBrush>(project.Badge.MarkForeground).Color);
         Assert.True(project.HasDescription);
+
+        // An icon the user gave a starter replaces its place's badge; its sheet still shows the place's.
+        var iconed = new ChatStartSetup(new RemoteChatSetup { Title = "UI dev", Glyph = "L", ProjectId = projectId, Icon = "layers" });
+        Assert.True(iconed.Badge.HasIcon);
+        Assert.Equal("layers", iconed.Badge.IconKey);
+        Assert.False(iconed.Badge.HasProjectMark);
+        Assert.True(iconed.PlaceBadge.HasProjectMark);
 
         var agent = new ChatStartSetup(new RemoteChatSetup
         {
             Title = "Daily Planner", Description = "No project", Glyph = "📋",
             AgentName = "Daily Planner", AgentGlyph = "📋"
         });
-        Assert.False(agent.HasProjectMark);
-        Assert.Null(agent.MarkBackground);
-        Assert.Equal("📋", agent.MarkGlyph);
+        Assert.False(agent.Badge.HasProjectMark);
+        Assert.True(agent.Badge.HasGlyph);
+        Assert.Null(agent.Badge.MarkBackground);
+        Assert.Equal("📋", agent.Badge.Glyph);
 
         var model = new ChatStartSetup(new RemoteChatSetup { Title = "GPT-6.1 Sol" });
-        Assert.Equal("✦", model.MarkGlyph);
+        Assert.Equal("✦", model.Badge.Glyph);
         Assert.False(model.HasDescription);
     }
 

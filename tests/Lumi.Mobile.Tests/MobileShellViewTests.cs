@@ -3184,8 +3184,9 @@ public sealed class MobileShellViewTests
     /// <summary>
     /// The new chat is laid out for a thumb, as the desktop's launchpad is for a pointer: the greeting
     /// and the starters gather in the presence, and the user's usual setups sit on the composer they
-    /// configure, a short reach from the input. Every action is a full touch target that a finger at
-    /// its centre actually reaches, and the setups start on the composer's own edge.
+    /// configure, a short reach from the input, centred on it and never wider. Every action is a full
+    /// touch target that a finger at its centre actually reaches; setups the screen has no room for
+    /// gather into the stack.
     /// </summary>
     [Theory]
     [InlineData(360, 780)]
@@ -3204,6 +3205,7 @@ public sealed class MobileShellViewTests
             await Task.Delay(400);
             Pump(window);
             AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            await SettleFramesAsync(window);
 
             var composer = BoundsIn(Named(window, "Composer"), window);
             var header = BoundsIn(Named(window, "ChatHeaderSideInset"), window);
@@ -3212,7 +3214,8 @@ public sealed class MobileShellViewTests
             var startersControl = Named(window, "WelcomeStarters");
             var starters = BoundsIn(startersControl, window);
             var setupsControl = Named(window, "WelcomeSetups");
-            var setups = BoundsIn(Named(window, "WelcomeSetupsScroll"), window);
+            var setups = BoundsIn(Named(window, "WelcomeSetupsHost"), window);
+            var row = BoundsIn(Named(window, "WelcomeSetupRow"), window);
 
             // The welcome scrolls as one surface, so its box stays between the floating bars.
             Assert.True(welcome.Top >= header.Bottom - 0.5, $"welcome {welcome} reaches under the header {header}");
@@ -3220,18 +3223,29 @@ public sealed class MobileShellViewTests
             Assert.True(hero.Bottom <= starters.Top, $"hero {hero} must lead the starters {starters}");
             Assert.True(starters.Bottom < setups.Top, $"starters {starters} must sit above the setups {setups}");
             Assert.InRange(composer.Top - setups.Bottom, 0, 24);
+            Assert.True(row.Left >= composer.Left - 0.5 && row.Right <= composer.Right + 0.5,
+                $"setups {row} overhang the composer {composer}");
+            Assert.InRange(Math.Abs(row.Center.X - composer.Center.X), 0, 1);
 
             var cards = setupsControl.GetVisualDescendants().OfType<Button>()
                 .Where(button => button.Classes.Contains("welcome-setup")).ToList();
             Assert.Equal(3, cards.Count);
-            Assert.InRange(Math.Abs(BoundsIn(cards[0], window).Left - composer.Left), 0, 1);
+            var shown = cards.Where(card => card.IsEffectivelyVisible).ToList();
+            Assert.NotEmpty(shown);
+            Assert.Equal(cards.Take(shown.Count), shown);
+            Assert.Equal(3 - shown.Count, shell.StarterStackCount);
+            var stack = Named(window, "WelcomeStarterStack");
+            Assert.Equal(shell.HasStarterStack, stack.IsEffectivelyVisible);
 
             var pills = startersControl.GetVisualDescendants().OfType<Button>().ToList();
             Assert.Equal(3, pills.Count);
             // Three starters pair up rather than standing one to a line, even on a compact phone.
             Assert.True(pills.Select(pill => Math.Round(BoundsIn(pill, window).Top)).Distinct().Count() <= 2);
 
-            foreach (var target in pills.Append(cards[0]))
+            var targets = pills.Concat(shown).Cast<Control>().ToList();
+            if (stack.IsEffectivelyVisible)
+                targets.Add(stack);
+            foreach (var target in targets)
             {
                 Assert.True(target.Bounds.Height >= 48, $"{target.Bounds.Height} dp is under a fingertip");
                 // The whole target takes the tap, including the strips beside a pill drawn inside it.
@@ -3247,14 +3261,92 @@ public sealed class MobileShellViewTests
     }
 
     /// <summary>
-    /// The launchpad on a phone: the tabs over the starters as glass capsules centred line by line, as the desktop's
-    /// are, keeping room for the tab needing the most lines so switching tabs moves nothing, and the setups row on the
-    /// composer beginning with Just chat at the composer's edge. A starter fills the composer with its first blank
-    /// selected and send turned toward the next; nothing is sent. The chat's setup carries the ⋯ that opens its sheet,
-    /// and a place picked from Other glides into view on the row with Keep beside it.
+    /// However wide the composer, the starters row never outgrows it: the lit starter's capsule, wider for its ⋯, and the
+    /// stack included.
     /// </summary>
     [Fact]
-    public async Task Launchpad_FillsTheComposerAndKeepsTheChatsSetupInReach()
+    public Task Launchpad_TheStartersRowNeverOutgrowsTheComposer() => RunAsync(async (shell, window) =>
+    {
+        Pair(shell);
+        shell.IsSidebarCollapsed = true;
+        shell.Chat.ApplyLibraryCatalogs(MobileLaunchpadTests.Library());
+        shell.Chat.ApplyCatalogs(MobileLaunchpadTests.Catalogs());
+        shell.ApplyNewChatExperience(MobileLaunchpadTests.Experience());
+        for (var width = 360; width <= 600; width += 16)
+        {
+            Layout(window, shell, width, 892);
+            await SettleFramesAsync(window);
+            var host = BoundsIn(Named(window, "WelcomeSetupsHost"), window);
+            var shown = Named(window, "WelcomeSetupRow").GetVisualDescendants().OfType<Button>()
+                .Where(button => button.IsEffectivelyVisible
+                                 && (button.Classes.Contains("welcome-setup") || button.Name == "WelcomeNewStarter"))
+                .Select(button => BoundsIn(button, window))
+                .ToList();
+            Assert.NotEmpty(shown);
+            Assert.True(shown.Min(bounds => bounds.Left) >= host.Left - 0.5 && shown.Max(bounds => bounds.Right) <= host.Right + 0.5,
+                $"At {width} dp the starters ({string.Join(", ", shown.Select(bounds => $"{bounds.Left:0}-{bounds.Right:0}"))}) "
+                + $"outgrow the row's {host.Left:0}-{host.Right:0}");
+        }
+    });
+
+    /// <summary>
+    /// In a right-to-left language the row ends on the left, so the stacked starters rise above the stack there,
+    /// aligned with its left edge, as they align with its right edge otherwise.
+    /// </summary>
+    [Fact]
+    public Task Launchpad_RaisesTheStackedStartersAboveTheStack_InARightToLeftLanguageToo() =>
+        RunAsync(async (shell, window) =>
+        {
+            var language = ChatSessionStrings.Language;
+            ChatSessionStrings.Load("he");
+            try
+            {
+                // The views read the interface's direction as they are made.
+                window.Content = new MobileShellView { DataContext = shell };
+                Pair(shell);
+                shell.IsSidebarCollapsed = true;
+                Layout(window, shell, 412, 892);
+                shell.Chat.ApplyLibraryCatalogs(MobileLaunchpadTests.Library());
+                shell.Chat.ApplyCatalogs(MobileLaunchpadTests.Catalogs());
+                shell.ApplyNewChatExperience(MobileLaunchpadTests.Experience());
+                await SettleFramesAsync(window);
+
+                // Where things are on screen: a mirrored control's origin is its right edge.
+                Rect OnScreen(Visual visual) => new Rect(visual.Bounds.Size).TransformToAABB(visual.TransformToVisual(window)!.Value);
+                var stack = Named(window, "WelcomeStarterStack");
+                var stackBounds = OnScreen(stack);
+                Assert.True(stackBounds.Right < 412 / 2d, $"The stack {stackBounds} should end the row on the left");
+
+                Tap(window, stack);
+                Assert.True(shell.IsStarterDialOpen);
+                await SettleFramesAsync(window, frames: 30);
+                var raised = Named(window, "StarterDialItems").GetVisualDescendants().OfType<Button>()
+                    .Where(button => button.Classes.Contains("welcome-setup"))
+                    .Select(OnScreen)
+                    .ToList();
+                Assert.NotEmpty(raised);
+                Assert.All(raised, bounds =>
+                {
+                    Assert.True(bounds.Bottom <= stackBounds.Top + 0.5, $"{bounds} isn't above the stack {stackBounds}");
+                    Assert.InRange(Math.Abs(bounds.Left - stackBounds.Left), 0, 1);
+                });
+            }
+            finally
+            {
+                ChatSessionStrings.Load(language);
+            }
+        });
+
+    /// <summary>
+    /// The launchpad on a phone: the tabs over the starters as glass capsules centred line by line, as the desktop's
+    /// are, keeping room for the tab needing the most lines so switching tabs moves nothing. A starter fills the
+    /// composer with its first blank selected and send turned toward the next; nothing is sent. The starters row on the
+    /// composer shows what fits, the lit one always, and stacks the rest: a tap on the stack raises them in a column
+    /// above it, the nearest first and New starter last, and a tap on one starts the chat there. The lit starter carries
+    /// the ⋯ that opens its sheet, as holding any starter does, and a draft no starter fits shows dashed on the row.
+    /// </summary>
+    [Fact]
+    public async Task Launchpad_FillsTheComposerAndRaisesTheStartersTheRowHasNoRoomFor()
     {
         await RunAsync(async (shell, window) =>
         {
@@ -3291,11 +3383,6 @@ public sealed class MobileShellViewTests
                 Assert.InRange(Math.Abs(left - right), 0, 1);
             }
 
-            var composer = BoundsIn(Named(window, "Composer"), window);
-            Assert.InRange(Math.Abs(BoundsIn(Named(window, "WelcomeJustChat"), window).Left - composer.Left), 0, 1);
-            Assert.True(Named(window, "WelcomeOther").IsVisible);
-            Assert.False(Named(window, "WelcomeKeep").IsVisible);
-
             // A starter: its first blank selected, send turned toward the next one, and nothing sent.
             Tap(window, cards[0]);
             await SettleFramesAsync(window);
@@ -3310,26 +3397,175 @@ public sealed class MobileShellViewTests
             Assert.Equal(InteractiveLabels.Current["send"], Avalonia.Automation.AutomationProperties.GetName(send));
             Assert.Equal(Guid.Empty, shell.Chat.ChatId);
 
-            // The chat's setup carries its ⋯, and only it.
-            shell.UseStartSetupCommand.Execute(shell.StartSetups[0]);
+            // Five starters don't fit a phone: the row, centred on the composer, shows those that do. The kept ones hold
+            // their places; the lit one (Just chat) has no room beside them, so it waits in the stack, which wears its light.
+            var composer = BoundsIn(Named(window, "Composer"), window);
+            var setups = Named(window, "WelcomeSetups");
+            var stack = Named(window, "WelcomeStarterStack");
+            Button Card(ChatStartSetup setup) => setups.GetVisualDescendants().OfType<Button>()
+                .Single(button => button.Classes.Contains("welcome-setup") && ReferenceEquals(button.DataContext, setup));
+            Assert.True(shell.HasStarterStack);
+            Assert.True(stack.IsEffectivelyVisible);
+            Assert.True(stack.Bounds.Height >= 48);
+            Assert.False(Named(window, "WelcomeNewStarter").IsVisible);
+            Assert.All(shell.StartSetups.Where(static setup => setup.IsKept), setup => Assert.True(Card(setup).IsEffectivelyVisible));
+            Assert.False(Card(shell.ActiveStartSetup!).IsEffectivelyVisible);
+            Assert.Contains("selected", stack.Classes);
+            Assert.Equal(
+                shell.StartSetups.Count - shell.StarterStackCount,
+                shell.StartSetups.Count(setup => Card(setup).IsEffectivelyVisible));
+            var row = BoundsIn(Named(window, "WelcomeSetupRow"), window);
+            Assert.True(row.Left >= composer.Left - 0.5 && row.Right <= composer.Right + 0.5, $"setups {row} overhang the composer {composer}");
+            Assert.InRange(Math.Abs(row.Center.X - composer.Center.X), 0, 1);
+
+            // The stack raises them above it, end-aligned with it, the nearest first and New starter last, over the chat;
+            // the lit one among them wears its light.
+            List<Button> Dial() => Named(window, "StarterDialItems").GetVisualDescendants().OfType<Button>()
+                .Where(button => button.Classes.Contains("welcome-setup")).ToList();
+            Tap(window, stack);
+            Assert.True(shell.IsStarterDialOpen);
+            await SettleFramesAsync(window, frames: 30);
+            var stackBounds = BoundsIn(stack, window);
+            var dial = Dial();
+            Assert.Equal<object?>(shell.StarterDialItems, dial.Select(button => button.DataContext));
+            Assert.Contains("selected", dial.Single(button => ReferenceEquals(button.DataContext, shell.ActiveStartSetup)).Classes);
+            var raised = dial.Select(button => BoundsIn(button, window)).ToList();
+            Assert.All(raised, bounds =>
+            {
+                Assert.True(bounds.Bottom <= stackBounds.Top + 0.5, $"{bounds} isn't above the stack {stackBounds}");
+                Assert.InRange(Math.Abs(bounds.Right - stackBounds.Right), 0, 1);
+                Assert.True(bounds.Height >= 48);
+            });
+            Assert.Equal(raised.OrderByDescending(bounds => bounds.Top), raised);
+            Assert.True(BoundsIn(Named(window, "StarterDialNewStarter"), window).Bottom <= raised[^1].Top + 0.5);
+            var hit = Assert.IsAssignableFrom<Visual>(window.InputHitTest(raised[0].Center));
+            Assert.True(ReferenceEquals(hit, dial[0]) || hit.GetVisualAncestors().Contains(dial[0]));
+
+            // The scrim dims the chat and the row around the stack: its one hole is the stack's own capsule (its surface
+            // 4 dp inside its 48 dp target), which reaches no starter on the row.
+            var dialLayer = Named(window, "StarterDialLayer");
+            var dim = Assert.IsType<Avalonia.Media.CombinedGeometry>(
+                Assert.IsType<Avalonia.Controls.Shapes.Path>(Named(window, "StarterDialScrim")).Data);
+            Assert.Equal(Avalonia.Media.GeometryCombineMode.Exclude, dim.GeometryCombineMode);
+            var hole = Assert.IsType<Avalonia.Media.RectangleGeometry>(dim.Geometry2);
+            Rect InLayer(Control control) => new Rect(control.Bounds.Size).TransformToAABB(control.TransformToVisual(dialLayer)!.Value);
+            var capsule = InLayer(stack).Deflate(new Thickness(0, 4));
+            Assert.True(Math.Abs(hole.Rect.X - capsule.X) < 0.5 && Math.Abs(hole.Rect.Y - capsule.Y) < 0.5
+                        && Math.Abs(hole.Rect.Width - capsule.Width) < 0.5 && Math.Abs(hole.Rect.Height - capsule.Height) < 0.5,
+                $"The scrim's hole {hole.Rect} isn't the stack's capsule {capsule}");
+            Assert.Equal(capsule.Height / 2, hole.RadiusX, 1);
+            Assert.All(shell.StartSetups.Where(setup => Card(setup).IsEffectivelyVisible),
+                setup => Assert.False(hole.Rect.Intersects(InLayer(Card(setup))), $"{setup.Title} is left lit"));
+
+            // A tap beside them folds them back.
+            var layer = BoundsIn(dialLayer, window);
+            window.MouseDown(new Point(layer.Left + 16, layer.Center.Y), MouseButton.Left);
+            window.MouseUp(new Point(layer.Left + 16, layer.Center.Y), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(shell.IsStarterDialOpen);
+
+            // A tap on one starts the chat there and folds them; with the row's room held by the kept starters, it waits
+            // in the stack, which keeps its light.
+            Tap(window, stack);
+            await SettleFramesAsync(window, frames: 30);
+            var nearest = Dial()[0];
+            var fromDial = Assert.IsType<ChatStartSetup>(nearest.DataContext);
+            Tap(window, nearest);
+            Assert.False(shell.IsStarterDialOpen);
+            Assert.Same(fromDial, shell.ActiveStartSetup);
             await SettleFramesAsync(window);
-            var more = Named(window, "WelcomeSetups").GetVisualDescendants().OfType<Button>()
+            Assert.False(Card(fromDial).IsEffectivelyVisible);
+            Assert.Contains("selected", stack.Classes);
+
+            // A kept starter tapped on the row is lit there, and carries its ⋯, and only it.
+            var picked = shell.StartSetups[0];
+            Tap(window, Card(picked));
+            await SettleFramesAsync(window);
+            Assert.Same(picked, shell.ActiveStartSetup);
+            Assert.DoesNotContain("selected", stack.Classes);
+            var more = setups.GetVisualDescendants().OfType<Button>()
                 .Where(button => button.Classes.Contains("welcome-setup-more")).ToList();
             var shown = Assert.Single(more, button => button.IsEffectivelyVisible);
+            Assert.Same(picked, shown.DataContext);
             Assert.True(shown.Bounds.Height >= 48);
             Tap(window, shown);
             Assert.True(shell.IsSetupSheetOpen);
+            Assert.Same(picked, shell.SetupSheetStarter);
             shell.IsSetupSheetOpen = false;
 
-            // A place from Other: its capsule and Keep glide into view at the row's end.
-            shell.PickPlaceCommand.Execute(shell.OtherProjects.Single());
-            await SettleFramesAsync(window, frames: 60);
-            var keep = Named(window, "WelcomeKeep");
-            Assert.True(keep.IsEffectivelyVisible);
-            var row = BoundsIn(Named(window, "WelcomeSetupsScroll"), window);
-            var keepBounds = BoundsIn(keep, window);
-            Assert.True(keepBounds.Right <= row.Right + 0.5, $"Keep {keepBounds} lies beyond the row {row}");
-            Assert.True(keepBounds.Left >= row.Left, $"Keep {keepBounds} lies before the row {row}");
+            // Holding another opens its sheet without starting the chat there.
+            var held = Card(shell.StartSetups.First(setup => setup != picked && Card(setup).IsEffectivelyVisible));
+            Assert.True(InputElement.GetIsHoldingEnabled(held));
+            var centre = held.TranslatePoint(new Point(held.Bounds.Width / 2, held.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(centre, MouseButton.Left);
+            held.RaiseEvent((HoldingRoutedEventArgs)Activator.CreateInstance(
+                typeof(HoldingRoutedEventArgs),
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+                binder: null, [HoldingState.Started, new Point(20, 20), PointerType.Touch, null], culture: null)!);
+            window.MouseUp(centre, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(shell.IsSetupSheetOpen);
+            Assert.Same(held.DataContext, shell.SetupSheetStarter);
+            Assert.Same(picked, shell.ActiveStartSetup);
+            shell.IsSetupSheetOpen = false;
+
+            // A project picked in the composer shows dashed on the row, its pin in reach; its face opens the new starter
+            // sheet, the starter's sheet filled from the draft, with its place to choose and Add at its foot.
+            shell.Chat.OpenContextPickerCommand.Execute("Project");
+            shell.Chat.PickContextOptionCommand.Execute(shell.Chat.ContextOptions.Single(option => option.Name == "Travel"));
+            await SettleFramesAsync(window);
+            Assert.True(Named(window, "WelcomeDraftChip").IsEffectivelyVisible);
+            Assert.True(Named(window, "WelcomeKeepDraft").Bounds.Height >= 48);
+            row = BoundsIn(Named(window, "WelcomeSetupRow"), window);
+            Assert.True(row.Left >= composer.Left - 0.5 && row.Right <= composer.Right + 0.5, $"setups {row} overhang the composer {composer}");
+            Tap(window, Named(window, "WelcomeDraftSetup"));
+            await SettleFramesAsync(window, frames: 30);
+            Assert.True(shell.IsSetupSheetOpen);
+            Assert.True(shell.IsSetupSheetNew);
+            var startsIn = Named(window, "LaunchpadStarterPlace");
+            Assert.True(startsIn.IsEffectivelyVisible);
+            Assert.True(startsIn.Bounds.Height >= 48);
+            Assert.False(Named(window, "LaunchpadStarterRemove").IsEffectivelyVisible);
+            Assert.False(Named(window, "LaunchpadStarterKeep").IsEffectivelyVisible);
+            var add = Named(window, "LaunchpadAddStarter");
+            Assert.True(add.IsEffectivelyVisible);
+            Assert.True(add.Bounds.Height >= 48);
+
+            // Starts in turns the sheet to its places, Just chat first; a tap on one turns it back, starting there.
+            Tap(window, startsIn);
+            await SettleFramesAsync(window);
+            Assert.True(Named(window, "LaunchpadStarterPlaces").IsEffectivelyVisible);
+            Assert.False(Named(window, "LaunchpadStarterName").IsEffectivelyVisible);
+            var justChat = Named(window, "LaunchpadPlaceJustChat");
+            Assert.True(justChat.IsEffectivelyVisible);
+            Assert.True(BoundsIn(justChat, window).Bottom <= BoundsIn(Named(window, "LaunchpadPlaceProjects"), window).Top);
+            var codingLumi = Named(window, "LaunchpadPlaceAgents").GetVisualDescendants().OfType<Button>().Single();
+            Assert.True(codingLumi.Bounds.Height >= 48);
+            Tap(window, codingLumi);
+            await SettleFramesAsync(window);
+            Assert.False(shell.IsChoosingStarterPlace);
+            Assert.True(Named(window, "LaunchpadStarterName").IsEffectivelyVisible);
+            Assert.Equal("Coding Lumi", shell.SetupSheetStarter.PlaceTitle);
+            Tap(window, startsIn);
+            await SettleFramesAsync(window);
+            Tap(window, justChat.GetVisualDescendants().OfType<Button>().First());
+            await SettleFramesAsync(window);
+            Assert.False(shell.IsChoosingStarterPlace);
+            Assert.True(shell.SetupSheetStarter.IsJustChat);
+            shell.IsSetupSheetOpen = false;
+
+            // With room for every starter, a round + ends the row instead of the stack.
+            shell.UseStartSetupCommand.Execute(shell.StartSetups.Single(setup => setup.Title == "Just chat"));
+            Layout(window, shell, 984, 1092);
+            await SettleFramesAsync(window);
+            Assert.False(shell.HasStarterStack);
+            Assert.All(shell.StartSetups, setup => Assert.True(Card(setup).IsEffectivelyVisible));
+            var plus = Named(window, "WelcomeNewStarter");
+            Assert.True(plus.IsEffectivelyVisible);
+            Assert.True(plus.Bounds.Height >= 48);
+            Tap(window, plus);
+            Assert.True(shell.IsSetupSheetOpen);
+            Assert.True(shell.IsSetupSheetNew);
         });
     }
 

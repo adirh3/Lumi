@@ -59,15 +59,18 @@ public sealed class LaunchpadViewModelTests
                 var projected = RemoteProjector.BuildSettings(
                     new DataStore(data), surface.AvailableModels.ToArray(), surface).NewChat;
                 Assert.NotNull(projected);
-                var desktopSetup = Assert.Single(launchpad.Setups);
-                var mobileSetup = Assert.Single(projected.Setups);
+                // The same starters in the same order: Just chat (the 1,700 plain chats), then Lumi with Coding Lumi.
+                Assert.Equal(launchpad.Setups.Select(item => item.Title), projected.Setups.Select(setup => setup.Title));
+                var desktopSetup = launchpad.Setups.Single(item => !item.IsJustChat);
+                var mobileSetup = projected.Setups.Single(setup => setup.ProjectId is not null);
                 Assert.Equal(desktopSetup.Title, mobileSetup.Title);
                 Assert.Equal(desktopSetup.Meta, mobileSetup.Description);
                 Assert.Equal(desktopSetup.Spec.ProjectId, mobileSetup.ProjectId);
                 Assert.Equal(desktopSetup.Spec.AgentId, mobileSetup.AgentId);
-                Assert.Equal(desktopSetup.Spec.ModelId, mobileSetup.Model);
-                Assert.Equal(surface.NormalizeReasoningEffortFor(mobileSetup.Model, mobileSetup.Quality),
-                    desktopSetup.Spec.Effort);
+                // A place starts on the default model: the phone names it back without one, and applies the default.
+                Assert.Null(desktopSetup.Spec.ModelId);
+                Assert.True(mobileSetup.IsDefaultModel);
+                Assert.Equal(data.Settings.PreferredModel, mobileSetup.Model);
                 Assert.Equal(desktopSetup.Spec.UseWorktree, mobileSetup.UseWorktree);
                 // Without plans or habits, For you leads with the hour's starters, which the phone offers too.
                 Assert.Equal(LaunchpadStarterCatalog.ForYou, launchpad.SelectedCategory?.Id);
@@ -79,16 +82,19 @@ public sealed class LaunchpadViewModelTests
 
                 // The launchpad itself, as the phone draws it: the row's details, Just chat, the tabs, For you for
                 // each place, Other's places, the launchpad's words and what waits on the user.
-                Assert.Equal(desktopSetup.Detail, mobileSetup.Detail);
-                Assert.Equal(desktopSetup.IsVariant, mobileSetup.IsVariant);
-                Assert.Equal(desktopSetup.IsPinned, mobileSetup.IsKept);
-                Assert.Equal(desktopSetup.Spec.Effort, mobileSetup.Effort);
+                Assert.Equal(desktopSetup.TellText, mobileSetup.Detail ?? "");
+                Assert.Equal(desktopSetup.TellsWorktree, mobileSetup.TellsWorktree);
+                Assert.Equal(desktopSetup.IsKept, mobileSetup.IsKept);
+                Assert.Equal(desktopSetup.CanHide, mobileSetup.CanHide);
                 Assert.Equal(desktopSetup.CanUseWorktree, mobileSetup.CanUseWorktree);
-                var justChat = Assert.IsType<RemoteChatSetup>(projected.JustChat);
+                Assert.Equal(LaunchpadStarterEditor.UsesTextOf(desktopSetup.Choice), mobileSetup.Note);
+                var justChat = projected.Setups.Single(setup => setup.ProjectId is null && setup.AgentId is null);
                 Assert.Equal(Loc.Launchpad_JustChat, justChat.Title);
-                Assert.Null(justChat.ProjectId);
-                Assert.Null(justChat.AgentId);
-                Assert.Equal(launchpad.JustChatMeta, justChat.Description);
+                Assert.False(justChat.CanHide);
+                Assert.True(justChat.IsDefaultModel);
+                Assert.Equal(ChatViewModel.FormatModelDisplay(data.Settings.PreferredModel), projected.DefaultModel);
+                Assert.Equal(LaunchpadPlanner.StarterIcons, projected.StarterIcons);
+                Assert.All(projected.StarterIcons, icon => Assert.Contains(icon, RemoteProtocol.LaunchpadIcons));
                 Assert.Equal(LaunchpadStarterCatalog.Order, projected.Tabs.Select(tab => tab.Id));
                 Assert.All(projected.Tabs, tab =>
                 {
@@ -113,7 +119,7 @@ public sealed class LaunchpadViewModelTests
                 Assert.False(string.IsNullOrEmpty(lumiPlace.Hint));
                 Assert.False(projected.Places.Single(place => place.Id == agent.Id).IsProject);
                 Assert.Equal(Loc.Launchpad_CategoryForYou, projected.Labels!.ForYou);
-                Assert.Equal(Loc.Launchpad_SetupStartsWith, projected.Labels.StartsWith);
+                Assert.Equal(Loc.Launchpad_NewStarter, projected.Labels.NewStarter);
                 Assert.Equal(1, projected.NeedsYouCount);
                 Assert.Equal(Loc.Launchpad_NeedsYouOne, projected.NeedsYou);
                 var waiting = Assert.Single(projected.NeedsYouChats);
@@ -124,7 +130,7 @@ public sealed class LaunchpadViewModelTests
                 var json = JsonSerializer.Serialize(projected, RemoteJsonContext.Default.RemoteNewChatExperience);
                 Assert.DoesNotContain(first.WorktreePath!, json);
                 var roundtrip = JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteNewChatExperience)!;
-                Assert.Equal(mobileSetup.Id, Assert.Single(roundtrip.Setups).Id);
+                Assert.Equal(projected.Setups.Select(setup => setup.Id), roundtrip.Setups.Select(setup => setup.Id));
                 Assert.Equal(projected.Tabs.Sum(tab => tab.Starters.Count), roundtrip.Tabs.Sum(tab => tab.Starters.Count));
                 Assert.Equal(projected.Places.Count, roundtrip.Places.Count);
                 // The whole launchpad stays small however many chats there are.
@@ -158,12 +164,11 @@ public sealed class LaunchpadViewModelTests
     }
 
     [Fact]
-    public async Task Setup_ConfiguresTheDraft_AndClickingItAgainRestoresTheDraft()
+    public async Task Starter_StartsItsPlaceOnTheDefaultModel_AndClickingItAgainRestoresTheDraft()
     {
         using var session = HeadlessTestSession.Start();
-        string? setupTitle = null;
-        string? setupMeta = null;
-        bool activeBefore = true, activeAfterApply = false, activeAfterUndo = true;
+        string? title = null, meta = null;
+        bool activeBefore = true, justChatLitBefore = false, activeAfterApply = false, activeAfterUndo = true;
         string? modelAfterApply = null, qualityAfterApply = null, projectAfterApply = null, agentAfterApply = null;
         string? modelAfterUndo = null, projectAfterUndo = null, agentAfterUndo = null;
         string? defaultModel = null, defaultEffort = null;
@@ -176,6 +181,7 @@ public sealed class LaunchpadViewModelTests
             var data = NewData();
             data.Projects.Add(project);
             data.Agents.Add(agent);
+            // The user worked there on Opus; the place still starts on the default model, so a new default carries it.
             data.Chats.Add(UsedChat(project, agent, daysAgo: 1));
             data.Chats.Add(UsedChat(project, agent, daysAgo: 2));
 
@@ -184,10 +190,11 @@ public sealed class LaunchpadViewModelTests
             launchpad.Activate();
             try
             {
-                var setup = Assert.Single(launchpad.Setups);
-                setupTitle = setup.Title;
-                setupMeta = setup.Meta;
+                var setup = launchpad.Setups.Single(item => !item.IsJustChat);
+                title = setup.Title;
+                meta = setup.Meta;
                 activeBefore = setup.IsActive;
+                justChatLitBefore = launchpad.ActiveSetup?.IsJustChat == true;
 
                 setup.SelectCommand.Execute(null);
                 Dispatcher.UIThread.RunJobs();
@@ -196,10 +203,6 @@ public sealed class LaunchpadViewModelTests
                 qualityAfterApply = surface.SelectedQuality;
                 projectAfterApply = surface.SelectedProjectName;
                 agentAfterApply = surface.ActiveAgent?.Name;
-
-                // Tuning the applied setup's model is still about this chat, not the defaults.
-                surface.SelectedQuality = "High";
-                surface.SelectedQuality = "Max";
 
                 setup.SelectCommand.Execute(null);
                 Dispatcher.UIThread.RunJobs();
@@ -217,13 +220,14 @@ public sealed class LaunchpadViewModelTests
             }
         }, CancellationToken.None);
 
-        Assert.Equal("Lumi", setupTitle);
-        Assert.Equal("Coding Lumi · Claude Opus 5 · Max", setupMeta);
+        Assert.Equal("Lumi", title);
+        Assert.Equal("Lumi · Coding Lumi · Default model", meta);
         Assert.False(activeBefore);
+        Assert.True(justChatLitBefore);
 
         Assert.True(activeAfterApply);
-        Assert.Equal("claude-opus-5", modelAfterApply);
-        Assert.Equal("Max", qualityAfterApply);
+        Assert.Equal("gpt-5.4", modelAfterApply);
+        Assert.Equal("High", qualityAfterApply);
         Assert.Equal("Lumi", projectAfterApply);
         Assert.Equal("Coding Lumi", agentAfterApply);
 
@@ -232,9 +236,135 @@ public sealed class LaunchpadViewModelTests
         Assert.Null(projectAfterUndo);
         Assert.Null(agentAfterUndo);
 
-        // A setup shapes one chat; it is not a change of the user's defaults.
+        // A starter shapes one chat; it is not a change of the user's defaults.
         Assert.Equal("gpt-5.4", defaultModel);
         Assert.Equal("high", defaultEffort);
+    }
+
+    [Fact]
+    public async Task AKeptStarter_StartsWithItsOwnModel_AndARetiredModelFallsBackToTheDefault()
+    {
+        using var session = HeadlessTestSession.Start();
+        List<string>? row = null, rowRetired = null;
+        bool lineIcon = false;
+        (string? Model, string? Quality, string? Lit) applied = default;
+        string? litOnAnotherModel = null, retiredModel = "unset", retiredNote = null;
+        (string? Model, string? Effort, string? Name, string? Icon) keptThroughEdits = default;
+
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            var lumi = new Project { Name = "Lumi" };
+            var data = NewData();
+            data.Projects.Add(lumi);
+            data.Chats.AddRange([UsedChat(lumi, null, 1), UsedChat(lumi, null, 2)]);
+            data.PinnedSetups.Add(new LaunchpadSetupPin
+            {
+                ProjectId = lumi.Id, ModelId = "claude-opus-5", Effort = "max", Name = "UI dev", Icon = "layers",
+            });
+            using var surface = NewSurface(data);
+            var launchpad = surface.Launchpad;
+            launchpad.Activate();
+            try
+            {
+                row = Titles();
+                var uiDev = launchpad.Setups[0];
+                lineIcon = uiDev.Badge.HasLineIcon && !uiDev.Badge.HasInitial;
+                uiDev.SelectCommand.Execute(null);
+                Dispatcher.UIThread.RunJobs();
+                applied = (surface.SelectedModel, surface.SelectedQuality, launchpad.ActiveSetup?.Title);
+
+                // Lumi on another model is the learned place's, which starts on any model.
+                surface.SelectedModel = "gpt-5.4";
+                Dispatcher.UIThread.RunJobs();
+                litOnAnotherModel = launchpad.ActiveSetup?.Title;
+            }
+            finally
+            {
+                launchpad.Deactivate();
+            }
+
+            // Kept on a model this computer no longer offers, it starts with the default model, and its card says so. It
+            // is then exactly the learned place, which it stands in for.
+            data.PinnedSetups[0].ModelId = "retired-model";
+            launchpad.Activate();
+            try
+            {
+                var uiDev = launchpad.Setups.Single(item => item.Title == "UI dev");
+                retiredModel = uiDev.Spec.ModelId;
+                uiDev.EditCommand.Execute(null);
+                retiredNote = launchpad.Editor.RetiredModelNote;
+                rowRetired = Titles();
+
+                // Renamed and given another icon meanwhile, it keeps that model for when it's back.
+                var editor = launchpad.Editor;
+                editor.Name = "UI work";
+                editor.CommitNameCommand.Execute(null);
+                editor.Icons.Single(icon => icon.Key == "bug").SelectCommand.Execute(null);
+                var pin = data.PinnedSetups[0];
+                keptThroughEdits = (pin.ModelId, pin.Effort, pin.Name, pin.Icon);
+            }
+            finally
+            {
+                launchpad.Deactivate();
+            }
+
+            List<string> Titles() => launchpad.Setups.Select(static setup => setup.Title).ToList();
+        }, CancellationToken.None);
+
+        Assert.Equal(["UI dev", "Lumi", "Just chat"], row);
+        Assert.True(lineIcon);
+        Assert.Equal(("claude-opus-5", "Max", "UI dev"), applied);
+        Assert.Equal("Lumi", litOnAnotherModel);
+        Assert.Null(retiredModel);
+        Assert.Contains("no longer available", retiredNote, StringComparison.Ordinal);
+        Assert.Equal(["UI dev", "Just chat"], rowRetired);
+        Assert.Equal(("retired-model", "max", "UI work", "bug"), keptThroughEdits);
+    }
+
+    [Fact]
+    public async Task AStartersCard_ShowsWhatChanged_WhenTheRowRefreshesItsStarterWhereItStands()
+    {
+        using var session = HeadlessTestSession.Start();
+        string? noteBefore = null;
+        (bool HasNote, bool Announced) afterPick = (true, false);
+
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            var docs = new Project { Name = "Docs" };
+            var data = NewData();
+            data.Projects.Add(docs);
+            // Kept in a project without recent chats, so it stands in for no learned place, on a model no longer offered.
+            data.PinnedSetups.Add(new LaunchpadSetupPin
+            {
+                ProjectId = docs.Id, ModelId = "retired-model", Effort = "max", Name = "Writing",
+            });
+            using var surface = NewSurface(data);
+            var launchpad = surface.Launchpad;
+            launchpad.Activate();
+            try
+            {
+                launchpad.Setups.Single(item => item.Title == "Writing").EditCommand.Execute(null);
+                var editor = launchpad.Editor;
+                noteBefore = editor.RetiredModelNote;
+
+                // Another model picked in its card changes it where it stands on the row; the card tells its view at once
+                // that the fallback is over.
+                List<string?> heard = [];
+                editor.PropertyChanged += (_, e) => heard.Add(e.PropertyName);
+                editor.Models.Single(model => model.ModelId == "claude-opus-5").SelectCommand.Execute(null);
+                afterPick = (editor.HasRetiredModelNote,
+                    heard.Any(name => string.IsNullOrEmpty(name) || name == nameof(LaunchpadStarterEditor.HasRetiredModelNote)));
+            }
+            finally
+            {
+                launchpad.Deactivate();
+            }
+        }, CancellationToken.None);
+
+        Assert.Contains("no longer available", noteBefore, StringComparison.Ordinal);
+        Assert.Equal((false, true), afterPick);
     }
 
     [Fact]
@@ -264,7 +394,7 @@ public sealed class LaunchpadViewModelTests
             launchpad.Activate();
             try
             {
-                launchpad.Setups.Single().SelectCommand.Execute(null);
+                launchpad.Setups.Single(item => !item.IsJustChat).SelectCommand.Execute(null);
                 surface.SelectedQuality = Loc.Quality_Low;
                 surface.SelectedContextWindowTier = Loc.ContextWindow_Long;
                 selectedEffort = surface.SelectedQuality;
@@ -288,61 +418,12 @@ public sealed class LaunchpadViewModelTests
     }
 
     [Fact]
-    public async Task Setup_ModelWithoutEffortsIsGroupedAndCanBeUndone()
-    {
-        using var session = HeadlessTestSession.Start();
-        bool activeAfterApply = false, activeAfterUndo = true;
-        string? setupEffort = "unexpected", qualityAfterApply = "unexpected", restoredModel = null;
-
-        await session.Dispatch(() =>
-        {
-            Loc.Load("en");
-            var project = new Project { Name = "Docs" };
-            var data = NewData();
-            data.Settings.ReasoningEffort = "medium";
-            data.Projects.Add(project);
-            var first = UsedChat(project, null, 1);
-            var second = UsedChat(project, null, 2);
-            first.LastModelUsed = second.LastModelUsed = "claude-sonnet-4.5";
-            first.LastReasoningEffortUsed = "high";
-            second.LastReasoningEffortUsed = "medium";
-            data.Chats.AddRange([first, second]);
-
-            using var surface = NewSurface(data);
-            surface.UpdateModelCapabilities([new ModelInfo { Id = "claude-sonnet-4.5" }], merge: true);
-            surface.ApplyAvailableModels(["gpt-5.4", "claude-opus-5", "claude-sonnet-4.5"], "gpt-5.4");
-            var launchpad = surface.Launchpad;
-            launchpad.Activate();
-            try
-            {
-                var setup = launchpad.Setups.Single();
-                setupEffort = setup.Spec.Effort;
-                setup.SelectCommand.Execute(null);
-                activeAfterApply = setup.IsActive;
-                qualityAfterApply = surface.SelectedQuality;
-                setup.SelectCommand.Execute(null);
-                activeAfterUndo = setup.IsActive;
-                restoredModel = surface.SelectedModel;
-            }
-            finally
-            {
-                launchpad.Deactivate();
-            }
-        }, CancellationToken.None);
-
-        Assert.Null(setupEffort);
-        Assert.Null(qualityAfterApply);
-        Assert.True(activeAfterApply);
-        Assert.False(activeAfterUndo);
-        Assert.Equal("gpt-5.4", restoredModel);
-    }
-
-    [Fact]
     public async Task Setups_RefreshProjectAndAgentEditsAfterAnIndexSave()
     {
         using var session = HeadlessTestSession.Start();
         string? renamedTitle = null, renamedMeta = null;
         Guid? remainingProject = Guid.Empty, remainingAgent = Guid.Empty;
+        var remainingUses = 0;
 
         await session.Dispatch(async () =>
         {
@@ -364,15 +445,18 @@ public sealed class LaunchpadViewModelTests
                 agent.Name = "Developer";
                 await Task.Run(() => store.SaveAsync());
                 Dispatcher.UIThread.RunJobs();
-                renamedTitle = launchpad.Setups.Single().Title;
-                renamedMeta = launchpad.Setups.Single().Meta;
+                renamedTitle = launchpad.Setups.Single(item => !item.IsJustChat).Title;
+                renamedMeta = launchpad.Setups.Single(item => !item.IsJustChat).Meta;
 
                 data.Projects.Clear();
                 data.Agents.Clear();
                 await Task.Run(() => store.SaveAsync());
                 Dispatcher.UIThread.RunJobs();
-                remainingProject = launchpad.Setups.Single().Spec.ProjectId;
-                remainingAgent = launchpad.Setups.Single().Spec.AgentId;
+                // The chats now start nowhere in particular: they are Just chat's.
+                var remaining = Assert.Single(launchpad.Setups);
+                remainingProject = remaining.Spec.ProjectId;
+                remainingAgent = remaining.Spec.AgentId;
+                remainingUses = remaining.Uses;
             }
             finally
             {
@@ -381,9 +465,10 @@ public sealed class LaunchpadViewModelTests
         }, CancellationToken.None);
 
         Assert.Equal("Lumi App", renamedTitle);
-        Assert.StartsWith("Developer · ", renamedMeta, StringComparison.Ordinal);
+        Assert.StartsWith("Lumi App · Developer · ", renamedMeta, StringComparison.Ordinal);
         Assert.Null(remainingProject);
         Assert.Null(remainingAgent);
+        Assert.Equal(2, remainingUses);
     }
 
     [Fact]
@@ -575,13 +660,193 @@ public sealed class LaunchpadViewModelTests
     }
 
     [Fact]
-    public async Task Setups_CanBeKeptRetunedOrHidden_AndPinnedFromOther()
+    public async Task AStartersCard_KeepsATypedName_ListsModelsAsThePicker_AndTunesTheirEfforts()
     {
         using var session = HeadlessTestSession.Start();
-        List<string>? learned = null, afterKeep = null, afterHide = null, afterOtherPin = null;
-        (string? Model, bool Pinned) retuned = default;
-        var strataPinnedInOther = false;
-        Guid?[]? pinnedProjects = null, hiddenProjects = null;
+        List<string?>? models = null;
+        List<(string Title, bool Current)>? fusionEfforts = null, opusEfforts = null;
+        (string? Model, string? Effort, string? Name) afterFusion = default, afterMax = default, afterOpus = default, afterOpusMax = default;
+        bool rowsKept = false;
+        string? fieldAfterModel = null;
+        var lumi = new Project { Name = "Lumi" };
+
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            var data = NewData();
+            data.Projects.Add(lumi);
+            var research = new LaunchpadSetupPin { ProjectId = lumi.Id, Name = "Research" };
+            data.PinnedSetups.Add(research);
+            using var surface = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            List<ModelInfo> catalog =
+            [
+                new ModelInfo { Id = "gpt-5.4", SupportedReasoningEfforts = ["low", "medium", "high"], DefaultReasoningEffort = "medium" },
+                new ModelInfo { Id = "claude-opus-5", SupportedReasoningEfforts = ["low", "medium", "high", "max"], DefaultReasoningEffort = "high" },
+                new ModelInfo { Id = "auto", Name = "Auto" },
+                new ModelInfo { Id = "auto:balance", Name = "Copilot Fusion Standard" },
+                new ModelInfo { Id = "auto:hydrafusion", Name = "Copilot Fusion High" },
+                new ModelInfo { Id = "auto:hydrafusion-max", Name = "Copilot Fusion Max" },
+            ];
+            surface.UpdateModelCapabilities(catalog);
+            surface.ApplyAvailableModels(catalog.Select(static model => model.Id).ToList(), "gpt-5.4");
+            var launchpad = surface.Launchpad;
+            launchpad.Activate();
+            try
+            {
+                launchpad.Setups.Single(setup => setup.Title == "Research").EditCommand.Execute(null);
+                var editor = launchpad.Editor;
+
+                // As the composer's picker lists them: Copilot Fusion once for its tiers, and no Auto beside it.
+                models = editor.Models.Select(static choice => choice.ModelId).ToList();
+
+                // Keeping a typed name (as focus leaving the field does) leaves the rows a click may be landing on.
+                var rows = editor.Models;
+                editor.Name = "Research notes";
+                editor.CommitNameCommand.Execute(null);
+                rowsKept = ReferenceEquals(rows, editor.Models);
+
+                // A name typed but not kept yet goes along with a model picked meanwhile.
+                editor.Name = "Deep research";
+                editor.Models.Single(choice => choice.ModelId == "auto:balance").SelectCommand.Execute(null);
+                afterFusion = (research.ModelId, research.Effort, research.Name);
+                fieldAfterModel = editor.Name;
+                fusionEfforts = editor.Qualities.Select(static quality => (quality.Title, quality.IsCurrent)).ToList();
+
+                // Fusion's tiers are its efforts; any other model keeps its own, which the card tunes the same way.
+                editor.Qualities.Single(quality => quality.Title == "Max").SelectCommand.Execute(null);
+                afterMax = (research.ModelId, research.Effort, research.Name);
+                editor.Models.Single(choice => choice.ModelId == "claude-opus-5").SelectCommand.Execute(null);
+                afterOpus = (research.ModelId, research.Effort, research.Name);
+                opusEfforts = editor.Qualities.Select(static quality => (quality.Title, quality.IsCurrent)).ToList();
+                editor.Qualities.Single(quality => quality.Title == "Max").SelectCommand.Execute(null);
+                afterOpusMax = (research.ModelId, research.Effort, research.Name);
+            }
+            finally
+            {
+                launchpad.Deactivate();
+            }
+        }, CancellationToken.None);
+
+        Assert.Equal([null, "auto:balance", "gpt-5.4", "claude-opus-5"], models);
+        Assert.True(rowsKept);
+        Assert.Equal(("auto:balance", null, "Deep research"), afterFusion);
+        Assert.Equal("Deep research", fieldAfterModel);
+        Assert.Equal([("Standard", true), ("High", false), ("Max", false)], fusionEfforts);
+        Assert.Equal(("auto:hydrafusion-max", null, "Deep research"), afterMax);
+        Assert.Equal(("claude-opus-5", "high", "Deep research"), afterOpus);
+        Assert.Equal([("Low", false), ("Medium", false), ("High", true), ("Max", false)], opusEfforts);
+        Assert.Equal(("claude-opus-5", "max", "Deep research"), afterOpusMax);
+    }
+
+    [Fact]
+    public async Task AStartersCard_KeepsRenamesRetunesOrDismissesIt()
+    {
+        using var session = HeadlessTestSession.Start();
+        List<string>? learned = null, afterKeep = null, afterRename = null, afterOwnModel = null, afterDefault = null;
+        List<string>? afterHide = null, afterRemove = null;
+        (bool Learned, string Heading, string Uses, bool CanHide) card = default;
+        (bool Follows, bool Kept) editor = default;
+        List<(string? Model, bool Current)>? models = null;
+        bool renamedInPlace = false, iconShown = false, editorClosedAfterHide = false, justChatCanHide = true;
+        string? keptName = null, keptIcon = null;
+        Guid?[]? hiddenProjects = null;
+        var lumi = new Project { Name = "Lumi" };
+        var search = new Project { Name = "Fluent Search" };
+
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            var data = NewData();
+            data.Projects.AddRange([lumi, search]);
+            data.Chats.AddRange([UsedChat(lumi, null, 1), UsedChat(lumi, null, 2), UsedChat(search, null, 3), UsedChat(search, null, 4)]);
+            using var surface = NewSurface(data);
+            var launchpad = surface.Launchpad;
+            launchpad.Activate();
+            try
+            {
+                learned = Row();
+
+                // A learned starter's card: how often the user starts there, that it follows the default model.
+                launchpad.Setups.Single(setup => setup.Title == "Fluent Search").EditCommand.Execute(null);
+                card = (launchpad.Editor.IsLearned, launchpad.Editor.Heading, launchpad.Editor.UsesText, launchpad.Editor.CanHide);
+
+                // Rename keeps it, first of the user's, and the card follows it there.
+                launchpad.Editor.RenameCommand.Execute(null);
+                afterKeep = Row();
+                var kept = launchpad.Setups[0];
+                editor = (ReferenceEquals(launchpad.Editor.Target, kept), launchpad.Editor.IsKept);
+
+                // A name of its own: the same capsule takes it.
+                launchpad.Editor.Name = "Search work";
+                launchpad.Editor.CommitNameCommand.Execute(null);
+                renamedInPlace = ReferenceEquals(launchpad.Setups[0], kept);
+                afterRename = Row();
+
+                // A model of its own leaves the place it was made from to be suggested again; back on the default model it
+                // stands in for that place once more.
+                models = launchpad.Editor.Models.Select(static choice => (choice.ModelId, choice.IsCurrent)).ToList();
+                launchpad.Editor.Models.Single(choice => choice.ModelId == "claude-opus-5").SelectCommand.Execute(null);
+                afterOwnModel = Row();
+                launchpad.Editor.Icons.Single(choice => choice.Key == "bug").SelectCommand.Execute(null);
+                iconShown = launchpad.Setups[0].Badge.HasLineIcon;
+                launchpad.Editor.Models[0].SelectCommand.Execute(null);
+                afterDefault = Row();
+                keptName = data.PinnedSetups.Single().Name;
+                keptIcon = data.PinnedSetups.Single().Icon;
+
+                // Not suggested any more, Lumi leaves the row, and its card closes.
+                launchpad.Setups.Single(setup => setup.Title == "Lumi").EditCommand.Execute(null);
+                launchpad.Editor.HideCommand.Execute(null);
+                editorClosedAfterHide = !launchpad.Editor.IsOpen;
+                afterHide = Row();
+                hiddenProjects = data.HiddenSetups.Select(static pin => pin.ProjectId).ToArray();
+
+                // Just chat is always there.
+                launchpad.Setups.Single(setup => setup.IsJustChat).EditCommand.Execute(null);
+                justChatCanHide = launchpad.Editor.CanHide;
+
+                // Removed, the kept starter gives way to the place it was made from.
+                launchpad.Setups[0].EditCommand.Execute(null);
+                launchpad.Editor.RemoveCommand.Execute(null);
+                afterRemove = Row();
+            }
+            finally
+            {
+                launchpad.Deactivate();
+            }
+
+            List<string> Row() => launchpad.Setups.Select(setup => (setup.IsKept ? "*" : "") + setup.Title).ToList();
+        }, CancellationToken.None);
+
+        Assert.Equal(["Lumi", "Fluent Search", "Just chat"], learned);
+        Assert.Equal((true, "Fluent Search", "2 of your chats in the last 30 days.", true), card);
+        Assert.Equal(["*Fluent Search", "Lumi", "Just chat"], afterKeep);
+        Assert.Equal((true, true), editor);
+        Assert.True(renamedInPlace);
+        Assert.Equal(["*Search work", "Lumi", "Just chat"], afterRename);
+        Assert.Equal([(null, true), ("gpt-5.4", false), ("claude-opus-5", false)], models);
+        Assert.Equal(["*Search work", "Lumi", "Fluent Search", "Just chat"], afterOwnModel);
+        Assert.True(iconShown);
+        Assert.Equal(["*Search work", "Lumi", "Just chat"], afterDefault);
+        Assert.Equal(("Search work", "bug"), (keptName, keptIcon));
+        Assert.True(editorClosedAfterHide);
+        Assert.Equal(["*Search work", "Just chat"], afterHide);
+        Assert.Equal([lumi.Id], hiddenProjects);
+        Assert.False(justChatCanHide);
+        Assert.Equal(["Fluent Search", "Just chat"], afterRemove);
+    }
+
+    [Fact]
+    public async Task TheDraftsOwnSetup_ShowsWhenNoStarterFitsIt_AndTheNewStarterCardStartsFromIt()
+    {
+        using var session = HeadlessTestSession.Start();
+        (bool Dashed, string? Title, string Tooltip) dashed = default;
+        (bool Dashed, string? Lit, bool Kept, string? Model) afterPin = default;
+        (bool IsNew, bool Form, string Name, string Place, string? Model) opened = default;
+        string? litOnAnotherModel = null, litAfterAdd = null;
+        List<(string? Name, string? Model)>? kept = null;
+        List<string>? row = null;
+        var openAfterAdd = true;
         var lumi = new Project { Name = "Lumi" };
         var search = new Project { Name = "Fluent Search" };
         var strata = new Project { Name = "Strata" };
@@ -592,408 +857,58 @@ public sealed class LaunchpadViewModelTests
             var data = NewData();
             data.Projects.AddRange([lumi, search, strata]);
             data.Chats.AddRange([UsedChat(lumi, null, 1), UsedChat(lumi, null, 2), UsedChat(search, null, 3), UsedChat(search, null, 4)]);
-            using var surface = NewSurface(data);
-            var launchpad = surface.Launchpad;
-            launchpad.Activate();
-            try
-            {
-                learned = launchpad.Setups.Select(setup => setup.Title).ToList();
-
-                // Kept, Fluent Search leads the row whatever is used most.
-                launchpad.Setups.Single(setup => setup.Title == "Fluent Search").ToggleKeepCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                afterKeep = launchpad.Setups.Select(setup => (setup.IsPinned ? "*" : "") + setup.Title).ToList();
-
-                // Starting Lumi on another model keeps it, with that model.
-                launchpad.Setups.Single(setup => setup.Title == "Lumi").StartWith("gpt-5.4");
-                Dispatcher.UIThread.RunJobs();
-                var retunedLumi = launchpad.Setups.Single(setup => setup.Title == "Lumi");
-                retuned = (retunedLumi.Spec.ModelId, retunedLumi.IsPinned);
-
-                // Not suggested any more, Fluent Search leaves the row and isn't learned back.
-                launchpad.Setups.Single(setup => setup.Title == "Fluent Search").HideCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                afterHide = launchpad.Setups.Select(setup => setup.Title).ToList();
-
-                // Strata, never used yet, is pinned from Other and joins the row.
-                launchpad.OpenOtherCommand.Execute(null);
-                var strataRow = launchpad.OtherProjects.Single(item => item.Title == "Strata");
-                strataRow.TogglePinCommand.Execute(null);
-                strataPinnedInOther = strataRow.IsPinned;
-                Dispatcher.UIThread.RunJobs();
-                afterOtherPin = launchpad.Setups.Select(setup => setup.Title).ToList();
-                pinnedProjects = data.PinnedSetups.Select(pin => pin.ProjectId).ToArray();
-                hiddenProjects = data.HiddenSetups.Select(pin => pin.ProjectId).ToArray();
-            }
-            finally
-            {
-                launchpad.Deactivate();
-            }
-        }, CancellationToken.None);
-
-        Assert.Equal(["Lumi", "Fluent Search"], learned);
-        Assert.Equal(["*Fluent Search", "Lumi"], afterKeep);
-        Assert.Equal(("gpt-5.4", true), retuned);
-        Assert.Equal(["Lumi"], afterHide);
-        Assert.True(strataPinnedInOther);
-        Assert.Equal(["Lumi", "Strata"], afterOtherPin);
-        Assert.Equal([lumi.Id, strata.Id], pinnedProjects);
-        Assert.Equal([search.Id], hiddenProjects);
-    }
-
-    [Fact]
-    public async Task PinningAProjectFromOther_KeepsEveryVariantTheRowShowsThere()
-    {
-        using var session = HeadlessTestSession.Start();
-        List<string>? before = null, after = null;
-        var lumi = new Project { Name = "Lumi" };
-
-        await session.Dispatch(() =>
-        {
-            Loc.Load("en");
-            var data = NewData();
-            data.Projects.Add(lumi);
-            data.Chats.AddRange([UsedChat(lumi, null, 1), UsedChat(lumi, null, 2), OnModel(UsedChat(lumi, null, 3)), OnModel(UsedChat(lumi, null, 4))]);
-            using var surface = NewSurface(data);
-            var launchpad = surface.Launchpad;
-            launchpad.Activate();
-            try
-            {
-                before = Row();
-                launchpad.OpenOtherCommand.Execute(null);
-                launchpad.OtherProjects.Single().TogglePinCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                after = Row();
-            }
-            finally
-            {
-                launchpad.Deactivate();
-            }
-
-            List<string> Row() => launchpad.Setups.Select(setup => (setup.IsPinned ? "*" : "") + setup.Spec.ModelId).ToList();
-        }, CancellationToken.None);
-
-        // Lumi on Opus and on GPT 5.4: pinning Lumi keeps both, rather than dropping the one it wasn't last used on.
-        Assert.Equal(["claude-opus-5", "gpt-5.4"], before);
-        Assert.Equal(["*claude-opus-5", "*gpt-5.4"], after);
-
-        static Chat OnModel(Chat chat)
-        {
-            chat.LastModelUsed = "gpt-5.4";
-            chat.LastReasoningEffortUsed = "high";
-            return chat;
-        }
-    }
-
-    [Fact]
-    public async Task AnAgentLastUsedInAProject_PinsAndUnpinsFromOther()
-    {
-        using var session = HeadlessTestSession.Start();
-        bool pinnedAtFirst = true, pinned = false, pinnedOnReopen = false, pinnedAfterUnpin = true;
-        int keptWhilePinned = -1, keptAfterUnpin = -1;
-        var lumi = new Project { Name = "Lumi" };
-        var agent = new LumiAgent { Name = "Coding Lumi", IconGlyph = "⚡" };
-
-        await session.Dispatch(() =>
-        {
-            Loc.Load("en");
-            var data = NewData();
-            data.Projects.Add(lumi);
-            data.Agents.Add(agent);
-            data.Chats.AddRange([UsedChat(lumi, agent, 1), UsedChat(lumi, agent, 2)]);
-            using var surface = NewSurface(data);
-            var launchpad = surface.Launchpad;
-            launchpad.Activate();
-            try
-            {
-                launchpad.OpenOtherCommand.Execute(null);
-                var row = launchpad.OtherAgents.Single();
-                pinnedAtFirst = row.IsPinned;
-                row.TogglePinCommand.Execute(null);
-                pinned = row.IsPinned;
-                keptWhilePinned = data.PinnedSetups.Count;
-
-                // Its pin keeps the project it was last used in, and still reads as the agent's.
-                launchpad.OpenOtherCommand.Execute(null);
-                row = launchpad.OtherAgents.Single();
-                pinnedOnReopen = row.IsPinned;
-                row.TogglePinCommand.Execute(null);
-                pinnedAfterUnpin = row.IsPinned;
-                keptAfterUnpin = data.PinnedSetups.Count;
-            }
-            finally
-            {
-                launchpad.Deactivate();
-            }
-        }, CancellationToken.None);
-
-        Assert.False(pinnedAtFirst);
-        Assert.True(pinned);
-        Assert.Equal(1, keptWhilePinned);
-        Assert.True(pinnedOnReopen);
-        Assert.False(pinnedAfterUnpin);
-        Assert.Equal(0, keptAfterUnpin);
-    }
-
-    [Fact]
-    public async Task JustChat_GoesBackToTheDefaultModelFromASetupOnAnother()
-    {
-        using var session = HeadlessTestSession.Start();
-        (bool JustChat, bool Setup) onSetup = default, back = default;
-        string? modelBack = null;
-
-        await session.Dispatch(() =>
-        {
-            Loc.Load("en");
-            var data = NewData();
-            // Chats outside projects on Opus, while new chats start on GPT 5.4: a setup of its own.
-            data.Chats.AddRange([OnOpus(PlainChat(1)), OnOpus(PlainChat(2))]);
-            using var surface = NewSurface(data);
-            var launchpad = surface.Launchpad;
-            launchpad.Activate();
-            try
-            {
-                var setup = launchpad.Setups.Single();
-                setup.SelectCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                onSetup = (launchpad.IsJustChatActive, setup.IsActive);
-
-                launchpad.SelectJustChatCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                back = (launchpad.IsJustChatActive, launchpad.Setups.Single().IsActive);
-                modelBack = surface.SelectedModel;
-            }
-            finally
-            {
-                launchpad.Deactivate();
-            }
-        }, CancellationToken.None);
-
-        Assert.Equal((false, true), onSetup);
-        Assert.Equal((true, false), back);
-        Assert.Equal("gpt-5.4", modelBack);
-
-        static Chat OnOpus(Chat chat)
-        {
-            chat.LastModelUsed = "claude-opus-5";
-            chat.LastReasoningEffortUsed = "max";
-            return chat;
-        }
-    }
-
-    [Fact]
-    public async Task KeepingTheDraft_MakesTheComposersSetupTheFirstChip_AndTryingAModelLeavesTheRowAlone()
-    {
-        using var session = HeadlessTestSession.Start();
-        List<string>? rowBefore = null, rowWhileTrying = null, rowAfterKeep = null, rowLetGo = null, rowNextTime = null;
-        (bool CanKeep, string Title, string Tooltip) offered = default;
-        (bool CanKeep, bool Active, bool Pinned) afterKeep = default;
-        List<(Guid? Project, bool Worktree, string? Model)>? kept = null;
-        var lumi = new Project { Name = "Lumi" };
-        var search = new Project { Name = "Fluent Search" };
-
-        await session.Dispatch(async () =>
-        {
-            Loc.Load("en");
-            var data = NewData();
-            data.Projects.AddRange([lumi, search]);
-            data.Chats.AddRange([UsedChat(lumi, null, 1), UsedChat(lumi, null, 2), UsedChat(search, null, 3), UsedChat(search, null, 4)]);
-            // Plain chats on the default model: Just chat already starts them, so they are no setup of their own.
-            data.Chats.AddRange([PlainChat(daysAgo: 5), PlainChat(daysAgo: 6)]);
-            var store = new DataStore(data);
-            using var surface = new ChatViewModel(store, TestCopilot.Shared);
-            surface.UpdateModelCapabilities(
-            [
-                new ModelInfo { Id = "gpt-5.4", SupportedReasoningEfforts = ["low", "medium", "high"], DefaultReasoningEffort = "medium" },
-                new ModelInfo { Id = "gpt-5.5", SupportedReasoningEfforts = ["low", "medium", "high"], DefaultReasoningEffort = "medium" },
-                new ModelInfo { Id = "claude-opus-5", SupportedReasoningEfforts = ["low", "medium", "high", "max"], DefaultReasoningEffort = "high" },
-            ]);
-            surface.ApplyAvailableModels(["gpt-5.4", "gpt-5.5", "claude-opus-5"], "gpt-5.4");
-            var launchpad = surface.Launchpad;
-            launchpad.Activate();
-            try
-            {
-                rowBefore = Row();
-
-                // Lumi's setup, then another model for it in the composer, which also becomes the default: the Other
-                // chip shows the setup and offers to keep it, and the row stays as it was.
-                launchpad.Setups.Single(setup => setup.Title == "Lumi").SelectCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                surface.SelectedModel = "gpt-5.5";
-                await Task.Run(() => store.SaveAsync());
-                Dispatcher.UIThread.RunJobs();
-                rowWhileTrying = Row();
-                offered = (launchpad.CanKeepDraft, launchpad.OtherTitle, launchpad.KeepDraftTooltip);
-
-                // Keeping it adds it first and keeps the Opus setup the row showed for Lumi beside it.
-                launchpad.KeepDraftCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                rowAfterKeep = Row();
-                afterKeep = (launchpad.CanKeepDraft, launchpad.Setups[0].IsActive, launchpad.Setups[0].IsPinned);
-                kept = data.PinnedSetups.Select(static pin => (pin.ProjectId, pin.UseWorktree, pin.ModelId)).ToList();
-
-                // Letting the Opus one go leaves the new one, and Lumi isn't learned again while it is kept.
-                launchpad.Setups.Single(setup => setup.Title == "Lumi" && setup.Spec.ModelId == "claude-opus-5")
-                    .ToggleKeepCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                rowLetGo = Row();
-            }
-            finally
-            {
-                launchpad.Deactivate();
-            }
-
-            // Next time Just chat starts on the new default, so the old default's plain chats are a setup of their own.
-            launchpad.Activate();
-            try
-            {
-                rowNextTime = Row();
-            }
-            finally
-            {
-                launchpad.Deactivate();
-            }
-
-            List<string> Row() => launchpad.Setups
-                .Select(setup => $"{(setup.IsPinned ? "*" : "")}{(setup.Spec.ProjectId is null ? "Just" : setup.Title)}:{setup.Spec.ModelId}")
-                .ToList();
-        }, CancellationToken.None);
-
-        Assert.Equal(["Lumi:claude-opus-5", "Fluent Search:claude-opus-5"], rowBefore);
-        Assert.Equal(rowBefore, rowWhileTrying);
-        Assert.True(offered.CanKeep);
-        Assert.Equal("Lumi", offered.Title);
-        Assert.StartsWith("Keep Lumi · ", offered.Tooltip, StringComparison.Ordinal);
-        Assert.EndsWith(" on new chats", offered.Tooltip, StringComparison.Ordinal);
-        Assert.Equal(["*Lumi:gpt-5.5", "*Lumi:claude-opus-5", "Fluent Search:claude-opus-5"], rowAfterKeep);
-        Assert.Equal((false, true, true), afterKeep);
-        Assert.Equal([(lumi.Id, false, "gpt-5.5"), (lumi.Id, false, "claude-opus-5")], kept);
-        Assert.Equal(["*Lumi:gpt-5.5", "Fluent Search:claude-opus-5"], rowLetGo);
-        Assert.Equal(["*Lumi:gpt-5.5", "Fluent Search:claude-opus-5", "Just:gpt-5.4"], rowNextTime);
-    }
-
-    [Fact]
-    public async Task OneProject_CanBeKeptOnSeveralModels_EachSayingWhatItStartsWith()
-    {
-        using var session = HeadlessTestSession.Start();
-        List<string>? rowBefore = null, rowTwoModels = null, rowRetuned = null, rowOneLeft = null, rowNoneLeft = null;
-        List<bool>? activeTwoModels = null;
-        var lumi = new Project { Name = "Lumi" };
-        var search = new Project { Name = "Fluent Search" };
-
-        await session.Dispatch(() =>
-        {
-            Loc.Load("en");
-            var data = NewData();
-            data.Projects.AddRange([lumi, search]);
-            data.Chats.AddRange([UsedChat(lumi, null, 1), UsedChat(lumi, null, 2), UsedChat(search, null, 3), UsedChat(search, null, 4)]);
             using var surface = NewSurface(data, extraModel: "gpt-5.5");
             var launchpad = surface.Launchpad;
+            var editor = launchpad.Editor;
             launchpad.Activate();
             try
             {
-                rowBefore = Row();
+                // Strata, picked in the composer, has no starter: the row shows where the chat starts, and a pin.
+                surface.SetProjectId(strata.Id);
+                Dispatcher.UIThread.RunJobs();
+                dashed = (launchpad.HasUnsavedDraft, launchpad.DraftPlace?.Title, launchpad.KeepDraftTooltip);
 
-                // Keep Lumi as it's used (Opus), then start it on GPT 5.5 in the composer and keep that too: Lumi now
-                // has two setups, each saying which model it starts with, and only the chat's is active.
-                launchpad.Setups.Single(setup => setup.Title == "Lumi").ToggleKeepCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                launchpad.Setups.Single(setup => setup.Title == "Lumi").SelectCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
+                launchpad.KeepDraftCommand.Execute(null);
+                afterPin = (launchpad.HasUnsavedDraft, launchpad.ActiveSetup?.Title, launchpad.ActiveSetup?.IsKept == true,
+                    data.PinnedSetups.Single().ModelId);
+
+                // Picking a model for this chat makes it the default too, yet the new starter card starts on it as the
+                // draft's own, under no name of its own until one is typed.
                 surface.SelectedModel = "gpt-5.5";
                 Dispatcher.UIThread.RunJobs();
-                launchpad.KeepDraftCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                rowTwoModels = Row();
-                activeTwoModels = launchpad.Setups.Select(static setup => setup.IsActive).ToList();
-
-                // Starting the GPT one on Opus too keeps both: they now differ only in effort, which they say.
-                launchpad.Setups.First(setup => setup.Spec.ModelId == "gpt-5.5").StartWith("claude-opus-5");
-                Dispatcher.UIThread.RunJobs();
-                rowRetuned = Row();
-
-                // Removing one leaves the other; removing the last stops Lumi being suggested at all.
-                launchpad.Setups.First(setup => setup.Title == "Lumi").HideCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                rowOneLeft = Row();
-                launchpad.Setups.Single(setup => setup.Title == "Lumi").HideCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                rowNoneLeft = Row();
+                litOnAnotherModel = launchpad.ActiveSetup?.Title;
+                launchpad.OpenNewStarterCommand.Execute(null);
+                opened = (editor.IsNew, editor.ShowsForm, editor.Name, editor.NamePlaceholder,
+                    editor.Models.Single(static model => model.IsCurrent).ModelId);
+                editor.Name = "Strata fast";
+                editor.AddCommand.Execute(null);
+                openAfterAdd = editor.IsOpen;
+                kept = data.PinnedSetups.Select(static pin => (pin.Name, pin.ModelId)).ToList();
+                litAfterAdd = launchpad.ActiveSetup?.Title;
+                row = launchpad.Setups.Select(static setup => setup.Title).ToList();
             }
             finally
             {
                 launchpad.Deactivate();
             }
-
-            List<string> Row() => launchpad.Setups
-                .Select(setup => $"{(setup.IsPinned ? "*" : "")}{setup.Title}{(setup.IsVariant ? "|" + setup.Detail : "")}")
-                .ToList();
         }, CancellationToken.None);
 
-        var gpt = ChatViewModel.FormatModelDisplay("gpt-5.5");
-        var opus = ChatViewModel.FormatModelDisplay("claude-opus-5");
-        var max = ModelSelectionHelper.EffortToDisplay("max");
-        Assert.Equal(["Lumi", "Fluent Search"], rowBefore);
-        Assert.Equal([$"*Lumi|{gpt}", $"*Lumi|{opus}", "Fluent Search"], rowTwoModels);
-        Assert.Equal([true, false, false], activeTwoModels);
-        Assert.Equal(3, rowRetuned!.Count);
-        Assert.All(rowRetuned.Take(2), entry => Assert.StartsWith($"*Lumi|{opus} · ", entry, StringComparison.Ordinal));
-        Assert.Contains($"*Lumi|{opus} · {max}", rowRetuned);
-        Assert.NotEqual(rowRetuned[0], rowRetuned[1]);
-        Assert.Equal("Fluent Search", rowRetuned[2]);
-        Assert.Equal(["*Lumi", "Fluent Search"], rowOneLeft);
-        Assert.Equal(["Fluent Search"], rowNoneLeft);
+        Assert.Equal((true, "Strata", "Keep Strata · Default model on new chats"), dashed);
+        Assert.Equal((false, "Strata", true, (string?)null), afterPin);
+        Assert.Equal("Strata", litOnAnotherModel);
+        Assert.Equal((true, true, "", "Strata", "gpt-5.5"), opened);
+        Assert.False(openAfterAdd);
+        // Added beside the kept Strata, never renaming it.
+        Assert.Equal([(null, null), ("Strata fast", "gpt-5.5")], kept);
+        Assert.Equal("Strata fast", litAfterAdd);
+        Assert.Equal(["Strata", "Strata fast", "Lumi", "Fluent Search", "Just chat"], row);
     }
 
     [Fact]
-    public async Task KeepingAnotherSetupForAProject_KeepsTheOneTheRowShowed()
+    public async Task NamesakeStarters_SayWhatTellsThemApart()
     {
         using var session = HeadlessTestSession.Start();
-        List<string>? before = null, after = null;
-
-        await session.Dispatch(() =>
-        {
-            Loc.Load("en");
-            var lumi = new Project { Name = "Lumi" };
-            var data = NewData();
-            data.Projects.Add(lumi);
-            data.Chats.AddRange([UsedChat(lumi, null, 1), UsedChat(lumi, null, 2)]);
-            using var surface = NewSurface(data, extraModel: "gpt-5.5");
-            var launchpad = surface.Launchpad;
-            launchpad.Activate();
-            try
-            {
-                before = Row();
-
-                // Start Lumi on GPT 5.5 and keep that: the Opus setup the row showed stays beside it, kept now too, since
-                // keeping a project stops Lumi learning setups for it.
-                launchpad.Setups.Single().SelectCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                surface.SelectedModel = "gpt-5.5";
-                Dispatcher.UIThread.RunJobs();
-                launchpad.KeepDraftCommand.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-                after = Row();
-            }
-            finally
-            {
-                launchpad.Deactivate();
-            }
-
-            List<string> Row() => launchpad.Setups
-                .Select(setup => $"{(setup.IsPinned ? "*" : "")}{setup.Title}|{setup.Spec.ModelId}")
-                .ToList();
-        }, CancellationToken.None);
-
-        Assert.Equal(["Lumi|claude-opus-5"], before);
-        Assert.Equal(["*Lumi|gpt-5.5", "*Lumi|claude-opus-5"], after);
-    }
-
-    [Fact]
-    public async Task OneProjectInAWorktreeAndInItsFolder_SaysWhichIsWhich()
-    {
-        using var session = HeadlessTestSession.Start();
-        List<(string Title, string Detail, bool Worktree)>? row = null;
+        List<(string Title, bool Worktree, string Tell, bool Kept)>? row = null;
 
         await session.Dispatch(() =>
         {
@@ -1002,12 +917,14 @@ public sealed class LaunchpadViewModelTests
             var data = NewData();
             data.Projects.Add(lumi);
             data.Chats.AddRange([UsedChat(lumi, null, 1), UsedChat(lumi, null, 2), InWorktree(UsedChat(lumi, null, 3)), InWorktree(UsedChat(lumi, null, 4))]);
-            using var surface = NewSurface(data);
+            data.PinnedSetups.Add(new LaunchpadSetupPin { ProjectId = lumi.Id, ModelId = "claude-opus-5" });
+            data.PinnedSetups.Add(new LaunchpadSetupPin { ProjectId = lumi.Id, ModelId = "gpt-5.5" });
+            using var surface = NewSurface(data, extraModel: "gpt-5.5");
             var launchpad = surface.Launchpad;
             launchpad.Activate();
             try
             {
-                row = launchpad.Setups.Select(static setup => (setup.Title, setup.Detail, setup.Spec.UseWorktree)).ToList();
+                row = launchpad.Setups.Select(static setup => (setup.Title, setup.TellsWorktree, setup.TellText, setup.IsKept)).ToList();
             }
             finally
             {
@@ -1021,71 +938,153 @@ public sealed class LaunchpadViewModelTests
             }
         }, CancellationToken.None);
 
-        // Both start on the same model, so the worktree is what tells them apart.
-        var opus = ChatViewModel.FormatModelDisplay("claude-opus-5")!;
-        Assert.Equal([("Lumi", opus, false), ("Lumi", $"Worktree · {opus}", true)], row);
+        // The kept ones say their models, the worktree one says ⑂, and the plain place says nothing.
+        Assert.Equal(
+            [
+                ("Lumi", false, ChatViewModel.FormatModelDisplay("claude-opus-5")!, true),
+                ("Lumi", false, ChatViewModel.FormatModelDisplay("gpt-5.5")!, true),
+                ("Lumi", false, "", false),
+                ("Lumi", true, "", false),
+                ("Just chat", false, "", false),
+            ],
+            row);
     }
 
     [Fact]
-    public async Task JustChatAndOther_StartWhereTheUserChooses()
+    public async Task TheNewStarterCard_MakesAStarterAnywhere_WithItsOwnCheckoutAndModel_AndLeavesTheDraftAlone()
     {
         using var session = HeadlessTestSession.Start();
-        bool plainAtFirst = false, plainWithSetup = true, plainAgain = false, otherPicked = false;
-        string? plainMeta = null, projectAfterJustChat = "unset", projectAfterOther = null, modelAfterOther = null;
-        List<string>? otherProjects = null, otherAgents = null, filtered = null;
-        bool agentsAfterFilter = true, noMatch = false;
-        (bool Active, string Title, bool HasBadge, bool JustChat) otherChip = default, otherChipAtFirst = default;
+        // A folder Lumi takes for a git repository, so Strata can start in a worktree.
+        var repo = Path.Combine(Path.GetTempPath(), $"lumi-launchpad-new-starter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(repo, ".git"));
+        try
+        {
+            List<string>? projects = null, agents = null, filtered = null;
+            List<bool>? currentAtFirst = null;
+            bool dismissedKeepsNothing = false, othersAfterFilter = true, openAfterAdd = true, noMatch = false;
+            (string Place, bool CanUseWorktree, bool Worktree, bool Choosing) afterPlace = default;
+            (string? Model, string? Effort, bool HasQualities) afterModel = default;
+            (string? Project, string? Model, string? Default) draftBefore = default, draftAfter = default;
+            LaunchpadSetupPin? added = null;
+            var strata = new Project { Name = "Strata", WorkingDirectory = repo };
+
+            await session.Dispatch(() =>
+            {
+                Loc.Load("en");
+                var lumi = new Project { Name = "Lumi" };
+                var agent = new LumiAgent { Name = "Coding Lumi", IconGlyph = "⚡" };
+                var data = NewData();
+                data.Projects.AddRange([lumi, strata]);
+                data.Agents.Add(agent);
+                data.Chats.AddRange([UsedChat(lumi, agent, 1), UsedChat(lumi, agent, 2), UsedChat(strata, null, 3)]);
+                using var surface = NewSurface(data);
+                var launchpad = surface.Launchpad;
+                var editor = launchpad.Editor;
+                launchpad.Activate();
+                try
+                {
+                    draftBefore = (surface.SelectedProjectName, surface.SelectedModel, data.Settings.PreferredModel);
+
+                    // Dismissed, the card keeps nothing.
+                    launchpad.OpenNewStarterCommand.Execute(null);
+                    editor.Name = "Never mind";
+                    editor.Close();
+                    dismissedKeepsNothing = data.PinnedSetups.Count == 0;
+
+                    // A plain new chat's card starts in Just chat. Its places list every project, most recently used
+                    // first, then every agent, its own checked.
+                    launchpad.OpenNewStarterCommand.Execute(null);
+                    editor.ChoosePlaceCommand.Execute(null);
+                    currentAtFirst = [editor.JustChatPlace!.IsCurrent, .. editor.PlaceProjects.Select(static place => place.IsCurrent)];
+                    projects = editor.PlaceProjects.Select(static place => place.Title).ToList();
+                    agents = editor.PlaceAgents.Select(static place => place.Title).ToList();
+                    editor.PlaceQuery = "str";
+                    filtered = editor.PlaceProjects.Select(static place => place.Title).ToList();
+                    othersAfterFilter = editor.HasJustChatPlace || editor.HasPlaceAgents;
+
+                    // Enter picks Strata, a git project, which can start in a worktree; the starter gets a model and
+                    // effort of its own, an icon and a name.
+                    editor.SelectFirstPlace();
+                    afterPlace = (editor.NamePlaceholder, editor.CanUseWorktree, editor.IsWorktree, editor.IsChoosingPlace);
+                    editor.ToggleWorktreeCommand.Execute(null);
+                    editor.Models.Single(static model => model.ModelId == "claude-opus-5").SelectCommand.Execute(null);
+                    editor.Qualities.Single(static quality => quality.Title == ModelSelectionHelper.EffortToDisplay("max"))
+                        .SelectCommand.Execute(null);
+                    afterModel = (editor.Target!.Spec.ModelId, editor.Target.Spec.Effort, editor.HasQualities);
+                    editor.Icons.Single(static icon => icon.Key == "layers").SelectCommand.Execute(null);
+                    editor.Name = "UI dev";
+                    editor.AddCommand.Execute(null);
+                    openAfterAdd = editor.IsOpen;
+                    added = data.PinnedSetups.SingleOrDefault();
+                    draftAfter = (surface.SelectedProjectName, surface.SelectedModel, data.Settings.PreferredModel);
+
+                    launchpad.OpenNewStarterCommand.Execute(null);
+                    editor.ChoosePlaceCommand.Execute(null);
+                    editor.PlaceQuery = "nothing like this";
+                    noMatch = editor.HasNoPlaceMatch;
+                    editor.Close();
+                }
+                finally
+                {
+                    launchpad.Deactivate();
+                }
+            }, CancellationToken.None);
+
+            Assert.True(dismissedKeepsNothing);
+            Assert.Equal([true, false, false], currentAtFirst);
+            Assert.Equal(["Lumi", "Strata"], projects);
+            Assert.Equal(["Coding Lumi"], agents);
+            Assert.Equal(["Strata"], filtered);
+            Assert.False(othersAfterFilter);
+            Assert.Equal(("Strata", true, false, false), afterPlace);
+            Assert.Equal(("claude-opus-5", "max", true), afterModel);
+            Assert.False(openAfterAdd);
+            Assert.NotNull(added);
+            Assert.Equal((strata.Id, (Guid?)null, true, "claude-opus-5", "max", "UI dev", "layers"),
+                (added.ProjectId, added.AgentId, added.UseWorktree, added.ModelId, added.Effort, added.Name, added.Icon));
+            // Making a starter is not starting there: the draft and the default model stay as they were.
+            Assert.Equal(draftBefore, draftAfter);
+            Assert.True(noMatch);
+        }
+        finally
+        {
+            Directory.Delete(repo, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task JustChat_IsAlwaysAStarter_ThatStartsOnTheDefaultModelWhateverTheUserPicks()
+    {
+        using var session = HeadlessTestSession.Start();
+        (int Uses, bool CanHide, bool Lit) atFirst = default;
+        (string? Project, string? Model, bool Lit) back = default;
+        bool litOnAnotherModel = false;
 
         await session.Dispatch(() =>
         {
             Loc.Load("en");
             var lumi = new Project { Name = "Lumi" };
-            var strata = new Project { Name = "Strata" };
-            var agent = new LumiAgent { Name = "Coding Lumi", IconGlyph = "⚡" };
             var data = NewData();
-            data.Projects.AddRange([lumi, strata]);
-            data.Agents.Add(agent);
-            data.Chats.Add(UsedChat(lumi, agent, daysAgo: 1));
-            data.Chats.Add(UsedChat(lumi, agent, daysAgo: 2));
-            var strataChat = UsedChat(strata, null, daysAgo: 3);
-            strataChat.LastModelUsed = "gpt-5.4";
-            strataChat.LastReasoningEffortUsed = "low";
-            data.Chats.Add(strataChat);
-
+            data.Projects.Add(lumi);
+            // Plain chats on Opus while new chats start on GPT 5.4: still Just chat, which follows the default model.
+            data.Chats.AddRange([OnOpus(PlainChat(1)), OnOpus(PlainChat(2)), UsedChat(lumi, null, 3), UsedChat(lumi, null, 4)]);
             using var surface = NewSurface(data);
             var launchpad = surface.Launchpad;
-            launchpad.OtherPicked += () => otherPicked = true;
             launchpad.Activate();
             try
             {
-                plainAtFirst = launchpad.IsJustChatActive;
-                plainMeta = launchpad.JustChatMeta;
-                otherChipAtFirst = (launchpad.IsOtherActive, launchpad.OtherTitle, launchpad.HasOtherBadge, launchpad.IsJustChatActive);
+                var justChat = launchpad.Setups.Single(setup => setup.IsJustChat);
+                atFirst = (justChat.Uses, justChat.CanHide, justChat.IsActive);
 
-                launchpad.Setups.Single().SelectCommand.Execute(null);
+                launchpad.Setups.Single(setup => setup.Title == "Lumi").SelectCommand.Execute(null);
                 Dispatcher.UIThread.RunJobs();
-                plainWithSetup = launchpad.IsJustChatActive;
-
-                launchpad.SelectJustChatCommand.Execute(null);
+                justChat.SelectCommand.Execute(null);
                 Dispatcher.UIThread.RunJobs();
-                plainAgain = launchpad.IsJustChatActive;
-                projectAfterJustChat = surface.SelectedProjectName;
+                back = (surface.SelectedProjectName, surface.SelectedModel, justChat.IsActive);
 
-                launchpad.OpenOtherCommand.Execute(null);
-                otherProjects = launchpad.OtherProjects.Select(item => item.Title).ToList();
-                otherAgents = launchpad.OtherAgents.Select(item => item.Title).ToList();
-                launchpad.OtherQuery = "str";
-                filtered = launchpad.OtherProjects.Select(item => item.Title).ToList();
-                agentsAfterFilter = launchpad.HasOtherAgents;
-
-                launchpad.SelectFirstOther();
+                surface.SelectedModel = "claude-opus-5";
                 Dispatcher.UIThread.RunJobs();
-                projectAfterOther = surface.SelectedProjectName;
-                modelAfterOther = surface.SelectedModel;
-                otherChip = (launchpad.IsOtherActive, launchpad.OtherTitle, launchpad.HasOtherBadge, launchpad.IsJustChatActive);
-
-                launchpad.OtherQuery = "nothing like this";
-                noMatch = launchpad.HasNoOtherMatch;
+                litOnAnotherModel = justChat.IsActive;
             }
             finally
             {
@@ -1093,24 +1092,16 @@ public sealed class LaunchpadViewModelTests
             }
         }, CancellationToken.None);
 
-        Assert.True(plainAtFirst);
-        Assert.Equal(ChatViewModel.FormatModelDisplay("gpt-5.4"), plainMeta);
-        Assert.False(plainWithSetup);
-        Assert.True(plainAgain);
-        Assert.Null(projectAfterJustChat);
+        Assert.Equal((2, false, true), atFirst);
+        Assert.Equal(((string?)null, "gpt-5.4", true), back);
+        Assert.True(litOnAnotherModel);
 
-        // Most recently used first; every agent after the projects.
-        Assert.Equal(["Lumi", "Strata"], otherProjects);
-        Assert.Equal(["Coding Lumi"], otherAgents);
-        Assert.Equal(["Strata"], filtered);
-        Assert.False(agentsAfterFilter);
-        Assert.True(otherPicked);
-        // It starts the way the user last worked in Strata, and the Other chip says so.
-        Assert.Equal("Strata", projectAfterOther);
-        Assert.Equal("gpt-5.4", modelAfterOther);
-        Assert.Equal((false, "Other", false, true), otherChipAtFirst);
-        Assert.Equal((true, "Strata", true, false), otherChip);
-        Assert.True(noMatch);
+        static Chat OnOpus(Chat chat)
+        {
+            chat.LastModelUsed = "claude-opus-5";
+            chat.LastReasoningEffortUsed = "max";
+            return chat;
+        }
     }
 
     [Fact]
@@ -1142,7 +1133,7 @@ public sealed class LaunchpadViewModelTests
             {
                 subtitleOutside = launchpad.Subtitle;
 
-                launchpad.Setups.Single().SelectCommand.Execute(null);
+                launchpad.Setups.Single(item => !item.IsJustChat).SelectCommand.Execute(null);
                 Dispatcher.UIThread.RunJobs();
                 subtitleInProject = launchpad.Subtitle;
                 firstStarter = launchpad.Suggestions.First().Prompt;
@@ -1199,7 +1190,7 @@ public sealed class LaunchpadViewModelTests
                 activeOnWelcome = surface.Launchpad.IsActive;
                 cardVisible = view.FindControl<ItemsControl>("WelcomeSuggestions")!.IsEffectivelyVisible
                               && view.FindControl<ListBox>("LaunchpadCategories")!.ItemCount == 9
-                              && view.FindControl<Button>("LaunchpadJustChat")!.IsEffectivelyVisible
+                              && view.FindControl<ItemsControl>("LaunchpadSetupTiles")!.IsEffectivelyVisible
                               && !view.FindControl<Button>("LaunchpadNeedsYouButton")!.IsVisible;
                 var setups = view.FindControl<StackPanel>("LaunchpadSetups")!;
                 setupsVisible = setups.IsEffectivelyVisible;

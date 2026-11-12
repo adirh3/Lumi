@@ -49,18 +49,14 @@ public static class DesignPreview
 
         var codingLumi = new RemoteLumi { Id = Guid.NewGuid(), Name = "Coding Lumi", Description = "Writes, reviews, debugs and tests software", IconGlyph = "⚡", IsBuiltIn = true, SkillCount = 3, ToolCount = 16 };
         var dailyPlanner = new RemoteLumi { Id = Guid.NewGuid(), Name = "Daily Planner", Description = "Plans your day and keeps you on track", IconGlyph = "📋", IsBuiltIn = true };
+        var releaseManager = new RemoteLumi { Id = Guid.NewGuid(), Name = "Release manager", Description = "Ships Lumi builds and checks the store listing", IconGlyph = "🚀", SkillCount = 2, ToolCount = 6 };
+        var creativeWriter = new RemoteLumi { Id = Guid.NewGuid(), Name = "Creative Writer", Description = "Writing, storytelling and creative content", IconGlyph = "✍", IsBuiltIn = true };
         var library = new RemoteLibrary
         {
             Projects = projects,
             // As a real PC sends them: Lumi's own agents and skills are built in, and connectors
             // and jobs can't be edited from the phone, so every kind of row is represented.
-            Lumis =
-            [
-                new() { Id = Guid.NewGuid(), Name = "Release manager", Description = "Ships Lumi builds and checks the store listing", IconGlyph = "🚀", SkillCount = 2, ToolCount = 6 },
-                codingLumi,
-                dailyPlanner,
-                new() { Id = Guid.NewGuid(), Name = "Creative Writer", Description = "Writing, storytelling and creative content", IconGlyph = "✍", IsBuiltIn = true }
-            ],
+            Lumis = [releaseManager, codingLumi, dailyPlanner, creativeWriter],
             Skills =
             [
                 new() { Id = Guid.NewGuid(), Name = "Fold layout check", Description = "Screenshots every Fold posture in the simulator", IconGlyph = "📱" },
@@ -176,29 +172,44 @@ public static class DesignPreview
             ]
         });
         // A new chat as a paired PC with the launchpad describes it: its greeting, For you and the line under the
-        // greeting per project, a tab per kind of task, the setups row (several setups for Lumi among them), Other's
-        // places, and what waits on the user.
-        RemoteChatSetup Setup(string id, string title, string description, RemoteProject? project, RemoteLumi? agent,
-            string? model, string? effort, string? detail = null, bool worktree = false, bool variant = false, bool kept = false) => new()
+        // greeting per project, a tab per kind of task, the starters (two the user kept, then the places Lumi learned,
+        // more than a phone's row holds), the new starter sheet's places, and what waits on the user.
+        RemoteChatSetup Setup(string title, RemoteProject? project, RemoteLumi? agent, bool worktree = false,
+            string? model = null, string? effort = null, string? icon = null, bool kept = false, string? note = null)
         {
-            Id = id, Title = title, Description = description,
-            Glyph = project?.Name[..1] ?? agent?.IconGlyph ?? "✦",
-            ProjectId = project?.Id, ProjectName = project?.Name,
-            AgentId = agent?.Id, AgentName = agent?.Name, AgentGlyph = agent?.IconGlyph,
-            UseWorktree = worktree, Model = model, Effort = effort,
-            Quality = effort is null ? null : char.ToUpperInvariant(effort[0]) + effort[1..],
-            Detail = detail, IsVariant = variant, IsKept = kept, CanUseWorktree = project?.IsCodingProject == true
-        };
+            var place = project?.Name ?? agent?.Name ?? "Just chat";
+            var isDefault = model is null;
+            return new RemoteChatSetup
+            {
+                Id = $"{project?.Id:N}:{agent?.Id:N}:{worktree}:{model}:{effort}",
+                Title = title,
+                PlaceTitle = place,
+                Description = string.Join(" · ", new[] { place, worktree ? "Worktree" : null,
+                    isDefault ? "Default model" : model == "claude-opus-5.5" ? "Claude Opus 5.5" : model }.OfType<string>()),
+                Glyph = project?.Name[..1] ?? agent?.IconGlyph ?? "✦",
+                ProjectId = project?.Id, ProjectName = project?.Name,
+                AgentId = agent?.Id, AgentName = agent?.Name, AgentGlyph = agent?.IconGlyph,
+                UseWorktree = worktree,
+                // A starter on the default model starts with what the default is now.
+                Model = model ?? "gpt-6.1-sol",
+                Effort = isDefault ? "high" : effort,
+                Quality = isDefault ? "High" : effort is null ? null : char.ToUpperInvariant(effort[0]) + effort[1..],
+                IsDefaultModel = isDefault,
+                Icon = icon,
+                IsKept = kept,
+                CanHide = !kept && (project is not null || agent is not null),
+                Note = note,
+                CanUseWorktree = project?.IsCodingProject == true
+            };
+        }
         static RemoteLaunchpadStarter Starter(string id, string icon, string label, string? reason = null) =>
             new() { Id = id, Icon = icon, Label = label, Prompt = label, Reason = reason };
         static RemoteLaunchpadTab Tab(string id, string title, params RemoteLaunchpadStarter[] starters) =>
             new() { Id = id, Title = title, Starters = [.. starters] };
-        var lumiWorktree = Setup("lumi-worktree", lumi.Name, "Coding Lumi · Worktree · GPT-6.1 Sol · High", lumi, codingLumi,
-            "gpt-6.1-sol", "high", "Worktree · GPT-6.1 Sol", worktree: true, variant: true, kept: true);
-        RemoteLaunchpadPlace Place(RemoteProject? project, RemoteLumi? agent, string hint, bool kept = false) => new()
+        RemoteLaunchpadPlace Place(RemoteProject? project, RemoteLumi? agent, string hint, bool worktree = false) => new()
         {
-            Id = project?.Id ?? agent!.Id, IsProject = project is not null, Title = project?.Name ?? agent!.Name, Hint = hint, IsKept = kept,
-            Setup = Setup($"place-{project?.Name ?? agent!.Name}", project?.Name ?? agent!.Name, "GPT-6.1 Sol", project, agent, "gpt-6.1-sol", null)
+            Id = project?.Id ?? agent!.Id, IsProject = project is not null, Title = project?.Name ?? agent!.Name, Hint = hint,
+            Setup = Setup(project?.Name ?? agent!.Name, project, agent, worktree)
         };
         shell.ApplyNewChatExperience(new RemoteNewChatExperience
         {
@@ -211,14 +222,19 @@ public static class DesignPreview
             },
             Brief = "1 chat needs your answer · 1 new reply",
             SetupsTitle = "Start with",
-            JustChat = Setup("just-chat", "Just chat", "GPT-6.1 Sol", null, null, "gpt-6.1-sol", null, "GPT-6.1 Sol"),
+            DefaultModel = "GPT-6.1 Sol",
+            StarterIcons = ["layers", "bug", "lightbulb", "search", "book", "pencil", "beaker", "cube", "target", "chat"],
             Setups =
             [
-                lumiWorktree,
-                Setup("lumi-opus", lumi.Name, "Claude Opus 5.5 · High", lumi, null, "claude-opus-5.5", "high", "Claude Opus 5.5", variant: true, kept: true),
-                Setup("lumi-luna", lumi.Name, "GPT-6 Luna", lumi, null, "gpt-6-luna", null, "GPT-6 Luna", variant: true),
-                Setup("fluent", fluent.Name, "Claude Opus 5.5", fluent, null, "claude-opus-5.5", null, "Claude Opus 5.5"),
-                Setup("planner", dailyPlanner.Name, "No project", null, dailyPlanner, null, null)
+                Setup("UI dev", lumi, null, worktree: true, model: "claude-opus-5.5", effort: "high", icon: "layers", kept: true),
+                Setup("Fixes", lumi, null, worktree: true, icon: "bug", kept: true),
+                Setup(lumi.Name, lumi, null, note: "28 of your chats in the last 30 days."),
+                Setup("Just chat", null, null, note: "21 of your chats in the last 30 days."),
+                Setup(fluent.Name, fluent, null, worktree: true, note: "10 of your chats in the last 30 days."),
+                Setup(dailyPlanner.Name, null, dailyPlanner, note: "6 of your chats in the last 30 days."),
+                Setup(creativeWriter.Name, null, creativeWriter, note: "4 of your chats in the last 30 days."),
+                Setup(releaseManager.Name, null, releaseManager, note: "3 of your chats in the last 30 days."),
+                Setup(travel.Name, travel, null, note: "2 of your chats in the last 30 days.")
             ],
             Starters =
             [
@@ -288,16 +304,18 @@ public static class DesignPreview
             ],
             Places =
             [
-                Place(lumi, null, "now", kept: true), Place(fluent, null, "2h ago"), Place(travel, null, "5h ago"), Place(home, null, "yesterday"),
-                Place(null, codingLumi, "40m ago"), Place(null, dailyPlanner, "yesterday")
+                Place(lumi, null, "now"), Place(fluent, null, "2h ago", worktree: true), Place(travel, null, "5h ago"),
+                Place(home, null, "yesterday"), Place(null, codingLumi, "40m ago"), Place(null, dailyPlanner, "yesterday")
             ],
             Labels = new()
             {
-                ForYou = "For you", JustChat = "Just chat", Other = "Other", OtherTitle = "Start in another project or with another agent",
-                OtherSearch = "Search projects and agents", OtherProjects = "Projects", OtherAgents = "Agents",
-                OtherEmpty = "No project or agent matches", Keep = "Keep", KeepOnNewChats = "Keep on new chats",
-                StartInWorktree = "Start in a worktree", DontSuggest = "Don't suggest this", StartsWith = "Starts with",
-                Customize = "Customize this setup"
+                ForYou = "For you", NewStarter = "New starter", AddStarter = "Add starter",
+                Search = "Search projects and agents", Projects = "Projects", Agents = "Agents",
+                NoMatch = "No project or agent matches", DraftSetup = "This chat's setup", Keep = "Keep", Rename = "Rename",
+                DontSuggest = "Don't suggest this", Remove = "Remove starter", StartInWorktree = "Start in a worktree",
+                StartsIn = "Starts in", Name = "Starter name", Icon = "Change icon", Model = "Model", DefaultModel = "Default model",
+                DefaultModelNote = "Starts with your default model, so it moves when your default does.",
+                Customize = "Customize this starter", MoreStarters = "{0} more starters", MoreStarter = "1 more starter"
             },
             NeedsYouCount = 2,
             NeedsYou = "2 chats need you",

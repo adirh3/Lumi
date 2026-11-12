@@ -687,33 +687,58 @@
       </Style>
     </ControlTheme>
 
-    <!-- A project or agent in the launchpad's Other list. Its pin, beside the row rather than inside it, keeps it on the
-         new chat; the list refilters as the user types, so neither carries a tooltip. -->
-    <DataTemplate x:Key="LaunchpadOtherRow" x:DataType="vm:LaunchpadOtherItem">
-      <Panel Classes="launchpad-other-host" Classes.pinned="{Binding IsPinned}">
-        <Button Classes="subtle header-card-row launchpad-other-row"
-                Command="{Binding SelectCommand}"
-                AutomationProperties.Name="{Binding Title}">
-          <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10" Margin="0,5">
-            <Panel Width="26" Height="26" VerticalAlignment="Center">
-              <Border Classes="launchpad-other-tile" />
-              <Border Classes="launchpad-other-badge" Background="{Binding BadgeBackground}" IsVisible="{Binding HasBadge}" />
-              <TextBlock Classes="launchpad-other-initial" Text="{Binding BadgeInitial}"
-                         Foreground="{Binding BadgeForeground}" IsVisible="{Binding HasBadge}" />
-              <TextBlock Classes="launchpad-other-glyph" Text="{Binding GlyphText}" IsVisible="{Binding HasGlyphText}" />
-              <PathIcon Classes="launchpad-other-icon" Data="{Binding Icon}" IsVisible="{Binding HasIcon}" />
-            </Panel>
-            <TextBlock Grid.Column="1" Classes="header-card-row-title launchpad-other-title" Text="{Binding Title}" />
-            <TextBlock Grid.Column="2" Classes="header-card-shortcut" Text="{Binding Meta}" IsVisible="{Binding HasMeta}" />
-            <Border Grid.Column="3" Width="24" />
-          </Grid>
-        </Button>
-        <Button Classes="launchpad-other-pin"
-                Command="{Binding TogglePinCommand}"
-                AutomationProperties.Name="{Binding PinTooltip}">
-          <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pin}" />
-        </Button>
-      </Panel>
+    <!-- A starter's badge, drawn on a 28px face that scales to wherever it sits: its project's initial on the project's
+         hue, its agent's emoji, or a line icon (the user's choice, an agent's, or Just chat's sparkle). -->
+    <DataTemplate x:Key="LaunchpadBadgeFace" x:DataType="vm:LaunchpadBadge">
+      <Viewbox Stretch="Uniform">
+        <Panel Width="28" Height="28" TextElement.Foreground="{DynamicResource Brush.TextSecondary}">
+          <Border CornerRadius="14" Background="{StaticResource ChatHeader.MenuChipFill}" />
+          <Border CornerRadius="14" Background="{Binding InitialBackground}" IsVisible="{Binding HasInitial}" />
+          <TextBlock Text="{Binding Initial}" Foreground="{Binding InitialForeground}" IsVisible="{Binding HasInitial}"
+                     FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding GlyphText}" IsVisible="{Binding HasGlyphText}" FontSize="14"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <PathIcon Classes="launchpad-badge-icon" Data="{Binding Icon}" IsVisible="{Binding HasIcon}"
+                    Width="14" Height="14" />
+          <sc:StrataLineIcon Classes="launchpad-badge-line" Data="{Binding LineIcon}" IsVisible="{Binding HasLineIcon}"
+                             Width="15" Height="15" StrokeThickness="1.8" />
+        </Panel>
+      </Viewbox>
+    </DataTemplate>
+
+    <!-- A starter's face: its badge (a branch on its corner when it starts in a worktree), its name and, when another
+         starter shares the name, what tells them apart: ⑂, then its agent, model or effort. -->
+    <DataTemplate x:Key="LaunchpadStarterFace" x:DataType="vm:LaunchpadSetupItem">
+      <StackPanel Orientation="Horizontal">
+        <Panel Classes="launchpad-setup-badge">
+          <ContentControl Content="{Binding Badge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+          <Border Classes="launchpad-setup-branch" IsVisible="{Binding IsWorktree}">
+            <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Branch}" />
+          </Border>
+        </Panel>
+        <TextBlock Classes="launchpad-setup-title" Text="{Binding Title}" />
+        <sc:StrataLineIcon Classes="launchpad-setup-tell-branch" Data="{x:Static sc:StrataIcons.Branch}"
+                           IsVisible="{Binding TellsWorktree}" />
+        <TextBlock Classes="launchpad-setup-tell" Text="{Binding TellText}" IsVisible="{Binding HasTellText}" />
+      </StackPanel>
+    </DataTemplate>
+
+    <!-- A place in the new starter's list: its badge, its name and when the user last worked there; a check marks where
+         the starter starts. The list refilters as the user types, so a row carries no tooltip. -->
+    <DataTemplate x:Key="LaunchpadPlaceRow" x:DataType="vm:LaunchpadPlaceItem">
+      <Button Classes="subtle header-card-row launchpad-place-row"
+              Classes.current="{Binding IsCurrent}"
+              Command="{Binding SelectCommand}"
+              AutomationProperties.Name="{Binding Title}">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10" Margin="0,5">
+          <ContentControl Width="26" Height="26" VerticalAlignment="Center"
+                            Content="{Binding Badge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+          <TextBlock Grid.Column="1" Classes="header-card-row-title launchpad-place-title" Text="{Binding Title}" />
+          <TextBlock Grid.Column="2" Classes="header-card-shortcut" Text="{Binding Meta}" IsVisible="{Binding HasMeta}" />
+          <sc:StrataLineIcon Grid.Column="3" Classes="launchpad-place-check" Data="{x:Static sc:StrataIcons.Check}"
+                             IsVisible="{Binding IsCurrent}" />
+        </Grid>
+      </Button>
     </DataTemplate>
   </UserControl.Resources>
 
@@ -3107,91 +3132,239 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
 
-    <!-- The Other list: a search over every project and agent, each with its identity -->
-    <Style Selector="DockPanel#LaunchpadOtherCard TextBox.launchpad-other-search">
-      <Setter Property="Margin" Value="4,4,4,2" />
+    <!-- A starter's card: a learned one's place and what to do with it; a kept or new one's icon, name, place, checkout
+         and model, and a new one's places -->
+    <Style Selector="StackPanel#LaunchpadStarterCard TextBox.launchpad-card-name">
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard TextBlock.launchpad-card-meta">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <!-- A new starter's place: the read-only row's words on a row that opens its places -->
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-place">
+      <Setter Property="MinHeight" Value="32" />
+      <Setter Property="Padding" Value="4,0,2,0" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard sc|StrataLineIcon.launchpad-card-chevron">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-add">
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="Margin" Value="0,0,0,6" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-back">
+      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-back sc|StrataLineIcon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard TextBox.launchpad-place-search">
+      <Setter Property="Margin" Value="0,8,0,2" />
       <Setter Property="MinHeight" Value="34" />
       <Setter Property="CornerRadius" Value="10" />
       <Setter Property="FontSize" Value="13" />
     </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard PathIcon.launchpad-other-search-icon">
+    <Style Selector="StackPanel#LaunchpadStarterCard PathIcon.launchpad-place-search-icon">
       <Setter Property="Width" Value="13" />
       <Setter Property="Height" Value="13" />
       <Setter Property="Margin" Value="10,0,0,0" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard TextBlock.launchpad-other-section">
+    <Style Selector="StackPanel#LaunchpadStarterCard TextBlock.launchpad-place-section">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Margin" Value="10,10,10,4" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard TextBlock.launchpad-other-empty">
+    <Style Selector="StackPanel#LaunchpadStarterCard TextBlock.launchpad-place-empty">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="Margin" Value="10,14" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard Border.launchpad-other-tile">
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
-    </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard Border.launchpad-other-badge">
-      <Setter Property="CornerRadius" Value="8" />
-    </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard TextBlock.launchpad-other-initial">
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="FontWeight" Value="Bold" />
-      <Setter Property="HorizontalAlignment" Value="Center" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard TextBlock.launchpad-other-glyph">
-      <Setter Property="FontSize" Value="13" />
-      <Setter Property="HorizontalAlignment" Value="Center" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard PathIcon.launchpad-other-icon">
-      <Setter Property="Width" Value="14" />
-      <Setter Property="Height" Value="14" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-    </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard TextBlock.launchpad-other-title">
+    <Style Selector="StackPanel#LaunchpadStarterCard TextBlock.launchpad-place-title">
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
-    <!-- A row's pin is always there, faint until the row is hovered, and in the accent once it keeps its place on the new
-         chat, so the list shows what pinning does without a hint -->
-    <Style Selector="DockPanel#LaunchpadOtherCard Button.launchpad-other-pin">
-      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
-      <Setter Property="HorizontalAlignment" Value="Right" />
+    <Style Selector="StackPanel#LaunchpadStarterCard sc|StrataLineIcon.launchpad-place-check">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="Margin" Value="0,0,4,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Width" Value="26" />
-      <Setter Property="Height" Value="26" />
-      <Setter Property="Margin" Value="0,0,6,0" />
-      <Setter Property="Padding" Value="0" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="HorizontalContentAlignment" Value="Center" />
-      <Setter Property="Opacity" Value="0.4" />
-    </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard Panel.launchpad-other-host:pointerover Button.launchpad-other-pin,
-                     DockPanel#LaunchpadOtherCard Panel.launchpad-other-host.pinned Button.launchpad-other-pin">
-      <Setter Property="Opacity" Value="1" />
-    </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard Button.launchpad-other-pin sc|StrataLineIcon">
-      <Setter Property="Width" Value="14" />
-      <Setter Property="Height" Value="14" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-    </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard Button.launchpad-other-pin:pointerover sc|StrataLineIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
-    </Style>
-    <Style Selector="DockPanel#LaunchpadOtherCard Panel.launchpad-other-host.pinned Button.launchpad-other-pin sc|StrataLineIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-place-row.current TextBlock.launchpad-place-title">
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard TextBlock.launchpad-card-heading">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard PathIcon.launchpad-card-note-icon">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="12" />
+      <Setter Property="Margin" Value="0,2,0,0" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard TextBlock.launchpad-card-note">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-action">
+      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="Padding" Value="12,0" />
+      <Setter Property="CornerRadius" Value="15" />
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-action:pointerover /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemHover}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-action.keep">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-action.keep:pointerover /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentHover}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-icon">
+      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
+      <Setter Property="Width" Value="36" />
+      <Setter Property="Height" Value="36" />
+      <Setter Property="Padding" Value="3" />
+      <Setter Property="CornerRadius" Value="18" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-icon:pointerover /template/ Border#PART_Root,
+                     StackPanel#LaunchpadStarterCard Button.launchpad-card-icon.open /template/ Border#PART_Root">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-icon-choice">
+      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
+      <Setter Property="Width" Value="30" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="Padding" Value="2" />
+      <Setter Property="Margin" Value="0,0,4,4" />
+      <Setter Property="CornerRadius" Value="15" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-icon-choice.current /template/ Border#PART_Root">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard TextBlock.launchpad-card-label">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard TextBlock.launchpad-card-value">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="MaxWidth" Value="170" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard ToggleSwitch.launchpad-card-switch">
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Border.launchpad-card-models">
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Padding" Value="3" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-model">
+      <Setter Property="MinHeight" Value="32" />
+    </Style>
+    <!-- The card's rows reach its edge, so what trails them (a hint, a check, a chevron) lines up on the right -->
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.header-card-row">
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Border.launchpad-card-radio">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="CornerRadius" Value="7" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Border.launchpad-card-radio-dot">
+      <Setter Property="Width" Value="6" />
+      <Setter Property="Height" Value="6" />
+      <Setter Property="CornerRadius" Value="3" />
+      <Setter Property="IsVisible" Value="False" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-model.current Border.launchpad-card-radio">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-model.current Border.launchpad-card-radio-dot">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <!-- Its own model's efforts, as the composer's picker offers them: segments on the model list's track -->
+    <Style Selector="StackPanel#LaunchpadStarterCard Border.launchpad-card-qualities">
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Padding" Value="3" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-quality">
+      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="Padding" Value="1,0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-quality.current">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-quality.current /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadStarterCard Button.launchpad-card-remove TextBlock">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
 
-    <!-- The setups row rides on the composer and folds into it with the welcome state; the fade does most of the fold.
-         It is as wide as the composer: Just chat and Other hold its ends and the setups between them scroll once they
-         outgrow it. Inside the clip it keeps room for a setup's ⋯ above the capsules and for their shadow below. -->
+    <!-- The starters row rides on the composer and folds into it with the welcome state; the fade does most of the fold.
+         It is never wider than the composer: what doesn't fit gathers into the stack. Inside the clip it keeps room for
+         a starter's ⋯ above the capsules and for their shadow below. -->
     <Style Selector="StackPanel#LaunchpadSetups">
       <Setter Property="MaxHeight" Value="0" />
       <Setter Property="Opacity" Value="0" />
@@ -3211,111 +3384,31 @@
       <Setter Property="IsHitTestVisible" Value="True" />
       <Setter Property="Margin" Value="0,0,0,8" />
     </Style>
-    <Style Selector="lc|FitRowPanel#LaunchpadSetupRow">
+    <Style Selector="StackPanel#LaunchpadSetupRow">
       <Setter Property="Margin" Value="0,8,0,6" />
     </Style>
-    <!-- The rail reaches over the row's margins, so the room for the ⋯ and the shadows is inside its scrolling clip -->
-    <Style Selector="lc|FitRowPanel#LaunchpadSetupRow Panel#LaunchpadSetupRail">
-      <Setter Property="Margin" Value="0,-8,0,-6" />
-    </Style>
-    <Style Selector="lc|FitRowPanel#LaunchpadSetupRow ItemsControl#LaunchpadSetupTiles">
-      <Setter Property="Padding" Value="0,8,0,6" />
-    </Style>
-    <!-- The rail's arrows: small solid discs, like a setup's ⋯, over its faded edges, shown under the pointer while more
-         setups lie that way. They are for the mouse: keyboard focus brings each setup into sight itself. -->
-    <Style Selector="Panel#LaunchpadSetupRail Button.launchpad-rail-step">
-      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
-      <Setter Property="IsVisible" Value="False" />
-      <Setter Property="Focusable" Value="False" />
-      <Setter Property="Width" Value="28" />
-      <Setter Property="Height" Value="28" />
-      <Setter Property="Padding" Value="0" />
-      <Setter Property="CornerRadius" Value="14" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="HorizontalContentAlignment" Value="Center" />
-      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="Panel#LaunchpadSetupRail Button.launchpad-rail-step:pointerover /template/ Border#PART_Root">
-      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-    <Style Selector="Panel#LaunchpadSetupRail Button.launchpad-rail-step.back">
-      <Setter Property="HorizontalAlignment" Value="Left" />
-      <Setter Property="Margin" Value="2,2,0,0" />
-    </Style>
-    <Style Selector="Panel#LaunchpadSetupRail Button.launchpad-rail-step.forward">
-      <Setter Property="HorizontalAlignment" Value="Right" />
-      <Setter Property="Margin" Value="0,2,2,0" />
-    </Style>
-    <Style Selector="Panel#LaunchpadSetupRail.can-back Button.launchpad-rail-step.back,
-                     Panel#LaunchpadSetupRail.can-forward Button.launchpad-rail-step.forward">
-      <Setter Property="IsVisible" Value="True" />
-    </Style>
-    <Style Selector="Panel#LaunchpadSetupRail:pointerover Button.launchpad-rail-step">
-      <Setter Property="Opacity" Value="1" />
-    </Style>
-    <Style Selector="Panel#LaunchpadSetupRail Button.launchpad-rail-step sc|StrataLineIcon">
-      <Setter Property="Width" Value="14" />
-      <Setter Property="Height" Value="14" />
-      <Setter Property="StrokeThickness" Value="2" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-    </Style>
-    <Style Selector="Panel#LaunchpadSetupRail Button.launchpad-rail-step:pointerover sc|StrataLineIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
-    </Style>
 
-    <!-- A setup capsule: its badge, its name and, while it's the chat's setup, what it starts with. The capsules space
-         themselves with their own margins, so a closed Keep leaves no gap and the row stays centred; when the row runs
-         out of room for Just chat and Other (a narrow window) their names give way and trim. -->
-    <Style Selector="lc|FitRowPanel#LaunchpadSetupRow > Button.launchpad-setup,
-                     lc|FitRowPanel#LaunchpadSetupRow Panel.launchpad-setup-host">
+    <!-- A starter capsule, on the row and on the stack's shelf: its badge, its name and, beside a namesake, what tells
+         the two apart. The capsules space themselves with their own margins, so the row stays centred. -->
+    <Style Selector="StackPanel#LaunchpadSetups Panel.launchpad-setup-host,
+                     StackPanel#LaunchpadSetups Button.launchpad-stack,
+                     StackPanel#LaunchpadSetups Button.launchpad-new-starter">
       <Setter Property="Margin" Value="4,0" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup">
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup,
+                     Border#LaunchpadShelfRoot Button.launchpad-setup">
       <Setter Property="Height" Value="38" />
       <Setter Property="Padding" Value="5,0,15,0" />
       <Setter Property="CornerRadius" Value="19" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Panel.launchpad-setup-badge">
+    <Style Selector="StackPanel#LaunchpadSetups Panel.launchpad-setup-badge,
+                     Border#LaunchpadShelfRoot Panel.launchpad-setup-badge">
       <Setter Property="Width" Value="28" />
       <Setter Property="Height" Value="28" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-icon">
-      <Setter Property="CornerRadius" Value="14" />
-      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
-    </Style>
-    <Style Selector="StackPanel#LaunchpadSetups PathIcon.launchpad-setup-glyph">
-      <Setter Property="Width" Value="14" />
-      <Setter Property="Height" Value="14" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-    </Style>
-
-    <!-- A project's identity: its initial on a tint of its hue (rows and setups share it) -->
-    <Style Selector="Panel#WelcomePanel Border.launchpad-badge-tile">
-      <Setter Property="CornerRadius" Value="9" />
-    </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-badge-tile">
-      <Setter Property="CornerRadius" Value="14" />
-    </Style>
-    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-badge-initial,
-                     StackPanel#LaunchpadSetups TextBlock.launchpad-badge-initial">
-      <Setter Property="FontSize" Value="13" />
-      <Setter Property="FontWeight" Value="Bold" />
-      <Setter Property="HorizontalAlignment" Value="Center" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-badge-initial">
-      <Setter Property="FontSize" Value="12" />
-    </Style>
-    <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-setup-title">
+    <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-setup-title,
+                     Border#LaunchpadShelfRoot TextBlock.launchpad-setup-title">
       <Setter Property="FontSize" Value="13" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Margin" Value="9,0,0,0" />
@@ -3324,40 +3417,42 @@
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-other:not(.active) TextBlock.launchpad-setup-title">
-      <Setter Property="FontWeight" Value="Medium" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-    </Style>
-    <!-- What the setup starts with opens beside its name while it's the chat's setup, so the row glides rather than
-         jumps when another one is picked; a variant (one project kept on two models, say) always says it -->
-    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-detail">
-      <Setter Property="MaxWidth" Value="0" />
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="Padding" Value="7,0,0,0" />
-      <Setter Property="ClipToBounds" Value="True" />
+    <!-- What tells namesakes apart, quiet beside the name: ⑂ for a worktree, then an agent, model or effort -->
+    <Style Selector="StackPanel#LaunchpadSetups sc|StrataLineIcon.launchpad-setup-tell-branch,
+                     Border#LaunchpadShelfRoot sc|StrataLineIcon.launchpad-setup-tell-branch">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="12" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Margin" Value="5,0,0,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="MaxWidth" Duration="0:0:0.24" Easing="CubicEaseOut" />
-          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
-        </Transitions>
-      </Setter>
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup.active Border.launchpad-setup-detail,
-                     StackPanel#LaunchpadSetups Button.launchpad-setup.variant Border.launchpad-setup-detail">
-      <Setter Property="MaxWidth" Value="140" />
-      <Setter Property="Opacity" Value="1" />
-    </Style>
-    <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-setup-meta">
+    <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-setup-tell,
+                     Border#LaunchpadShelfRoot TextBlock.launchpad-setup-tell">
       <Setter Property="FontSize" Value="12" />
+      <Setter Property="Margin" Value="6,0,0,0" />
+      <Setter Property="MaxWidth" Value="140" />
+      <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup.active TextBlock.launchpad-setup-meta">
+    <!-- The draft's starter wears the accent: its tell, its badge's line icon and its branch -->
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup.active TextBlock.launchpad-setup-tell">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <!-- A setup that starts in a worktree: a small branch on its badge's lower corner -->
-    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-branch">
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup.active sc|StrataLineIcon.launchpad-setup-tell-branch,
+                     StackPanel#LaunchpadSetups Button.launchpad-setup.active Border.launchpad-setup-branch sc|StrataLineIcon,
+                     StackPanel#LaunchpadSetups Button.launchpad-setup.active sc|StrataLineIcon.launchpad-badge-line,
+                     Border#LaunchpadShelfRoot Button.launchpad-setup.active sc|StrataLineIcon.launchpad-badge-line">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup.active PathIcon.launchpad-badge-icon,
+                     Border#LaunchpadShelfRoot Button.launchpad-setup.active PathIcon.launchpad-badge-icon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <!-- A starter that starts in a worktree: a small branch on its badge's lower corner -->
+    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-branch,
+                     Border#LaunchpadShelfRoot Border.launchpad-setup-branch">
       <Setter Property="Width" Value="15" />
       <Setter Property="Height" Value="15" />
       <Setter Property="CornerRadius" Value="8" />
@@ -3368,7 +3463,8 @@
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
       <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-branch sc|StrataLineIcon">
+    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-branch sc|StrataLineIcon,
+                     Border#LaunchpadShelfRoot Border.launchpad-setup-branch sc|StrataLineIcon">
       <Setter Property="Width" Value="9" />
       <Setter Property="Height" Value="9" />
       <Setter Property="StrokeThickness" Value="2.2" />
@@ -3376,10 +3472,15 @@
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup.active Border.launchpad-setup-branch sc|StrataLineIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    <!-- Kept starters come first; a hairline sets them apart from the places Lumi learned -->
+    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-divider">
+      <Setter Property="Width" Value="1" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="Margin" Value="4,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.BorderDefault}" />
     </Style>
-    <!-- A setup's ⋯ appears on hover as a small badge on its corner, clear of its name: the menu a right-click opens -->
+    <!-- A starter's ⋯ appears on hover as a small badge on its corner, clear of its name: the card a right-click opens -->
     <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup-more">
       <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
       <Setter Property="IsVisible" Value="False" />
@@ -3405,67 +3506,94 @@
       <Setter Property="Height" Value="11" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <!-- Keep: a small accent capsule that opens beside Other while it shows a setup the row doesn't hold, so making a
-         setup in the composer and keeping it is one move -->
-    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-keep">
-      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
+
+    <!-- The draft's own setup when no starter fits it: a dashed capsule on the accent wash, and a pin that keeps it -->
+    <Style Selector="StackPanel#LaunchpadSetups Panel.launchpad-draft">
+      <Setter Property="Height" Value="38" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Rectangle.launchpad-draft-rim">
+      <Setter Property="RadiusX" Value="19" />
+      <Setter Property="RadiusY" Value="19" />
+      <Setter Property="StrokeThickness" Value="1" />
+      <Setter Property="StrokeDashArray" Value="3,2.5" />
+      <Setter Property="Stroke" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Fill" Value="{DynamicResource Launchpad.ActiveFill}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups StackPanel.launchpad-draft-body">
+      <Setter Property="Margin" Value="6,0,6,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Height" Value="28" />
-      <Setter Property="Padding" Value="9,0,12,0" />
-      <Setter Property="CornerRadius" Value="14" />
-      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-draft-pin">
+      <Setter Property="Theme" Value="{StaticResource LaunchpadRowButton}" />
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="Margin" Value="8,0,0,0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="13" />
+      <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
-      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-draft-pin sc|StrataLineIcon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <!-- The stack: the badges of the starters the row has no room for, overlapping, and how many -->
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-stack">
+      <Setter Property="Padding" Value="5,0,13,0" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-stack-badge">
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="Margin" Value="0,0,-8,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillFill}" />
+    </Style>
+    <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-stack-count">
+      <Setter Property="FontSize" Value="12.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="MaxWidth" Value="0" />
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="Margin" Value="0" />
-      <Setter Property="IsHitTestVisible" Value="False" />
-      <Setter Property="Focusable" Value="False" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="MaxWidth" Duration="0:0:0.24" Easing="CubicEaseOut" />
-          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
-          <ThicknessTransition Property="Margin" Duration="0:0:0.24" Easing="CubicEaseOut" />
-        </Transitions>
-      </Setter>
+      <Setter Property="Margin" Value="14,0,0,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-keep.shown">
-      <Setter Property="MaxWidth" Value="120" />
-      <Setter Property="Opacity" Value="1" />
-      <Setter Property="Margin" Value="2,0,4,0" />
-      <Setter Property="IsHitTestVisible" Value="True" />
-      <Setter Property="Focusable" Value="True" />
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-stack.open /template/ Border#PART_Root">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-keep:pointerover /template/ Border#PART_Root">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentHover}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentHover}" />
+
+    <!-- New starter: a round + at the row's end while everything fits; the stack's shelf ends with it otherwise -->
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-new-starter">
+      <Setter Property="Width" Value="38" />
+      <Setter Property="Height" Value="38" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="19" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-keep:focus-visible /template/ Border#PART_Root">
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextOnAccent}" />
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-new-starter PathIcon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-keep sc|StrataLineIcon">
+    <Style Selector="Border#LaunchpadShelfRoot Border.launchpad-shelf-new-badge">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+    </Style>
+    <Style Selector="Border#LaunchpadShelfRoot Border.launchpad-shelf-new-badge PathIcon">
       <Setter Property="Width" Value="12" />
       <Setter Property="Height" Value="12" />
-      <Setter Property="StrokeThickness" Value="2" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-keep TextBlock">
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    <Style Selector="Border#LaunchpadShelfRoot Button.launchpad-shelf-new TextBlock.launchpad-setup-title">
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-setups-empty">
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="Margin" Value="8,0" />
-      <Setter Property="MaxWidth" Value="360" />
-      <Setter Property="TextWrapping" Value="NoWrap" />
-      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-    </Style>
+
     <!-- The turn currently owning the full composer stays visibly connected to it. -->
     <Style Selector="sc|StrataChatMessage.editing-source /template/ Border#PART_Bubble">
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
@@ -5626,220 +5754,353 @@
         </Grid>
       </Border>
 
-      <!-- Where the new chat starts, on the composer it feeds: Just chat, the setups the user keeps starting with (pinned
-           first, then learned from their chats: project, checkout, agent and model in one click) and Other, as glass
-           capsules centred on the composer. The chat's setup opens to say what it starts with; right-click a setup, or
-           its ⋯, to keep it, change its model, or stop it being suggested. The row folds into the composer once the
-           chat starts. -->
+      <!-- Where the new chat starts, on the composer it feeds: the user's starters, kept first in their order and by their
+           names, then the places Lumi learned they start in (Just chat among them), each one click. The draft's starter
+           is lit; one that doesn't fit the composer's width gathers into the stack, whose shelf unfolds above the row.
+           Without a starter for the draft the row shows where it starts, dashed, with a pin to keep it; + makes a new
+           starter in the starter's card, filled from the draft. A right-click on a starter, or its ⋯, opens its card.
+           The row folds into the composer once the chat starts. -->
       <StackPanel x:Name="LaunchpadSetups">
-        <lc:FitRowPanel x:Name="LaunchpadSetupRow" Spacing="0" HorizontalAlignment="Center"
-                        TextOptions.TextRenderingMode="Antialias">
-          <Button x:Name="LaunchpadJustChat"
-                  Theme="{StaticResource LaunchpadCapsuleButton}"
-                  Classes="launchpad-setup"
-                  Classes.active="{Binding Launchpad.IsJustChatActive}"
-                  Command="{Binding Launchpad.SelectJustChatCommand}"
-                  ToolTip.Tip="{loc:Str Launchpad_JustChatTooltip}"
-                  ToolTip.ShowDelay="450"
-                  AutomationProperties.Name="{loc:Str Launchpad_JustChat}">
-            <StackPanel Orientation="Horizontal">
-              <Panel Classes="launchpad-setup-badge">
-                <Border Classes="launchpad-setup-icon" />
-                <PathIcon Classes="launchpad-setup-glyph" Data="{x:Static vm:WorkspaceIcons.Sparkle}" />
-              </Panel>
-              <TextBlock Classes="launchpad-setup-title" Text="{loc:Str Launchpad_JustChat}" />
-              <Border Classes="launchpad-setup-detail">
-                <TextBlock Classes="launchpad-setup-meta" Text="{Binding Launchpad.JustChatMeta}" />
-              </Border>
-            </StackPanel>
-          </Button>
+        <StackPanel x:Name="LaunchpadSetupRow" Orientation="Horizontal" HorizontalAlignment="Center"
+                    TextOptions.TextRenderingMode="Antialias">
+          <FlyoutBase.AttachedFlyout>
+            <!-- A starter's card, anchored to the row (its starter may be rebuilt as the card edits it): above the starter,
+                 or above the row's end for a new one -->
+            <Flyout Placement="TopEdgeAlignedLeft"
+                    VerticalOffset="8"
+                    FlyoutPresenterTheme="{StaticResource ChatHeaderCardPresenter}">
+              <Border DataContext="{Binding Launchpad.Editor}">
+                <StackPanel x:Name="LaunchpadStarterCard" x:DataType="vm:LaunchpadStarterEditor" Width="300">
+                  <!-- A learned starter: how often the user starts there, that it follows the default model, and what to do -->
+                  <StackPanel IsVisible="{Binding IsLearned}" Margin="10,8,10,8" Spacing="4">
+                    <TextBlock Classes="launchpad-card-heading" Text="{Binding Heading}" />
+                    <TextBlock Classes="launchpad-card-meta" Text="{Binding UsesText}" IsVisible="{Binding HasUsesText}" />
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7" Margin="0,4,0,8">
+                      <PathIcon Classes="launchpad-card-note-icon" Data="{x:Static vm:WorkspaceIcons.Sparkle}" />
+                      <TextBlock Grid.Column="1" Classes="launchpad-card-note" Text="{loc:Str Launchpad_StarterDefaultNote}" />
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Button x:Name="LaunchpadStarterHideButton" Classes="launchpad-card-action"
+                              Content="{loc:Str Launchpad_SetupHide}" Command="{Binding HideCommand}"
+                              IsVisible="{Binding CanHide}" />
+                      <Button x:Name="LaunchpadStarterRenameButton" Classes="launchpad-card-action"
+                              Content="{loc:Str Launchpad_StarterRename}" Command="{Binding RenameCommand}" />
+                      <Button x:Name="LaunchpadStarterKeepButton" Classes="launchpad-card-action keep"
+                              Content="{loc:Str Launchpad_KeepSetup}" Command="{Binding KeepCommand}" />
+                    </StackPanel>
+                  </StackPanel>
 
-          <!-- The setups, between Just chat and Other. However many the user keeps, the row stays as wide as the composer:
-               the ones that don't fit scroll (the wheel, or the arrows that show on hover) and the row's edge fades where
-               more lie, and the chat's setup scrolls into sight. -->
-          <Panel x:Name="LaunchpadSetupRail" IsVisible="{Binding Launchpad.HasSetups}">
-            <ScrollViewer x:Name="LaunchpadSetupScroller"
-                          HorizontalScrollBarVisibility="Hidden"
-                          VerticalScrollBarVisibility="Disabled">
-              <ItemsControl x:Name="LaunchpadSetupTiles" ItemsSource="{Binding Launchpad.Setups}">
+                  <!-- A kept starter, or a new one: its icon and name, where it starts, its checkout and its model. A new
+                       starter's place opens its places; nothing is kept until Add. -->
+                  <StackPanel IsVisible="{Binding ShowsForm}" Margin="6,6,6,0" Spacing="10">
+                    <TextBlock Classes="launchpad-card-heading" Margin="4,2,4,0" Text="{loc:Str Launchpad_NewStarter}"
+                               IsVisible="{Binding IsNew}" />
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                      <Button x:Name="LaunchpadStarterIconButton" Classes="launchpad-card-icon"
+                              Classes.open="{Binding IsChoosingIcon}"
+                              Command="{Binding ToggleIconsCommand}"
+                              ToolTip.Tip="{loc:Str Launchpad_StarterIcon}"
+                              ToolTip.Placement="Top"
+                              ToolTip.VerticalOffset="-6"
+                              AutomationProperties.Name="{loc:Str Launchpad_StarterIcon}">
+                        <ContentControl Content="{Binding Badge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+                      </Button>
+                      <TextBox x:Name="LaunchpadStarterName" Grid.Column="1" Classes="launchpad-card-name"
+                               Text="{Binding Name}"
+                               PlaceholderText="{Binding NamePlaceholder}"
+                               MaxLength="40"
+                               AutomationProperties.Name="{loc:Str Launchpad_StarterName}" />
+                    </Grid>
+                    <ItemsControl x:Name="LaunchpadStarterIcons" ItemsSource="{Binding Icons}" IsVisible="{Binding IsChoosingIcon}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <WrapPanel />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:LaunchpadIconChoice">
+                          <Button Classes="launchpad-card-icon-choice" Classes.current="{Binding IsCurrent}"
+                                  Command="{Binding SelectCommand}">
+                            <ContentControl Content="{Binding Badge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+                          </Button>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Grid ColumnDefinitions="*,Auto" Margin="4,0" IsVisible="{Binding IsKept}">
+                      <TextBlock Classes="launchpad-card-label" Text="{loc:Str Launchpad_StarterStartsIn}" />
+                      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="7">
+                        <ContentControl Width="20" Height="20" VerticalAlignment="Center"
+                                          Content="{Binding PlaceBadge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+                        <TextBlock Classes="launchpad-card-value" Text="{Binding NamePlaceholder}" />
+                      </StackPanel>
+                    </Grid>
+                    <Button x:Name="LaunchpadStarterPlaceButton" Classes="subtle header-card-row launchpad-card-place"
+                            IsVisible="{Binding IsNew}"
+                            Command="{Binding ChoosePlaceCommand}"
+                            AutomationProperties.Name="{Binding PlaceAccessibleName}">
+                      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="7">
+                        <TextBlock Classes="launchpad-card-label" Text="{loc:Str Launchpad_StarterStartsIn}" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="7">
+                          <ContentControl Width="20" Height="20" VerticalAlignment="Center"
+                                            Content="{Binding PlaceBadge}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+                          <TextBlock Classes="launchpad-card-value" Text="{Binding NamePlaceholder}" />
+                        </StackPanel>
+                        <sc:StrataLineIcon Grid.Column="2" Classes="launchpad-card-chevron" Data="{x:Static sc:StrataIcons.ChevronRight}" />
+                      </Grid>
+                    </Button>
+                    <Grid ColumnDefinitions="*,Auto" Margin="4,0" IsVisible="{Binding CanUseWorktree}">
+                      <TextBlock Classes="launchpad-card-label" Text="{loc:Str Launchpad_SetupWorktree}" />
+                      <ToggleSwitch x:Name="LaunchpadStarterWorktree" Grid.Column="1" Classes="launchpad-card-switch"
+                                    IsChecked="{Binding IsWorktree, Mode=OneWay}"
+                                    Command="{Binding ToggleWorktreeCommand}"
+                                    OnContent="" OffContent=""
+                                    AutomationProperties.Name="{loc:Str Launchpad_SetupWorktree}" />
+                    </Grid>
+                    <StackPanel Spacing="4">
+                      <TextBlock Classes="launchpad-card-label" Margin="4,0" Text="{loc:Str Launchpad_StarterModel}" />
+                      <TextBlock Classes="launchpad-card-note" Margin="4,0" Text="{Binding RetiredModelNote}"
+                                 IsVisible="{Binding HasRetiredModelNote}" />
+                      <Border Classes="launchpad-card-models">
+                        <ScrollViewer MaxHeight="188" HorizontalScrollBarVisibility="Disabled">
+                          <ItemsControl x:Name="LaunchpadStarterModels" ItemsSource="{Binding Models}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="vm:LaunchpadModelChoice">
+                                <Button Classes="subtle header-card-row launchpad-card-model" Classes.current="{Binding IsCurrent}"
+                                        Command="{Binding SelectCommand}" AutomationProperties.Name="{Binding Title}">
+                                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="9">
+                                    <Border Classes="launchpad-card-radio">
+                                      <Border Classes="launchpad-card-radio-dot" />
+                                    </Border>
+                                    <TextBlock Grid.Column="1" Classes="header-card-row-title" Text="{Binding Title}"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="2" Classes="header-card-shortcut" Text="{Binding Hint}"
+                                               IsVisible="{Binding HasHint}" />
+                                  </Grid>
+                                </Button>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </ScrollViewer>
+                      </Border>
+                    </StackPanel>
+                    <!-- Its own model's efforts (Copilot Fusion's tiers among them); none on the default model -->
+                    <StackPanel Spacing="4" IsVisible="{Binding HasQualities}">
+                      <TextBlock Classes="launchpad-card-label" Margin="4,0" Text="{loc:Str ModelPicker_Effort}" />
+                      <Border Classes="launchpad-card-qualities">
+                        <ItemsControl x:Name="LaunchpadStarterQualities" ItemsSource="{Binding Qualities}">
+                          <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                              <UniformGrid Rows="1" />
+                            </ItemsPanelTemplate>
+                          </ItemsControl.ItemsPanel>
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:LaunchpadQualityChoice">
+                              <Button Classes="launchpad-card-quality" Classes.current="{Binding IsCurrent}"
+                                      Command="{Binding SelectCommand}" Content="{Binding Title}"
+                                      AutomationProperties.Name="{Binding Title}" />
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </Border>
+                    </StackPanel>
+                    <StackPanel IsVisible="{Binding IsKept}" Spacing="10">
+                      <Border Classes="header-card-divider" Margin="0" />
+                      <Button x:Name="LaunchpadStarterRemoveButton" Classes="subtle header-card-row danger launchpad-card-remove"
+                              Command="{Binding RemoveCommand}" Margin="0,0,0,4">
+                        <TextBlock Text="{loc:Str Launchpad_StarterRemove}" />
+                      </Button>
+                    </StackPanel>
+                    <Button x:Name="LaunchpadAddStarterButton" Classes="accent launchpad-card-add"
+                            IsVisible="{Binding IsNew}"
+                            Content="{loc:Str Launchpad_NewStarterAdd}"
+                            Command="{Binding AddCommand}" />
+                  </StackPanel>
+
+                  <!-- The new starter's places, in place of its form: Just chat, the projects (most recently used first)
+                       and the agents, its own checked. Picking one, Back or Escape returns to the form. -->
+                  <DockPanel x:Name="LaunchpadStarterPlaces" IsVisible="{Binding IsChoosingPlace}" Margin="6,6,6,4">
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*" ColumnSpacing="4">
+                      <Button x:Name="LaunchpadStarterPlacesBack" Classes="launchpad-card-back"
+                              Command="{Binding BackToFormCommand}"
+                              AutomationProperties.Name="{loc:Str Launchpad_StarterBack}">
+                        <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronLeft}" />
+                      </Button>
+                      <TextBlock Grid.Column="1" Classes="launchpad-card-heading" VerticalAlignment="Center"
+                                 Text="{loc:Str Launchpad_StarterStartsIn}" />
+                    </Grid>
+                    <TextBox x:Name="LaunchpadPlaceSearch"
+                             DockPanel.Dock="Top"
+                             Classes="launchpad-place-search"
+                             Text="{Binding PlaceQuery}"
+                             PlaceholderText="{loc:Str Launchpad_OtherSearch}"
+                             AutomationProperties.Name="{loc:Str Launchpad_OtherSearch}">
+                      <TextBox.InnerLeftContent>
+                        <PathIcon Classes="launchpad-place-search-icon" Data="{x:Static vm:WorkspaceIcons.Search}" />
+                      </TextBox.InnerLeftContent>
+                    </TextBox>
+                    <ScrollViewer MaxHeight="300" HorizontalScrollBarVisibility="Disabled">
+                      <StackPanel Margin="0,4,0,2">
+                        <ContentControl Content="{Binding JustChatPlace}" ContentTemplate="{StaticResource LaunchpadPlaceRow}"
+                                        IsVisible="{Binding HasJustChatPlace}" />
+                        <TextBlock Classes="launchpad-place-section" Text="{loc:Str Launchpad_OtherProjects}"
+                                   IsVisible="{Binding HasPlaceProjects}" />
+                        <ItemsControl x:Name="LaunchpadPlaceProjects" ItemsSource="{Binding PlaceProjects}"
+                                      ItemTemplate="{StaticResource LaunchpadPlaceRow}" />
+                        <TextBlock Classes="launchpad-place-section" Text="{loc:Str Launchpad_OtherAgents}"
+                                   IsVisible="{Binding HasPlaceAgents}" />
+                        <ItemsControl x:Name="LaunchpadPlaceAgents" ItemsSource="{Binding PlaceAgents}"
+                                      ItemTemplate="{StaticResource LaunchpadPlaceRow}" />
+                        <TextBlock Classes="launchpad-place-empty" Text="{loc:Str Launchpad_OtherEmpty}"
+                                   IsVisible="{Binding HasNoPlaceMatch}" />
+                      </StackPanel>
+                    </ScrollViewer>
+                  </DockPanel>
+                </StackPanel>
+              </Border>
+            </Flyout>
+          </FlyoutBase.AttachedFlyout>
+
+          <!-- Unclipped, as items controls clip by default: a starter's ⋯ rides above its capsule's corner -->
+          <ItemsControl x:Name="LaunchpadSetupTiles" ItemsSource="{Binding Launchpad.Setups}" ClipToBounds="False">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:LaunchpadSetupItem">
+                <StackPanel Orientation="Horizontal" IsVisible="{Binding IsInRow}">
+                  <Border Classes="launchpad-setup-divider" IsVisible="{Binding HasDividerBefore}" />
+                  <Panel Classes="launchpad-setup-host">
+                    <Button Theme="{StaticResource LaunchpadCapsuleButton}"
+                            Classes="launchpad-setup"
+                            Classes.active="{Binding IsActive}"
+                            Command="{Binding SelectCommand}"
+                            Content="{Binding}"
+                            ContentTemplate="{StaticResource LaunchpadStarterFace}"
+                            ToolTip.Tip="{Binding ToolTip}"
+                            ToolTip.ShowDelay="450"
+                            AutomationProperties.Name="{Binding AccessibleName}" />
+                    <Button Classes="launchpad-setup-more"
+                            Command="{Binding EditCommand}"
+                            ToolTip.Tip="{loc:Str Launchpad_StarterMore}"
+                            ToolTip.Placement="Top"
+                            ToolTip.VerticalOffset="-6"
+                            AutomationProperties.Name="{loc:Str Launchpad_StarterMore}">
+                      <PathIcon Data="M6 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z M12 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z M18 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z" />
+                    </Button>
+                  </Panel>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <!-- No starter fits the draft: where it starts, dashed, and a pin that keeps it -->
+          <Panel x:Name="LaunchpadDraftChip" Classes="launchpad-setup-host launchpad-draft"
+                 IsVisible="{Binding Launchpad.HasUnsavedDraft}">
+            <Rectangle Classes="launchpad-draft-rim" />
+            <StackPanel Orientation="Horizontal" Classes="launchpad-draft-body">
+              <ContentControl Content="{Binding Launchpad.DraftPlace}" ContentTemplate="{StaticResource LaunchpadStarterFace}"
+                                AutomationProperties.Name="{loc:Str Launchpad_DraftSetup}" />
+              <Button x:Name="LaunchpadKeepDraftButton"
+                      Classes="launchpad-draft-pin"
+                      Command="{Binding Launchpad.KeepDraftCommand}"
+                      ToolTip.Tip="{Binding Launchpad.KeepDraftTooltip}"
+                      ToolTip.Placement="Top"
+                      ToolTip.VerticalOffset="-6"
+                      AutomationProperties.Name="{Binding Launchpad.KeepDraftTooltip}">
+                <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pin}" />
+              </Button>
+            </StackPanel>
+          </Panel>
+
+          <!-- What doesn't fit: a stack of their badges and how many, whose shelf unfolds above the row. It wears the draft
+               starter's light while that starter is among them. -->
+          <Button x:Name="LaunchpadStackButton"
+                  Theme="{StaticResource LaunchpadCapsuleButton}"
+                  Classes="launchpad-setup launchpad-stack"
+                  Classes.active="{Binding Launchpad.IsOverflowActive}"
+                  IsVisible="{Binding Launchpad.HasOverflow}"
+                  Click="OnLaunchpadStackClick"
+                  ToolTip.Tip="{Binding Launchpad.OverflowAccessibleName}"
+                  ToolTip.ShowDelay="450"
+                  AutomationProperties.Name="{Binding Launchpad.OverflowAccessibleName}">
+            <StackPanel Orientation="Horizontal">
+              <!-- Unclipped: each badge overlaps the next by its negative margin, the last one past the panel's end -->
+              <ItemsControl ItemsSource="{Binding Launchpad.OverflowPreview}" ClipToBounds="False">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>
                     <StackPanel Orientation="Horizontal" />
                   </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:LaunchpadSetupItem">
-                    <Panel Classes="launchpad-setup-host">
-                      <Button Theme="{StaticResource LaunchpadCapsuleButton}"
-                              Classes="launchpad-setup"
-                              Classes.active="{Binding IsActive}"
-                              Classes.variant="{Binding IsVariant}"
-                              Command="{Binding SelectCommand}"
-                              ToolTip.Tip="{Binding ToolTip}"
-                              ToolTip.ShowDelay="450"
-                              AutomationProperties.Name="{Binding Title}">
-                        <Button.ContextMenu>
-                          <!-- Keep it on the new chat, change what it starts with, or stop it being suggested. -->
-                          <ContextMenu x:CompileBindings="False">
-                            <MenuItem Header="{loc:Str Launchpad_SetupKeep}" ToggleType="CheckBox"
-                                      IsChecked="{Binding IsPinned, Mode=OneWay}" Command="{Binding ToggleKeepCommand}" />
-                            <MenuItem Header="{loc:Str Launchpad_SetupStartsWith}" ItemsSource="{Binding ModelChoices}">
-                              <MenuItem.ItemContainerTheme>
-                                <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
-                                  <Setter Property="Header" Value="{Binding Title}" />
-                                  <Setter Property="ToggleType" Value="Radio" />
-                                  <Setter Property="IsChecked" Value="{Binding IsCurrent, Mode=OneWay}" />
-                                  <Setter Property="Command" Value="{Binding SelectCommand}" />
-                                </ControlTheme>
-                              </MenuItem.ItemContainerTheme>
-                            </MenuItem>
-                            <MenuItem Header="{loc:Str Launchpad_SetupWorktree}" ToggleType="CheckBox"
-                                      IsChecked="{Binding IsWorktree, Mode=OneWay}" IsVisible="{Binding CanUseWorktree}"
-                                      Command="{Binding ToggleWorktreeCommand}" />
-                            <Separator />
-                            <MenuItem Header="{loc:Str Launchpad_SetupHide}" Command="{Binding HideCommand}" />
-                          </ContextMenu>
-                        </Button.ContextMenu>
-                        <!-- Its badge, its name, and what it starts with, which trims first when the row runs short -->
-                        <Grid ColumnDefinitions="Auto,Auto,*">
-                          <Panel Classes="launchpad-setup-badge">
-                            <Border Classes="launchpad-setup-icon" />
-                            <Border Classes="launchpad-badge-tile"
-                                    Background="{Binding BadgeBackground}"
-                                    IsVisible="{Binding HasBadge}" />
-                            <TextBlock Classes="launchpad-badge-initial"
-                                       Text="{Binding BadgeInitial}"
-                                       Foreground="{Binding BadgeForeground}"
-                                       IsVisible="{Binding HasBadge}" />
-                            <PathIcon Classes="launchpad-setup-glyph" Data="{Binding Icon}" IsVisible="{Binding HasIcon}" />
-                            <TextBlock Text="{Binding GlyphText}" IsVisible="{Binding HasGlyphText}"
-                                       FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            <!-- It starts in a worktree: a branch on the badge's lower corner -->
-                            <Border Classes="launchpad-setup-branch" IsVisible="{Binding IsWorktree}">
-                              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Branch}" />
-                            </Border>
-                          </Panel>
-                          <TextBlock Grid.Column="1" Classes="launchpad-setup-title" Text="{Binding Title}" />
-                          <Border Grid.Column="2" Classes="launchpad-setup-detail">
-                            <TextBlock Classes="launchpad-setup-meta" Text="{Binding Detail}" />
-                          </Border>
-                        </Grid>
-                      </Button>
-                      <Button Classes="launchpad-setup-more"
-                              Click="OnLaunchpadSetupMoreClick"
-                              ToolTip.Tip="{loc:Str Launchpad_SetupMore}"
-                              ToolTip.Placement="Top"
-                              ToolTip.VerticalOffset="-6"
-                              AutomationProperties.Name="{loc:Str Launchpad_SetupMore}">
-                        <PathIcon Data="M6 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z M12 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z M18 10.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z" />
-                      </Button>
-                    </Panel>
+                  <DataTemplate x:DataType="vm:LaunchpadBadge">
+                    <Border Classes="launchpad-stack-badge">
+                      <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource LaunchpadBadgeFace}" />
+                    </Border>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
-            </ScrollViewer>
-            <Button x:Name="LaunchpadSetupsBack"
-                    Classes="launchpad-rail-step back"
-                    Click="OnLaunchpadRailStepClick"
-                    ToolTip.Tip="{loc:Str Launchpad_SetupsBack}"
-                    ToolTip.Placement="Top"
-                    ToolTip.VerticalOffset="-6"
-                    AutomationProperties.Name="{loc:Str Launchpad_SetupsBack}">
-              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronLeft}" />
-            </Button>
-            <Button x:Name="LaunchpadSetupsForward"
-                    Classes="launchpad-rail-step forward"
-                    Click="OnLaunchpadRailStepClick"
-                    ToolTip.Tip="{loc:Str Launchpad_SetupsForward}"
-                    ToolTip.Placement="Top"
-                    ToolTip.VerticalOffset="-6"
-                    AutomationProperties.Name="{loc:Str Launchpad_SetupsForward}">
-              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronRight}" />
-            </Button>
-          </Panel>
-          <TextBlock Classes="launchpad-setups-empty" Text="{loc:Str Launchpad_SetupsEmpty}"
-                     IsVisible="{Binding !Launchpad.HasSetups}" />
-
-          <!-- Every other project and agent, searchable; one picked starts the way the user last worked there, and its
-               pin keeps it on the new chat. When the draft is a setup the row doesn't hold (made in the composer, or
-               picked here), the capsule shows it and Keep opens beside it. -->
-          <Button x:Name="LaunchpadOtherButton"
-                  Theme="{StaticResource LaunchpadCapsuleButton}"
-                  Classes="launchpad-setup launchpad-other"
-                  Classes.active="{Binding Launchpad.IsOtherActive}"
-                  ToolTip.Tip="{loc:Str Launchpad_OtherTooltip}"
-                  ToolTip.ShowDelay="450"
-                  AutomationProperties.Name="{loc:Str Launchpad_Other}"
-                  AutomationProperties.HelpText="{loc:Str Launchpad_OtherTooltip}">
-            <Button.Flyout>
-              <Flyout Placement="TopEdgeAlignedRight"
-                      HorizontalOffset="16"
-                      VerticalOffset="10"
-                      FlyoutPresenterTheme="{StaticResource ChatHeaderCardPresenter}">
-                <DockPanel x:Name="LaunchpadOtherCard" Width="320">
-                  <TextBox x:Name="LaunchpadOtherSearch"
-                           DockPanel.Dock="Top"
-                           Classes="launchpad-other-search"
-                           Text="{Binding Launchpad.OtherQuery}"
-                           PlaceholderText="{loc:Str Launchpad_OtherSearch}"
-                           AutomationProperties.Name="{loc:Str Launchpad_OtherSearch}">
-                    <TextBox.InnerLeftContent>
-                      <PathIcon Classes="launchpad-other-search-icon" Data="{x:Static vm:WorkspaceIcons.Search}" />
-                    </TextBox.InnerLeftContent>
-                  </TextBox>
-                  <ScrollViewer MaxHeight="320" HorizontalScrollBarVisibility="Disabled">
-                    <StackPanel Margin="0,4,0,2">
-                      <TextBlock Classes="launchpad-other-section" Text="{loc:Str Launchpad_OtherProjects}"
-                                 IsVisible="{Binding Launchpad.HasOtherProjects}" />
-                      <ItemsControl x:Name="LaunchpadOtherProjects" ItemsSource="{Binding Launchpad.OtherProjects}"
-                                    ItemTemplate="{StaticResource LaunchpadOtherRow}" />
-                      <TextBlock Classes="launchpad-other-section" Text="{loc:Str Launchpad_OtherAgents}"
-                                 IsVisible="{Binding Launchpad.HasOtherAgents}" />
-                      <ItemsControl x:Name="LaunchpadOtherAgents" ItemsSource="{Binding Launchpad.OtherAgents}"
-                                    ItemTemplate="{StaticResource LaunchpadOtherRow}" />
-                      <TextBlock Classes="launchpad-other-empty" Text="{loc:Str Launchpad_OtherEmpty}"
-                                 IsVisible="{Binding Launchpad.HasNoOtherMatch}" />
-                    </StackPanel>
-                  </ScrollViewer>
-                </DockPanel>
-              </Flyout>
-            </Button.Flyout>
-            <StackPanel Orientation="Horizontal">
-              <Panel Classes="launchpad-setup-badge">
-                <Border Classes="launchpad-setup-icon" />
-                <Border Classes="launchpad-badge-tile"
-                        Background="{Binding Launchpad.OtherBadgeBackground}"
-                        IsVisible="{Binding Launchpad.HasOtherBadge}" />
-                <TextBlock Classes="launchpad-badge-initial"
-                           Text="{Binding Launchpad.OtherBadgeInitial}"
-                           Foreground="{Binding Launchpad.OtherBadgeForeground}"
-                           IsVisible="{Binding Launchpad.HasOtherBadge}" />
-                <TextBlock Text="{Binding Launchpad.OtherGlyph}" IsVisible="{Binding Launchpad.HasOtherGlyph}"
-                           FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                <PathIcon Classes="launchpad-setup-glyph" Data="{x:Static vm:WorkspaceIcons.Add}"
-                          IsVisible="{Binding Launchpad.ShowOtherAddIcon}" />
-              </Panel>
-              <TextBlock Classes="launchpad-setup-title" Text="{Binding Launchpad.OtherTitle}" />
-              <Border Classes="launchpad-setup-detail">
-                <TextBlock Classes="launchpad-setup-meta" Text="{Binding Launchpad.OtherMeta}" />
-              </Border>
+              <TextBlock Classes="launchpad-stack-count" Text="{Binding Launchpad.OverflowLabel}" />
             </StackPanel>
           </Button>
-          <!-- Keep: the setup on the Other capsule becomes the first of the user's setups, exactly as the composer has it -->
-          <Button x:Name="LaunchpadKeepSetupButton"
-                  Classes="launchpad-keep"
-                  Classes.shown="{Binding Launchpad.CanKeepDraft}"
-                  Command="{Binding Launchpad.KeepDraftCommand}"
-                  ToolTip.Tip="{Binding Launchpad.KeepDraftTooltip}"
+          <Popup x:Name="LaunchpadShelf"
+                 PlacementTarget="{Binding #LaunchpadStackButton}"
+                 Placement="TopEdgeAlignedRight"
+                 VerticalOffset="-10"
+                 IsLightDismissEnabled="True">
+            <Border x:Name="LaunchpadShelfRoot">
+              <ItemsControl x:Name="LaunchpadShelfTiles" ItemsSource="{Binding Launchpad.ShelfItems}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <lc:ShelfPanel Spacing="8" LineSpacing="8" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.DataTemplates>
+                  <DataTemplate DataType="vm:LaunchpadSetupItem">
+                    <Button Theme="{StaticResource LaunchpadCapsuleButton}"
+                            Classes="launchpad-setup"
+                            Classes.active="{Binding IsActive}"
+                            Command="{Binding SelectCommand}"
+                            Click="OnLaunchpadShelfStarterClick"
+                            Content="{Binding}"
+                            ContentTemplate="{StaticResource LaunchpadStarterFace}"
+                            ToolTip.Tip="{Binding Meta}"
+                            ToolTip.ShowDelay="450"
+                            AutomationProperties.Name="{Binding AccessibleName}" />
+                  </DataTemplate>
+                  <DataTemplate DataType="vm:LaunchpadNewStarterTile">
+                    <Button x:Name="LaunchpadShelfNewStarter"
+                            Theme="{StaticResource LaunchpadCapsuleButton}"
+                            Classes="launchpad-setup launchpad-shelf-new"
+                            Click="OnLaunchpadShelfNewStarterClick"
+                            AutomationProperties.Name="{loc:Str Launchpad_NewStarter}">
+                      <StackPanel Orientation="Horizontal">
+                        <Border Classes="launchpad-shelf-new-badge">
+                          <PathIcon Data="{x:Static vm:WorkspaceIcons.Add}" />
+                        </Border>
+                        <TextBlock Classes="launchpad-setup-title" Text="{loc:Str Launchpad_NewStarter}" />
+                      </StackPanel>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.DataTemplates>
+              </ItemsControl>
+            </Border>
+          </Popup>
+
+          <!-- New starter: the starter's card, empty of a name and filled from the draft, which it doesn't change -->
+          <Button x:Name="LaunchpadNewStarterButton"
+                  Theme="{StaticResource LaunchpadCapsuleButton}"
+                  Classes="launchpad-new-starter"
+                  IsVisible="{Binding !Launchpad.HasOverflow}"
+                  Click="OnLaunchpadNewStarterClick"
+                  ToolTip.Tip="{loc:Str Launchpad_NewStarter}"
                   ToolTip.Placement="Top"
                   ToolTip.VerticalOffset="-6"
-                  AutomationProperties.Name="{Binding Launchpad.KeepDraftTooltip}">
-            <StackPanel Orientation="Horizontal" Spacing="4">
-              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pin}" />
-              <TextBlock Text="{loc:Str Launchpad_KeepSetup}" />
-            </StackPanel>
+                  AutomationProperties.Name="{loc:Str Launchpad_NewStarter}">
+            <PathIcon Data="{x:Static vm:WorkspaceIcons.Add}" />
           </Button>
-        </lc:FitRowPanel>
+        </StackPanel>
       </StackPanel>
 
       <!-- Follow-up placeholders, shown while a reply's suggestions are being written -->

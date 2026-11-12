@@ -84,93 +84,50 @@ public sealed class LaunchpadPlannerTests
     }
 
     [Fact]
-    public void Setups_OfferRecurringConfigurationsAndSkipTheDefault()
+    public void Setups_LearnPlacesNeverModels_RankedByRecentUse()
     {
         var chats = new List<Chat>
         {
+            // One place on two models is one habit: the model is never part of it.
             SetupChat(Lumi, null, worktree: true, "gpt-6", "max", daysAgo: 1),
             SetupChat(Lumi, null, worktree: true, "gpt-6", "max", daysAgo: 3),
-            SetupChat(Lumi, null, worktree: true, "gpt-6", "max", daysAgo: 4),
+            SetupChat(Lumi, null, worktree: true, "claude", "high", daysAgo: 2),
             SetupChat(Search, CodingAgent, worktree: false, "claude", "high", daysAgo: 2),
-            SetupChat(Search, CodingAgent, worktree: false, "claude", "high", daysAgo: 5),
+            SetupChat(Search, CodingAgent, worktree: false, "gpt-6", null, daysAgo: 5),
             // Used once: not a habit yet.
             SetupChat(Search, null, worktree: true, "gpt-6", "max", daysAgo: 1),
-            // The plain default is what a new chat already is.
-            SetupChat(null, null, worktree: false, "default-model", "high", daysAgo: 1),
-            SetupChat(null, null, worktree: false, "default-model", "high", daysAgo: 2),
+            SetupChat(null, null, worktree: false, "default-model", "high", daysAgo: 6),
+            SetupChat(null, null, worktree: false, "other-model", null, daysAgo: 7),
             // Outside the window.
-            SetupChat(null, null, worktree: false, "old-model", null, daysAgo: 40),
-            SetupChat(null, null, worktree: false, "old-model", null, daysAgo: 45),
+            SetupChat(Search, null, worktree: false, "old-model", null, daysAgo: 40),
+            SetupChat(Search, null, worktree: false, "old-model", null, daysAgo: 45),
         };
 
-        var setups = SelectSetups(chats, plainDefault: new LaunchpadSetupSpec(null, null, false, "default-model", "high"));
-
         Assert.Equal(
             [
-                new LaunchpadSetupSpec(Lumi, null, true, "gpt-6", "max"),
-                new LaunchpadSetupSpec(Search, CodingAgent, false, "claude", "high"),
+                (new LaunchpadSetupSpec(Lumi, null, true, null, null), 3),
+                (new LaunchpadSetupSpec(Search, CodingAgent, false, null, null), 2),
+                (LaunchpadSetupSpec.JustChat, 2),
             ],
-            setups);
+            SelectSetups(chats));
     }
 
     [Fact]
-    public void Setups_CoverDifferentPlacesBeforeRepeatingOne()
-    {
-        var chats = new List<Chat>();
-        for (var day = 1; day <= 6; day++)
-            chats.Add(SetupChat(Lumi, null, worktree: true, "gpt-6", "max", day));
-        for (var day = 1; day <= 5; day++)
-            chats.Add(SetupChat(Lumi, null, worktree: true, "claude", "max", day));
-        chats.Add(SetupChat(Search, null, worktree: false, "gpt-6", "high", daysAgo: 10));
-        chats.Add(SetupChat(Search, null, worktree: false, "gpt-6", "high", daysAgo: 12));
-
-        var setups = SelectSetups(chats, plainDefault: null);
-
-        Assert.Equal(
-            [
-                new LaunchpadSetupSpec(Lumi, null, true, "gpt-6", "max"),
-                new LaunchpadSetupSpec(Search, null, false, "gpt-6", "high"),
-                new LaunchpadSetupSpec(Lumi, null, true, "claude", "max"),
-            ],
-            setups);
-    }
-
-    [Fact]
-    public void Setups_ForgetDeletedProjectsAndUnavailableModels()
+    public void Setups_AlwaysOfferJustChat_AndCountADeletedProjectsChatsAsPlain()
     {
         var removedProject = Guid.NewGuid();
         var chats = new List<Chat>
         {
-            SetupChat(removedProject, null, worktree: true, "retired-model", "max", daysAgo: 1),
-            SetupChat(removedProject, null, worktree: true, "retired-model", "max", daysAgo: 2),
-            SetupChat(Lumi, null, worktree: false, "retired-model", "max", daysAgo: 1),
-            SetupChat(Lumi, null, worktree: false, "retired-model", "max", daysAgo: 2),
+            SetupChat(Lumi, null, worktree: false, "gpt-6", null, daysAgo: 1),
+            SetupChat(Lumi, null, worktree: false, "gpt-6", null, daysAgo: 2),
+            // A project that's gone leaves a plain chat, and no worktree to start in.
+            SetupChat(removedProject, null, worktree: true, "gpt-6", null, daysAgo: 3),
         };
 
-        var setups = SelectSetups(
-            chats,
-            plainDefault: null,
-            resolveModel: (model, effort) => model == "retired-model" ? (null, null) : (model, effort));
-
-        // A setup without its project or model is only a place, and a place-less, model-less setup is nothing.
-        Assert.Equal([new LaunchpadSetupSpec(Lumi, null, false, null, null)], setups);
-    }
-
-    [Fact]
-    public void Setups_KeepOneHabitWhenStoredEffortsDriftOnAModelWithoutEfforts()
-    {
-        var chats = new List<Chat>
-        {
-            SetupChat(Lumi, null, worktree: false, "no-effort-model", "high", daysAgo: 1),
-            SetupChat(Lumi, null, worktree: false, "no-effort-model", "medium", daysAgo: 2),
-        };
-
-        var setups = SelectSetups(
-            chats,
-            plainDefault: null,
-            resolveModel: (model, effort) => (model, model == "no-effort-model" ? null : effort));
-
-        Assert.Equal([new LaunchpadSetupSpec(Lumi, null, false, "no-effort-model", null)], setups);
+        Assert.Equal(
+            [(new LaunchpadSetupSpec(Lumi, null, false, null, null), 2), (LaunchpadSetupSpec.JustChat, 1)],
+            SelectSetups(chats));
+        Assert.Equal([(LaunchpadSetupSpec.JustChat, 0)], SelectSetups([]));
     }
 
     [Fact]
@@ -185,11 +142,9 @@ public sealed class LaunchpadPlannerTests
             Now,
             _ => true,
             _ => true,
-            (model, effort) => (model, effort),
-            plainDefault: null,
             limit: 3);
 
-        Assert.Empty(setups);
+        Assert.Equal([(LaunchpadSetupSpec.JustChat, 0)], setups);
     }
 
     [Theory]
@@ -353,34 +308,210 @@ public sealed class LaunchpadPlannerTests
     }
 
     [Fact]
-    public void Setups_KeptComeFirst_EveryVariantIncluded_AndKeptOrHiddenPlacesAreNotLearnedAgain()
+    public void Setups_KeptComeFirst_AnIdenticalKeptStarterStandsInForItsPlace_AndJustChatIsAlwaysOffered()
     {
-        var lumi = new LaunchpadSetupSpec(Lumi, null, true, "gpt-6-sol", "high");
-        var lumiLearned = new LaunchpadSetupSpec(Lumi, null, true, "gpt-6-luna", null);
-        var search = new LaunchpadSetupSpec(Search, null, false, "gpt-6-luna", null);
-        var planner = new LaunchpadSetupSpec(null, Guid.NewGuid(), false, "gpt-6-luna", null);
-        var plainSol = new LaunchpadSetupSpec(null, null, false, "gpt-6-sol", null);
+        var uiDev = new LaunchpadSetupSpec(Lumi, null, true, "claude-opus-5.5", "high");
+        var fixes = new LaunchpadSetupSpec(Lumi, null, true, null, null);
+        var lumiWorktree = new LaunchpadSetupSpec(Lumi, null, true, null, null);
+        var lumiLocal = new LaunchpadSetupSpec(Lumi, null, false, null, null);
+        var search = new LaunchpadSetupSpec(Search, null, false, null, null);
+        var planner = new LaunchpadSetupSpec(null, CodingAgent, false, null, null);
+        var learned = new List<(LaunchpadSetupSpec, int)>
+        {
+            (lumiWorktree, 174), (lumiLocal, 28), (LaunchpadSetupSpec.JustChat, 21), (search, 10), (planner, 4),
+        };
 
-        var merged = LaunchpadPlanner.MergeSetups([lumi], [lumiLearned, search, planner, plainSol], [search.Context], limit: 3);
+        // "Fixes" is the Lumi worktree place renamed, so it shows in that place's stead; UI dev, on its own model, leaves
+        // the place alone. A dismissed place stays out. Every kept starter shows, even two that start the same way (a
+        // starter kept on a model since retired starts as another does), so none of them ever goes missing.
+        Assert.Equal(
+            [(uiDev, 0, 0), (fixes, 1, 0), (uiDev, 2, 0), (lumiLocal, -1, 28), (LaunchpadSetupSpec.JustChat, -1, 21), (planner, -1, 4)],
+            LaunchpadPlanner.MergeSetups([uiDev, fixes, uiDev], learned, [search.Context], limit: 6));
 
-        Assert.Equal([(lumi, 0), (planner, -1), (plainSol, -1)], merged);
+        // Learned places stop at the limit, but Just chat is never left out, nor dismissed.
+        Assert.Equal(
+            [(lumiWorktree, -1, 174), (LaunchpadSetupSpec.JustChat, -1, 21)],
+            LaunchpadPlanner.MergeSetups([], learned, [LaunchpadSetupSpec.JustChat.Context], limit: 1));
 
-        // One project kept on several models and checkouts: every one shows, each a setup of its own, and a setup kept
-        // twice shows once.
-        var lumiOpus = lumi with { ModelId = "claude-opus-5.5" };
-        var lumiLocal = lumi with { UseWorktree = false };
-        Assert.Equal([(lumi, 0), (lumiOpus, 1), (lumiLocal, 3)],
-            LaunchpadPlanner.MergeSetups([lumi, lumiOpus, lumi, lumiLocal], [lumiLearned, search], [], 3));
-
-        // Kept setups never count against the learned ones' limit, up to the most the row shows.
+        // Kept starters never count against the learned ones' limit, up to the most the row keeps.
         var many = Enumerable.Range(0, LaunchpadPlanner.MaxKeptSetups + 2)
-            .Select(index => lumi with { ModelId = $"model-{index}" }).ToList();
-        Assert.Equal(many.Take(LaunchpadPlanner.MaxKeptSetups).Select((spec, index) => (spec, index)),
-            LaunchpadPlanner.MergeSetups(many, [search, planner], [], 3));
-
-        // A setup the user keeps shows even where they asked not to see what they use.
-        Assert.Equal([(lumi, 0), (search, -1)], LaunchpadPlanner.MergeSetups([lumi], [lumiLearned, search], [lumi.Context], 3));
+            .Select(index => uiDev with { ModelId = $"model-{index}" }).ToList();
+        Assert.Equal(
+            [.. many.Take(LaunchpadPlanner.MaxKeptSetups).Select((spec, index) => (spec, index, 0)), (lumiWorktree, -1, 174)],
+            LaunchpadPlanner.MergeSetups(many, learned.Take(1).ToList(), [], limit: 1)
+                .Where(entry => !entry.Spec.IsJustChat).ToList());
     }
+
+    [Fact]
+    public void TheDraftsStarter_IsTheMostSpecificOneThatFitsIt()
+    {
+        var uiDev = new LaunchpadSetupSpec(Lumi, null, true, "claude-opus-5.5", "high");
+        var opusAnyEffort = new LaunchpadSetupSpec(Lumi, null, true, "claude-opus-5.5", null);
+        var fixes = new LaunchpadSetupSpec(Lumi, null, true, null, null);
+        var lumiLocal = new LaunchpadSetupSpec(Lumi, null, false, null, null);
+        List<LaunchpadSetupSpec> row = [fixes, opusAnyEffort, uiDev, lumiLocal, LaunchpadSetupSpec.JustChat];
+
+        // A chosen model and effort beat a chosen model alone, which beats the default model, wherever they sit.
+        Assert.Equal(2, LaunchpadPlanner.IndexOfMatch(row, new LaunchpadSetupSpec(Lumi, null, true, "claude-opus-5.5", "high")));
+        Assert.Equal(1, LaunchpadPlanner.IndexOfMatch(row, new LaunchpadSetupSpec(Lumi, null, true, "claude-opus-5.5", "low")));
+        // A starter on the default model fits whatever model the draft has.
+        Assert.Equal(0, LaunchpadPlanner.IndexOfMatch(row, new LaunchpadSetupSpec(Lumi, null, true, "gpt-6.1-sol", "high")));
+        Assert.Equal(3, LaunchpadPlanner.IndexOfMatch(row, new LaunchpadSetupSpec(Lumi, null, false, "claude-opus-5.5", "high")));
+        Assert.Equal(4, LaunchpadPlanner.IndexOfMatch(row, new LaunchpadSetupSpec(null, null, false, "gpt-6.1-terra", null)));
+        // Somewhere the row has no starter for, or nothing to match.
+        Assert.Equal(-1, LaunchpadPlanner.IndexOfMatch(row, new LaunchpadSetupSpec(Search, null, false, "gpt-6.1-sol", null)));
+        Assert.Equal(-1, LaunchpadPlanner.IndexOfMatch(row, null));
+        // On a tie the first in the row wins.
+        Assert.Equal(0, LaunchpadPlanner.IndexOfMatch([fixes, fixes], new LaunchpadSetupSpec(Lumi, null, true, "x", null)));
+    }
+
+    [Fact]
+    public void TheRow_ShowsWhatFitsInOrder_KeepsTheDraftsStarterInSight_AndDividesKeptFromLearned()
+    {
+        double[] widths = [100, 100, 100, 100];
+        bool[] kept = [true, true, false, false];
+
+        // Everything fits beside the + button: all of it shows.
+        Assert.All(LaunchpadPlanner.FitRow(widths, kept, 455, 0, 46, 80, 9, -1), Assert.True);
+
+        // Otherwise what fits beside the stack, in order; the divider counts once a learned starter follows a kept one.
+        Assert.Equal([true, true, false, false], LaunchpadPlanner.FitRow(widths, kept, 380, 0, 46, 80, 9, -1));
+        Assert.Equal([true, true, true, false], LaunchpadPlanner.FitRow(widths, kept, 389, 0, 46, 80, 9, -1));
+        Assert.Equal([true, true, false, false], LaunchpadPlanner.FitRow(widths, kept, 380, 0, 46, 80, 9, 1));
+
+        // The draft's own chip, when no starter fits it, takes its room first.
+        Assert.Equal([true, false, false, false], LaunchpadPlanner.FitRow(widths, kept, 380, 120, 46, 80, 9, -1));
+    }
+
+    [Fact]
+    public void TheDraftsStarter_TakesOnlyALearnedStartersPlace_KeptStartersHoldTheirs()
+    {
+        double[] widths = [100, 100, 100, 100, 100];
+        bool[] oneKept = [true, false, false, false, false];
+
+        // A learned starter the draft started from comes in from the stack in the place of the last learned one shown.
+        Assert.Equal([true, true, true, false, false], LaunchpadPlanner.FitRow(widths, oneKept, 400, 0, 46, 80, 9, -1));
+        Assert.Equal([true, true, false, false, true], LaunchpadPlanner.FitRow(widths, oneKept, 400, 0, 46, 80, 9, 4));
+
+        // With the row's room all taken by kept starters it stays in the stack (which wears its light): no kept starter
+        // ever leaves the row for it, whether it was learned or kept further on.
+        bool[] twoKept = [true, true, false, false];
+        Assert.Equal([true, true, false, false], LaunchpadPlanner.FitRow([100, 100, 100, 100], twoKept, 380, 0, 46, 80, 9, 3));
+        bool[] threeKept = [true, true, true, false];
+        Assert.Equal([true, true, false, false], LaunchpadPlanner.FitRow([100, 100, 100, 100], threeKept, 300, 0, 46, 80, 9, 2));
+    }
+
+    [Fact]
+    public void Keeper_KeepsARecipeOnce_AddsNamedStartersBesideIt_AndLetsThemGo()
+    {
+        var data = KeeperData();
+        var place = new LaunchpadSetupSpec(Lumi, null, true, null, null);
+
+        var kept = LaunchpadSetupKeeper.Keep(data, [], place);
+        Assert.Same(kept, Assert.Single(data.PinnedSetups));
+        Assert.Null(kept.Name);
+        Assert.Same(kept, LaunchpadSetupKeeper.Keep(data, [], place));
+
+        // A starter made in the new starter card joins the kept one with its recipe and never renames it; asking again
+        // adds nothing. A name that is just the place's isn't stored, nor are spaces or an icon Lumi doesn't draw.
+        var fixes = LaunchpadSetupKeeper.Add(data, place, "  Fixes  ", "bug");
+        Assert.Equal([kept, fixes], data.PinnedSetups);
+        Assert.Equal(((string?)null, (string?)null, "Fixes", "bug"), (kept.Name, kept.Icon, fixes.Name, fixes.Icon));
+        Assert.Same(fixes, LaunchpadSetupKeeper.Add(data, place, "Fixes", "bug"));
+        Assert.Same(kept, LaunchpadSetupKeeper.Add(data, place, "Lumi", "not-an-icon"));
+        Assert.Equal(2, data.PinnedSetups.Count);
+
+        Assert.True(LaunchpadSetupKeeper.StopKeeping(data, [], place));
+        Assert.Equal([fixes], data.PinnedSetups);
+        Assert.True(LaunchpadSetupKeeper.StopKeeping(data, fixes));
+        Assert.Empty(data.PinnedSetups);
+        Assert.False(LaunchpadSetupKeeper.StopKeeping(data, [], place));
+    }
+
+    [Fact]
+    public void Keeper_EditsAKeptStarterInPlace_KeepsALearnedOne_AndNeverLosesANamedOne()
+    {
+        var data = KeeperData();
+        var place = new LaunchpadSetupSpec(Lumi, null, true, null, null);
+        var uiDev = LaunchpadSetupKeeper.Add(data, place with { ModelId = "claude-opus-5.5" }, "UI dev", null);
+        var fixes = LaunchpadSetupKeeper.Add(data, place, "Fixes", null);
+        List<LaunchpadSetupChoice> row =
+        [
+            Choice(place with { ModelId = "claude-opus-5.5" }, uiDev),
+            Choice(place, fixes),
+            Choice(new LaunchpadSetupSpec(Lumi, null, false, null, null), pin: null),
+        ];
+
+        // A chosen model on the kept "Fixes" changes it where it stands, name and all.
+        var edited = LaunchpadSetupKeeper.Edit(data, row, fixes, place with { ModelId = "gpt-6.1-sol", Effort = "high" });
+        Assert.Same(fixes, edited);
+        Assert.Equal([uiDev, fixes], data.PinnedSetups);
+        Assert.Equal(("gpt-6.1-sol", "high", "Fixes"), (fixes.ModelId, fixes.Effort, fixes.Name));
+
+        // Renaming a learned place keeps it, after the user's others.
+        var research = Assert.IsType<LaunchpadSetupPin>(LaunchpadSetupKeeper.Edit(data, row, null, row[2].Spec, name: "Research"));
+        Assert.Equal([uiDev, fixes, research], data.PinnedSetups);
+        Assert.Equal(("Research", false, null), (research.Name, research.UseWorktree, research.ModelId));
+
+        // Retuning "Fixes" into UI dev's recipe leaves both: each has a name the user gave it.
+        LaunchpadSetupKeeper.Edit(data, row, fixes, place with { ModelId = "claude-opus-5.5" });
+        Assert.Equal([uiDev, fixes, research], data.PinnedSetups);
+        Assert.Equal(("claude-opus-5.5", "Fixes", "UI dev"), (fixes.ModelId, fixes.Name, uiDev.Name));
+    }
+
+    [Fact]
+    public void Keeper_AnEditMergesOnlyTwinsThatWouldLookTheSame_AndNeverBringsBackOneLetGo()
+    {
+        // Adir's profile: "Research" (Lumi on the default model, named) and two bare starters kept on Lumi with models.
+        var data = KeeperData();
+        var lumi = new LaunchpadSetupSpec(Lumi, null, false, null, null);
+        var onSol = lumi with { ModelId = "gpt-6.1-sol", Effort = "high" };
+        var research = LaunchpadSetupKeeper.Add(data, lumi, "Research", null);
+        var opus = LaunchpadSetupKeeper.Keep(data, [], lumi with { ModelId = "claude-opus-5.5", Effort = "high" });
+        var sol = LaunchpadSetupKeeper.Keep(data, [], onSol);
+
+        // Opus back on the default model now starts as "Research" does: both stay, Research keeps its name.
+        LaunchpadSetupKeeper.Edit(data, [], opus, lumi);
+        Assert.Equal([research, opus, sol], data.PinnedSetups);
+
+        // Renaming Research beside that bare twin, giving it an icon, or moving it onto Sol's recipe never costs a bare
+        // starter: Research's name tells them apart, as the new starter card adds named ones beside their recipe's others.
+        LaunchpadSetupKeeper.Edit(data, [], research, lumi, name: "Deep research", icon: "search");
+        LaunchpadSetupKeeper.Edit(data, [], research, onSol);
+        Assert.Equal([research, opus, sol], data.PinnedSetups);
+        Assert.Equal(("Deep research", "search", "gpt-6.1-sol"), (research.Name, research.Icon, research.ModelId));
+
+        // Opus moved onto Sol's recipe too: two bare starters that would look the same become one.
+        LaunchpadSetupKeeper.Edit(data, [], opus, onSol);
+        Assert.Equal([research, opus], data.PinnedSetups);
+
+        // A starter let go meanwhile (on the phone, say) is not kept again by an edit from a card still showing it.
+        Assert.True(LaunchpadSetupKeeper.StopKeeping(data, opus));
+        Assert.Null(LaunchpadSetupKeeper.Edit(data, [], opus, lumi, name: "Again"));
+        Assert.Equal([research], data.PinnedSetups);
+    }
+
+    [Fact]
+    public void Keeper_DismissesPlacesButNeverJustChat()
+    {
+        var data = KeeperData();
+        var search = new LaunchpadSetupSpec(Search, null, false, "gpt-6.1-sol", null);
+
+        Assert.True(LaunchpadSetupKeeper.Hide(data, search));
+        Assert.False(LaunchpadSetupKeeper.Hide(data, search with { ModelId = null }));
+        var hidden = Assert.Single(data.HiddenSetups);
+        Assert.Equal(((Guid?)Search, (string?)null), (hidden.ProjectId, hidden.ModelId));
+        Assert.False(LaunchpadSetupKeeper.Hide(data, LaunchpadSetupSpec.JustChat with { ModelId = "gpt-6.1-sol" }));
+        Assert.Single(data.HiddenSetups);
+    }
+
+    private static AppData KeeperData() => new()
+    {
+        Projects = [new Project { Id = Lumi, Name = "Lumi" }, new Project { Id = Search, Name = "Fluent Search" }],
+    };
+
+    private static LaunchpadSetupChoice Choice(LaunchpadSetupSpec spec, LaunchpadSetupPin? pin)
+        => new(spec, pin?.Name ?? "Lumi", "Lumi", "") { Pin = pin };
 
     [Theory]
     [InlineData("Lumi 1.0.1 is live; 1.0.2 is prepared but not published. Show HN moved to Monday.", "Lumi 1.0.1 is live; 1.0.2 is prepared but not published.")]
@@ -462,19 +593,14 @@ public sealed class LaunchpadPlannerTests
         Assert.EndsWith("…", preview, StringComparison.Ordinal);
     }
 
-    private static List<LaunchpadSetupSpec> SelectSetups(
-        IEnumerable<Chat> chats,
-        LaunchpadSetupSpec? plainDefault,
-        Func<string?, string?, (string? Model, string? Effort)>? resolveModel = null)
+    private static List<(LaunchpadSetupSpec Spec, int Uses)> SelectSetups(IEnumerable<Chat> chats)
         => LaunchpadPlanner.SelectSetups(
             chats,
             new HashSet<Guid>(),
             Now,
             projectId => projectId == Lumi || projectId == Search,
             agentId => agentId == CodingAgent,
-            resolveModel ?? ((model, effort) => (model, effort)),
-            plainDefault,
-            LaunchpadPlanner.MaxSetups);
+            LaunchpadPlanner.MaxLearnedSetups);
 
     private static Chat NewChat(string title, DateTimeOffset updatedAt, int messageCount = 2)
         => new() { Title = title, UpdatedAt = updatedAt, CreatedAt = updatedAt, MessageCount = messageCount };
