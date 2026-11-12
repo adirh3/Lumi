@@ -4544,6 +4544,7 @@
                              IsAnswered="{Binding IsAnswered, Mode=TwoWay}"
                              IsExpired="{Binding IsExpired}"
                              IsExpanded="{Binding IsExpanded}"
+                             Classes.motion-disabled="{Binding !$parent[views:ChatView].((vm:ChatViewModel)DataContext).AreAnimationsEnabled}"
                              Margin="0,4" />
     </DataTemplate>
 
