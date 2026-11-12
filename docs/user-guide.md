@@ -875,6 +875,14 @@ Workspace's **Agents** page, the same view its row in the chat opens. The list u
 in place while it is open, so an expanded command keeps streaming. **Stop session**
 cancels everything still running in that chat.
 
+Scheduled, script-triggered and chat-event jobs use temporary browser tabs, including
+jobs started with **Run now**. They share your existing website sign-ins, but not the
+live tabs from your interactive chat. Once the job's session is idle (including its
+attached background work), fails or is stopped, Lumi closes its browser tabs and
+releases their native views. A paused job keeps its tabs for resuming. Your existing
+interactive tabs remain available, and saved reports and downloaded files are not
+removed.
+
 ### Desktop motion
 
 Focusing the glass composer brings it forward: the whole composer, glass, text and tools together, grows
