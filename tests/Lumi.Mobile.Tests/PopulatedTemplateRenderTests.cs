@@ -518,7 +518,8 @@ public sealed class PopulatedTemplateRenderTests
                     .Single(message => message.DataContext is UserTurnItemViewModel { Id: "u1" });
                 Assert.Equal("You", user.Author);
                 Assert.Equal(Time(asked), user.Timestamp);
-                Assert.False(user.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "PART_ActionLayer").IsVisible);
+                Assert.DoesNotContain(user.GetVisualDescendants().OfType<Border>(),
+                    border => border.Name == "PART_ActionLayer");
                 var bubble = user.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "PART_Bubble");
                 Assert.True(bubble.Bounds.Width >= 300, $"The bubble is {bubble.Bounds.Width:0} dp wide in a 412 dp window.");
                 Assert.Contains(bubble.GetVisualDescendants().OfType<StrataTheme.Controls.StrataFileAttachment>(),
