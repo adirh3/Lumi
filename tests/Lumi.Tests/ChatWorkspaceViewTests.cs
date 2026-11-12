@@ -476,11 +476,12 @@ public sealed class ChatWorkspaceViewTests
         await session.Dispatch(async () =>
         {
             Loc.Load("en");
+            var now = DateTimeOffset.Now.AddMinutes(-1);
             var chat = new Chat
             {
                 Title = "Open by double click",
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow,
+                CreatedAt = now,
+                UpdatedAt = now,
             };
             var data = CreateAppData();
             data.Settings.IsOnboarded = true;
@@ -510,6 +511,15 @@ public sealed class ChatWorkspaceViewTests
                 await PumpAsync();
                 window.UpdateLayout();
 
+                Assert.Contains(viewModel.ChatGroups.SelectMany(group => group.Chats),
+                    item => ReferenceEquals(item, chat));
+                var deadline = DateTime.UtcNow.AddSeconds(3);
+                while (!window.GetVisualDescendants().OfType<ListBoxItem>()
+                    .Any(item => ReferenceEquals(item.DataContext, chat)) && DateTime.UtcNow < deadline)
+                {
+                    await Task.Delay(20);
+                    window.UpdateLayout();
+                }
                 var listItem = Assert.Single(window.GetVisualDescendants()
                     .OfType<ListBoxItem>(), item => ReferenceEquals(item.DataContext, chat));
                 Assert.True(listItem.Bounds.Width > 0 && listItem.Bounds.Height > 0);
