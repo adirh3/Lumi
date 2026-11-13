@@ -213,7 +213,7 @@ public partial class ChatViewModel
     {
         try
         {
-            var bridge = await session.Rpc.Permissions.SetRequiredAsync(true, ct);
+            var bridge = await session.Rpc.Permissions.SetRequiredAsync(true, cancellationToken: ct);
             if (!bridge.Success)
                 throw new InvalidOperationException(Loc.Get("Approval_PolicyNotApplied"));
             await ApplyNativeApprovalPolicyAsync(session, chat, ct);

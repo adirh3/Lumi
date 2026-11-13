@@ -1,46 +1,46 @@
 <Project>
-  <!-- Official v1.0.108-1 archive digests match SHA256SUMS.txt. Executable hashes
+  <!-- Official v1.0.111 archive digests match SHA256SUMS.txt. Executable hashes
        were computed after archive verification and single-executable layout checks. -->
   <ItemGroup>
-    <LumiCopilotCliPin Include="1.0.108-1/win-x64">
+    <LumiCopilotCliPin Include="1.0.111/win-x64">
       <AssetName>copilot-win32-x64.zip</AssetName>
-      <ArchiveSha256>650e91699b052eaf1ccd8db9171aa37f7e3027151071a83a3bd931d9e0f1d30f</ArchiveSha256>
-      <ExecutableSha256>50d7e025d1439cacec17bf6a03071761e080b1f67487d7ae340eee7498e49965</ExecutableSha256>
+      <ArchiveSha256>af5cdf0a5ad8c5e868dc87b292315a175d3a3930642d30a3840bd9c73bf85c23</ArchiveSha256>
+      <ExecutableSha256>1c3ed35979df279e4b424f73041fd67355a4cc51136a1f9a6c3cd9d3742828ea</ExecutableSha256>
     </LumiCopilotCliPin>
-    <LumiCopilotCliPin Include="1.0.108-1/win-arm64">
+    <LumiCopilotCliPin Include="1.0.111/win-arm64">
       <AssetName>copilot-win32-arm64.zip</AssetName>
-      <ArchiveSha256>38e84377e3d427844a1845aea529ab71949c34c6d83cd75a684e82f24d949e75</ArchiveSha256>
-      <ExecutableSha256>bfc5849b5d8f424a57eb38c14c8fa4e7211f008fc03ca051b45819c5503a44aa</ExecutableSha256>
+      <ArchiveSha256>520bcd65f7d7161e0191832cd4f3e6c0205bbc2042afbec6a77235c9662bccbf</ArchiveSha256>
+      <ExecutableSha256>4a45733a2823f46a206ec5b2ab6f7285a383e4e23fd6095dbc1914ef3f9b34fd</ExecutableSha256>
     </LumiCopilotCliPin>
-    <LumiCopilotCliPin Include="1.0.108-1/linux-x64">
+    <LumiCopilotCliPin Include="1.0.111/linux-x64">
       <AssetName>copilot-linux-x64.tar.gz</AssetName>
-      <ArchiveSha256>61b9bfa69433477e81b74b45c4b225fc2b8f4fa78e9a3edf54e564c0dbdcd2e0</ArchiveSha256>
-      <ExecutableSha256>3ce3184b7b2a03d82cb42adf6b4fae8499579dae4f6642cc02ace205a327df15</ExecutableSha256>
+      <ArchiveSha256>33ea4378ccc829bc18520648ad97c8fb1d9de4ba478ebff8eb2ad890aa0a95c8</ArchiveSha256>
+      <ExecutableSha256>5d7ee286b12f26ff4aed1b616cc38e831b7429db9ca1ba48bbbad94ca5e1e2ba</ExecutableSha256>
     </LumiCopilotCliPin>
-    <LumiCopilotCliPin Include="1.0.108-1/linux-arm64">
+    <LumiCopilotCliPin Include="1.0.111/linux-arm64">
       <AssetName>copilot-linux-arm64.tar.gz</AssetName>
-      <ArchiveSha256>9405781848660f7712ac33f5fabda934b55d3698f3e87ce3b92f35567d9d252f</ArchiveSha256>
-      <ExecutableSha256>59859ec4195f5e5bab9b70801f5c38a58755ce1664fdcea772ac7a3263be4c72</ExecutableSha256>
+      <ArchiveSha256>203ffacb01d40383d34427fac7577eb7c847d77cd88b45b2c7ab560e044d9613</ArchiveSha256>
+      <ExecutableSha256>39b08d80d97f4e58c010b0f78a4921ecc6b5b3245c61d20ebddcb37384f6a4fc</ExecutableSha256>
     </LumiCopilotCliPin>
-    <LumiCopilotCliPin Include="1.0.108-1/linux-musl-x64">
+    <LumiCopilotCliPin Include="1.0.111/linux-musl-x64">
       <AssetName>copilot-linuxmusl-x64.tar.gz</AssetName>
-      <ArchiveSha256>fc41dd9d689b9afc578740ceda356674ce322c3d9aa08f3f1597e595cc67ba59</ArchiveSha256>
-      <ExecutableSha256>7035c5b42fe6620ce5e91f2b55c96e49a479b01afdd02829c89fa1d24223bba5</ExecutableSha256>
+      <ArchiveSha256>a743a3434bccc5d7cbd08262c5cf6910c6ce2861556480dac16c1c9e968bc458</ArchiveSha256>
+      <ExecutableSha256>441ca48623f3dc812fb4c6615af9812baff8ae8f99c6c7c9ed07e41840db5e50</ExecutableSha256>
     </LumiCopilotCliPin>
-    <LumiCopilotCliPin Include="1.0.108-1/linux-musl-arm64">
+    <LumiCopilotCliPin Include="1.0.111/linux-musl-arm64">
       <AssetName>copilot-linuxmusl-arm64.tar.gz</AssetName>
-      <ArchiveSha256>01c27454791480705f7f693de08ae940d22ef0139bd3bb0e9dbcfd62f701a834</ArchiveSha256>
-      <ExecutableSha256>0f0187bb374cf3e81dfea8023183dc38c404eac08da9211a1c6ee5f4741e2f7d</ExecutableSha256>
+      <ArchiveSha256>3f309d2e6570b207b5abcfc5b726be7d9c5e596243364e51b9aebb21e3235851</ArchiveSha256>
+      <ExecutableSha256>8515c120a09d85bf6c393b2a81a9e80c7faeeb5e555961cec4c40fec24a95ffd</ExecutableSha256>
     </LumiCopilotCliPin>
-    <LumiCopilotCliPin Include="1.0.108-1/osx-x64">
+    <LumiCopilotCliPin Include="1.0.111/osx-x64">
       <AssetName>copilot-darwin-x64.tar.gz</AssetName>
-      <ArchiveSha256>19fc2bd12ede3af32136ca37a5daaa724def935eb0324d9914c519b5e68295d1</ArchiveSha256>
-      <ExecutableSha256>cbc54698b8d96e4666d9ab3c7c8435c9b086dd4b517a9a369669cc7e8cb6932d</ExecutableSha256>
+      <ArchiveSha256>43063da8b867de20c920e19521eed18401cd2e67d94c8b48ec9a3387e9175eef</ArchiveSha256>
+      <ExecutableSha256>cb171e4f54ce3825bcba9298f8d5a352ce5e3d14952c5ad69239e19282431deb</ExecutableSha256>
     </LumiCopilotCliPin>
-    <LumiCopilotCliPin Include="1.0.108-1/osx-arm64">
+    <LumiCopilotCliPin Include="1.0.111/osx-arm64">
       <AssetName>copilot-darwin-arm64.tar.gz</AssetName>
-      <ArchiveSha256>577cb041ff6fa6291784b45e10f6cf3d18713c9e5fc11fa9fae2c1913c129fd3</ArchiveSha256>
-      <ExecutableSha256>11b648c1420556a8ac31d9d4df1276474346b22b6c528c4e2e3760ad96fd94e3</ExecutableSha256>
+      <ArchiveSha256>398b49ebeafa67231151347794e07c4665a0ec904708645ca4992c917565a901</ArchiveSha256>
+      <ExecutableSha256>16a4f9ea73a7c5b98a2a816c45f0c691f4abf1ad92e6c88afab1b70c59fb4f76</ExecutableSha256>
     </LumiCopilotCliPin>
   </ItemGroup>
 </Project>

@@ -253,6 +253,41 @@ count that would reject the very stalls being measured. The known stall is
 injected after sampled gesture activity begins, and verified against its exact
 frame interval.
 
+## Gemini provider routing
+
+The Gemini provider regressions run the bundled Copilot runtime without a live
+account or paid inference:
+
+```powershell
+$env:LUMI_INTEGRATION_TESTS = '1'
+dotnet test tests\Lumi.Tests\Lumi.Tests.csproj --filter FullyQualifiedName~GeminiProviderSessionIntegrationTests
+```
+
+They check the exact Google inference URL with and without a trailing slash,
+the connection-check tool call, a resumed chat, and direct native HTTP against
+a loopback server. Responses are synthetic: these checks establish routing and
+session behaviour, not a particular Gemini model's availability to a real key.
+The fixture includes Google tool-call thought signatures and logs the assistant
+tool history sent after the tool result and after resume. It does not emulate
+Google's metadata validator, so a green routing check is not a compatibility pass.
+
+On November 13, 2026, a live check with SDK 1.0.33 and CLI 1.0.111 used a
+dedicated Google Free-tier project. `gemini-3.5-flash-lite` passed the real
+connection tool check, streaming, a warm follow-up, two resumes of the same
+session, and another tool call after resume. The direct Google request and all
+observed inference requests returned 200. In an isolated Debug Lumi profile,
+the same account passed the UI's connection verification without skipping it,
+then answered in a fresh chat, ran a tool, and continued the same native
+session after an application restart with its earlier tool result and context.
+The Copilot-hosted `gemini-4-carbon` also answered and ran a tool in a fresh
+chat. These checks do not establish that every Gemini model or conversation works.
+
+The runtime retained Google's thought signature for the immediate tool result
+but omitted it from that completed exchange after resume. Google accepted that
+resumed history in the live test; the missing metadata alone does not establish
+that this continuation fails. Google may list a model unavailable to a project:
+in the earlier free-tier check `gemini-2.5-flash` returned 404 for new users.
+
 ## Real headed workflows
 
 The Debug responsiveness harness (`dotnet run --project src\Lumi\Lumi.csproj -- --ui-perf-harness --ui-perf-filter navigation`)

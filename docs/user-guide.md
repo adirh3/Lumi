@@ -256,6 +256,18 @@ the billing source and restrictions: **Claude API** does not reuse Claude Pro/Ma
 Pro/Ultra. Poe uses eligible Poe subscription/add-on points. Restricted consumer
 OAuth tokens and unsupported coding-plan keys are not imported.
 
+**Gemini API** uses Google's OpenAI-compatible Chat Completions route. Its base
+URL is `https://generativelanguage.googleapis.com/v1beta/openai`, with
+`/chat/completions` appended for inference; it does not use the Responses API.
+For a 404, check the exact model ID and its availability to the API key's
+project, not only the base URL. A valid key does not grant access to every
+deprecated model; check Google's [model availability and deprecations](https://aistudio.google.com/docs/deprecations)
+and retry a currently available text model from the refreshed list.
+
+Google may list models that are unavailable to a particular project, and the
+free tier has its own rate limits. The connection check verifies that the chosen
+model can answer and use a tool; skipping that check does not guarantee either.
+
 **ChatGPT** is listed right under GitHub Copilot, in the gallery and as
 **Continue with ChatGPT** in AI accounts. It uses OpenAI's
 [Sign in with ChatGPT for open-source apps](https://developers.openai.com/siwc/token-sharing-open-source):
@@ -1764,7 +1776,7 @@ fail explicitly; startup failures include the recent captured output.
 ## Tool approvals
 
 How much Lumi does on its own is one choice, enforced by GitHub Copilot's native permission
-controls (GitHub.Copilot.SDK **1.0.30-preview.1**, runtime **1.0.108-1**), never by asking the
+controls (GitHub.Copilot.SDK **1.0.33**, runtime **1.0.111**), never by asking the
 model to check first. Lumi only chooses them and installs them again on every session create and
 resume, because the runtime keeps neither rules nor session approvals across a resume.
 
