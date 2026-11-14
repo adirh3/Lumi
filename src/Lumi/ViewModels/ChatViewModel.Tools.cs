@@ -158,14 +158,18 @@ public partial class ChatViewModel
             tools.AddRange(BuildBrowserTools(chatId));
         if (OperatingSystem.IsWindows())
             tools.AddRange(BuildUIAutomationTools(chatId));
+        // A change-only job's run uses it to say whether it found anything new; without it, every run replies.
+        tools.Add(BuildReportJobOutcomeTool(chatId));
 
-        if (activeAgent is not { HasToolRestrictions: true })
-            return tools;
+        if (activeAgent is { HasToolRestrictions: true })
+        {
+            var allowedToolNames = new HashSet<string>(
+                ToolDisplayHelper.ToRuntimeToolNames(activeAgent.ToolNames),
+                StringComparer.Ordinal);
+            tools = tools.Where(tool => allowedToolNames.Contains(tool.Name)).ToList();
+        }
 
-        var allowedToolNames = new HashSet<string>(
-            ToolDisplayHelper.ToRuntimeToolNames(activeAgent.ToolNames),
-            StringComparer.Ordinal);
-        return tools.Where(tool => allowedToolNames.Contains(tool.Name)).ToList();
+        return tools;
     }
 
     internal McpSessionPlan BuildMcpPlan(
@@ -802,6 +806,26 @@ public partial class ChatViewModel
         ];
     }
 
+    internal const string ReportJobOutcomeToolName = "report_job_outcome";
+
+    private AIFunction BuildReportJobOutcomeTool(Guid chatId)
+    {
+        return AIFunctionFactory.Create(
+            async ([Description("True when this run found something new the user should hear about; false when nothing changed since the job's last reported status.")] bool changed,
+             [Description("One short line describing where things stand now, e.g. 'Still pending approval (2 of 3 approvers)'. Shown as the job's status line and compared on the next run.")] string status) =>
+            {
+                var accepted = await Dispatcher.UIThread.InvokeAsync(() =>
+                    RecordJobRunOutcome(chatId, changed, status));
+                return accepted
+                    ? changed
+                        ? "Recorded: something changed. Reply to the user with what changed."
+                        : "Recorded: nothing changed. End your turn now with a one-line reply; it won't be shown as a new message."
+                    : "No background job run is in progress in this chat; nothing was recorded.";
+            },
+            ReportJobOutcomeToolName,
+            "Report whether a background job's run found anything new. Call it once, only when a background job's message tells you to, after checking and before your final reply.");
+    }
+
     private AIFunction BuildAnnounceFileTool(Guid chatId)
     {
         return AIFunctionFactory.Create(
@@ -1127,16 +1151,18 @@ public partial class ChatViewModel
                     [Description("True for a temporary time job that pauses after a successful invocation. Script jobs are always one-shot.")] bool? isTemporary = null,
                     [Description("Whether the job should be enabled.")] bool? isEnabled = null,
                     [Description("Set true to queue the job immediately.")] bool? runNow = null,
-                    [Description("Optional text query for list filtering.")] string? query = null) =>
+                    [Description("Optional text query for list filtering.")] string? query = null,
+                    [Description("What a run that finds nothing new shows in the chat: reply (every run posts a reply, the default), status_line (only runs that find something new reply; the others update one status line for the job in place), or silent (only runs that find something new reply; the others leave the chat untouched). Choose it from what the user said they want to hear about; if that isn't clear, ask them before creating a monitoring job.")] string? noChangeBehavior = null) =>
                 {
                     var result = FeatureManager.ManageJobs(action, identifier, name, description, prompt, chatIdentifier,
                         triggerType, scheduleType, intervalMinutes, dailyTime, daysOfWeek, monthlyDay, cronExpression, runAt,
                         scriptContent, scriptLanguage, isTemporary, isEnabled, runNow, query, defaultChatId: chatId,
-                        sourceChatIdentifier: sourceChatIdentifier, chatEventTypes: chatEventTypes);
+                        sourceChatIdentifier: sourceChatIdentifier, chatEventTypes: chatEventTypes,
+                        noChangeBehavior: noChangeBehavior);
                     return await ApplyFeatureChangeAsync(result, chatId);
                 },
                 "manage_jobs",
-                "List, create, update, delete, pause, resume, or run Lumi background jobs. Use when the user explicitly asks Lumi to monitor, remind, wait for a condition, follow up, or automate a recurring/temporary task in the background. Chat-event jobs wake a target chat directly when another chat emits selected lifecycle events, without polling. Script jobs are one-shot wake scripts: the script waits/polls, exits when attention is needed, and Lumi wakes the linked chat with the script output.",
+                "List, create, update, delete, pause, resume, or run Lumi background jobs. Use when the user explicitly asks Lumi to monitor, remind, wait for a condition, follow up, or automate a recurring/temporary task in the background. Chat-event jobs wake a target chat directly when another chat emits selected lifecycle events, without polling. Script jobs are one-shot wake scripts: the script waits/polls, exits when attention is needed, and Lumi wakes the linked chat with the script output. For jobs that watch for a change, set noChangeBehavior so runs that find nothing new don't add a reply each time.",
                 Lumi.Models.AppDataJsonContext.Default.Options),
 
             AIFunctionFactory.Create(

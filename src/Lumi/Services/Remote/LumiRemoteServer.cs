@@ -1916,7 +1916,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             capture.WorkingDirectory,
             activitySource,
             capture.RunningBackgroundToolCallIds,
-            imagePaths);
+            imagePaths,
+            BackgroundJobRunPresentation.StatusLineRuns(_dataStore.SnapshotBackgroundJobs()));
         if (transcript.IsLatestWindow)
             transcript.TranscriptVersion = capture.TranscriptVersion;
 
@@ -3460,6 +3461,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             QuestionAllowMultiSelect = message.QuestionAllowMultiSelect,
             InputKind = message.InputKind, InputDefinition = message.InputDefinition,
             InputAnswer = message.InputAnswer, InputCanceled = message.InputCanceled,
+            BackgroundJobId = message.BackgroundJobId,
+            JobRunQuiet = message.JobRunQuiet,
+            JobRunStatus = message.JobRunStatus,
             InteractionReceipt = message.InteractionReceipt?.Clone(),
             InteractionStates = message.InteractionStates is null
                 ? null : new Dictionary<string, string>(message.InteractionStates, StringComparer.Ordinal),

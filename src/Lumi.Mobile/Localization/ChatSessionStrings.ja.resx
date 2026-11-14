@@ -1119,6 +1119,12 @@
   <data name="JobWakeSummary" xml:space="preserve">
     <value>ジョブがこのチャットを呼び出しました。</value>
   </data>
+  <data name="JobStatusLineCaption" xml:space="preserve">
+    <value>確認済み、変更なし</value>
+  </data>
+  <data name="JobStatusLineNoStatus" xml:space="preserve">
+    <value>前回の更新から変更はありません。</value>
+  </data>
   <data name="SourceCountOne" xml:space="preserve">
     <value>情報源 1 件</value>
   </data>

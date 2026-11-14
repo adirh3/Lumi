@@ -35,6 +35,7 @@ public static class ApprovalPolicy
     private static readonly FrozenSet<string> HarmlessTools = new[]
     {
         "ask_question", "ask_input", "announce_file", "recall_memory", "search_chats", "read_chat",
+        "report_job_outcome",
         "lumi_browser_look", "lumi_browser_find", "lumi_browser_screenshot",
         "ui_list_windows", "ui_inspect", "ui_find", "ui_read", "ui_screenshot",
         "image_generation",

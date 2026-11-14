@@ -385,6 +385,8 @@
   <data name="Steered" xml:space="preserve"><value>Incorporado</value></data>
   <data name="SteerFailed" xml:space="preserve"><value>No se pudo incorporar</value></data>
   <data name="JobWakeSummary" xml:space="preserve"><value>La tarea activó este chat.</value></data>
+  <data name="JobStatusLineCaption" xml:space="preserve"><value>Revisado, nada nuevo</value></data>
+  <data name="JobStatusLineNoStatus" xml:space="preserve"><value>Sin cambios desde la última actualización.</value></data>
   <data name="SourceCountOne" xml:space="preserve"><value>1 fuente</value></data>
   <data name="SourceCountMany" xml:space="preserve"><value>{0} fuentes</value></data>
   <data name="Thinking" xml:space="preserve"><value>Pensando</value></data>

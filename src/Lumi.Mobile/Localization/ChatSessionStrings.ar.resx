@@ -1119,6 +1119,12 @@
   <data name="JobWakeSummary" xml:space="preserve">
     <value>أيقظت المهمة هذه المحادثة.</value>
   </data>
+  <data name="JobStatusLineCaption" xml:space="preserve">
+    <value>تم التحقق، لا جديد</value>
+  </data>
+  <data name="JobStatusLineNoStatus" xml:space="preserve">
+    <value>لا تغيير منذ آخر تحديث.</value>
+  </data>
   <data name="SourceCountOne" xml:space="preserve">
     <value>مصدر 1</value>
   </data>

@@ -385,6 +385,8 @@
   <data name="Steered" xml:space="preserve"><value>Intégré</value></data>
   <data name="SteerFailed" xml:space="preserve"><value>Intégration impossible</value></data>
   <data name="JobWakeSummary" xml:space="preserve"><value>La tâche a réveillé cette conversation.</value></data>
+  <data name="JobStatusLineCaption" xml:space="preserve"><value>Vérifié, rien de nouveau</value></data>
+  <data name="JobStatusLineNoStatus" xml:space="preserve"><value>Aucun changement depuis la dernière mise à jour.</value></data>
   <data name="SourceCountOne" xml:space="preserve"><value>1 source</value></data>
   <data name="SourceCountMany" xml:space="preserve"><value>{0} sources</value></data>
   <data name="Thinking" xml:space="preserve"><value>Réflexion</value></data>

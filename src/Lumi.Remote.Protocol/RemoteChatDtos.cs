@@ -270,6 +270,11 @@ public sealed class RemoteTranscriptItem
     public RemoteInputRequest? InputRequest { get; set; }
     public RemoteInteractionReceipt? InteractionReceipt { get; set; }
     public Guid? LinkedChatId { get; set; }
+    /// <summary>
+    /// For a job wake shown as its job's single status line: the latest status a run that found
+    /// nothing new reported. Null for any other row, and from hosts that predate status lines.
+    /// </summary>
+    public string? JobRunStatus { get; set; }
 }
 
 /// <summary>One user turn plus everything the assistant produced in response.</summary>

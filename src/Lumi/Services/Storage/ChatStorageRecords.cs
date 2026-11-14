@@ -176,7 +176,9 @@ internal readonly record struct ChatOutlineEntry(
     string? TextStart = null,
     bool IsReceipt = false,
     string? ReceiptTitle = null,
-    string? ReceiptSummary = null);
+    string? ReceiptSummary = null,
+    bool JobRunQuiet = false,
+    Guid? BackgroundJobId = null);
 
 /// <summary>The newest exchange of a chat, read to become its live tail.</summary>
 internal sealed record ChatTailRead(

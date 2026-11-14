@@ -385,6 +385,8 @@
   <data name="Steered" xml:space="preserve"><value>ההנחיה הועברה</value></data>
   <data name="SteerFailed" xml:space="preserve"><value>לא ניתן לכוון את ההמשך</value></data>
   <data name="JobWakeSummary" xml:space="preserve"><value>המשימה הפעילה את השיחה הזו.</value></data>
+  <data name="JobStatusLineCaption" xml:space="preserve"><value>נבדק, אין חדש</value></data>
+  <data name="JobStatusLineNoStatus" xml:space="preserve"><value>אין שינוי מאז העדכון האחרון.</value></data>
   <data name="SourceCountOne" xml:space="preserve"><value>מקור אחד</value></data>
   <data name="SourceCountMany" xml:space="preserve"><value>{0} מקורות</value></data>
   <data name="Thinking" xml:space="preserve"><value>חושב</value></data>

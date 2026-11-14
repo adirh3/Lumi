@@ -1764,12 +1764,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void PublishChatLifecycleEvent(Chat chat, string eventType, string? detail = null)
     {
-        _chatEvents.Publish(new ChatLifecycleEvent(
+        var chatEvent = new ChatLifecycleEvent(
             chat.Id,
             chat.Title,
             eventType,
             DateTimeOffset.Now,
-            detail));
+            detail);
+        if (TryHoldJobRunLifecycleEvent(chat, chatEvent))
+            return;
+
+        _chatEvents.Publish(chatEvent);
     }
 
     internal void PublishTerminalChatLifecycleEventOnce(Chat chat, string eventType, string? detail = null)
@@ -3616,13 +3620,64 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
             var prompt = BuildBackgroundJobPrompt(job, triggerContext);
-            return SendExternalMessageAsync(
+            if (!job.ReportsOnlyChanges)
+            {
+                return SendExternalMessageAsync(
+                    targetChat,
+                    prompt,
+                    $"Lumi Job - {job.Name}",
+                    cancellationToken,
+                    validateBeforeSend: validateDelivery);
+            }
+
+            return SendChangeOnlyJobMessageAsync(
+                targetChat,
+                job,
+                prompt,
+                cancellationToken,
+                validateDelivery);
+            }
+
+    private async Task SendChangeOnlyJobMessageAsync(
+        Chat targetChat,
+        BackgroundJob job,
+        string prompt,
+        CancellationToken cancellationToken,
+        Action? validateDelivery)
+    {
+        var run = new BackgroundJobRunState
+        {
+            JobId = job.Id,
+            NoChangeBehavior = BackgroundJobNoChangeBehaviors.Normalize(job.NoChangeBehavior)
+        };
+        try
+        {
+            await SendExternalMessageAsync(
                 targetChat,
                 prompt,
                 $"Lumi Job - {job.Name}",
                 cancellationToken,
-                validateBeforeSend: validateDelivery);
+                validateBeforeSend: validateDelivery,
+                jobRun: run).ConfigureAwait(true);
+        }
+        catch (BackgroundJobDeliveryInvalidatedException)
+        {
+            // The wake was withdrawn before it was sent: there is no run to report.
+            if (ReferenceEquals(targetChat.ActiveJobRun, run))
+                targetChat.ActiveJobRun = null;
+            throw;
+        }
+        catch
+        {
+            // A run that couldn't start is news: it shows as any run would.
+            if (ReferenceEquals(targetChat.ActiveJobRun, run))
+            {
+                ResolveJobRunAsChanged(targetChat, run);
+                QueueSaveChat(targetChat, saveIndex: true);
             }
+            throw;
+        }
+    }
 
             /// <summary>
             /// Sends an externally-authored message (a background job trigger, or an orchestrated instruction
@@ -3697,7 +3752,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             string? remoteDeviceId = null,
             string? remoteRequestId = null,
             Action? validateBeforeSend = null,
-            InteractionReceipt? interactionReceipt = null)
+            InteractionReceipt? interactionReceipt = null,
+            BackgroundJobRunState? jobRun = null)
             {
             ArgumentNullException.ThrowIfNull(targetChat);
             validateBeforeSend?.Invoke();
@@ -3828,6 +3884,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds, targetChat.ActiveExternalSkillNames)
         };
 
+        if (jobRun is not null)
+        {
+            userMsg.BackgroundJobId = jobRun.JobId;
+            jobRun.UserMessageId = userMsg.Id;
+            targetChat.ActiveJobRun = jobRun;
+        }
+
         targetChat.Messages.Add(userMsg);
         if (CurrentChat?.Id == targetChat.Id)
         {
@@ -3838,8 +3901,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         TryPrepareFirstExternalMessageTitle(targetChat, prompt);
 
         // A background surface holds the target chat as its CurrentChat without being on screen, so
-        // unread state follows what the user can actually see, not what this surface has loaded.
-        if (!IsChatOnScreen(targetChat.Id))
+        // unread state follows what the user can actually see, not what this surface has loaded. A
+        // change-only job's run is unread only once it turns out to have news.
+        if (!IsChatOnScreen(targetChat.Id) && jobRun is null)
             targetChat.HasUnreadMessages = true;
 
         if (remoteDeviceId is { Length: > 0 } && remoteRequestId is { Length: > 0 })
@@ -3878,6 +3942,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // message in the existing queue instead of replacing a session that still owns work.
         if (HasActiveSessionConfigurationConflict(targetChat, requestedProviderSignature))
         {
+            // A queued message joins work already running, so its run can't be told apart from it.
+            if (jobRun is not null)
+            {
+                ResolveJobRunAsChanged(targetChat, jobRun);
+                QueueSaveChat(targetChat, saveIndex: true);
+            }
             userMsg.SteerDelivery = MessageSteerState.Queued;
             if (ResolveQueuedViewModel(userMsg) is { } queuedViewModel)
                 queuedViewModel.SteerState = MessageSteerState.Queued;
@@ -3914,6 +3984,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 needsSessionSetup = true;
 
             BeginChatLifecycleTurn(targetChat);
+            if (jobRun is not null)
+                jobRun.TurnSequence = runtime.LifecycleTurnSequence;
             BeginInteractionReceiptTurn(runtime, userMsg);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
             if (reservationToken is { } token)
@@ -4178,6 +4250,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         builder.Append("\n\nRespond as Lumi in this chat. Be concise, explain what changed or what you found, and mention what you will keep watching if the job remains enabled.");
+        if (job.ReportsOnlyChanges)
+        {
+            builder.Append("\n\nThis job reports only changes: runs that find nothing new are not shown to the user as a reply. ")
+                .Append("After checking, call report_job_outcome once, before your final reply. Pass changed=true only if you found something new the user should hear about; otherwise changed=false. ")
+                .Append("Always pass a one-line status of where things stand now, so the next run can compare against it. ")
+                .Append("If you could not check (an error, a sign-in prompt, a missing tool), that is news: pass changed=true and explain. ")
+                .Append("When nothing changed, end with a single short line.");
+            builder.Append(string.IsNullOrWhiteSpace(job.LastReportedStatus)
+                ? "\nLast reported status: none yet. Compare against what this chat last told the user."
+                : "\nLast reported status: " + job.LastReportedStatus.Trim());
+        }
+
         return builder.ToString();
     }
 
@@ -6443,7 +6527,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void QueueSaveChat(Chat chat, bool saveIndex, bool releaseIfInactive = false, bool touchIndex = false)
     {
-        if (touchIndex)
+        // A change-only job's run moves the chat up the list only once it turns out to have news.
+        if (touchIndex && !IsHoldingJobRunNews(chat))
             chat.UpdatedAt = DateTimeOffset.Now;
         _dataStore.MarkChatChanged(chat);
         _ = SaveChatAsync(chat, saveIndex, releaseIfInactive);

@@ -419,10 +419,16 @@ public partial class ChatViewModel
 
         BuildActivitySeedIndex();
 
+        var inQuietJobRun = false;
         for (var i = 0; i < Messages.Count; i++)
         {
             var messageVm = Messages[i];
             var message = messageVm.Message;
+            // A job run that found nothing new is not shown, so nothing it did is listed either.
+            if (string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase))
+                inQuietJobRun = message.JobRunQuiet;
+            if (inQuietJobRun)
+                continue;
 
             TryAppendUserMessage(userMessages, messageVm);
 

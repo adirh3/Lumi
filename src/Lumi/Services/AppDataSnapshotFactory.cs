@@ -440,7 +440,12 @@ internal static class AppDataSnapshotFactory
             LastRunSummary = source.LastRunSummary,
             LastScriptOutput = source.LastScriptOutput,
             LastScriptExitCode = source.LastScriptExitCode,
-            RunCount = source.RunCount
+            RunCount = source.RunCount,
+            NoChangeBehavior = source.NoChangeBehavior,
+            LastReportedStatus = source.LastReportedStatus,
+            LastQuietRunMessageId = source.LastQuietRunMessageId,
+            LastQuietRunAt = source.LastQuietRunAt,
+            QuietRunCount = source.QuietRunCount
         };
     }
 

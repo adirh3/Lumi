@@ -385,6 +385,8 @@
   <data name="Steered" xml:space="preserve"><value>Steered</value></data>
   <data name="SteerFailed" xml:space="preserve"><value>Could not steer</value></data>
   <data name="JobWakeSummary" xml:space="preserve"><value>The job woke this chat.</value></data>
+  <data name="JobStatusLineCaption" xml:space="preserve"><value>Checked, nothing new</value></data>
+  <data name="JobStatusLineNoStatus" xml:space="preserve"><value>No change since the last update.</value></data>
   <data name="SourceCountOne" xml:space="preserve"><value>1 source</value></data>
   <data name="SourceCountMany" xml:space="preserve"><value>{0} sources</value></data>
   <data name="Thinking" xml:space="preserve"><value>Thinking</value></data>

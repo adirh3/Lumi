@@ -772,7 +772,8 @@ internal static class RemoteProjector
         string? workingDirectory = null,
         IReadOnlyList<ChatMessage>? activitySourceMessages = null,
         IReadOnlySet<string>? runningBackgroundToolCallIds = null,
-        IReadOnlySet<string>? authorizedImagePaths = null)
+        IReadOnlySet<string>? authorizedImagePaths = null,
+        IReadOnlyDictionary<Guid, BackgroundJob>? jobStatusLines = null)
     {
         var transcript = new RemoteTranscript
         {
@@ -826,8 +827,29 @@ internal static class RemoteProjector
             EnsureTurn().Items.Add(compactActivity);
         }
 
+        var inQuietJobRun = false;
         foreach (var message in window.Messages)
         {
+            // A job run that found nothing new shows at most its job's status line, as on the desktop.
+            if (message.Role == "user")
+                inQuietJobRun = message.JobRunQuiet;
+            if (inQuietJobRun)
+            {
+                if (message.Role == "user" && jobStatusLines?.TryGetValue(message.Id, out var statusJob) == true)
+                {
+                    turn = new RemoteTranscriptTurn { Id = $"turn-{transcript.Turns.Count}" };
+                    transcript.Turns.Add(turn);
+                    toolGroup = null;
+                    compactActivity = null;
+                    var row = BuildUserItem(message);
+                    row.Timestamp = statusJob.LastQuietRunAt ?? message.Timestamp;
+                    row.JobRunStatus = message.JobRunStatus ?? statusJob.LastReportedStatus ?? "";
+                    turn.Items.Add(row);
+                }
+
+                continue;
+            }
+
             if (!IsCompactTechnicalMessage(message))
                 compactActivity = null;
 

@@ -59,7 +59,7 @@ public class TranscriptBuilder
     internal static readonly string[] ToolsWithoutStepCards =
     [
         "stop_powershell", "write_powershell", "read_powershell", "task_complete", "read_agent", "list_agents",
-        "ask_input", "ask_question", "announce_file", "fetch_skill", "report_intent",
+        "ask_input", "ask_question", "announce_file", "fetch_skill", "report_intent", "report_job_outcome",
         ToolDisplayHelper.WorkspaceFileChangedToolName, "update_todo", "manage_todo_list",
     ];
 
@@ -118,6 +118,8 @@ public class TranscriptBuilder
 
     public HashSet<string> ShownFileChips { get; } = new(FilePathComparer);
     private readonly HashSet<Guid> _processedMessageIds = [];
+    // Inside a job run that found nothing new, from its wake to the next user message.
+    private bool _inQuietJobRun;
     private readonly HashSet<string> _shownSkillNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, SkillReference> _invokedSkills = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _shownLinkedChatKeys = new(StringComparer.Ordinal);
@@ -555,6 +557,7 @@ public class TranscriptBuilder
         _announcedFileTurns.Clear();
         _fileChipTurn = new FileChipTurn(0, Guid.Empty);
         _processedMessageIds.Clear();
+        _inQuietJobRun = false;
         _shownApps.Clear();
         _shownSkillNames.Clear();
         _invokedSkills.Clear();
@@ -641,6 +644,17 @@ public class TranscriptBuilder
         if (!_processedMessageIds.Add(msgVm.Message.Id))
             return;
 
+        // A job run that found nothing new folds away: its wake shows at most as the job's status
+        // line, and the turn after it not at all.
+        if (msgVm.Role == "user")
+            _inQuietJobRun = msgVm.Message.JobRunQuiet;
+        if (_inQuietJobRun)
+        {
+            if (msgVm.Role == "user")
+                ProcessQuietJobRunWake(msgVm);
+            return;
+        }
+
         foreach (var skill in msgVm.Message.ActiveSkills)
             RecordInvokedSkill(skill);
 
@@ -713,7 +727,8 @@ public class TranscriptBuilder
             _toolParentById[msgVm.Message.ToolCallId!] = msgVm.Message.ParentToolCallId;
 
         if (toolName is "stop_powershell" or "write_powershell" or "read_powershell"
-            or "task_complete" or "read_agent" or "list_agents")
+            or "task_complete" or "read_agent" or "list_agents"
+            or ChatViewModel.ReportJobOutcomeToolName)
             return;
 
         if (toolName == "ask_input")
@@ -1747,6 +1762,36 @@ public class TranscriptBuilder
         AppendToCurrentTurn(_currentReasoning, TurnStableIdFor($"reasoning:{msgVm.Message.Id}"));
     }
 
+    private void ProcessQuietJobRunWake(ChatMessageViewModel msgVm)
+    {
+        _currentReasoning = null;
+        CloseCurrentToolGroup();
+        var jobId = msgVm.Message.BackgroundJobId;
+        var job = jobId is null
+            ? null
+            : _dataStore.SnapshotBackgroundJobs().FirstOrDefault(candidate => candidate.Id == jobId);
+        if (job is null
+            || job.LastQuietRunMessageId != msgVm.Message.Id
+            || BackgroundJobNoChangeBehaviors.Normalize(job.NoChangeBehavior) != BackgroundJobNoChangeBehaviors.StatusLine)
+        {
+            return;
+        }
+
+        FlushPendingFileEdits();
+        FlushPendingPlanCard();
+        FlushPendingModelLabel();
+        FinalizeCurrentTurn();
+        var status = msgVm.Message.JobRunStatus is { Length: > 0 } reported ? reported : job.LastReportedStatus;
+        var statusLine = new JobWakeStatusLine(
+            status,
+            job.LastQuietRunAt ?? msgVm.Message.Timestamp,
+            job.QuietRunCount);
+        AppendToCurrentTurn(
+            new JobWakeItem(msgVm, _dataStore.Data.Settings.ShowTimestamps, _openJobAction, _openChatAction, statusLine),
+            TurnStableIdFor($"job-wake:{msgVm.Message.Id}"));
+        FinalizeCurrentTurn();
+    }
+
     private void ProcessChatMessage(ChatMessageViewModel msgVm, bool showTimestamps)
     {
         CloseCurrentToolGroup();
@@ -1989,6 +2034,10 @@ public class TranscriptBuilder
     /// <summary>Appends a model label at the end of the current turn (called at AssistantTurnEnd).</summary>
     public void AppendModelLabel(string? modelId)
     {
+        // A run that found nothing new has no reply to label; its status line stands alone.
+        if (_inQuietJobRun)
+            return;
+
         var displayName = ChatViewModel.FormatModelDisplay(modelId);
         if (string.IsNullOrWhiteSpace(displayName))
             return;

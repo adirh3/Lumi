@@ -291,6 +291,9 @@ public enum JobWakeKind
     ChatEvent,
 }
 
+/// <summary>What a change-only job's status line says: its last reported status and its latest quiet checks.</summary>
+public readonly record struct JobWakeStatusLine(string Status, DateTimeOffset CheckedAt, int QuietRunCount);
+
 /// <summary>
 /// A background job's wake, the opening of the turn it started: which job, why it ran (its schedule,
 /// a wake script's result or another chat's event) in words rather than the trigger text the model
@@ -341,6 +344,12 @@ public sealed partial class JobWakeItem : TranscriptItem
     public bool IsScheduled => Kind is JobWakeKind.Scheduled or JobWakeKind.RunManually;
     public bool IsScript => Kind == JobWakeKind.Script;
     public bool IsChatEvent => Kind == JobWakeKind.ChatEvent;
+
+    /// <summary>
+    /// The card stands for its job's runs that found nothing new: it says where things stand, when the
+    /// job last checked and how many checks found nothing, instead of opening a reply.
+    /// </summary>
+    public bool IsStatusLine { get; }
     public bool IsFailed { get; }
     public bool HasTimestamp => TimestampText.Length > 0;
     public bool HasBody => BodyText.Length > 0;
@@ -356,7 +365,8 @@ public sealed partial class JobWakeItem : TranscriptItem
         ChatMessageViewModel source,
         bool showTimestamps,
         Action<string>? openJob = null,
-        Action<Guid>? openChat = null)
+        Action<Guid>? openChat = null,
+        JobWakeStatusLine? statusLine = null)
         : base($"message:job-wake:{source.Message.Id}")
     {
         _openJob = openJob;
@@ -455,6 +465,27 @@ public sealed partial class JobWakeItem : TranscriptItem
             ReasonText = Loc.Jobs_ChatWakeEyebrow;
             BodyText = WakeSignal;
         }
+
+        if (statusLine is { } status)
+        {
+            IsStatusLine = true;
+            IsFailed = false;
+            ReasonText = Loc.Get(nameof(Loc.JobWake_StatusLineChecked), FormatCheckedAt(status.CheckedAt));
+            BodyText = string.IsNullOrWhiteSpace(status.Status)
+                ? Loc.Get(nameof(Loc.JobWake_StatusLineNoStatus))
+                : status.Status;
+            DurationText = status.QuietRunCount > 1
+                ? Loc.Get(nameof(Loc.JobWake_StatusLineQuietRuns), status.QuietRunCount)
+                : "";
+        }
+    }
+
+    private static string FormatCheckedAt(DateTimeOffset checkedAt)
+    {
+        var local = checkedAt.ToLocalTime();
+        return local.Date == DateTimeOffset.Now.Date
+            ? local.ToString("t", CultureInfo.CurrentCulture)
+            : local.ToString("g", CultureInfo.CurrentCulture);
     }
 
     public static bool IsJobWakeMessage(ChatMessageViewModel source)

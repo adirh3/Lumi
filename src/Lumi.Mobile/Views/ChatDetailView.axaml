@@ -1348,7 +1348,7 @@
                              Data="{x:Static sc:StrataIcons.Clock}"
                              Foreground="{DynamicResource Brush.TextTertiary}" />
           <StackPanel Grid.Column="1" Spacing="2">
-            <TextBlock Text="{loc:Str JobWokeChat}"
+            <TextBlock Text="{Binding Caption}"
                        FontSize="{DynamicResource Font.SizeCaption}"
                        Foreground="{DynamicResource Brush.TextTertiary}" />
             <TextBlock Text="{Binding Details.JobName}"

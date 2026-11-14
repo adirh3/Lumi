@@ -381,6 +381,8 @@
   <data name="Steered" xml:space="preserve"><value>반영됨</value></data>
   <data name="SteerFailed" xml:space="preserve"><value>방향을 전달하지 못했어요</value></data>
   <data name="JobWakeSummary" xml:space="preserve"><value>작업이 이 채팅을 깨웠어요.</value></data>
+  <data name="JobStatusLineCaption" xml:space="preserve"><value>확인함, 새로운 내용 없음</value></data>
+  <data name="JobStatusLineNoStatus" xml:space="preserve"><value>마지막 업데이트 이후 변경 사항이 없어요.</value></data>
   <data name="SourceCountOne" xml:space="preserve"><value>출처 1개</value></data>
   <data name="SourceCountMany" xml:space="preserve"><value>출처 {0}개</value></data>
   <data name="Thinking" xml:space="preserve"><value>생각 중</value></data>

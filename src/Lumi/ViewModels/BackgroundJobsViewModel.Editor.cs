@@ -66,7 +66,8 @@ public partial class BackgroundJobsViewModel
         int ScriptLanguage,
         string ScriptContent,
         string ChatEventTypes,
-        bool IsTemporary);
+        bool IsTemporary,
+        string NoChangeBehavior);
 
     /// <summary>What decides when a time job runs next.</summary>
     private readonly record struct ScheduleSnapshot(
@@ -90,7 +91,8 @@ public partial class BackgroundJobsViewModel
         EditScriptLanguageIndex,
         EditScriptContent,
         CanonicalChatEvents(EditChatEventTypes),
-        EditIsTemporary);
+        EditIsTemporary,
+        BackgroundJobNoChangeBehaviors.Normalize(EditNoChangeBehavior));
 
     private ScheduleSnapshot CaptureSchedule() => new(
         EditTriggerTypeIndex,
@@ -171,6 +173,26 @@ public partial class BackgroundJobsViewModel
     partial void OnEditScriptContentChanged(string value) => UpdateDirtyState();
     partial void OnEditIsEnabledChanged(bool value) => OnScheduleFieldChanged();
     partial void OnEditIsTemporaryChanged(bool value) => UpdateDirtyState();
+
+    partial void OnEditNoChangeBehaviorChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsReplyOnNoChange));
+        OnPropertyChanged(nameof(IsStatusLineOnNoChange));
+        OnPropertyChanged(nameof(IsSilentOnNoChange));
+        UpdateDirtyState();
+    }
+
+    public bool IsReplyOnNoChange => BackgroundJobNoChangeBehaviors.Normalize(EditNoChangeBehavior) == BackgroundJobNoChangeBehaviors.Reply;
+    public bool IsStatusLineOnNoChange => BackgroundJobNoChangeBehaviors.Normalize(EditNoChangeBehavior) == BackgroundJobNoChangeBehaviors.StatusLine;
+    public bool IsSilentOnNoChange => BackgroundJobNoChangeBehaviors.Normalize(EditNoChangeBehavior) == BackgroundJobNoChangeBehaviors.Silent;
+
+    /// <summary>Picks what a run that finds nothing new leaves in the chat: reply, status_line or silent.</summary>
+    [RelayCommand]
+    private void SetNoChangeBehavior(string? value)
+    {
+        if (BackgroundJobNoChangeBehaviors.TryNormalize(value, out var normalized))
+            EditNoChangeBehavior = normalized;
+    }
 
     partial void OnEditIntervalMinutesChanged(int value) => OnScheduleFieldChanged();
     partial void OnEditDailyTimeChanged(string value) => OnScheduleFieldChanged();

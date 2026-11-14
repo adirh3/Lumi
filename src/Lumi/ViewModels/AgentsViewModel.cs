@@ -435,6 +435,7 @@ public partial class AgentsViewModel : ObservableObject
         ("manage_lumis", nameof(Loc.Lumis_ToolManageAgents), "Utility", nameof(Loc.Lumis_ToolManageAgentsDesc)),
         ("manage_mcps", nameof(Loc.Lumis_ToolManageConnectors), "Utility", nameof(Loc.Lumis_ToolManageConnectorsDesc)),
         ("manage_jobs", nameof(Loc.Lumis_ToolManageJobs), "Utility", nameof(Loc.Lumis_ToolManageJobsDesc)),
+        (ChatViewModel.ReportJobOutcomeToolName, nameof(Loc.Lumis_ToolReportJobOutcome), "Utility", nameof(Loc.Lumis_ToolReportJobOutcomeDesc)),
         ("manage_memories", nameof(Loc.Lumis_ToolManageMemories), "Utility", nameof(Loc.Lumis_ToolManageMemoriesDesc)),
         ("manage_current_chat", nameof(Loc.Lumis_ToolManageCurrentChat), "Utility", nameof(Loc.Lumis_ToolManageCurrentChatDesc)),
         ("manage_chats", nameof(Loc.Lumis_ToolManageChats), "Utility", nameof(Loc.Lumis_ToolManageChatsDesc)),

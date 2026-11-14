@@ -385,6 +385,8 @@
   <data name="Steered" xml:space="preserve"><value>Eingesteuert</value></data>
   <data name="SteerFailed" xml:space="preserve"><value>Einsteuern fehlgeschlagen</value></data>
   <data name="JobWakeSummary" xml:space="preserve"><value>Der Auftrag hat diesen Chat geweckt.</value></data>
+  <data name="JobStatusLineCaption" xml:space="preserve"><value>Geprüft, nichts Neues</value></data>
+  <data name="JobStatusLineNoStatus" xml:space="preserve"><value>Keine Änderung seit dem letzten Update.</value></data>
   <data name="SourceCountOne" xml:space="preserve"><value>1 Quelle</value></data>
   <data name="SourceCountMany" xml:space="preserve"><value>{0} Quellen</value></data>
   <data name="Thinking" xml:space="preserve"><value>Denkt nach</value></data>

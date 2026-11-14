@@ -887,6 +887,24 @@ Workspace's **Agents** page, the same view its row in the chat opens. The list u
 in place while it is open, so an expanded command keeps streaming. **Stop session**
 cancels everything still running in that chat.
 
+### Jobs that report only changes
+
+A job that watches for something, such as an approval or a build, doesn't need to post a reply
+every time it runs. In the job's editor, **When a run finds nothing new** offers three choices:
+
+- **Post a reply** (default): every run replies, as for digests and reminders.
+- **Update one status line**: a run that finds nothing new leaves only a compact row with the
+  job's name, when it last checked, how many checks found nothing, and a one-line status. Later
+  quiet runs update that row in place instead of adding to the chat.
+- **Stay silent**: a run that finds nothing new leaves no trace in the chat.
+
+A run that finds a change always replies normally. Lumi decides from the job's own report: each
+run tells Lumi whether anything changed and gives a short status, and the next run receives that
+last status to compare against. Quiet runs don't mark the chat unread, notify, or wake chat-event
+jobs that watch it. Several jobs in one chat can use different settings; each status-line job
+keeps its own row. When you ask Lumi to watch something, it picks the setting from your request
+or asks you once.
+
 ### Desktop motion
 
 Focusing the glass composer brings it forward: the whole composer, glass, text and tools together, grows

@@ -176,7 +176,8 @@ public sealed class LumiFeatureManager
         string? query = null,
         Guid? defaultChatId = null,
         string? sourceChatIdentifier = null,
-        string[]? chatEventTypes = null)
+        string[]? chatEventTypes = null,
+        string? noChangeBehavior = null)
     {
         var normalizedAction = NormalizeOrNull(action)?.ToLowerInvariant() ?? "";
         var result = normalizedAction switch
@@ -184,11 +185,11 @@ public sealed class LumiFeatureManager
             "list" or "show" or "search" => new FeatureChangeResult(ListJobs(query ?? identifier)),
             "create" or "add" or "new" => CreateJob(name, description, prompt, chatIdentifier, triggerType, scheduleType,
                 intervalMinutes, dailyTime, daysOfWeek, monthlyDay, cronExpression, runAt, scriptContent, scriptLanguage,
-                isTemporary, isEnabled, runNow, defaultChatId, sourceChatIdentifier, chatEventTypes),
+                isTemporary, isEnabled, runNow, defaultChatId, sourceChatIdentifier, chatEventTypes, noChangeBehavior),
             "update" or "edit" or "rename" or "modify" => UpdateJob(identifier, name, description, prompt, chatIdentifier,
                 triggerType, scheduleType, intervalMinutes, dailyTime, daysOfWeek, monthlyDay, cronExpression, runAt,
                 scriptContent, scriptLanguage, isTemporary, isEnabled, runNow, defaultChatId, sourceChatIdentifier,
-                chatEventTypes),
+                chatEventTypes, noChangeBehavior),
             "delete" or "remove" => DeleteJob(identifier),
             "pause" or "disable" => SetJobEnabled(identifier, enabled: false),
             "resume" or "enable" => SetJobEnabled(identifier, enabled: true),
@@ -222,7 +223,8 @@ public sealed class LumiFeatureManager
         bool? runNow,
         Guid? defaultChatId,
         string? sourceChatIdentifier,
-        string[]? chatEventTypes)
+        string[]? chatEventTypes,
+        string? noChangeBehavior)
     {
         var normalizedName = NormalizeOrNull(name);
         var normalizedPrompt = NormalizeOrNull(prompt);
@@ -237,6 +239,13 @@ public sealed class LumiFeatureManager
         var chatLookup = ResolveChat(chatIdentifier, defaultChatId);
         if (!chatLookup.Success)
             return Failure(chatLookup.Error!);
+
+        var normalizedNoChangeBehavior = BackgroundJobNoChangeBehaviors.Reply;
+        if (noChangeBehavior is not null
+            && !BackgroundJobNoChangeBehaviors.TryNormalize(noChangeBehavior, out normalizedNoChangeBehavior))
+        {
+            return Failure(Text(nameof(Loc.FeatureManager_JobNoChangeBehaviorInvalid), noChangeBehavior));
+        }
 
         var normalizedTriggerType = triggerType is null && !string.IsNullOrWhiteSpace(scriptContent)
             ? BackgroundJobTriggerTypes.Script
@@ -288,6 +297,7 @@ public sealed class LumiFeatureManager
             SourceChatId = sourceChatId,
             ChatEventTypes = normalizedChatEventTypes,
             IsTemporary = normalizedTriggerType == BackgroundJobTriggerTypes.Script || isTemporary == true,
+            NoChangeBehavior = normalizedNoChangeBehavior,
             IsEnabled = isEnabled ?? true
         };
 
@@ -330,7 +340,8 @@ public sealed class LumiFeatureManager
         bool? runNow,
         Guid? defaultChatId,
         string? sourceChatIdentifier,
-        string[]? chatEventTypes)
+        string[]? chatEventTypes,
+        string? noChangeBehavior)
     {
         var lookup = ResolveByIdOrLabel(
             _dataStore.SnapshotBackgroundJobs(),
@@ -346,8 +357,16 @@ public sealed class LumiFeatureManager
             && daysOfWeek is null && monthlyDay is null && cronExpression is null && runAt is null
             && scriptContent is null && scriptLanguage is null
             && isTemporary is null && isEnabled is null && runNow is null
-            && sourceChatIdentifier is null && chatEventTypes is null)
+            && sourceChatIdentifier is null && chatEventTypes is null && noChangeBehavior is null)
             return Failure(Text(nameof(Loc.FeatureManager_JobNoChanges)));
+
+        string? normalizedNoChangeBehavior = null;
+        if (noChangeBehavior is not null)
+        {
+            if (!BackgroundJobNoChangeBehaviors.TryNormalize(noChangeBehavior, out var parsedNoChangeBehavior))
+                return Failure(Text(nameof(Loc.FeatureManager_JobNoChangeBehaviorInvalid), noChangeBehavior));
+            normalizedNoChangeBehavior = parsedNoChangeBehavior;
+        }
 
         var job = lookup.Item!;
         lock (job.SyncRoot)
@@ -450,6 +469,8 @@ public sealed class LumiFeatureManager
                 candidate.IsTemporary = isTemporary.Value;
             if (isEnabled.HasValue)
                 candidate.IsEnabled = isEnabled.Value;
+            if (normalizedNoChangeBehavior is not null)
+                candidate.NoChangeBehavior = normalizedNoChangeBehavior;
 
             if (!TrySetRunAt(candidate, runAt, out var runAtError))
                 return Failure(runAtError!);
@@ -498,6 +519,7 @@ public sealed class LumiFeatureManager
             ChatEventTypes = [.. source.ChatEventTypes],
             IsEnabled = source.IsEnabled,
             IsTemporary = source.IsTemporary,
+            NoChangeBehavior = source.NoChangeBehavior,
             CreatedAt = source.CreatedAt,
             UpdatedAt = source.UpdatedAt,
             LastRunAt = source.LastRunAt,
@@ -525,6 +547,7 @@ public sealed class LumiFeatureManager
         target.ChatEventTypes = [.. candidate.ChatEventTypes];
         target.IsEnabled = candidate.IsEnabled;
         target.IsTemporary = candidate.IsTemporary;
+        target.NoChangeBehavior = candidate.NoChangeBehavior;
         target.NextRunAt = candidate.NextRunAt;
         target.UpdatedAt = candidate.UpdatedAt;
         target.MarkConfigurationChanged();
@@ -1942,6 +1965,12 @@ public sealed class LumiFeatureManager
                 ? Text("FeatureManager_JobSource",
                     _dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == job.SourceChatId)?.Title ?? Text(nameof(Loc.FeatureManager_MissingChat)))
                 : "";
+            if (job.ReportsOnlyChanges)
+            {
+                source += Text(nameof(Loc.FeatureManager_JobNoChangeBehavior), BackgroundJobNoChangeBehaviors.Normalize(job.NoChangeBehavior));
+                if (!string.IsNullOrWhiteSpace(job.LastReportedStatus))
+                    source += Text(nameof(Loc.FeatureManager_JobLastReportedStatus), Preview(job.LastReportedStatus));
+            }
             return Text(
                 "FeatureManager_JobSummary",
                 job.Id, job.Name, job.IsEnabled ? Text(nameof(Loc.FeatureManager_Enabled)) : Text(nameof(Loc.FeatureManager_Paused)),

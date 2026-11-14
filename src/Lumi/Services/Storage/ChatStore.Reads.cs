@@ -101,7 +101,9 @@ internal sealed partial class ChatStore
                     CASE WHEN role = 'user' THEN substr(json_extract(body, '$.content'), 1, {OutlineTextStartLength}) END,
                     role = 'user' AND json_type(body, '$.interactionReceipt') IS NOT NULL,
                     CASE WHEN role = 'user' THEN json_extract(body, '$.interactionReceipt.title') END,
-                    CASE WHEN role = 'user' THEN substr(json_extract(body, '$.interactionReceipt.summary'), 1, {OutlineTextStartLength}) END
+                    CASE WHEN role = 'user' THEN substr(json_extract(body, '$.interactionReceipt.summary'), 1, {OutlineTextStartLength}) END,
+                    role = 'user' AND COALESCE(json_extract(body, '$.jobRunQuiet'), 0) <> 0,
+                    CASE WHEN role = 'user' THEN json_extract(body, '$.backgroundJobId') END
                 FROM messages INDEXED BY messages_outline
                 WHERE chat_key = $chat AND role IN ('user', 'assistant', 'system', 'error') AND seq < $before
                 ORDER BY seq;
@@ -122,7 +124,9 @@ internal sealed partial class ChatStore
                     reader.IsDBNull(6) ? null : reader.GetString(6),
                     reader.GetBoolean(7),
                     reader.IsDBNull(8) ? null : reader.GetString(8),
-                    reader.IsDBNull(9) ? null : reader.GetString(9)));
+                    reader.IsDBNull(9) ? null : reader.GetString(9),
+                    reader.GetBoolean(10),
+                    !reader.IsDBNull(11) && Guid.TryParse(reader.GetString(11), out var jobId) ? jobId : null));
             }
 
             return outline;

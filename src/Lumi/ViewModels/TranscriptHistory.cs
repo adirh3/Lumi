@@ -1006,11 +1006,22 @@ internal sealed class TranscriptHistory
             .OrderBy(static input => input.Seq)
             .ToList();
         var nextInput = 0;
+        // A job run that found nothing new is not an exchange of its own: it folds into the one before
+        // it, whose build skips it, unless it is its job's status line.
+        var statusLines = BackgroundJobRunPresentation.StatusLineRuns(_dataStore.SnapshotBackgroundJobs());
+        var inQuietRun = new bool[outline.Count];
+        var quiet = false;
         var starts = new List<int>();
         for (var i = 0; i < outline.Count; i++)
         {
             if (outline[i].Role == "user")
-                starts.Add(i);
+            {
+                quiet = outline[i].JobRunQuiet;
+                if (!quiet || starts.Count == 0 || statusLines.ContainsKey(outline[i].Id))
+                    starts.Add(i);
+            }
+
+            inQuietRun[i] = quiet;
         }
 
         // Conversation before the first user message (rare) is an exchange of its own.
@@ -1023,8 +1034,13 @@ internal sealed class TranscriptHistory
             var last = s + 1 < starts.Count ? starts[s + 1] : outline.Count;
             var startSeq = s == 0 && outline[first].Role != "user" ? ChatStartSeq : outline[first].Seq;
             var endSeq = s + 1 < starts.Count ? outline[starts[s + 1]].Seq : tailStartSeq;
-            var entries = outline.Skip(first).Take(last - first).ToList();
-            var height = EstimateHeight(entries, startSeq == ChatStartSeq ? 1 : startSeq, endSeq);
+            var entries = Enumerable.Range(first, last - first)
+                .Where(index => !inQuietRun[index])
+                .Select(index => outline[index])
+                .ToList();
+            var height = outline[first].JobRunQuiet
+                ? QuietJobRunHeight
+                : EstimateHeight(entries, startSeq == ChatStartSeq ? 1 : startSeq, endSeq);
             var key = $"history:{(startSeq == ChatStartSeq ? "start" : startSeq.ToString(System.Globalization.CultureInfo.InvariantCulture))}";
             var item = new HistoryPlaceholderItem(key, height);
             var placeholder = new TranscriptTurn("turn:" + key) { MeasuredHeight = height };
@@ -1054,6 +1070,9 @@ internal sealed class TranscriptHistory
             _segments.Add(segment);
         }
     }
+
+    /// <summary>The height of a job's status line, or of a quiet run that shows nothing.</summary>
+    private const double QuietJobRunHeight = 72d;
 
     /// <summary>
     /// A first guess at an exchange's height from its outline: the user's message, a "worked for" row
