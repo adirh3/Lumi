@@ -111,6 +111,8 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
                 Assert.Empty(browser.Tabs);
                 await Assert.ThrowsAsync<ObjectDisposedException>(() => browser.CaptureScreenshotAsync());
                 output.WriteLine("PASS: native controller disposal is idempotent and capture fails after dispose.");
+                await VerifyJobBrowserCleanup(window, url);
+                output.WriteLine("PASS: job cleanup closes every job WebView2 controller and preserves interactive tabs.");
                 completed = true;
             }
             catch (Exception ex) { failure = ex; }
@@ -125,6 +127,50 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         try { Directory.Delete(root, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
         Assert.True(completed, "Native test body did not complete.");
+    }
+
+    private static async Task VerifyJobBrowserCleanup(Window window, string url)
+    {
+        var chat = new Lumi.Models.Chat();
+        using var vm = new Lumi.ViewModels.ChatViewModel(
+            new DataStore(new Lumi.Models.AppData
+            {
+                Settings = new Lumi.Models.UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+                Chats = [chat]
+            }), TestCopilot.Shared) { CurrentChat = chat };
+        var interactive = vm.GetOrCreateBrowserService(chat.Id);
+        try
+        {
+            var parent = window.TryGetPlatformHandle()!.Handle;
+            interactive.SetParentHwnd(parent);
+            await interactive.OpenAndSnapshotAsync(url);
+            var interactiveTab = interactive.ActiveTabId;
+            var interactiveWindows = GetWebViewWindowsForTest();
+
+            vm.BeginJobBrowserSession(chat.Id);
+            var job = vm.GetOrCreateBrowserService(chat.Id);
+            job.SetParentHwnd(parent);
+            await job.OpenAndSnapshotAsync(url);
+            await job.ManageTabsAsync("new", url: url);
+            Assert.Equal(2, job.Tabs.Count);
+            Assert.Equal(interactiveWindows.Count + 2, GetWebViewWindowsForTest().Count);
+
+            await vm.ReleaseJobBrowserSessionAsync(chat.Id);
+
+            Assert.Empty(job.Tabs);
+            Assert.False(job.HasController);
+            Assert.Same(interactive, vm.GetBrowserServiceForChat(chat.Id));
+            Assert.Equal(interactiveTab, interactive.ActiveTabId);
+            Assert.True(interactive.HasController);
+            Assert.Equal(interactiveWindows.Order(), GetWebViewWindowsForTest().Order());
+
+            HashSet<IntPtr> GetWebViewWindowsForTest() => GetBrowserWindows(parent).ToHashSet();
+        }
+        finally
+        {
+            await vm.ReleaseJobBrowserSessionAsync(chat.Id);
+            await interactive.DisposeAsync();
+        }
     }
 
     private static async Task VerifyRoundedClipping(BrowserService browser, Window window, string root)
