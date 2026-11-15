@@ -873,6 +873,31 @@ $env:LUMI_REMOTE_WEB_ROOT = (Resolve-Path .mcp-run\pwa-publish\wwwroot).Path
 The shipped desktop packages already include the PWA. Native Android and the PWA
 both need the reachable, running desktop; Microsoft Dev Tunnel remains PWA-only.
 
+### External phone watchdog route checks
+
+Optional external watchdogs can import `probe_tunnel_route` from
+`tools/lumi_phone_tunnel_health.py` to classify the `tunnel` object returned by
+`devtunnel show <id> --json`. Pass the expected tunnel ID, local port, verified
+owned host PID (or `None`), and a read-only HTTP-status callback. The helper does
+not read a profile, sign in, launch/stop processes or perform recovery itself.
+It is not installed or enabled by the desktop app.
+
+A tunnel with zero host connections may omit `portUri`. That is a disconnected
+route, not a malformed connected response: check the local server and return
+`disconnected` without inventing a public URL. A missing URI with an active
+connection, an unexpected identity/port or an untrusted URL still fails
+explicitly. Callers must retain their process-identity rechecks and repeated
+stable disconnected samples before taking recovery action; a missing URI alone
+does not authorize restarting anything. An unavailable local server and an
+unverified host remain distinct from a disconnected route.
+
+Run the model-free regression checks (Python 3.9+, no account, profile or
+network access):
+
+```sh
+python3 -B -m unittest discover -s tools -p test_lumi_phone_tunnel_health.py -v
+```
+
 ## Architecture
 
 ```
