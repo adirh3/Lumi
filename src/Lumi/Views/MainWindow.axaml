@@ -411,14 +411,14 @@
     <Style Selector="Button#SidebarSearchButton.sidebar-search:pointerover TextBlock.sidebar-search-label">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Border.sidebar-search-key">
+    <Style Selector="#SidebarSearchButton Border.sidebar-search-key">
       <Setter Property="Height" Value="20" />
       <Setter Property="Padding" Value="6,0" />
       <Setter Property="CornerRadius" Value="6" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Background" Value="{StaticResource Navigation.PillBorder}" />
     </Style>
-    <Style Selector="Border.sidebar-search-key > TextBlock">
+    <Style Selector="#SidebarSearchButton Border.sidebar-search-key > TextBlock">
       <Setter Property="FontSize" Value="10.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="VerticalAlignment" Value="Center" />

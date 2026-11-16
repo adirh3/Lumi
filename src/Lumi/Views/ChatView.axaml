@@ -765,46 +765,46 @@
          well. Line icons say what each step is; only live work takes the accent, and failures the
          danger colour. -->
     <!-- The steps at work in a live card: icon, what it is doing, and on what. -->
-    <Style Selector="#Transcript DockPanel.activity-preview-row">
+    <Style Selector="#ToolGroupActivityPreview DockPanel.activity-preview-row">
       <Setter Property="Margin" Value="7,0" />
       <Setter Property="MinHeight" Value="30" />
     </Style>
-    <Style Selector="#Transcript DockPanel.activity-preview-row > sc|StrataLineIcon">
+    <Style Selector="#ToolGroupActivityPreview DockPanel.activity-preview-row > sc|StrataLineIcon">
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="14" />
       <Setter Property="Margin" Value="0,0,8,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="#Transcript TextBlock.activity-preview-label">
+    <Style Selector="#ToolGroupActivityPreview TextBlock.activity-preview-label">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="MaxLines" Value="1" />
     </Style>
-    <Style Selector="#Transcript TextBlock.activity-preview-detail">
+    <Style Selector="#ToolGroupActivityPreview TextBlock.activity-preview-detail">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Margin" Value="0,1,0,0" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="MaxLines" Value="1" />
     </Style>
-    <Style Selector="#Transcript TextBlock.activity-preview-detail.command">
+    <Style Selector="#ToolGroupActivityPreview TextBlock.activity-preview-detail.command">
       <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
       <Setter Property="FontSize" Value="11.5" />
     </Style>
     <!-- How long each step has been running, in the accent, right-aligned like a row's time. -->
-    <Style Selector="#Transcript TextBlock.activity-preview-elapsed">
+    <Style Selector="#ToolGroupActivityPreview TextBlock.activity-preview-elapsed">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="Margin" Value="12,0,2,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <!-- A plan at work lists its steps in the card, on the rows' icon column. -->
-    <Style Selector="ItemsControl.plan-glance">
+    <Style Selector="ItemsControl#PlanGlance.plan-glance">
       <Setter Property="Margin" Value="0,2,0,3" />
     </Style>
-    <Style Selector="ItemsControl.plan-glance DockPanel.plan-step">
+    <Style Selector="ItemsControl#PlanGlance.plan-glance DockPanel.plan-step">
       <Setter Property="Margin" Value="7,0" />
     </Style>
 
@@ -828,7 +828,7 @@
     <Style Selector="#Transcript Panel.single-step sc|StrataAiToolCall /template/ Border#PART_Header, #Transcript Panel.single-step sc|StrataTerminalPreview /template/ Border#PART_Header">
       <Setter Property="Padding" Value="10,6,12,6" />
     </Style>
-    <Style Selector="#Transcript Border.single-step-line">
+    <Style Selector="#Transcript Border#SingleStepLine.single-step-line">
       <Setter Property="Height" Value="1.5" />
       <Setter Property="Margin" Value="12,0" />
       <Setter Property="CornerRadius" Value="1" />
@@ -851,21 +851,25 @@
     </Style>
 
     <!-- Details and console output, recessed into the card. -->
-    <Style Selector="#Transcript Border.transcript-well">
+    <Style Selector="#Transcript Border#JobOutputWell.transcript-well,
+                     #Transcript Border#SingleToolDetails.transcript-well,
+                     #Transcript Border#SingleToolConsole.transcript-well">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassWell}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassDivider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="10" />
       <Setter Property="Padding" Value="12,10,12,11" />
     </Style>
-    <Style Selector="#Transcript Border.transcript-well sc|StrataMarkdown">
+    <Style Selector="#Transcript Border#JobOutputWell.transcript-well sc|StrataMarkdown,
+                     #Transcript Border#SingleToolDetails.transcript-well sc|StrataMarkdown,
+                     #Transcript Border#SingleToolConsole.transcript-well sc|StrataMarkdown">
       <Setter Property="FontSize" Value="12.5" />
     </Style>
     <!-- An open question gets room for its options; once answered it folds to one line. -->
     <Style Selector="sc|StrataQuestionCard:not(:answered)">
       <Setter Property="MinWidth" Value="420" />
     </Style>
-    <Style Selector="#Transcript TextBlock.console-text">
+    <Style Selector="#Transcript Border#SingleToolConsole TextBlock.console-text">
       <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="LineHeight" Value="18" />
@@ -916,14 +920,14 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
     <!-- A source's site initial, like a favicon. -->
-    <Style Selector="#Transcript Border.source-initial">
+    <Style Selector="#Transcript Border#SourceInitial.source-initial">
       <Setter Property="Width" Value="16" />
       <Setter Property="Height" Value="16" />
       <Setter Property="CornerRadius" Value="5" />
       <Setter Property="Margin" Value="0,0,9,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="#Transcript Border.source-initial > TextBlock">
+    <Style Selector="#Transcript Border#SourceInitial.source-initial > TextBlock">
       <Setter Property="FontSize" Value="9" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="Foreground" Value="#FFFFFFFF" />
@@ -1026,47 +1030,48 @@
     </Style>
 
     <!-- The cards that list a rewind's files: the edit bar's preview and the receipt's details. -->
-    <Style Selector="StackPanel.rewind-card TextBlock.rewind-note">
+    <Style Selector="StackPanel#FileRewindCard.rewind-card TextBlock.rewind-note, StackPanel#EditRewindFlyout.rewind-card TextBlock.rewind-note">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="TextWrapping" Value="Wrap" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="StackPanel.rewind-card TextBlock.rewind-error">
+    <Style Selector="StackPanel#FileRewindCard.rewind-card TextBlock.rewind-error, StackPanel#EditRewindFlyout.rewind-card TextBlock.rewind-error">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="TextWrapping" Value="Wrap" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
     </Style>
-    <Style Selector="StackPanel.rewind-card Border.rewind-file">
+    <Style Selector="StackPanel#FileRewindCard.rewind-card Border.rewind-file, StackPanel#EditRewindFlyout.rewind-card Border.rewind-file">
       <Setter Property="Padding" Value="8,6" />
       <Setter Property="CornerRadius" Value="8" />
     </Style>
-    <Style Selector="StackPanel.rewind-card Border.rewind-file.kept">
+    <Style Selector="StackPanel#FileRewindCard.rewind-card Border.rewind-file.kept, StackPanel#EditRewindFlyout.rewind-card Border.rewind-file.kept">
       <Setter Property="Opacity" Value="0.72" />
     </Style>
-    <Style Selector="StackPanel.rewind-card sc|StrataLineIcon.rewind-file-icon">
+    <Style Selector="StackPanel#FileRewindCard.rewind-card sc|StrataLineIcon.rewind-file-icon, StackPanel#EditRewindFlyout.rewind-card sc|StrataLineIcon.rewind-file-icon">
       <Setter Property="Width" Value="15" />
       <Setter Property="Height" Value="15" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="StackPanel.rewind-card TextBlock.rewind-file-name">
+    <Style Selector="StackPanel#FileRewindCard.rewind-card TextBlock.rewind-file-name, StackPanel#EditRewindFlyout.rewind-card TextBlock.rewind-file-name">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="MaxLines" Value="1" />
     </Style>
-    <Style Selector="StackPanel.rewind-card TextBlock.rewind-file-dir">
+    <Style Selector="StackPanel#FileRewindCard.rewind-card TextBlock.rewind-file-dir, StackPanel#EditRewindFlyout.rewind-card TextBlock.rewind-file-dir">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="MaxLines" Value="1" />
     </Style>
-    <Style Selector="StackPanel.rewind-card TextBlock.rewind-file-status">
+    <Style Selector="StackPanel#FileRewindCard.rewind-card TextBlock.rewind-file-status, StackPanel#EditRewindFlyout.rewind-card TextBlock.rewind-file-status">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="HorizontalAlignment" Value="Right" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="StackPanel.rewind-card TextBlock.diff-added, StackPanel.rewind-card TextBlock.diff-removed">
+    <Style Selector="StackPanel#FileRewindCard.rewind-card TextBlock.diff-added, StackPanel#FileRewindCard.rewind-card TextBlock.diff-removed,
+                     StackPanel#EditRewindFlyout.rewind-card TextBlock.diff-added, StackPanel#EditRewindFlyout.rewind-card TextBlock.diff-removed">
       <Setter Property="FontSize" Value="11" />
     </Style>
 
@@ -1150,7 +1155,7 @@
     </Style>
 
     <!-- An error: the step's glass, the danger colour only on its icon, and a way to try again. -->
-    <Style Selector="#Transcript Border.transcript-error">
+    <Style Selector="#Transcript Border#TranscriptError.transcript-error">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -1231,7 +1236,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <!-- The affordance is quiet until the row is hovered, so a finished run reads as history. -->
-    <Style Selector="#Transcript sc|StrataLineIcon.agent-row-open">
+    <Style Selector="#Transcript sc|StrataLineIcon#AgentOpenIcon.agent-row-open">
       <Setter Property="Width" Value="11" />
       <Setter Property="Height" Value="11" />
       <Setter Property="StrokeThickness" Value="2" />
@@ -1243,7 +1248,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="#Transcript Button.agent-row:pointerover sc|StrataLineIcon.agent-row-open">
+    <Style Selector="#Transcript Button.agent-row:pointerover sc|StrataLineIcon#AgentOpenIcon.agent-row-open">
       <Setter Property="Opacity" Value="1" />
     </Style>
 
@@ -1270,14 +1275,14 @@
       <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
       <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
-    <Style Selector="#Transcript Border.agent-cluster-avatar">
+    <Style Selector="#Transcript Border#AgentClusterAvatar.agent-cluster-avatar">
       <Setter Property="Width" Value="17" />
       <Setter Property="Height" Value="17" />
       <Setter Property="CornerRadius" Value="6" />
       <Setter Property="BorderThickness" Value="1.5" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.Surface1}" />
     </Style>
-    <Style Selector="#Transcript Border.agent-cluster-avatar > TextBlock">
+    <Style Selector="#Transcript Border#AgentClusterAvatar.agent-cluster-avatar > TextBlock">
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="FontSize" Value="8.5" />
@@ -1327,7 +1332,7 @@
     </Style>
 
     <!-- Glass pills: StrataGlassButton frosts what passes beneath each pill's tint. -->
-    <Style Selector="Button.header-pill">
+    <Style Selector="#ChatHeaderLayer Button.header-pill">
       <Setter Property="Height" Value="36" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="36" />
@@ -1341,37 +1346,37 @@
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="HorizontalContentAlignment" Value="Left" />
     </Style>
-    <Style Selector="Button.header-pill /template/ Border#PART_Surface">
+    <Style Selector="#ChatHeaderLayer Button.header-pill /template/ Border#PART_Surface">
       <Setter Property="ClipToBounds" Value="False" />
       <Setter Property="BoxShadow" Value="0 6 18 -6 #33000000" />
     </Style>
     <!-- A pill only frosts while history passes beneath it; at rest there is nothing to blur. -->
-    <Style Selector="Button.header-pill /template/ sc|StrataBackdropBlur#PART_Backdrop">
+    <Style Selector="#ChatHeaderLayer Button.header-pill /template/ sc|StrataBackdropBlur#PART_Backdrop">
       <Setter Property="BlurRadius" Value="0" />
       <Setter Property="Saturation" Value="1.3" />
     </Style>
     <Style Selector="sc|StrataChatShell:content-under-header Button.header-pill /template/ sc|StrataBackdropBlur#PART_Backdrop">
       <Setter Property="BlurRadius" Value="14" />
     </Style>
-    <Style Selector="sc|StrataBackdropBlur.header-pill-frost">
+    <Style Selector="#ChatHeaderLayer sc|StrataBackdropBlur.header-pill-frost">
       <Setter Property="BlurRadius" Value="0" />
       <Setter Property="Saturation" Value="1.3" />
     </Style>
     <Style Selector="sc|StrataChatShell:content-under-header sc|StrataBackdropBlur.header-pill-frost">
       <Setter Property="BlurRadius" Value="14" />
     </Style>
-    <Style Selector="Button.header-pill:pointerover /template/ Border#PART_Surface">
+    <Style Selector="#ChatHeaderLayer Button.header-pill:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{StaticResource ChatHeader.PillFillHover}" />
       <Setter Property="BoxShadow" Value="0 8 22 -6 #40000000" />
     </Style>
-    <Style Selector="Button.header-pill:pressed /template/ Border#PART_Surface">
+    <Style Selector="#ChatHeaderLayer Button.header-pill:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{StaticResource ChatHeader.PillFillPressed}" />
       <Setter Property="BoxShadow" Value="0 3 10 -4 #2A000000" />
     </Style>
-    <Style Selector="Button.header-pill:pointerover /template/ Border#PART_Aurora">
+    <Style Selector="#ChatHeaderLayer Button.header-pill:pointerover /template/ Border#PART_Aurora">
       <Setter Property="Opacity" Value="0" />
     </Style>
-    <Style Selector="TextBlock.header-pill-text">
+    <Style Selector="#ChatHeaderLayer TextBlock.header-pill-text">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -1381,7 +1386,7 @@
     <!-- Split pills: one piece of glass holding two buttons, lit one at a time like the tools. The title
          pill holds the chat and how full its context window is; the git pill holds the checkout and what
          changed. Each half opens its own card. -->
-    <Style Selector="Button.header-seg">
+    <Style Selector="#ChatHeaderLayer Button.header-seg">
       <Setter Property="Height" Value="32" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -1394,10 +1399,10 @@
       <Setter Property="ToolTip.Placement" Value="Bottom" />
       <Setter Property="ToolTip.VerticalOffset" Value="8" />
     </Style>
-    <Style Selector="Button.header-seg /template/ Border#PART_Surface">
+    <Style Selector="#ChatHeaderLayer Button.header-seg /template/ Border#PART_Surface">
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Border.header-seg-divider">
+    <Style Selector="#ChatHeaderLayer Border.header-seg-divider">
       <Setter Property="Width" Value="1" />
       <Setter Property="Height" Value="18" />
       <Setter Property="Margin" Value="2,0" />
@@ -1427,16 +1432,16 @@
     <Style Selector="Button.header-seg#ContextWindowButton">
       <Setter Property="Padding" Value="8,0,9,0" />
     </Style>
-    <Style Selector="Panel.context-ring-gauge">
+    <Style Selector="#ContextWindowButton Panel.context-ring-gauge">
       <Setter Property="Width" Value="16" />
       <Setter Property="Height" Value="16" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Ellipse.context-ring-track">
+    <Style Selector="#ContextWindowButton Ellipse.context-ring-track">
       <Setter Property="Stroke" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="StrokeThickness" Value="1.5" />
     </Style>
-    <Style Selector="Arc.context-ring-arc">
+    <Style Selector="#ContextWindowButton Arc.context-ring-arc">
       <Setter Property="Width" Value="9" />
       <Setter Property="Height" Value="9" />
       <Setter Property="HorizontalAlignment" Value="Center" />
@@ -1452,24 +1457,24 @@
     <Style Selector="Button#ContextWindowButton.high Arc.context-ring-arc">
       <Setter Property="Stroke" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
-    <Style Selector="TextBlock.context-ring-text">
+    <Style Selector="#ContextWindowButton TextBlock.context-ring-text">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Border.chat-mark">
+    <Style Selector="#ChatTitleButton Border.chat-mark">
       <Setter Property="Width" Value="26" />
       <Setter Property="Height" Value="26" />
       <Setter Property="CornerRadius" Value="13" />
     </Style>
-    <Style Selector="TextBlock.chat-mark-glyph">
+    <Style Selector="#ChatTitleButton TextBlock.chat-mark-glyph">
       <Setter Property="FontSize" Value="13" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Border.chat-mark-status">
+    <Style Selector="#ChatTitleButton Border.chat-mark-status">
       <Setter Property="Width" Value="10" />
       <Setter Property="Height" Value="10" />
       <Setter Property="CornerRadius" Value="5" />
@@ -1494,14 +1499,14 @@
     </Style>
     <!-- Plain text beside the title rather than inline runs: runs create glyph runs even in the drawing-free
          headless tests, and Avalonia's GlyphRun keeps the first renderer it sees for the whole test process. -->
-    <Style Selector="TextBlock.header-project-text">
+    <Style Selector="#ChatTitleButton TextBlock.header-project-text">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Margin" Value="8,1,0,0" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
-    <Style Selector="PathIcon.header-chevron">
+    <Style Selector="#ChatHeaderLayer PathIcon.header-chevron">
       <Setter Property="Width" Value="10" />
       <Setter Property="Height" Value="10" />
       <Setter Property="Margin" Value="9,1,0,0" />
@@ -1523,7 +1528,7 @@
     <Style Selector="Panel#ChatHeaderLayer.compact Button#HeaderLiveStatusButton TextBlock.header-pill-text">
       <Setter Property="MaxWidth" Value="250" />
     </Style>
-    <Style Selector="Border.header-live-dot">
+    <Style Selector="#ChatHeaderLayer Border.header-live-dot">
       <Setter Property="Width" Value="7" />
       <Setter Property="Height" Value="7" />
       <Setter Property="CornerRadius" Value="3.5" />
@@ -1535,7 +1540,7 @@
       <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
-    <Style Selector="PathIcon.header-live-arrow">
+    <Style Selector="#ChatHeaderLayer PathIcon.header-live-arrow">
       <Setter Property="Width" Value="11" />
       <Setter Property="Height" Value="11" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -1554,24 +1559,24 @@
     <Style Selector="Panel#ChatHeaderLayer.compact Button#HeaderRunningButton > StackPanel > TextBlock.header-pill-text">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Border.header-agent-avatar">
+    <Style Selector="#HeaderRunningButton Border.header-agent-avatar">
       <Setter Property="Width" Value="22" />
       <Setter Property="Height" Value="22" />
       <Setter Property="CornerRadius" Value="8" />
       <Setter Property="BorderThickness" Value="2" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.SurfaceOverlay}" />
     </Style>
-    <Style Selector="Border.header-agent-avatar > TextBlock">
+    <Style Selector="#HeaderRunningButton Border.header-agent-avatar > TextBlock">
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="FontSize" Value="9.5" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="Foreground" Value="#FFFFFFFF" />
     </Style>
-    <Style Selector="Border.header-agent-avatar.command">
+    <Style Selector="#HeaderRunningButton Border.header-agent-avatar.command">
       <Setter Property="Background" Value="#FF475569" />
     </Style>
-    <Style Selector="Border.header-agent-avatar.command > sc|StrataLineIcon">
+    <Style Selector="#HeaderRunningButton Border.header-agent-avatar.command > sc|StrataLineIcon">
       <Setter Property="Width" Value="11" />
       <Setter Property="Height" Value="11" />
       <Setter Property="StrokeThickness" Value="2.2" />
@@ -1589,19 +1594,19 @@
     <Style Selector="Button.header-seg#HeaderGitChangesButton">
       <Setter Property="Padding" Value="10,0,11,0" />
     </Style>
-    <Style Selector="Border.git-tile">
+    <Style Selector="#HeaderGitPill Border.git-tile, #ComposerGitChip Border.git-tile, #ChatGitCardFacts Border.git-tile">
       <Setter Property="Width" Value="24" />
       <Setter Property="Height" Value="24" />
       <Setter Property="CornerRadius" Value="12" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Background" Value="{DynamicResource Brush.ComposerProjectTile}" />
     </Style>
-    <Style Selector="Border.git-tile.card">
+    <Style Selector="#ChatGitCardFacts Border.git-tile.card">
       <Setter Property="Width" Value="28" />
       <Setter Property="Height" Value="28" />
       <Setter Property="CornerRadius" Value="9" />
     </Style>
-    <Style Selector="sc|StrataLineIcon.git-icon">
+    <Style Selector="#HeaderGitPill sc|StrataLineIcon.git-icon, #ComposerGitChip sc|StrataLineIcon.git-icon, #ChatGitCardFacts sc|StrataLineIcon.git-icon">
       <Setter Property="Width" Value="13" />
       <Setter Property="Height" Value="13" />
       <Setter Property="StrokeThickness" Value="2.1" />
@@ -1609,14 +1614,14 @@
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.ComposerProjectHue}" />
     </Style>
-    <Style Selector="Button.refreshing sc|StrataLineIcon.git-icon">
+    <Style Selector="#HeaderGitPill Button.refreshing sc|StrataLineIcon.git-icon, #ComposerGitChip Button.refreshing sc|StrataLineIcon.git-icon">
       <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
       <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.25" />
       <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.9" />
       <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
-    <Style Selector="TextBlock.git-branch">
+    <Style Selector="#HeaderGitPill TextBlock.git-branch, #ComposerGitChip TextBlock.git-branch, #ChatGitCardFacts TextBlock.git-branch">
       <Setter Property="FontFamily" Value="Cascadia Code, Cascadia Mono, Consolas, Menlo, monospace" />
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
@@ -1624,33 +1629,33 @@
       <Setter Property="MaxWidth" Value="220" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
-    <Style Selector="TextBlock.git-branch.card">
+    <Style Selector="#ChatGitCardFacts TextBlock.git-branch.card">
       <Setter Property="FontSize" Value="14" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="MaxWidth" Value="Infinity" />
       <Setter Property="TextWrapping" Value="Wrap" />
       <Setter Property="MaxLines" Value="2" />
     </Style>
-    <Style Selector="TextBlock.git-mode">
+    <Style Selector="#HeaderGitPill TextBlock.git-mode, #ComposerGitChip TextBlock.git-mode, #ChatGitCardFacts TextBlock.git-mode">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="TextBlock.git-card-line">
+    <Style Selector="#ChatGitCardFacts TextBlock.git-card-line">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="TextBlock.git-card-stat">
+    <Style Selector="#ChatGitCardFacts TextBlock.git-card-stat">
       <Setter Property="FontSize" Value="11.5" />
     </Style>
-    <Style Selector="sc|StrataLineIcon.git-chevron">
+    <Style Selector="#HeaderGitPill sc|StrataLineIcon.git-chevron, #ComposerGitChip sc|StrataLineIcon.git-chevron, #ChatGitCardFacts sc|StrataLineIcon.git-chevron">
       <Setter Property="Width" Value="11" />
       <Setter Property="Height" Value="11" />
       <Setter Property="StrokeThickness" Value="2" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Button:pointerover sc|StrataLineIcon.git-chevron">
+    <Style Selector="#HeaderGitPill Button:pointerover sc|StrataLineIcon.git-chevron, #ComposerGitChip Button:pointerover sc|StrataLineIcon.git-chevron">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
     <!-- A narrow island keeps the title readable: the git pill keeps its branch and counts, shorter. Child
@@ -1668,7 +1673,7 @@
     <Style Selector="Border#ComposerGitChip.composer-chip.checkout-chip">
       <Setter Property="Padding" Value="1" />
     </Style>
-    <Style Selector="Button.chip-seg">
+    <Style Selector="#ComposerGitChip Button.chip-seg">
       <Setter Property="Height" Value="26" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -1683,7 +1688,7 @@
     <Style Selector="Button.chip-seg#ComposerGitChangesButton">
       <Setter Property="Padding" Value="8,0" />
     </Style>
-    <Style Selector="Button.chip-seg /template/ Border#PART_Surface">
+    <Style Selector="#ComposerGitChip Button.chip-seg /template/ Border#PART_Surface">
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
     <Style Selector="Border#ComposerGitChip.composer-chip.checkout-chip Border.chip-tile">
@@ -1702,104 +1707,108 @@
 
     <!-- The context and running cards: chips like the title card's, a quiet icon button, and full-width rows
          that light like the title menu's. -->
-    <Style Selector="Border.header-card-chip">
-      <Setter Property="Height" Value="24" />
-      <Setter Property="Padding" Value="7,0,9,0" />
-      <Setter Property="CornerRadius" Value="12" />
-      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
-    </Style>
-    <Style Selector="Border.header-card-chip TextBlock">
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="MaxWidth" Value="200" />
-      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-    </Style>
-    <Style Selector="Border.header-card-chip.health">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-    </Style>
-    <Style Selector="Border.header-card-chip.health TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-    </Style>
-    <Style Selector="TextBlock.header-card-title">
-      <Setter Property="FontSize" Value="14.5" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="Border.header-card-tile">
-      <Setter Property="Width" Value="28" />
-      <Setter Property="Height" Value="28" />
-      <Setter Property="CornerRadius" Value="9" />
-      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
-    </Style>
-    <Style Selector="Border.header-card-well">
-      <Setter Property="CornerRadius" Value="11" />
-      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
-    </Style>
-    <Style Selector="Border.header-card-divider">
-      <Setter Property="Height" Value="1" />
-      <Setter Property="Margin" Value="0,2,0,6" />
-      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuDivider}" />
-    </Style>
-    <Style Selector="Button#ContextRefreshButton.header-card-icon">
-      <Setter Property="Width" Value="28" />
-      <Setter Property="Height" Value="28" />
-      <Setter Property="MinWidth" Value="0" />
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="Padding" Value="0" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="HorizontalContentAlignment" Value="Center" />
-      <Setter Property="VerticalContentAlignment" Value="Center" />
-    </Style>
-    <Style Selector="Button.header-card-row">
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-      <Setter Property="HorizontalContentAlignment" Value="Left" />
-      <Setter Property="MinHeight" Value="34" />
-      <Setter Property="Padding" Value="10,0" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="FontWeight" Value="Normal" />
-    </Style>
-    <Style Selector="Button.header-card-row /template/ Border#PART_Surface, Button#ContextRefreshButton.header-card-icon /template/ Border#PART_Surface">
-      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
-    </Style>
-    <Style Selector="Button.header-card-row:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemHover}" />
-    </Style>
-    <Style Selector="Button.header-card-row:pressed /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemPressed}" />
-    </Style>
-    <Style Selector="Button.header-card-row:disabled">
-      <Setter Property="Opacity" Value="0.5" />
-    </Style>
-    <Style Selector="Button.header-card-row.danger:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuDangerHover}" />
-    </Style>
-    <Style Selector="TextBlock.header-card-row-title">
-      <Setter Property="FontSize" Value="13" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
-    </Style>
-    <Style Selector="Button#StopBackgroundSession.danger TextBlock.header-card-row-title">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
-    </Style>
-    <Style Selector="TextBlock.header-card-row-detail">
-      <Setter Property="FontSize" Value="11.5" />
-      <Setter Property="TextWrapping" Value="Wrap" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-    </Style>
-    <Style Selector="TextBlock.header-card-shortcut">
-      <Setter Property="FontSize" Value="11.5" />
-      <Setter Property="Margin" Value="16,0,0,0" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Style Selector="#ContextWindowFlyout, #BackgroundSessionStatus, #LaunchpadNeedsYouCard, #LaunchpadStarterCard,
+                     #ComposerGitChip, #FileRewindCard, #EditRewindFlyout">
+      <Style Selector="^ Border.header-card-chip">
+        <Setter Property="Height" Value="24" />
+        <Setter Property="Padding" Value="7,0,9,0" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+      </Style>
+      <Style Selector="^ Border.header-card-chip TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="MaxWidth" Value="200" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      </Style>
+      <Style Selector="^ Border.header-card-chip.health">
+        <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      </Style>
+      <Style Selector="^ Border.header-card-chip.health TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+      </Style>
+      <Style Selector="^ TextBlock.header-card-title">
+        <Setter Property="FontSize" Value="14.5" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+      </Style>
+      <Style Selector="^ Border.header-card-tile">
+        <Setter Property="Width" Value="28" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+      </Style>
+      <Style Selector="^ Border.header-card-well">
+        <Setter Property="CornerRadius" Value="11" />
+        <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+      </Style>
+      <Style Selector="^ Border.header-card-divider">
+        <Setter Property="Height" Value="1" />
+        <Setter Property="Margin" Value="0,2,0,6" />
+        <Setter Property="Background" Value="{StaticResource ChatHeader.MenuDivider}" />
+      </Style>
+      <Style Selector="^ Button#ContextRefreshButton.header-card-icon">
+        <Setter Property="Width" Value="28" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+      </Style>
+      <Style Selector="^ Button.header-card-row">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="Padding" Value="10,0" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="FontWeight" Value="Normal" />
+      </Style>
+      <Style Selector="^ Button.header-card-row /template/ Border#PART_Surface, ^ Button#ContextRefreshButton.header-card-icon /template/ Border#PART_Surface">
+        <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+      </Style>
+      <Style Selector="^ Button.header-card-row:pointerover /template/ Border#PART_Surface">
+        <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemHover}" />
+      </Style>
+      <Style Selector="^ Button.header-card-row:pressed /template/ Border#PART_Surface">
+        <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemPressed}" />
+      </Style>
+      <Style Selector="^ Button.header-card-row:disabled">
+        <Setter Property="Opacity" Value="0.5" />
+      </Style>
+      <Style Selector="^ Button.header-card-row.danger:pointerover /template/ Border#PART_Surface">
+        <Setter Property="Background" Value="{StaticResource ChatHeader.MenuDangerHover}" />
+      </Style>
+      <Style Selector="^ TextBlock.header-card-row-title">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      </Style>
+      <Style Selector="^ Button#StopBackgroundSession.danger TextBlock.header-card-row-title">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+      </Style>
+      <Style Selector="^ TextBlock.header-card-row-detail">
+        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      </Style>
+      <Style Selector="^ TextBlock.header-card-shortcut">
+        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="Margin" Value="16,0,0,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      </Style>
+
     </Style>
 
     <!-- Tools pill: the chat's browser, desktop and Workspace toggles on one piece of glass. -->
-    <Style Selector="Border.header-tools">
+    <Style Selector="#ChatHeaderLayer Border.header-tools">
       <Setter Property="Height" Value="36" />
       <Setter Property="Padding" Value="2,0" />
       <Setter Property="CornerRadius" Value="18" />
@@ -1808,7 +1817,7 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="BoxShadow" Value="0 6 18 -6 #33000000" />
     </Style>
-    <Style Selector="Button.header-tool">
+    <Style Selector="#HeaderToolsPill Button.header-tool">
       <Setter Property="Width" Value="32" />
       <Setter Property="Height" Value="32" />
       <Setter Property="MinWidth" Value="0" />
@@ -1818,14 +1827,14 @@
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.header-tool PathIcon">
+    <Style Selector="#HeaderToolsPill Button.header-tool PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
     <!-- One tool lights at a time: the one whose page the Workspace shows. -->
-    <Style Selector="Button.header-tool.open">
+    <Style Selector="#HeaderToolsPill Button.header-tool.open">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
     </Style>
-    <Style Selector="Button.header-tool.open PathIcon">
+    <Style Selector="#HeaderToolsPill Button.header-tool.open PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
 
@@ -1841,7 +1850,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="PathIcon.tool-screen">
+    <Style Selector="#HeaderToolsPill PathIcon.tool-screen">
       <Setter Property="RenderTransformOrigin" Value="50%,94%" />
       <Setter Property="RenderTransform" Value="scale(1)" />
       <Setter Property="Transitions">
@@ -1860,20 +1869,20 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Border.header-tools:not(.motion-disabled) Button.header-tool:pointerover PathIcon.tool-globe">
+    <Style Selector="#HeaderToolsPill Border.header-tools:not(.motion-disabled) Button.header-tool:pointerover PathIcon.tool-globe">
       <Setter Property="RenderTransform" Value="rotate(-23.5deg) scale(1.1)" />
     </Style>
-    <Style Selector="Border.header-tools:not(.motion-disabled) Button.header-tool:pointerover PathIcon.tool-screen">
+    <Style Selector="#HeaderToolsPill Border.header-tools:not(.motion-disabled) Button.header-tool:pointerover PathIcon.tool-screen">
       <Setter Property="RenderTransform" Value="scale(1.14)" />
     </Style>
-    <Style Selector="Border.header-tools:not(.motion-disabled) Button.header-tool:pointerover PathIcon.tool-panels">
+    <Style Selector="#HeaderToolsPill Border.header-tools:not(.motion-disabled) Button.header-tool:pointerover PathIcon.tool-panels">
       <Setter Property="RenderTransform" Value="rotate(180deg)" />
     </Style>
 
 
     <!-- Steering delivery status pill: shown under a user message that was steered into a
          running turn so it's clear when the message actually reaches the session. -->
-    <Style Selector="Border.steer-pill">
+    <Style Selector="Border#SteerBadge.steer-pill">
       <Setter Property="Background" Value="{DynamicResource Brush.SurfaceSubtle}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -1881,15 +1890,15 @@
       <Setter Property="Padding" Value="8,3" />
       <Setter Property="HorizontalAlignment" Value="Right" />
     </Style>
-    <Style Selector="Border.steer-pill TextBlock">
+    <Style Selector="Border#SteerBadge.steer-pill TextBlock">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Border.steer-pill Ellipse.steer-dot">
+    <Style Selector="Border#SteerBadge.steer-pill Ellipse.steer-dot">
       <Setter Property="Fill" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <!-- In-flight steer: gently pulsing dot signals the message is being delivered. -->
-    <Style Selector="Border.steer-pill.steering Ellipse.steer-dot">
+    <Style Selector="Border#SteerBadge.steer-pill.steering Ellipse.steer-dot">
       <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
       <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.25" />
       <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.1" />
@@ -1897,26 +1906,26 @@
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
     <!-- Failed steer: danger treatment. -->
-    <Style Selector="Border.steer-pill.failed">
+    <Style Selector="Border#SteerBadge.steer-pill.failed">
       <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.DangerSubtle}" />
     </Style>
-    <Style Selector="Border.steer-pill.failed TextBlock">
+    <Style Selector="Border#SteerBadge.steer-pill.failed TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
     </Style>
-    <Style Selector="Border.steer-pill.failed Ellipse.steer-dot">
+    <Style Selector="Border#SteerBadge.steer-pill.failed Ellipse.steer-dot">
       <Setter Property="Fill" Value="{DynamicResource Brush.DangerDefault}" />
     </Style>
     <!-- Delivered steer: the agent has consumed the message. Success treatment + a check glyph so
          "applied" reads distinctly from the in-flight "Steering…" state. -->
-    <Style Selector="Border.steer-pill.delivered">
+    <Style Selector="Border#SteerBadge.steer-pill.delivered">
       <Setter Property="Background" Value="{DynamicResource Brush.SuccessSubtle}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.SuccessSubtle}" />
     </Style>
-    <Style Selector="Border.steer-pill.delivered TextBlock">
+    <Style Selector="Border#SteerBadge.steer-pill.delivered TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
     </Style>
-    <Style Selector="Border.steer-pill Path.steer-check">
+    <Style Selector="Border#SteerBadge.steer-pill Path.steer-check">
       <Setter Property="Stroke" Value="{DynamicResource Brush.SuccessDefault}" />
       <Setter Property="StrokeThickness" Value="1.7" />
       <Setter Property="StrokeLineCap" Value="Round" />
@@ -1925,7 +1934,7 @@
     <!-- Inline "Send now" action beside a pending steering pill. During session/MCP setup the click is
          latched until the first SDK turn starts; only then is that turn aborted, preserving the ready
          session and avoiding an MCP reconnect. -->
-    <Style Selector="Button.steer-send-now">
+    <Style Selector="Button#SteerSendNow.steer-send-now">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
       <Setter Property="BorderThickness" Value="0" />
@@ -1938,14 +1947,14 @@
     </Style>
     <!-- Strata's Button renders string content as a TextBlock that keeps its own Foreground, so color it
          explicitly (mirrors Strata's own .accent/.danger TextBlock overrides). -->
-    <Style Selector="Button.steer-send-now TextBlock">
+    <Style Selector="Button#SteerSendNow.steer-send-now TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <!-- Flat at rest (no surface fill or shadow); a soft rounded accent wash appears only on hover. -->
-    <Style Selector="Button.steer-send-now /template/ Border#PART_Surface">
+    <Style Selector="Button#SteerSendNow.steer-send-now /template/ Border#PART_Surface">
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.steer-send-now:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Button#SteerSendNow.steer-send-now:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
     </Style>
     <!-- A steered message bubble stays visually tentative (ghosted) until the agent actually applies it,
@@ -1963,7 +1972,7 @@
     <!-- A background job's wake opens its turn: a step's glass, a tile naming what woke the chat (the
          accent, or the danger colour when its wake script failed), and the job's instructions and the
          script's output folded until the header is clicked. -->
-    <Style Selector="#Transcript Border.job-wake">
+    <Style Selector="#Transcript Border#JobWakeCard.job-wake">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -1977,12 +1986,12 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="#Transcript Border.job-wake:pointerover">
+    <Style Selector="#Transcript Border#JobWakeCard.job-wake:pointerover">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFillHover}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRimHover}" />
     </Style>
     <!-- The header is the card's toggle: it draws nothing of its own but keyboard focus. -->
-    <Style Selector="#Transcript Button.job-wake-header">
+    <Style Selector="#JobWakeCard Button.job-wake-header">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Padding" Value="12,11,14,11" />
@@ -2009,10 +2018,10 @@
         </ControlTemplate>
       </Setter>
     </Style>
-    <Style Selector="#Transcript Button.job-wake-header:focus-visible /template/ Border#PART_FocusRing">
+    <Style Selector="#JobWakeCard Button.job-wake-header:focus-visible /template/ Border#PART_FocusRing">
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake-tile">
+    <Style Selector="#JobWakeCard Border.job-wake-tile">
       <Setter Property="Width" Value="34" />
       <Setter Property="Height" Value="34" />
       <Setter Property="CornerRadius" Value="11" />
@@ -2024,7 +2033,7 @@
         <SolidColorBrush Color="{DynamicResource Color.AccentDefault}" Opacity="0.28" />
       </Setter>
     </Style>
-    <Style Selector="#Transcript Border.job-wake-tile > sc|StrataLineIcon">
+    <Style Selector="#JobWakeCard Border.job-wake-tile > sc|StrataLineIcon">
       <Setter Property="Width" Value="17" />
       <Setter Property="Height" Value="17" />
       <Setter Property="StrokeThickness" Value="1.8" />
@@ -2033,48 +2042,48 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
       <Setter Property="Data" Value="{x:Static sc:StrataIcons.Bolt}" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake.scheduled Border.job-wake-tile > sc|StrataLineIcon">
+    <Style Selector="Border#JobWakeCard.job-wake.scheduled Border.job-wake-tile > sc|StrataLineIcon">
       <Setter Property="Data" Value="{x:Static sc:StrataIcons.Clock}" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake.script Border.job-wake-tile > sc|StrataLineIcon">
+    <Style Selector="Border#JobWakeCard.job-wake.script Border.job-wake-tile > sc|StrataLineIcon">
       <Setter Property="Data" Value="{x:Static sc:StrataIcons.Terminal}" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake.chat-event Border.job-wake-tile > sc|StrataLineIcon">
+    <Style Selector="Border#JobWakeCard.job-wake.chat-event Border.job-wake-tile > sc|StrataLineIcon">
       <Setter Property="Data" Value="{x:Static sc:StrataIcons.Chats}" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake.failed Border.job-wake-tile">
+    <Style Selector="Border#JobWakeCard.job-wake.failed Border.job-wake-tile">
       <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
       <Setter Property="BorderBrush">
         <SolidColorBrush Color="{DynamicResource Color.DangerDefault}" Opacity="0.28" />
       </Setter>
     </Style>
-    <Style Selector="#Transcript Border.job-wake.failed Border.job-wake-tile > sc|StrataLineIcon">
+    <Style Selector="Border#JobWakeCard.job-wake.failed Border.job-wake-tile > sc|StrataLineIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake TextBlock.job-wake-title">
+    <Style Selector="Border#JobWakeCard.job-wake TextBlock.job-wake-title">
       <Setter Property="FontSize" Value="13.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="MaxLines" Value="1" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake WrapPanel.job-wake-meta">
+    <Style Selector="Border#JobWakeCard.job-wake WrapPanel.job-wake-meta">
       <Setter Property="ItemSpacing" Value="5" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake WrapPanel.job-wake-meta > TextBlock">
+    <Style Selector="Border#JobWakeCard.job-wake WrapPanel.job-wake-meta > TextBlock">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake.failed WrapPanel.job-wake-meta > TextBlock.job-wake-reason">
+    <Style Selector="Border#JobWakeCard.job-wake.failed WrapPanel.job-wake-meta > TextBlock.job-wake-reason">
       <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake TextBlock.job-wake-time">
+    <Style Selector="Border#JobWakeCard.job-wake TextBlock.job-wake-time">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake sc|StrataLineIcon.job-wake-chevron">
+    <Style Selector="Border#JobWakeCard.job-wake sc|StrataLineIcon.job-wake-chevron">
       <Setter Property="Width" Value="12" />
       <Setter Property="Height" Value="12" />
       <Setter Property="StrokeThickness" Value="2" />
@@ -2089,14 +2098,14 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="#Transcript Border.job-wake:pointerover sc|StrataLineIcon.job-wake-chevron">
+    <Style Selector="Border#JobWakeCard.job-wake:pointerover sc|StrataLineIcon.job-wake-chevron">
       <Setter Property="Opacity" Value="1" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake.expanded sc|StrataLineIcon.job-wake-chevron">
+    <Style Selector="Border#JobWakeCard.job-wake.expanded sc|StrataLineIcon.job-wake-chevron">
       <Setter Property="RenderTransform" Value="rotate(180deg)" />
     </Style>
     <!-- What the wake script said: the card's message, under its title. -->
-    <Style Selector="#Transcript Border.job-wake TextBlock.job-wake-body">
+    <Style Selector="Border#JobWakeCard.job-wake TextBlock.job-wake-body">
       <Setter Property="FontSize" Value="13" />
       <Setter Property="LineHeight" Value="19" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
@@ -2105,35 +2114,35 @@
       <Setter Property="MaxLines" Value="3" />
       <Setter Property="Margin" Value="0,6,0,0" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake Border.job-wake-divider">
+    <Style Selector="Border#JobWakeCard.job-wake Border.job-wake-divider">
       <Setter Property="Height" Value="1" />
       <Setter Property="Margin" Value="14,0,14,12" />
       <Setter Property="Background" Value="{DynamicResource Brush.GlassDivider}" />
     </Style>
     <!-- Opened, the details line up under the title. -->
-    <Style Selector="#Transcript Border.job-wake StackPanel.job-wake-details">
+    <Style Selector="Border#JobWakeCard.job-wake StackPanel.job-wake-details">
       <Setter Property="Spacing" Value="14" />
       <Setter Property="Margin" Value="58,0,16,12" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake TextBlock.job-wake-label">
+    <Style Selector="Border#JobWakeCard.job-wake TextBlock.job-wake-label">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="FontWeight" Value="Medium" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake TextBlock.job-wake-run">
+    <Style Selector="Border#JobWakeCard.job-wake TextBlock.job-wake-run">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Margin" Value="12,0,0,0" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake SelectableTextBlock.job-wake-instructions">
+    <Style Selector="Border#JobWakeCard.job-wake SelectableTextBlock.job-wake-instructions">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="LineHeight" Value="19" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake SelectableTextBlock.job-wake-output">
+    <Style Selector="Border#JobWakeCard.job-wake SelectableTextBlock.job-wake-output">
       <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="LineHeight" Value="18" />
@@ -2372,21 +2381,21 @@
     </Style>
 
     <!-- ── Follow-up placeholders: the chips' glass and height, pulsing while the suggestions are written ── -->
-    <Style Selector="Border.suggestion-pill">
+    <Style Selector="#SuggestionLoadingRow Border.suggestion-pill">
       <Setter Property="Background" Value="{StaticResource ChatHeader.PillFill}" />
       <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="16" />
       <Setter Property="Height" Value="32" />
     </Style>
-    <Style Selector="Border.suggestion-pill.pill-a">
+    <Style Selector="#SuggestionLoadingRow Border.suggestion-pill.pill-a">
       <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.3" />
       <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.6" />
       <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.95" />
       <Setter Property="sa:LifecycleOpacityPulse.PeakAt" Value="0.38" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
-    <Style Selector="Border.suggestion-pill.pill-b">
+    <Style Selector="#SuggestionLoadingRow Border.suggestion-pill.pill-b">
       <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.3" />
       <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.6" />
       <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.95" />
@@ -2394,7 +2403,7 @@
       <Setter Property="sa:LifecycleOpacityPulse.PeakAt" Value="0.56" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
-    <Style Selector="Border.suggestion-pill.pill-c">
+    <Style Selector="#SuggestionLoadingRow Border.suggestion-pill.pill-c">
       <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.3" />
       <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.6" />
       <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.95" />
@@ -2701,7 +2710,7 @@
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <!-- The play mark leans forward on hover, the way Resume moves the chat on. -->
-    <Style Selector="PathIcon.resume-glyph">
+    <Style Selector="#ChatPauseStatusPanel PathIcon.resume-glyph">
       <Setter Property="Width" Value="9" />
       <Setter Property="Height" Value="10" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -2963,7 +2972,7 @@
       <Setter Property="BoxShadow" Value="none" />
       <Setter Property="MinHeight" Value="20" />
     </Style>
-    <Style Selector="Button.search-nav">
+    <Style Selector="#SearchBar Button.search-nav">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Padding" Value="3" />
@@ -2975,10 +2984,10 @@
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.search-nav:pointerover">
+    <Style Selector="#SearchBar Button.search-nav:pointerover">
       <Setter Property="Background" Value="{DynamicResource Brush.ControlHover}" />
     </Style>
-    <Style Selector="Button.search-nav:pressed">
+    <Style Selector="#SearchBar Button.search-nav:pressed">
       <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
     </Style>
     <Style Selector="Button.search-nav /template/ Border#PART_Aurora">
@@ -3698,7 +3707,7 @@
     </Style>
 
     <!-- Voice typing cards: a quiet inset in the composer, a tile for what it's about, then words and actions. -->
-    <Style Selector="Border.voice-card">
+    <Style Selector="#VoiceStatusCards Border.voice-card">
       <Setter Property="Background" Value="{DynamicResource Voice.CardFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource ChatHeader.PillBorder}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -3706,81 +3715,81 @@
       <Setter Property="Padding" Value="12" />
       <Setter Property="Margin" Value="0,6,0,2" />
     </Style>
-    <Style Selector="Border.voice-tile">
+    <Style Selector="#VoiceStatusCards Border.voice-tile">
       <Setter Property="Width" Value="32" />
       <Setter Property="Height" Value="32" />
       <Setter Property="CornerRadius" Value="10" />
       <Setter Property="Margin" Value="0,0,12,0" />
       <Setter Property="VerticalAlignment" Value="Top" />
     </Style>
-    <Style Selector="Border.voice-tile sc|StrataLineIcon">
+    <Style Selector="#VoiceStatusCards Border.voice-tile sc|StrataLineIcon">
       <Setter Property="Width" Value="16" />
       <Setter Property="Height" Value="16" />
       <Setter Property="StrokeThickness" Value="2" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Border.voice-tile.brand">
+    <Style Selector="#VoiceStatusCards Border.voice-tile.brand">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentGradient}" />
       <Setter Property="BoxShadow" Value="0 4 10 -4 #40000000" />
     </Style>
-    <Style Selector="Border.voice-tile.brand sc|StrataLineIcon">
+    <Style Selector="#VoiceStatusCards Border.voice-tile.brand sc|StrataLineIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
     </Style>
-    <Style Selector="Border.voice-tile.problem">
+    <Style Selector="#VoiceStatusCards Border.voice-tile.problem">
       <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
     </Style>
-    <Style Selector="Border.voice-tile.problem sc|StrataLineIcon">
+    <Style Selector="#VoiceStatusCards Border.voice-tile.problem sc|StrataLineIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
     </Style>
-    <Style Selector="Border.voice-tile.quiet">
+    <Style Selector="#VoiceStatusCards Border.voice-tile.quiet">
       <Setter Property="Background" Value="{DynamicResource ChatHeader.MenuChipFill}" />
     </Style>
-    <Style Selector="Border.voice-tile.quiet sc|StrataLineIcon">
+    <Style Selector="#VoiceStatusCards Border.voice-tile.quiet sc|StrataLineIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="TextBlock.voice-title">
+    <Style Selector="#VoiceStatusCards TextBlock.voice-title">
       <Setter Property="FontSize" Value="13" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
-    <Style Selector="TextBlock.voice-body">
+    <Style Selector="#VoiceStatusCards TextBlock.voice-body">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
-    <Style Selector="TextBlock.voice-caption">
+    <Style Selector="#VoiceStatusCards TextBlock.voice-caption">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
-    <Style Selector="StackPanel.voice-fact">
+    <Style Selector="#VoiceStatusCards StackPanel.voice-fact">
       <Setter Property="Spacing" Value="7" />
     </Style>
-    <Style Selector="StackPanel.voice-fact sc|StrataLineIcon">
+    <Style Selector="#VoiceStatusCards StackPanel.voice-fact sc|StrataLineIcon">
       <Setter Property="Width" Value="13" />
       <Setter Property="Height" Value="13" />
       <Setter Property="StrokeThickness" Value="2" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="StackPanel.voice-fact TextBlock">
+    <Style Selector="#VoiceStatusCards StackPanel.voice-fact TextBlock">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
-    <Style Selector="Button.voice-action">
+    <Style Selector="#VoiceStatusCards Button.voice-action">
       <Setter Property="Padding" Value="12,6" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Margin" Value="0,0,6,0" />
     </Style>
-    <Style Selector="Button.voice-action.accent">
+    <Style Selector="#VoiceStatusCards Button.voice-action.accent">
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
-    <Style Selector="Button.voice-close">
+    <Style Selector="#VoiceStatusCards Button.voice-close">
       <Setter Property="Width" Value="24" />
       <Setter Property="Height" Value="24" />
       <Setter Property="Padding" Value="0" />
@@ -3801,7 +3810,7 @@
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*" MaxWidth="560" />
         </Grid.ColumnDefinitions>
-        <Border Classes="job-wake"
+        <Border x:Name="JobWakeCard" Classes="job-wake"
                 Classes.scheduled="{Binding IsScheduled}"
                 Classes.script="{Binding IsScript}"
                 Classes.chat-event="{Binding IsChatEvent}"
@@ -3854,7 +3863,7 @@
                                  Text="{Binding RunText}" IsVisible="{Binding HasRunText}" />
                       <TextBlock Classes="job-wake-label" Text="{loc:Str Jobs_ResultOutput}" />
                     </DockPanel>
-                    <Border Classes="transcript-well">
+                    <Border x:Name="JobOutputWell" Classes="transcript-well">
                       <ScrollViewer MaxHeight="240" HorizontalScrollBarVisibility="Disabled">
                         <SelectableTextBlock Classes="job-wake-output" Text="{Binding DisplayOutput}" />
                       </ScrollViewer>
@@ -4009,7 +4018,7 @@
              "Send now" appears only while still steering, to force delivery without waiting for the tool. -->
         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right"
                     IsVisible="{Binding Source.HasSteerBadge}">
-          <Border Classes="steer-pill"
+          <Border x:Name="SteerBadge" Classes="steer-pill"
                   VerticalAlignment="Center"
                   Classes.steering="{Binding Source.IsSteerInProgress}"
                   Classes.delivered="{Binding Source.IsSteerDelivered}"
@@ -4023,7 +4032,7 @@
               <TextBlock Text="{Binding Source.SteerBadgeText}" VerticalAlignment="Center" />
             </StackPanel>
           </Border>
-          <Button Classes="steer-send-now"
+          <Button x:Name="SteerSendNow" Classes="steer-send-now"
                   VerticalAlignment="Center"
                   Command="{Binding SendNowCommand}"
                   IsVisible="{Binding Source.CanSendNow}"
@@ -4142,7 +4151,7 @@
                                     Command="{Binding OpenCommand}"
                                     ToolTip.Tip="{Binding Url}">
                               <DockPanel>
-                                <Border DockPanel.Dock="Left" Classes="source-initial"
+                                <Border x:Name="SourceInitial" DockPanel.Dock="Left" Classes="source-initial"
                                         Background="{Binding AccentBrush}">
                                   <TextBlock Text="{Binding InitialLetter}" />
                                 </Border>
@@ -4262,7 +4271,7 @@
 
     <!-- ── Error message ─────────────────────────────── -->
     <DataTemplate DataType="vm:ErrorMessageItem">
-      <Border Classes="transcript-error" HorizontalAlignment="Left" MaxWidth="700">
+      <Border x:Name="TranscriptError" Classes="transcript-error" HorizontalAlignment="Left" MaxWidth="700">
         <!-- Grid (not a horizontal StackPanel) so the text column is width-constrained
              and TextWrapping actually wraps instead of overflowing/clipping. The icon sits on the
              first line's centre (a 17px line, as in the chips), so it stays with the text however
@@ -4275,7 +4284,7 @@
                      VerticalAlignment="Center" LineHeight="17"
                      FontSize="12.5" Foreground="{DynamicResource Brush.TextSecondary}" />
           <!-- A quiet accent action, like "Show diff": the card stays a single 31px line. -->
-          <Button Grid.Column="2" Classes="transcript-diff" Margin="10,-3,-5,-3"
+          <Button x:Name="TranscriptAction" Grid.Column="2" Classes="transcript-diff" Margin="10,-3,-5,-3"
                   VerticalAlignment="Center"
                   Command="{Binding RetryCommand}"
                   IsVisible="{Binding ShowRetryButton}">
@@ -4312,7 +4321,7 @@
         <!-- A lone step stands on its own as a chip, with the Strata line under it while it works. -->
         <Panel Classes="single-step" IsVisible="{Binding IsSingleTool}">
           <ContentControl Content="{Binding SingleTool}" />
-          <Border Classes="single-step-line" IsVisible="{Binding IsActive}" />
+          <Border x:Name="SingleStepLine" Classes="single-step-line" IsVisible="{Binding IsActive}" />
         </Panel>
         <sc:StrataThink x:Name="ToolGroupCard"
                         Classes="activity-group"
@@ -4349,7 +4358,7 @@
                                      IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>
                       </DockPanel>
-                      <ItemsControl Classes="plan-glance"
+                      <ItemsControl x:Name="PlanGlance" Classes="plan-glance"
                                     ItemsSource="{Binding Steps}"
                                     IsVisible="{Binding HasSteps}" />
                     </Panel>
@@ -4395,7 +4404,7 @@
                       IsExpanded="{Binding IsExpanded}"
                       IsActive="{Binding IsActive}">
         <sc:StrataThink.HeaderExtra>
-          <Button Classes="transcript-diff" Command="{Binding ShowDiffCommand}"
+          <Button x:Name="TranscriptAction" Classes="transcript-diff" Command="{Binding ShowDiffCommand}"
                   IsVisible="{Binding HasDiff}" Margin="4,-3,0,-3">
             <StackPanel Orientation="Horizontal" Spacing="5">
               <sc:StrataLineIcon Width="12" Height="12" VerticalAlignment="Center"
@@ -4407,18 +4416,18 @@
         <sc:StrataThink.Content>
           <StackPanel Spacing="8" MaxWidth="760" Margin="7,0,7,4">
             <!-- What the step was given, as fields, and what it reported -->
-            <Border Classes="transcript-well" IsVisible="{Binding HasDetails}">
+            <Border x:Name="SingleToolDetails" Classes="transcript-well" IsVisible="{Binding HasDetails}">
               <sc:StrataToolDetails Parameters="{Binding InputParameters}"
                                     Result="{Binding ResultText}"
                                     IsFailed="{Binding HasError}" />
             </Border>
             <!-- A lone image step shows the images it created -->
-            <ItemsControl Classes="generated-images" ItemsSource="{Binding ImageStep.Images, FallbackValue={x:Null}}"
+            <ItemsControl x:Name="GeneratedImages" Classes="generated-images" ItemsSource="{Binding ImageStep.Images, FallbackValue={x:Null}}"
                           IsVisible="{Binding ImageStep.HasImages, FallbackValue=False}" />
             <!-- A lone plan lists its steps -->
             <ContentControl Content="{Binding Plan}" IsVisible="{Binding IsPlan}" />
             <!-- Terminal: the command, then its output -->
-            <Border Classes="transcript-well" IsVisible="{Binding IsTerminal}">
+            <Border x:Name="SingleToolConsole" Classes="transcript-well" IsVisible="{Binding IsTerminal}">
               <StackPanel Spacing="6">
                 <Grid ColumnDefinitions="Auto,6,*">
                   <TextBlock Classes="console-text" Text="$" FontSize="12"
@@ -4458,7 +4467,7 @@
                            DurationMs="{Binding DurationMs}"
                            RunningSince="{Binding StartedAt}">
           <sc:StrataAgentRun.HeaderAction>
-            <sc:StrataLineIcon Classes="agent-row-open" Data="{x:Static sc:StrataIcons.ChevronRight}" />
+            <sc:StrataLineIcon x:Name="AgentOpenIcon" Classes="agent-row-open" Data="{x:Static sc:StrataIcons.ChevronRight}" />
           </sc:StrataAgentRun.HeaderAction>
         </sc:StrataAgentRun>
       </Button>
@@ -4484,7 +4493,7 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate DataType="vm:SubagentToolCallItem">
-                <Border Classes="agent-cluster-avatar"
+                <Border x:Name="AgentClusterAvatar" Classes="agent-cluster-avatar"
                         ToolTip.Tip="{Binding DisplayName}"
                         Background="{Binding AccentIndex, Converter={StaticResource ChartBrush}}">
                   <TextBlock Text="{Binding Initial}" />
@@ -4509,7 +4518,7 @@
                                      DurationMs="{Binding DurationMs}"
                                      RunningSince="{Binding StartedAt}">
                     <sc:StrataAgentRun.HeaderAction>
-                      <sc:StrataLineIcon Classes="agent-row-open" Data="{x:Static sc:StrataIcons.ChevronRight}" />
+                      <sc:StrataLineIcon x:Name="AgentOpenIcon" Classes="agent-row-open" Data="{x:Static sc:StrataIcons.ChevronRight}" />
                     </sc:StrataAgentRun.HeaderAction>
                   </sc:StrataAgentRun>
                 </Button>
@@ -6756,7 +6765,7 @@
           </Button>
         </sc:StrataChatComposer.SendAccessoryContent>
         <sc:StrataChatComposer.StatusContent>
-          <StackPanel MinWidth="0" Spacing="4">
+          <StackPanel x:Name="VoiceStatusCards" MinWidth="0" Spacing="4">
           <!-- Voice typing: asking before the one-time download, its progress, and what stopped dictation. -->
           <Border x:Name="VoiceSetupCard" Classes="voice-card" IsVisible="{Binding IsVoiceSetupVisible}">
             <Grid ColumnDefinitions="Auto,*">

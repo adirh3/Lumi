@@ -232,6 +232,13 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             "read_transcript" => ReadTranscriptAsync(arguments),
             "read_activity" => ReadActivityAsync(arguments),
             "load_fixture" => InvokeUiAsync(LoadFixture),
+            "load_memory_fixture" => InvokeUiAsync(() =>
+            {
+                _mainViewModel.ChatVM.LoadDebugMemoryTurnFixture();
+                _mainViewModel.SelectedNavIndex = 0;
+                return ReadMemoryFixture();
+            }),
+            "read_memory_fixture" => InvokeUiAsync(() => ReadMemoryFixture(GetBool(arguments ?? default, "collect") == true)),
             "load_browser_fixture" => InvokeUiAsync(() => LoadBrowserFixtureAsync(arguments)),
             "probe_app" => InvokeUiAsync(() => ProbeAppAsync(arguments)),
             "load_background_shell" => InvokeUiAsync(LoadBackgroundShellFixture),
@@ -1002,6 +1009,44 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
 
             return messages;
         });
+    }
+
+    private object ReadMemoryFixture(bool collect = false)
+    {
+        if (!DataStore.UsesIsolatedProfile)
+            throw new InvalidOperationException("Memory probes require an isolated Debug profile.");
+        if (collect)
+        {
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        }
+        var window = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow
+            ?? throw new InvalidOperationException("No headed memory fixture window.");
+        var controls = window.GetVisualDescendants().ToArray();
+        using var process = Process.GetCurrentProcess();
+        var gc = GC.GetGCMemoryInfo();
+        return new
+        {
+            processId = process.Id,
+            collected = collect,
+            title = _mainViewModel.ChatVM.CurrentChat?.Title,
+            messages = _mainViewModel.ChatVM.Messages.Count,
+            turns = _mainViewModel.ChatVM.TranscriptTurns.Count,
+            summaries = _mainViewModel.ChatVM.TranscriptTurns.SelectMany(static turn => turn.Items)
+                .OfType<TurnSummaryItem>().Count(),
+            visualControls = controls.Length,
+            terminalCards = controls.OfType<StrataTheme.Controls.StrataTerminalPreview>().Count(),
+            toolCards = controls.OfType<StrataTheme.Controls.StrataAiToolCall>().Count(),
+            textBlocks = controls.OfType<Avalonia.Controls.TextBlock>().Count(),
+            managedBytes = GC.GetTotalMemory(false),
+            gcCommittedBytes = gc.TotalCommittedBytes,
+            privateBytes = process.PrivateMemorySize64,
+            workingSetBytes = process.WorkingSet64,
+            windowWidth = window.ClientSize.Width,
+            windowHeight = window.ClientSize.Height,
+            scaling = window.RenderScaling
+        };
     }
 
     private object LoadFixture()

@@ -53,6 +53,48 @@ public static class DebugAgentHarness
         => string.Equals(arg, "--test-session-reap", StringComparison.OrdinalIgnoreCase)
            || string.Equals(arg, "--stress-session-reap", StringComparison.OrdinalIgnoreCase);
 
+    internal static Chat CreateMemoryTurnFixtureChat()
+    {
+        var chat = new Chat { Title = "Memory lab - expanded work" };
+        var started = new DateTimeOffset(2026, 11, 16, 10, 0, 0, TimeSpan.Zero);
+        chat.Messages.Add(new LumiChatMessage
+        {
+            Role = "user",
+            Timestamp = started,
+            Content = "Inspect this long work trail. This is an isolated, unsaved memory fixture; no commands run."
+        });
+        for (var group = 0; group < 16; group++)
+        {
+            for (var step = 0; step < 300; step++)
+            {
+                var shell = step % 4 != 0;
+                var at = started.AddSeconds(group * 301 + step + 1);
+                chat.Messages.Add(new LumiChatMessage
+                {
+                    Role = "tool",
+                    ToolCallId = $"memory-{group:D2}-{step:D3}",
+                    ToolName = shell ? "powershell" : "view",
+                    ToolStatus = "Completed",
+                    ToolStartedAt = at,
+                    ToolDurationMs = 120,
+                    Timestamp = at,
+                    Content = shell
+                        ? $$"""{"command":"Write-Output 'fixture {{group:D2}}-{{step:D3}}'","description":"Inspect fixture {{group:D2}}-{{step:D3}}"}"""
+                        : $$"""{"path":"C:\\fixture\\group-{{group:D2}}\\file-{{step:D3}}.cs"}""",
+                    ToolOutput = $"Synthetic result {group:D2}-{step:D3}\nNo command was executed.\n" + new string('x', 240)
+                });
+            }
+            chat.Messages.Add(new LumiChatMessage
+            {
+                Role = "assistant",
+                Author = "Lumi",
+                Timestamp = started.AddSeconds((group + 1) * 301),
+                Content = $"**Batch {group + 1}** inspected 300 synthetic steps. All details remain available below the work summary."
+            });
+        }
+        return chat;
+    }
+
     public static IReadOnlyList<LumiChatMessage> CreatePromptSharingFixtureMessages(DataStore dataStore)
     {
         var expensePath = Path.Combine(EnsureFixtureDirectory(), "prompt-expenses.csv");

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using Lumi.Models;
@@ -882,6 +883,41 @@ public sealed class SubagentRunTranscriptTests
         Assert.Equal(
             "Repository Analyst",
             RunItems(transcript).OfType<AssistantMessageItem>().Single().Author);
+    }
+
+    [Fact]
+    public void RunTranscript_ClearReleasesPreviousTargetWhileOwnerStaysAlive()
+    {
+        var (transcript, previousTurns, previousTurn) = CreateClearedRunTranscript();
+
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+
+        Assert.Empty(transcript.Turns);
+        Assert.False(previousTurns.IsAlive);
+        Assert.False(previousTurn.IsAlive);
+        GC.KeepAlive(transcript);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (SubagentRunTranscript Transcript, WeakReference Turns, WeakReference Turn) CreateClearedRunTranscript()
+    {
+        var messages = new[]
+        {
+            CreateToolVm("clear-run", "task", "Completed",
+                """{"description":"Inspect","agent_type":"explore","prompt":"Inspect","transcript":"Finished"}"""),
+            CreateToolVm("clear-step", "view", "Completed", """{"path":"file.cs"}""",
+                parentToolCallId: "clear-run"),
+        };
+        var run = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(CreateBuilder().Rebuild(messages)).Items));
+        var transcript = CreateRunTranscript();
+        transcript.Sync(run, messages);
+        var turns = new WeakReference(transcript.Turns);
+        var turn = new WeakReference(Assert.Single(transcript.Turns));
+        transcript.Clear();
+        return (transcript, turns, turn);
     }
 
     [Fact]
