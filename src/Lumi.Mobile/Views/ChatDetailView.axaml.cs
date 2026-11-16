@@ -87,6 +87,8 @@ public partial class ChatDetailView : UserControl
         {
             if (_awaitingChatEntrance)
                 QueueChatEntrance();
+            if (!IsEffectivelyVisible)
+                return;
             UpdateWelcomeInsets();
             var fullScreen = StrataFullScreenOverlay.IsPresented(this);
             if (_isFullScreenPresented != fullScreen)
@@ -1251,6 +1253,13 @@ public partial class ChatDetailView : UserControl
                 PlayMountedChatEntrance();
         }
 
+        if (e.PropertyName == nameof(MobileShellViewModel.IsDrawerOverlay)
+            && _shell?.IsDrawerOverlay == true)
+        {
+            _transcriptEntrance?.Stop();
+            StopWelcomeEntrances();
+        }
+
         if (e.PropertyName == nameof(MobileShellViewModel.IsWelcomeVisible))
         {
             if (_shell?.IsWelcomeVisible == true && !_awaitingChatEntrance)
@@ -1594,6 +1603,7 @@ public partial class ChatDetailView : UserControl
     {
         if (_awaitingChatEntrance || !IsEffectivelyVisible
             || _shell is not { IsChatPage: true, HasPageOverlay: false }
+            || (!_shell.CanDockDrawer && (_shell.IsDrawerOpen || _shell.IsDrawerPresented))
             || _shell.Chat.IsLoading)
             return;
 

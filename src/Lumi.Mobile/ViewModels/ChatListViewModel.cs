@@ -52,6 +52,8 @@ public sealed partial class ChatListItemViewModel : ObservableObject
 
     public void Update(RemoteChat chat)
     {
+        var hadProject = HasProject;
+        var hadAgent = HasAgent;
         Id = chat.Id;
         Title = chat.Title;
         Preview = chat.Preview;
@@ -67,8 +69,10 @@ public sealed partial class ChatListItemViewModel : ObservableObject
         MessageCount = chat.MessageCount;
         UpdatedAt = chat.UpdatedAt;
         LastModelUsed = chat.LastModelUsed;
-        OnPropertyChanged(nameof(HasProject));
-        OnPropertyChanged(nameof(HasAgent));
+        if (hadProject != HasProject)
+            OnPropertyChanged(nameof(HasProject));
+        if (hadAgent != HasAgent)
+            OnPropertyChanged(nameof(HasAgent));
     }
 }
 
@@ -120,6 +124,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     [ObservableProperty] private Guid _selectedChatId;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
+    [NotifyPropertyChangedFor(nameof(ShowRefreshingBar))]
     [NotifyPropertyChangedFor(nameof(ResultsLabel))]
     private bool _isRefreshing;
 
@@ -160,6 +165,8 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     public string VisibleChatCountLabel => Strings.Get("VisibleChatCount", VisibleChatCount, MatchingChatCount);
 
     public bool IsEmpty => MatchingChatCount == 0;
+
+    public bool ShowRefreshingBar => IsRefreshing && IsEmpty;
 
     public bool HasSearchQuery => !string.IsNullOrWhiteSpace(SearchText);
 
@@ -642,6 +649,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(HasMoreChats));
         OnPropertyChanged(nameof(VisibleChatCountLabel));
         OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(ShowRefreshingBar));
         OnPropertyChanged(nameof(ShowEmptyState));
         OnPropertyChanged(nameof(ResultsLabel));
     }

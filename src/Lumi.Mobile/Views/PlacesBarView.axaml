@@ -18,19 +18,21 @@
        sharp all around it, under the desktop's light surface tint and hairline. The view does not clip,
        so the pill's shadow falls whole and its frost can take in what lies just around it. One highlight
        glides between the places and the open place's name slides across, as on the desktop. -->
-  <Panel x:Name="PlacesPill" Classes="places-pill">
+  <Panel x:Name="PlacesPill" Classes="places-pill" HorizontalAlignment="Center" UseLayoutRounding="False">
     <sc:StrataBackdropBlur x:Name="PlacesFrost" Classes="places-frost" />
     <Border x:Name="PlacesSurface" Classes="places-surface">
       <Panel x:Name="PlacesTrack">
         <Border x:Name="PlacesSelection" Classes="places-selection" />
-        <StackPanel x:Name="PlacesRow" Orientation="Horizontal" Spacing="2">
+        <StackPanel x:Name="PlacesRow" Orientation="Horizontal" Spacing="2" UseLayoutRounding="True">
           <Button x:Name="PlacesChatsButton" Classes="place"
                   Classes.active="{Binding IsChatsPlace}"
                   AutomationProperties.Name="{loc:Str Chats}"
                   Command="{Binding SelectPlaceCommand}" CommandParameter="Chats">
             <StackPanel Orientation="Horizontal">
               <PathIcon Data="{DynamicResource Mobile.Icon.Chat}" />
-              <TextBlock Classes="place-label" Text="{loc:Str Chats}" />
+              <Grid ColumnDefinitions="Auto" ClipToBounds="True">
+                <TextBlock Classes="place-label" Text="{loc:Str Chats}" />
+              </Grid>
             </StackPanel>
           </Button>
           <Button x:Name="PlacesJobsButton" Classes="place"
@@ -39,7 +41,9 @@
                   Command="{Binding SelectPlaceCommand}" CommandParameter="Jobs">
             <StackPanel Orientation="Horizontal">
               <PathIcon Data="{DynamicResource Mobile.Icon.Clock}" />
-              <TextBlock Classes="place-label" Text="{loc:Str Jobs}" />
+              <Grid ColumnDefinitions="Auto" ClipToBounds="True">
+                <TextBlock Classes="place-label" Text="{loc:Str Jobs}" />
+              </Grid>
             </StackPanel>
           </Button>
           <Button x:Name="PlacesCustomizeButton" Classes="place"
@@ -52,7 +56,9 @@
                 <PathIcon Data="{DynamicResource Mobile.Icon.CustomizeKnobTop}" />
                 <PathIcon Data="{DynamicResource Mobile.Icon.CustomizeKnobBottom}" />
               </Panel>
-              <TextBlock Classes="place-label" Text="{loc:Str Customize}" />
+              <Grid ColumnDefinitions="Auto" ClipToBounds="True">
+                <TextBlock Classes="place-label" Text="{loc:Str Customize}" />
+              </Grid>
             </StackPanel>
           </Button>
           <Button x:Name="PlacesSettingsButton" Classes="place"
@@ -61,7 +67,9 @@
                   Command="{Binding SelectPlaceCommand}" CommandParameter="Settings">
             <StackPanel Orientation="Horizontal">
               <PathIcon Data="{DynamicResource Mobile.Icon.Gear}" />
-              <TextBlock Classes="place-label" Text="{loc:Str Settings}" />
+              <Grid ColumnDefinitions="Auto" ClipToBounds="True">
+                <TextBlock Classes="place-label" Text="{loc:Str Settings}" />
+              </Grid>
             </StackPanel>
           </Button>
         </StackPanel>

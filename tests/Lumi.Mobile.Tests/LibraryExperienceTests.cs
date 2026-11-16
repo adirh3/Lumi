@@ -617,6 +617,50 @@ public sealed class LibraryExperienceTests
     }
 
     [Fact]
+    public async Task SwitchingPlacesDoesNotRetargetAnInFlightRowSwitch()
+    {
+        var sink = new LibrarySink
+        {
+            PendingCommand = new(TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        var library = new LibraryViewModel(sink) { Section = LibrarySection.Jobs };
+        var jobId = Guid.NewGuid();
+        var connectorId = Guid.NewGuid();
+        library.Apply(new RemoteLibrary
+        {
+            Jobs = [new RemoteJob { Id = jobId, Name = "Morning briefing", IsEnabled = true }],
+            McpServers = [new RemoteMcpServer { Id = connectorId, Name = "Calendar", IsEnabled = true }]
+        });
+        library.RequestScope(LibraryScope.Customize);
+        library.Section = LibrarySection.McpServers;
+        library.RequestScope(LibraryScope.Jobs);
+        var job = Assert.Single(library.Entries);
+        var toggle = library.ToggleEntryCommand.ExecuteAsync(job);
+        try
+        {
+            Assert.True(job.IsSwitchBusy);
+            library.RequestScope(LibraryScope.Customize);
+            var connector = Assert.Single(library.Entries);
+            Assert.NotSame(job, connector);
+            Assert.Equal(LibrarySection.Jobs, job.Section);
+            Assert.Equal(jobId.ToString(), job.Identifier);
+
+            sink.PendingCommand.SetResult(new RemoteCommandResult { Ok = true });
+            await toggle;
+
+            Assert.False(job.IsEnabled);
+            Assert.True(connector.IsEnabled);
+            Assert.False(connector.IsSwitchBusy);
+            Assert.Equal(connectorId.ToString(), connector.Identifier);
+        }
+        finally
+        {
+            sink.PendingCommand.TrySetResult(new RemoteCommandResult { Ok = true });
+            await toggle;
+        }
+    }
+
+    [Fact]
     public void ListsGroupYoursBeforeBuiltInsAndWhatIsOnBeforeWhatIsPaused()
     {
         var library = new LibraryViewModel(new LibrarySink()) { Section = LibrarySection.Lumis };

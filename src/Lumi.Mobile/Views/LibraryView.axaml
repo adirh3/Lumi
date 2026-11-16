@@ -63,9 +63,6 @@
     <Style Selector="Border.row-segment">
       <Setter Property="Margin" Value="0,0,0,2" />
     </Style>
-    <Style Selector="Border.row-segment Border#LibraryRowDivider">
-      <Setter Property="IsVisible" Value="False" />
-    </Style>
     <Style Selector="Border.row-segment.card">
       <Setter Property="Margin" Value="0" />
       <Setter Property="Background" Value="{DynamicResource Brush.GroupSurface}" />
@@ -73,15 +70,9 @@
       <Setter Property="BorderThickness" Value="1,0,1,0" />
       <Setter Property="ClipToBounds" Value="True" />
     </Style>
-    <Style Selector="Border.row-segment.card Border#LibraryRowDivider">
-      <Setter Property="IsVisible" Value="True" />
-    </Style>
     <Style Selector="Border.row-segment.card.start">
       <Setter Property="BorderThickness" Value="1,1,1,0" />
       <Setter Property="CornerRadius" Value="14,14,0,0" />
-    </Style>
-    <Style Selector="Border.row-segment.card.start Border#LibraryRowDivider">
-      <Setter Property="IsVisible" Value="False" />
     </Style>
     <Style Selector="Border.row-segment.card.end">
       <Setter Property="BorderThickness" Value="1,0,1,1" />
@@ -304,7 +295,7 @@
               <ItemsControl x:Name="LibraryEntries" ItemsSource="{Binding Entries}" Margin="0,4,0,0">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>
-                    <VirtualizingStackPanel />
+                    <VirtualizingStackPanel CacheLength="0.15" />
                   </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
@@ -329,7 +320,8 @@
                                   Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).OpenEntryCommand}"
                                   CommandParameter="{Binding}"
                                   Content="{Binding}" ContentTemplate="{StaticResource LibraryRowContent}" />
-                          <Border x:Name="LibraryRowDivider" Grid.ColumnSpan="2" Classes="row-divider" />
+                          <Border x:Name="LibraryRowDivider" Grid.ColumnSpan="2" Classes="row-divider"
+                                  IsVisible="{Binding ShowRowDivider}" />
                           <Border x:Name="LibraryRowMarker" Classes="row-marker" Margin="3,14"
                                   IsVisible="{Binding IsOpen}" />
                           <ToggleSwitch x:Name="LibraryEntrySwitch" Grid.Column="1"

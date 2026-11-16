@@ -323,7 +323,12 @@ public sealed class NativeTextInputOverlay
             _textBox.Classes.Set("native-input-focused", false);
         }
 
-        private void OnLayoutUpdated(object? sender, EventArgs e) => UpdateSession();
+        private void OnLayoutUpdated(object? sender, EventArgs e)
+        {
+            if (_hidden && !_textBox.IsEffectivelyVisible)
+                return;
+            UpdateSession();
+        }
 
         private void OnScrollChanged(object? sender, ScrollChangedEventArgs e) => UpdateSession();
 
