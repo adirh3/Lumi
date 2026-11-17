@@ -83,13 +83,17 @@ public partial class ChatView
 
     /// <summary>
     /// Points the title menu at the open chat. As in the sidebar's chat menu, the actions belong to the
-    /// main window's view model, and the tag and project lists are rebuilt from live data on each open.
+    /// main window's view model, with window-local dialogs when detached. The tag and project lists
+    /// are rebuilt from live data on each open.
     /// </summary>
     private void OnChatTitleMenuOpening(object? sender, EventArgs e)
     {
+        var windowContext = TopLevel.GetTopLevel(this)?.DataContext;
+        var detached = windowContext as ChatWindowViewModel;
+        var main = windowContext as MainViewModel ?? detached?.ChatActions;
         if (sender is not MenuFlyout menu
             || _subscribedVm?.CurrentChat is not { } chat
-            || TopLevel.GetTopLevel(this)?.DataContext is not MainViewModel main)
+            || main is null)
             return;
 
         _subscribedVm.RefreshHeaderDetails();
@@ -99,26 +103,27 @@ public partial class ChatView
             switch (item.Name)
             {
                 case "ChatTitleRenameItem":
-                    Bind(item, main.StartRenameChatCommand);
+                    Bind(item, detached?.StartRenameChatCommand ?? main.StartRenameChatCommand);
                     break;
                 case "ChatTitlePinItem":
                     item.Command = main.ToggleChatPinCommand;
                     ChatMenuBuilder.UpdatePinItem(item, chat, FindIconGeometry);
                     break;
                 case "ChatTitleDuplicateItem":
-                    Bind(item, main.DuplicateChatCommand);
+                    Bind(item, detached?.DuplicateChatCommand ?? main.DuplicateChatCommand);
                     break;
                 case "ChatTitleMoveItem":
                     ChatMenuBuilder.PopulateMoveToProjectMenu(item, main, chat, FindIconGeometry);
                     break;
                 case "ChatTitleTagItem":
-                    ChatMenuBuilder.PopulateTagMenu(item, main, chat, FindIconGeometry);
+                    ChatMenuBuilder.PopulateTagMenu(item, main, chat, FindIconGeometry, detached?.ManageTagsCommand);
                     break;
                 case "ChatTitleNewWindowItem":
                     Bind(item, main.OpenChatInNewWindowCommand);
+                    item.IsVisible = detached is null;
                     break;
                 case "ChatTitleDeleteItem":
-                    Bind(item, main.DeleteChatCommand);
+                    Bind(item, detached?.DeleteChatCommand ?? main.DeleteChatCommand);
                     break;
             }
         }

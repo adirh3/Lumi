@@ -1263,6 +1263,8 @@ public partial class App : Application
 
         var windowVm = request.WindowVM;
         var chatVm = windowVm.ChatVM;
+        windowVm.ChatActions = _mainViewModel;
+        windowVm.ShowMainWindow = ShowMainWindow;
 
         chatVm.ChatUpdated += OnDetachedChatUpdated;
         chatVm.ChatTitleChanged += OnDetachedChatTitleChanged;

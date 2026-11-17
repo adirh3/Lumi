@@ -1043,7 +1043,7 @@ internal sealed class WorkspacePanelController : IDisposable
         {
             _vm.IsBrowserOpen = true;
             _browserView.RefreshBounds();
-            browserService.SetControllerVisible(true);
+            _browserView.ShowCurrentController();
             return true;
         }
 
@@ -1059,7 +1059,7 @@ internal sealed class WorkspacePanelController : IDisposable
             return false;
 
         _browserView.RefreshBounds();
-        browserService.SetControllerVisible(true);
+        _browserView.ShowCurrentController();
         return true;
     }
 

@@ -771,6 +771,41 @@ public sealed class MultipleChatWindowsTests
         chatVm.Dispose();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DetachedDeleteKeepsWorktreeChoicesLocalAndProtectsSharedWorktrees(bool shared)
+    {
+        var directory = Directory.CreateTempSubdirectory("Lumi-detached-delete-");
+        try
+        {
+            var chat = new Chat { Title = "Delete from separate window", WorktreePath = directory.FullName };
+            var other = new Chat { Title = "Other chat", WorktreePath = shared ? directory.FullName : null };
+            using var main = CreateViewModel(chat, other);
+            using var windowVm = new ChatWindowViewModel(main.ChatVM, main);
+
+            await windowVm.DeleteChatCommand.ExecuteAsync(chat);
+
+            Assert.False(main.IsWorktreeDeleteDialogOpen);
+            Assert.Equal(!shared, windowVm.IsWorktreeDeleteDialogOpen);
+            if (!shared)
+            {
+                windowVm.CancelDeleteWorktreeDialogCommand.Execute(null);
+                Assert.Contains(chat, main.DataStore.Data.Chats);
+                await windowVm.DeleteChatCommand.ExecuteAsync(chat);
+                await windowVm.ConfirmDeleteWithoutWorktreeCommand.ExecuteAsync(null);
+            }
+
+            Assert.DoesNotContain(chat, main.DataStore.Data.Chats);
+            Assert.Contains(other, main.DataStore.Data.Chats);
+            Assert.True(directory.Exists);
+        }
+        finally
+        {
+            directory.Delete();
+        }
+    }
+
     private static MainViewModel CreateViewModel(params Chat[] chats)
         => new(CreateDataStore(chats), TestCopilot.Shared, new UpdateService());
 

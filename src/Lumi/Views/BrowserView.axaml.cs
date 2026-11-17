@@ -185,7 +185,7 @@ public partial class BrowserView : UserControl
 #if !WINDOWS
         _browserService?.UseHostLayerFor(this);
 #endif
-        _browserService?.SetControllerVisible(true);
+        _browserService?.SetControllerVisible(IsEffectivelyVisible && _cookieOnboardingOverlay?.IsVisible != true);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -243,7 +243,7 @@ public partial class BrowserView : UserControl
             {
                 TryInitialize();
                 UpdateWebViewBounds();
-                _browserService?.SetControllerVisible(true);
+                ShowCurrentController();
             }
             else
             {
@@ -549,7 +549,7 @@ public partial class BrowserView : UserControl
             _cookieOnboardingOverlay.IsVisible = false;
 
         // Restore WebView2 visibility
-        _browserService?.SetControllerVisible(true);
+        ShowCurrentController();
         UpdateWebViewBounds();
     }
 

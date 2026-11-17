@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -27,7 +28,8 @@ internal static class ChatMenuBuilder
     }
 
     /// <summary>Lists "No tag", every tag (checking the chat's own) and the tag manager.</summary>
-    public static void PopulateTagMenu(MenuItem tagMenu, MainViewModel vm, Chat chat, Func<string, Geometry?> icons)
+    public static void PopulateTagMenu(MenuItem tagMenu, MainViewModel vm, Chat chat, Func<string, Geometry?> icons,
+        ICommand? manageTagsCommand = null)
     {
         tagMenu.Items.Clear();
         tagMenu.Items.Add(new MenuItem
@@ -69,7 +71,7 @@ internal static class ChatMenuBuilder
         {
             Header = Loc.ChatTags_Manage,
             Icon = CreateGlyph(icons, "Icon.Gear"),
-            Command = vm.ChatTagsVM.OpenManagerCommand
+            Command = manageTagsCommand ?? vm.ChatTagsVM.OpenManagerCommand
         });
     }
 
