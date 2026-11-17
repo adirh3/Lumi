@@ -237,6 +237,59 @@ public sealed class PluginCatalogTests
     }
 
     [Fact]
+    public async Task AddMarketplace_CancelLeavesTheRuntimesOtherDownloadsAlone()
+    {
+        using var fixture = new PluginCatalogFixture();
+        using var rpc = new PluginCatalogRpc();
+        var download = new FakeMarketplaceDownload(fixture.Root, rpc);
+        // A setup adds its own marketplace meanwhile, in the same runtime and cache.
+        var other = Path.Combine(download.Marketplaces, ".copilot-clone-other");
+        var otherLock = Path.Combine(download.Marketplaces, "microsoft-work-iq.lock");
+        rpc.OnMarketplaceAdd = () =>
+        {
+            download.Begin();
+            download.Receive(2048);
+            Directory.CreateDirectory(Path.Combine(other, "repo", ".git", "objects", "pack"));
+            File.WriteAllBytes(Path.Combine(other, "repo", ".git", "objects", "pack", "tmp_pack_y"), new byte[512]);
+            File.WriteAllText(otherLock, "");
+            download.Run(new GitProcess(7003, $"git clone --depth 1 https://github.com/microsoft/work-iq.git {Path.Combine(other, "repo")}", StartedByRuntime: true));
+        };
+        var service = download.Service(rpc);
+        using var cancel = new CancellationTokenSource();
+        var progress = new RecordedProgress<MarketplaceDownloadProgress?>();
+
+        var adding = service.AddMarketplaceAsync("contoso/plugin-catalog", cancel.Token, progress);
+        await WaitFor(() => progress.Contains(new MarketplaceDownloadProgress(MarketplaceDownloadPhase.Downloading, 2048)));
+        cancel.Cancel();
+        await Assert.ThrowsAsync<MarketplaceAddStoppedException>(() => adding);
+
+        Assert.Equal([FakeMarketplaceDownload.GitProcessId], download.Stopped);
+        Assert.False(Directory.Exists(download.Staging));
+        Assert.True(Directory.Exists(other));
+        Assert.True(File.Exists(otherLock));
+        // While a clone runs, no lock is known to be abandoned: Discover's next sweep removes this one.
+        Assert.True(File.Exists(download.Lock));
+    }
+
+    [Fact]
+    public async Task AddMarketplace_ThatCantBeObservedIsNeverStoppedAsStalled()
+    {
+        using var fixture = new PluginCatalogFixture();
+        using var rpc = new PluginCatalogRpc();
+        var download = new FakeMarketplaceDownload(fixture.Root, rpc);
+        var service = download.Service(rpc, stallTimeout: TimeSpan.FromMilliseconds(200));
+
+        // No clone of this source is visible, as when Lumi can't read the runtime's processes.
+        var adding = service.AddMarketplaceAsync("contoso/plugin-catalog", CancellationToken.None);
+        await Task.Delay(1000);
+        Assert.False(adding.IsCompleted);
+
+        rpc.MarketplaceAdd.SetResult("plugin-catalog");
+        Assert.Equal("plugin-catalog", await adding);
+        Assert.Empty(download.Stopped);
+    }
+
+    [Fact]
     public void CloneInto_FindsTheStagingFolderOnlyInTheRuntimesClone()
     {
         var marketplaces = Path.Combine(TestProfile.Root, "cache with space", "marketplaces");
@@ -251,7 +304,37 @@ public sealed class PluginCatalogTests
         Assert.Null(MarketplaceDownloads.CloneInto($"git --shallow-file {target}/.git/shallow.lock index-pack --stdin -v --fix-thin", marketplaces));
         Assert.Null(MarketplaceDownloads.CloneInto($"git -C {Path.Combine(marketplaces, "github-awesome-copilot")} fetch origin", marketplaces));
         Assert.Null(MarketplaceDownloads.CloneInto($"git clone https://example.test/m.git {Path.Combine(TestProfile.Root, "elsewhere", ".copilot-clone-x", "repo")}", marketplaces));
+        if (OperatingSystem.IsWindows())
+        {
+            // COPILOT_CACHE_HOME, and so the runtime's paths, may use forward slashes.
+            Assert.Equal((staging, target), MarketplaceDownloads.CloneInto($"{Clone} \"{target.Replace('\\', '/')}\"", marketplaces));
+            Assert.Equal((staging, target), MarketplaceDownloads.CloneInto($"{Clone} \"{target}\"", marketplaces.Replace('\\', '/')));
+        }
     }
+
+    [Theory]
+    [InlineData("contoso/plugin-catalog", "https://github.com/contoso/plugin-catalog.git", true)]
+    [InlineData("Contoso/Plugin-Catalog#main", "--branch main https://github.com/contoso/plugin-catalog.git", true)]
+    [InlineData("https://octo_contoso@github.com/contoso/plugin-catalog.git", "https://octo_contoso@github.com/contoso/plugin-catalog.git", true)]
+    [InlineData("git@github.com:contoso/plugin-catalog.git", "git@github.com:contoso/plugin-catalog.git", true)]
+    [InlineData("https://dev.azure.com/contoso/tools/_git/plugins", "https://dev.azure.com/contoso/tools/_git/plugins", true)]
+    [InlineData("http://127.0.0.1:4711/marketplace.git", "http://127.0.0.1:4711/marketplace.git", true)]
+    [InlineData("contoso/plugin", "https://github.com/contoso/plugin-catalog.git", false)]
+    [InlineData("contoso/plugin-catalog", "https://github.com/microsoft/work-iq.git", false)]
+    [InlineData("https://dev.azure.com/contoso/tools/_git/plugins", "https://notdev.azure.com/contoso/tools/_git/plugins", false)]
+    public void Clones_MatchesTheRepositoryTheSourceNames(string source, string url, bool expected)
+    {
+        var address = Assert.IsType<string>(MarketplaceDownloads.CloneAddress(source));
+        var target = Path.Combine(TestProfile.Root, "marketplaces", ".copilot-clone-ab12cd", "repo");
+        Assert.Equal(expected, MarketplaceDownloads.Clones($"\"git\" -c core.askPass= clone --depth 1 --progress {url} \"{target}\"", address));
+    }
+
+    [Theory]
+    [InlineData("./marketplaces/local")]
+    [InlineData("C:\\marketplaces\\local")]
+    [InlineData("file:///C:/marketplaces/local")]
+    public void CloneAddress_IsNoneForALocalFolder(string source)
+        => Assert.Null(MarketplaceDownloads.CloneAddress(source));
 
     [Fact]
     public void Cleanup_RemovesOnlyWhatFailedAndInterruptedDownloadsLeft()
@@ -266,45 +349,60 @@ public sealed class PluginCatalogTests
         download.Unpack();
         File.SetAttributes(Path.Combine(download.Packs, "pack-abc.pack"), FileAttributes.ReadOnly);
         download.Exit();
-        // Meanwhile the runtime's own new files, and a clone another git still writes.
+        // Meanwhile the runtime's own new files.
         File.WriteAllText(Path.Combine(download.Marketplaces, "freshness.json"), "{}");
         File.WriteAllText(Path.Combine(download.Marketplaces, "freshness.json.lock"), "");
-        var busy = Path.Combine(download.Marketplaces, ".copilot-clone-busy");
-        Directory.CreateDirectory(busy);
-        download.Run(new GitProcess(9, $"git clone https://example.test/m.git {Path.Combine(busy, "repo")}", StartedByRuntime: false));
 
         download.Downloads.RemoveLeftovers(before);
 
         Assert.False(File.Exists(download.Lock));
         Assert.False(Directory.Exists(download.Staging));
         Assert.True(File.Exists(Path.Combine(download.Marketplaces, "freshness.json.lock")));
-        Assert.True(Directory.Exists(busy));
         download.AssertOtherMarketplaceKept();
+
+        // While another git, such as a Copilot CLI add, clones into the cache, its folder and every
+        // lock without a marketplace stay: that add holds one.
+        before = download.Downloads.Snapshot();
+        download.Begin();
+        download.Exit();
+        var busy = Path.Combine(download.Marketplaces, ".copilot-clone-busy");
+        var busyLock = Path.Combine(download.Marketplaces, "cli-marketplace.lock");
+        Directory.CreateDirectory(busy);
+        File.WriteAllText(busyLock, "");
+        download.Run(new GitProcess(9, $"git clone https://example.test/m.git {Path.Combine(busy, "repo")}", StartedByRuntime: false));
+
+        download.Downloads.RemoveLeftovers(before);
+
+        Assert.False(Directory.Exists(download.Staging));
+        Assert.True(Directory.Exists(busy));
+        Assert.True(File.Exists(busyLock));
+        Assert.True(File.Exists(download.Lock));
 
         // Adds interrupted when Lumi closed: their clone goes once it is old enough and no git writes it,
         // and their lock too once no add runs at all.
         var interrupted = Path.Combine(download.Marketplaces, ".copilot-clone-old");
         var recent = Path.Combine(download.Marketplaces, ".copilot-clone-new");
-        var interruptedLock = Path.Combine(download.Marketplaces, "interrupted-marketplace.lock");
         Directory.CreateDirectory(interrupted);
         Directory.CreateDirectory(recent);
-        File.WriteAllText(interruptedLock, "");
         Directory.SetCreationTimeUtc(interrupted, DateTime.UtcNow.AddHours(-1));
         Directory.SetCreationTimeUtc(busy, DateTime.UtcNow.AddHours(-1));
-        File.SetCreationTimeUtc(interruptedLock, DateTime.UtcNow.AddHours(-1));
+        File.SetCreationTimeUtc(download.Lock, DateTime.UtcNow.AddHours(-1));
+        File.SetCreationTimeUtc(busyLock, DateTime.UtcNow.AddHours(-1));
 
         download.Downloads.RemoveAbandoned(TimeSpan.FromMinutes(10));
 
         Assert.False(Directory.Exists(interrupted));
         Assert.True(Directory.Exists(busy));
         Assert.True(Directory.Exists(recent));
-        Assert.True(File.Exists(interruptedLock));
+        Assert.True(File.Exists(download.Lock));
+        Assert.True(File.Exists(busyLock));
 
         download.Exit();
         download.Downloads.RemoveAbandoned(TimeSpan.FromMinutes(10));
 
         Assert.False(Directory.Exists(busy));
-        Assert.False(File.Exists(interruptedLock));
+        Assert.False(File.Exists(download.Lock));
+        Assert.False(File.Exists(busyLock));
         Assert.True(Directory.Exists(recent));
         Assert.True(File.Exists(Path.Combine(download.Marketplaces, "freshness.json.lock")));
         download.AssertOtherMarketplaceKept();
@@ -319,6 +417,7 @@ public sealed class PluginCatalogTests
         var cache = Path.Combine(TestProfile.Root, "git-" + Guid.NewGuid().ToString("N"));
         var downloads = new MarketplaceDownloads(cache, () => Environment.ProcessId);
         var before = downloads.Snapshot();
+        var source = $"http://127.0.0.1:{((IPEndPoint)silent.LocalEndpoint).Port}/marketplace.git";
         var start = new ProcessStartInfo("git")
         {
             UseShellExecute = false,
@@ -326,8 +425,7 @@ public sealed class PluginCatalogTests
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        foreach (var argument in new[] { "-c", "credential.interactive=never", "clone", "--depth", "1",
-                     $"http://127.0.0.1:{((IPEndPoint)silent.LocalEndpoint).Port}/marketplace.git",
+        foreach (var argument in new[] { "-c", "credential.interactive=never", "clone", "--depth", "1", source,
                      Path.Combine(downloads.Directory, ".copilot-clone-test", "repo") })
             start.ArgumentList.Add(argument);
         start.Environment["GIT_TERMINAL_PROMPT"] = "0";
@@ -347,11 +445,13 @@ public sealed class PluginCatalogTests
             try
             {
                 // The clone is found through the operating system's own process information.
-                await WaitFor(() => downloads.Measure(before) is not null);
+                await WaitFor(() => downloads.Measure(before, source) is not null);
+                Assert.Null(downloads.Measure(before, "contoso/other-marketplace"));
+                Assert.False(downloads.Stop(before, "contoso/other-marketplace"));
 
-                Assert.True(downloads.Stop(before));
+                Assert.True(downloads.Stop(before, source));
                 Assert.True(git.WaitForExit(10_000));
-                await WaitFor(() => downloads.Measure(before) is null);
+                await WaitFor(() => downloads.Measure(before, source) is null);
             }
             finally
             {
@@ -476,7 +576,8 @@ internal sealed class FakeMarketplaceDownload
     private void Stop(int processId)
     {
         Stopped.Add(processId);
-        Exit();
+        lock (_running)
+            _running.RemoveAll(process => process.Id == processId);
         _rpc?.MarketplaceAdd.TrySetException(new InvalidOperationException("Failed to fetch GitHub marketplace: git clone was stopped."));
     }
 }

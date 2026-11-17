@@ -979,18 +979,21 @@ staging folder an interrupted clone left. The upstream fix should fetch only the
 partial clone, or the GitHub contents API, with plugin folders fetched on install), honor
 cancellation, report progress, stop its git children on exit and sweep stale staging folders.
 
-Until then `MarketplaceDownloads` works from the git command line, which names the staging folder.
-It counts only clones into this cache by git processes descended from Lumi's runtime, so a Copilot CLI
-add in a terminal is never measured or stopped. Progress is the size of `.git/objects/pack`
-(`tmp_pack_*` while receiving, then `pack-*.pack` while the files are written), read with a fresh
-`FileInfo` because a Windows directory listing reports the size a file had when git opened it.
-Cancelling, or five minutes without a change while downloading (writing files is exempt), stops that
-git process tree; the runtime then fails the add and removes the staging folder, and Lumi removes the
-lock file the runtime keeps for it. Shutdown stops the clone before stopping the runtime. Discover's
-first load removes staging folders and orphan locks more than ten minutes old that no git process
-uses, and locks only while no clone runs into the cache. Isolated Debug runtimes get their own
-`COPILOT_CACHE_HOME` (`copilot-cache` beside `copilot-home`) with `COPILOT_PKG_CACHE_HOME` left on the
-shared cache, so test profiles keep their marketplace clones without unpacking the CLI again.
+Until then `MarketplaceDownloads` works from the git command line, which names the staging folder and
+the repository being cloned. An add counts only clones of its own source (`/owner/repo` for GitHub,
+else the URL's host and path) into this cache by git processes descended from Lumi's runtime, so
+another add, a refresh or a Copilot CLI add in a terminal is never measured or stopped. Progress is
+the size of `.git/objects/pack` (`tmp_pack_*` while receiving, then `pack-*.pack` while the files are
+written), read with a fresh `FileInfo` because a Windows directory listing reports the size a file had
+when git opened it. Cancelling, or five minutes without a change while a visible download receives
+data (writing files, or a clone Lumi can't see, never counts as stalled), stops that git process tree;
+the runtime then fails the add and removes the staging folder. Lumi removes the lock file the runtime
+keeps for it only while no clone runs into the cache, since a running add holds its own lock. Shutdown
+stops the clone before stopping the runtime. Discover's first load removes staging folders and orphan
+locks more than ten minutes old that no git process uses, and locks only while no clone runs into the
+cache. Isolated Debug runtimes get their own `COPILOT_CACHE_HOME` (`copilot-cache` beside
+`copilot-home`) with `COPILOT_PKG_CACHE_HOME` left on the shared cache, so test profiles keep their
+marketplace clones without unpacking the CLI again.
 
 Updates remain runtime-owned. Lumi publishes `PluginsChanged` only after a successful update RPC;
 `ChatSessionStore` then reconfigures idle sessions and defers live-session changes. Do not preemptively

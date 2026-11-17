@@ -253,15 +253,16 @@ public sealed class PluginCatalogService
                 if (add.IsCompleted)
                     break;
 
-                var current = _downloads?.Measure(before);
+                var current = _downloads?.Measure(before, source);
                 if (current != last)
                 {
                     last = current;
                     sinceChange.Restart();
                 }
-                else if (current?.Phase != MarketplaceDownloadPhase.Unpacking && sinceChange.Elapsed >= StallTimeout)
+                else if (current is { Phase: MarketplaceDownloadPhase.Downloading } && sinceChange.Elapsed >= StallTimeout)
                 {
-                    // Writing out a downloaded repository is local work that doesn't stall like a download.
+                    // Only a download Lumi can see is judged: writing out the files is local work, and
+                    // a clone Lumi can't find may still be making progress.
                     stalled = true;
                     break;
                 }
@@ -275,7 +276,7 @@ public sealed class PluginCatalogService
 
         if ((stalled || cancellationToken.IsCancellationRequested) && !add.IsCompleted)
         {
-            var stillRunning = await StopAsync(add, before).ConfigureAwait(false);
+            var stillRunning = await StopAsync(add, before, source).ConfigureAwait(false);
             if (!add.IsCompletedSuccessfully)
             {
                 var message = stillRunning ? string.Format(CultureInfo.CurrentCulture, Loc.Discover_AddStillRunning, source)
@@ -302,13 +303,13 @@ public sealed class PluginCatalogService
     /// Stops an add's download and gives the runtime time to report the failure and remove its staging
     /// folder. True when no download was found to stop and the runtime is still adding.
     /// </summary>
-    private async Task<bool> StopAsync(Task<GitHub.Copilot.Rpc.MarketplaceAddResult> add, IReadOnlySet<string> before)
+    private async Task<bool> StopAsync(Task<GitHub.Copilot.Rpc.MarketplaceAddResult> add, IReadOnlySet<string> before, string source)
     {
         // A clone may not have started yet: look for it a few more times.
         var stopped = false;
         for (var attempt = 0; attempt < 5 && !add.IsCompleted && !stopped; attempt++)
         {
-            stopped = _downloads?.Stop(before) == true;
+            stopped = _downloads?.Stop(before, source) == true;
             if (!stopped)
                 await Task.WhenAny(add, Task.Delay(ProgressInterval)).ConfigureAwait(false);
         }
