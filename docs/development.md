@@ -185,6 +185,11 @@ support; do not remove WindowsDesktop files indiscriminately. The packaging test
 pin the app's dependency manifest, the FlaUI asset and the SDK process-exit hook,
 while the browser and native-automation suites exercise the retained APIs.
 
+Code-block highlighting is optional: Strata defers TextMate state initialization
+until inside its guarded highlighting call, so a dependency-load failure is logged
+and leaves readable plain code rather than failing the control's type initializer.
+The markdown code-block tests exercise missing dependencies in an isolated loader.
+
 Desktop speech content is restricted to the build's runtime identifier (or the
 SDK's native RID for an ordinary build). Its CPU, no-AVX fallback and Vulkan
 variants are retained where supported; macOS keeps its Metal shader and maps

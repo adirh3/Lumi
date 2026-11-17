@@ -7,6 +7,8 @@ using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using System.Reflection;
+using System.Runtime.Loader;
 using StrataTheme.Controls;
 using Xunit;
 
@@ -17,6 +19,58 @@ public sealed class MarkdownCodeBlockHeadlessTests
 {
     private const string LongLine =
         "var message = \"This source line contains enough words to exceed a narrow code block several times without changing the original source text when it wraps.\";";
+
+    [Theory]
+    [InlineData("TextMateSharp")]
+    [InlineData("TextMateSharp.Grammars")]
+    [InlineData("Onigwrap")]
+    public async Task MissingHighlighterDependency_PreservesReadableCode(string missingAssembly)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            var context = new MissingHighlighterContext(missingAssembly);
+            try
+            {
+                var assembly = context.LoadFromAssemblyPath(typeof(StrataCodeBlock).Assembly.Location);
+                var type = assembly.GetType(typeof(StrataCodeBlock).FullName!, throwOnError: true)!;
+                var block = Assert.IsAssignableFrom<Control>(Activator.CreateInstance(type));
+                type.GetProperty(nameof(StrataCodeBlock.Language))!.SetValue(block, "csharp");
+                type.GetProperty(nameof(StrataCodeBlock.Text))!.SetValue(block, LongLine);
+                block.Measure(new Size(400, 300));
+
+                var presenter = block.GetVisualDescendants().OfType<SelectableTextBlock>().Single();
+                Assert.Equal(LongLine, presenter.Text);
+                Assert.True(presenter.DesiredSize.Width > 0);
+                Assert.True(context.BlockedLoads > 0, "The highlighter dependency must actually fail to load.");
+
+                var updatedSource = LongLine + "\nConsole.WriteLine(message);";
+                type.GetProperty(nameof(StrataCodeBlock.Text))!.SetValue(block, updatedSource);
+                Assert.Equal(updatedSource, presenter.Text);
+                presenter.SelectionStart = 0;
+                presenter.SelectionEnd = updatedSource.Length;
+                Assert.Equal(updatedSource, presenter.SelectedText);
+            }
+            finally { context.Unload(); }
+        }, CancellationToken.None);
+    }
+
+    private sealed class MissingHighlighterContext(string missingAssembly) : AssemblyLoadContext(isCollectible: true)
+    {
+        public int BlockedLoads { get; private set; }
+
+        protected override Assembly? Load(AssemblyName assemblyName)
+        {
+            if (assemblyName.Name == missingAssembly)
+            {
+                BlockedLoads++;
+                throw new FileNotFoundException("Simulated unavailable syntax-highlighter dependency.", assemblyName.Name);
+            }
+            return assemblyName.Name is "TextMateSharp" or "TextMateSharp.Grammars" or "Onigwrap"
+                ? LoadFromAssemblyPath(Path.Combine(AppContext.BaseDirectory, assemblyName.Name + ".dll"))
+                : null;
+        }
+    }
 
     [Theory]
     [InlineData("", LongLine)]
