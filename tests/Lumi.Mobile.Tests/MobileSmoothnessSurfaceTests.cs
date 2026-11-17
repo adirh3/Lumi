@@ -17,6 +17,78 @@ namespace Lumi.Mobile.Tests;
 public sealed class MobileSmoothnessSurfaceTests(ITestOutputHelper output)
 {
     [Fact]
+    public async Task DockedSidebarDoesNotBlockComposerSetupOrChatReadiness()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            await using var shell = MobileSmoothnessFixture.CreateShell();
+            var view = new MobileShellView { DataContext = shell };
+            var window = new Window { Width = 984, Height = 1092, Content = view };
+            try
+            {
+                window.Show();
+                await shell.StartAsync();
+                using var benchmark = new MobileSmoothnessSession(view);
+                foreach (var scenario in new[] { "composer-empty", "switch-plain" })
+                {
+                    var prepare = benchmark.CommandAsync(JsonSerializer.Serialize(
+                        new SmoothnessRequest("prepare", scenario), SmoothnessJsonContext.Default.SmoothnessRequest));
+                    await PumpUntil(() => prepare.IsCompleted);
+                    using var prepared = JsonDocument.Parse(await prepare);
+                    Assert.Equal(JsonValueKind.Null, prepared.RootElement.GetProperty("error").ValueKind);
+                    Assert.True(shell.IsDrawerDocked);
+                    Assert.True(shell.IsDrawerPresented);
+
+                    if (scenario == "composer-empty")
+                        continue;
+
+                    var target = prepared.RootElement.GetProperty("target");
+                    var x = target.GetProperty("x").GetDouble();
+                    var y = target.GetProperty("y").GetDouble();
+                    await benchmark.CommandAsync("""{"operation":"arm","scenario":"switch-plain"}""");
+                    benchmark.ObserveHostTouch(x, y, pressed: true);
+                    shell.ChatList.OpenChatCommand.Execute(shell.ChatList.Groups.SelectMany(group => group.Chats)
+                        .Single(chat => chat.Id == MobileSmoothnessFixture.ChatId(0)));
+                    benchmark.ObserveHostTouch(x, y, pressed: false);
+                    await benchmark.CommandAsync("""{"operation":"finish-input"}""");
+
+                    var complete = false;
+                    var deadline = DateTime.UtcNow.AddSeconds(5);
+                    while (!complete && DateTime.UtcNow < deadline)
+                    {
+                        await Pump();
+                        using var state = JsonDocument.Parse(
+                            await benchmark.CommandAsync("""{"operation":"read"}"""));
+                        complete = state.RootElement.GetProperty("measurement").GetProperty("complete").GetBoolean();
+                        if (complete)
+                            Assert.Equal(JsonValueKind.Null,
+                                state.RootElement.GetProperty("measurement").GetProperty("error").ValueKind);
+                    }
+                    Assert.True(complete, "The docked chat did not become ready.");
+                }
+
+                async Task PumpUntil(Func<bool> done)
+                {
+                    var deadline = DateTime.UtcNow.AddSeconds(5);
+                    while (!done() && DateTime.UtcNow < deadline)
+                        await Pump();
+                    Assert.True(done(), "The docked benchmark did not reach its expected state.");
+                }
+
+                async Task Pump()
+                {
+                    window.UpdateLayout();
+                    Dispatcher.UIThread.RunJobs();
+                    Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    await Task.Delay(16);
+                }
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task AQuietGapBetweenStrokesDoesNotFinishTheDriversInputBatch()
     {
         using var session = HeadlessMobileSession.Start();

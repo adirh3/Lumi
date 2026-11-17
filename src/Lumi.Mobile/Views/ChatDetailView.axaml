@@ -1053,7 +1053,7 @@
 
     <!-- A question at the phone's rungs: Strata sizes its options and reply field for touch; its label,
          and once answered its one line and the answer, take the caption and meta rungs. -->
-    <Style Selector="sc|StrataQuestionCard:touch /template/ StackPanel#PART_Body > StackPanel > TextBlock">
+    <Style Selector="sc|StrataQuestionCard:touch /template/ StackPanel#PART_Body > DockPanel > StackPanel > TextBlock">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
     </Style>
     <Style Selector="sc|StrataQuestionCard:touch /template/ DockPanel#PART_AnsweredRow > TextBlock">

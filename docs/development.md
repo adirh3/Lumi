@@ -821,7 +821,7 @@ The Android and browser hosts are intentionally outside `Lumi.slnx`:
 
 | Host | Additional tooling |
 |---|---|
-| Android (`net10.0-android`) | The `android` workload, JDK 17 and Android SDK dependencies. CI uses the .NET 11 preview SDK to build this .NET 10 target. |
+| Android (`net11.0-android`) | .NET 11, the `android` workload, JDK 17 and Android SDK dependencies. Uses the SDK's default CoreCLR runtime and Release ReadyToRun compilation. |
 | PWA (`net10.0-browser`) | .NET 10 SDK in addition to .NET 11, and `wasm-tools-net10`. Release publishes use WebAssembly AOT; that is not the desktop build mode. |
 
 Install extra workloads only when working on those hosts. The
@@ -830,13 +830,18 @@ workload, Java and Android SDK dependency setup. After that setup, focused
 Windows PowerShell commands are:
 
 ```powershell
-dotnet build src\Lumi.Mobile.Android\Lumi.Mobile.Android.csproj -c Debug -f net10.0-android -r android-arm64
+dotnet build src\Lumi.Mobile.Android\Lumi.Mobile.Android.csproj -c Debug -f net11.0-android -r android-arm64
 dotnet publish src\Lumi.Mobile.Browser\Lumi.Mobile.Browser.csproj --configuration Release --output .mcp-run\pwa-publish
 ```
 
 On macOS/Linux use `/` in those paths. Android Debug packages use development
 signing. Production signing is release-maintainer work; contributors do not need
 release keys or a production keystore for Debug development.
+
+Keep the Android host on the default CoreCLR runtime rather than opting into Mono or its AOT
+settings. Physical Fold7 profiles traced long UI and render-thread pauses to Mono's stop-the-world
+.NET/Java GC bridge (`sgen_bridge_processing_stw_step`), not a 60 Hz render cap. Changing the runtime
+does not change the glass, shadows, scroll gestures or keyboard animation.
 
 Add `-p:LumiPreview=true` to build **Lumi Preview** (`com.lumi.mobile.preview`):
 the same app under its own package, label, data and pairing, so a build under

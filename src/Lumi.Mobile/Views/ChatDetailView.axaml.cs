@@ -68,6 +68,7 @@ public partial class ChatDetailView : UserControl
     private int _chatEntranceVersion;
     private bool _awaitingChatEntrance;
     private bool _chatEntranceQueued;
+    internal bool IsAwaitingChatEntrance => _awaitingChatEntrance;
     private IDisposable? _loadingDelay;
     private bool _transcriptWidthHeld;
     private StrataInteractiveBlock? _pickerOwner;

@@ -38,6 +38,7 @@ internal sealed class TranscriptTurnView : Decorator
     private double _reservedHeight;
     private bool _attached;
     private bool _updateQueued;
+    private bool _itemsDirty;
     private bool _registeredAnchor;
     private int _version;
     private Action? _updateAction;
@@ -75,9 +76,34 @@ internal sealed class TranscriptTurnView : Decorator
         EffectiveViewportChanged += (_, e) =>
         {
             _viewport = e.EffectiveViewport;
-            QueueUpdate();
+            OnGeometryChanged();
         };
-        SizeChanged += (_, _) => QueueUpdate();
+        SizeChanged += (_, _) => OnGeometryChanged();
+    }
+
+    private void OnGeometryChanged()
+    {
+        if (!_attached)
+            return;
+
+        var chat = _chat;
+        if (chat?.IsAwaitingChatEntrance == true || _itemsDirty || IsWithin(0) != _registeredAnchor)
+        {
+            QueueUpdate();
+            return;
+        }
+
+        // Fast path during scrolling: already-realized turns inside the retention band and offscreen turns
+        // well outside the realization band need no dispatcher post or collection synchronization.
+        if (IsRealized)
+        {
+            if (chat?.ShouldDeferTranscriptRealization == true || !IsWithin(RetainBand))
+                QueueUpdate();
+            return;
+        }
+
+        if (IsWithin(RealizeBand))
+            QueueUpdate();
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -85,6 +111,7 @@ internal sealed class TranscriptTurnView : Decorator
         _version++;
         _updateAction = null;
         _updateQueued = false;
+        _itemsDirty = false;
         _chat?.CancelRealization(this);
         if (_attached && _turn is not null)
             _turn.DisplayItems.CollectionChanged -= OnItemsChanged;
@@ -116,6 +143,7 @@ internal sealed class TranscriptTurnView : Decorator
         _version++;
         _updateAction = null;
         _updateQueued = false;
+        _itemsDirty = false;
         _chat?.CancelRealization(this);
         _chat = null;
         if (_turn is not null)
@@ -146,6 +174,7 @@ internal sealed class TranscriptTurnView : Decorator
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        _itemsDirty = true;
         if (IsRealized)
             QueueUpdate();
     }
@@ -191,7 +220,8 @@ internal sealed class TranscriptTurnView : Decorator
         }
         else if (IsRealized)
         {
-            RefreshItems();
+            if (_itemsDirty)
+                RefreshItems();
         }
         else if (chat is null || IsWithin(EntranceBand))
         {
@@ -226,8 +256,9 @@ internal sealed class TranscriptTurnView : Decorator
             };
             _items.ContainerPrepared += OnContainerPrepared;
             Child = _items;
+            _itemsDirty = false;
         }
-        else
+        else if (_itemsDirty)
             RefreshItems();
         _items.IsVisible = true;
         _chat?.QueueChatEntrance();
@@ -245,6 +276,7 @@ internal sealed class TranscriptTurnView : Decorator
 
     private void RefreshItems()
     {
+        _itemsDirty = false;
         if (_items is null || _turn is null)
             return;
 

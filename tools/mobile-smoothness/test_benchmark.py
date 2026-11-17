@@ -43,6 +43,17 @@ class MeasurementTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             benchmark.trace_swaps([], "start", "end")
 
+    def test_android_capture_selects_the_active_default_display_on_a_foldable(self):
+        displays = (
+            'Display id 0: DisplayInfo{"Built-in Screen", state ON, uniqueId "local:4630946449689556883"}\n'
+            'Display id 1: DisplayInfo{"Cover", state OFF, uniqueId "local:4630946872173396372"}\n'
+        )
+        self.assertEqual("4630946449689556883", benchmark.default_physical_display(displays))
+        for invalid in ("", displays + displays, displays.replace("state ON", "state OFF"),
+                        displays.replace("local:4630946449689556883", "virtual:other")):
+            with self.subTest(displays=invalid), self.assertRaises(ValueError):
+                benchmark.default_physical_display(invalid)
+
     def test_native_sampling_rejects_a_gap_that_can_wrap_the_surface_history(self):
         benchmark.check_surface_poll(.25, 1000 / 120)
         benchmark.check_surface_poll(1, 1000 / 120)

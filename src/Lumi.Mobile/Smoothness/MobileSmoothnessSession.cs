@@ -223,7 +223,7 @@ internal sealed class MobileSmoothnessSession : IDisposable
         {
             _shell.ChatList.NewChatCommand.Execute(null);
             await WaitAsync(() => _shell.Chat.ChatId == Guid.Empty && !_shell.IsDrawerMoving
-                && !_shell.IsDrawerPresented, "The empty composer did not appear.");
+                && !_shell.IsNavigationCoveringContent, "The empty composer did not appear.");
         }
         else if (scenario is not ("scroll-chats" or "popup-project") && !scenario.StartsWith("nav-", StringComparison.Ordinal))
         {
@@ -298,7 +298,7 @@ internal sealed class MobileSmoothnessSession : IDisposable
             target = _view.GetVisualDescendants().OfType<Button>().First(button =>
                 button.IsEffectivelyVisible && button.DataContext is ChatListItemViewModel chat && chat.Id == id);
             _ready = () => _shell.Chat.ChatId == id && !_shell.Chat.IsLoading
-                && chatView.CanAnimateArrival && !_shell.IsDrawerPresented;
+                && chatView.CanAnimateArrival && !_shell.IsNavigationCoveringContent;
         }
         else if (scenario.StartsWith("composer-", StringComparison.Ordinal))
         {
