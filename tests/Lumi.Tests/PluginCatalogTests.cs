@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipelines;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -129,6 +131,354 @@ public sealed class PluginCatalogTests
         Assert.Equal("private-plugin", listing.Name);
         Assert.Null(listing.Version);
     }
+
+    [Fact]
+    public async Task AddMarketplace_CancelStopsTheRuntimesDownloadAndRemovesWhatItLeft()
+    {
+        using var fixture = new PluginCatalogFixture();
+        using var rpc = new PluginCatalogRpc();
+        var download = new FakeMarketplaceDownload(fixture.Root, rpc);
+        rpc.OnMarketplaceAdd = () =>
+        {
+            download.Begin();
+            download.Receive(2048);
+        };
+        var service = download.Service(rpc);
+        using var cancel = new CancellationTokenSource();
+        var progress = new RecordedProgress<MarketplaceDownloadProgress?>();
+
+        var adding = service.AddMarketplaceAsync(" contoso/plugin-catalog ", cancel.Token, progress);
+        await WaitFor(() => progress.Contains(new MarketplaceDownloadProgress(MarketplaceDownloadPhase.Downloading, 2048)));
+        cancel.Cancel();
+
+        var stopped = await Assert.ThrowsAsync<MarketplaceAddStoppedException>(() => adding);
+        Assert.False(stopped.Stalled);
+        Assert.False(stopped.StillRunning);
+        Assert.Equal([FakeMarketplaceDownload.GitProcessId], download.Stopped);
+        Assert.False(File.Exists(download.Lock));
+        Assert.False(Directory.Exists(download.Staging));
+        download.AssertOtherMarketplaceKept();
+    }
+
+    [Fact]
+    public async Task AddMarketplace_ReportsAGrowingDownloadThenItsUnpacking_WithoutStoppingIt()
+    {
+        using var fixture = new PluginCatalogFixture();
+        using var rpc = new PluginCatalogRpc();
+        var download = new FakeMarketplaceDownload(fixture.Root, rpc);
+        rpc.OnMarketplaceAdd = () =>
+        {
+            download.Begin();
+            download.Receive(1024);
+        };
+        var service = download.Service(rpc, stallTimeout: TimeSpan.FromSeconds(1));
+        var progress = new RecordedProgress<MarketplaceDownloadProgress?>();
+
+        var adding = service.AddMarketplaceAsync("contoso/plugin-catalog", CancellationToken.None, progress);
+        await WaitFor(() => progress.Contains(new MarketplaceDownloadProgress(MarketplaceDownloadPhase.Downloading, 1024)));
+
+        // Longer than the stall timeout in all, but never without progress.
+        for (var bytes = 2048; bytes <= 16 * 1024; bytes += 1024)
+        {
+            await Task.Delay(100);
+            download.Receive(bytes);
+        }
+
+        await WaitFor(() => progress.Contains(new MarketplaceDownloadProgress(MarketplaceDownloadPhase.Downloading, 16 * 1024)));
+        download.Unpack();
+        await WaitFor(() => progress.Contains(new MarketplaceDownloadProgress(MarketplaceDownloadPhase.Unpacking, 16 * 1024)));
+
+        // Writing out the files is local work: it may take longer than the stall timeout.
+        await Task.Delay(1500);
+        Assert.False(adding.IsCompleted);
+        rpc.MarketplaceAdd.SetResult("plugin-catalog");
+
+        Assert.Equal("plugin-catalog", await adding);
+        Assert.Empty(download.Stopped);
+    }
+
+    [Fact]
+    public async Task AddMarketplace_StopsADownloadThatMakesNoProgress()
+    {
+        using var fixture = new PluginCatalogFixture();
+        using var rpc = new PluginCatalogRpc();
+        var download = new FakeMarketplaceDownload(fixture.Root, rpc);
+        rpc.OnMarketplaceAdd = () =>
+        {
+            download.Begin();
+            download.Receive(4096);
+        };
+        var service = download.Service(rpc, stallTimeout: TimeSpan.FromMilliseconds(300));
+
+        var stopped = await Assert.ThrowsAsync<MarketplaceAddStoppedException>(
+            () => service.AddMarketplaceAsync("contoso/plugin-catalog", CancellationToken.None));
+
+        Assert.True(stopped.Stalled);
+        Assert.False(stopped.StillRunning);
+        Assert.Equal([FakeMarketplaceDownload.GitProcessId], download.Stopped);
+        Assert.False(File.Exists(download.Lock));
+    }
+
+    [Fact]
+    public async Task AddMarketplace_WithNoDownloadToStop_SaysTheRuntimeMayStillAddIt()
+    {
+        using var fixture = new PluginCatalogFixture();
+        using var rpc = new PluginCatalogRpc();
+        var download = new FakeMarketplaceDownload(fixture.Root, rpc);
+        var service = download.Service(rpc);
+        using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        var stopped = await Assert.ThrowsAsync<MarketplaceAddStoppedException>(
+            () => service.AddMarketplaceAsync("contoso/plugin-catalog", cancel.Token));
+
+        Assert.True(stopped.StillRunning);
+        Assert.Empty(download.Stopped);
+        rpc.MarketplaceAdd.SetResult("plugin-catalog");
+    }
+
+    [Fact]
+    public void CloneInto_FindsTheStagingFolderOnlyInTheRuntimesClone()
+    {
+        var marketplaces = Path.Combine(TestProfile.Root, "cache with space", "marketplaces");
+        var staging = Path.Combine(marketplaces, ".copilot-clone-jxF2ol");
+        var target = Path.Combine(staging, "repo");
+        const string Clone = "\"git\" -c core.askPass= -c credential.interactive=never -c core.longpaths=true -c core.fsmonitor=false clone --depth 1 --progress --config core.longpaths=true https://github.com/contoso/plugin-catalog.git";
+
+        Assert.Equal((staging, target), MarketplaceDownloads.CloneInto($"{Clone} \"{target}\"", marketplaces));
+        // ps on Linux and macOS never quotes arguments.
+        Assert.Equal((staging, target), MarketplaceDownloads.CloneInto($"{Clone} {target}", marketplaces));
+        // git's helper for the same clone, a refresh of an added marketplace and a clone elsewhere are not the download.
+        Assert.Null(MarketplaceDownloads.CloneInto($"git --shallow-file {target}/.git/shallow.lock index-pack --stdin -v --fix-thin", marketplaces));
+        Assert.Null(MarketplaceDownloads.CloneInto($"git -C {Path.Combine(marketplaces, "github-awesome-copilot")} fetch origin", marketplaces));
+        Assert.Null(MarketplaceDownloads.CloneInto($"git clone https://example.test/m.git {Path.Combine(TestProfile.Root, "elsewhere", ".copilot-clone-x", "repo")}", marketplaces));
+    }
+
+    [Fact]
+    public void Cleanup_RemovesOnlyWhatFailedAndInterruptedDownloadsLeft()
+    {
+        using var fixture = new PluginCatalogFixture();
+        var download = new FakeMarketplaceDownload(fixture.Root, rpc: null);
+        var before = download.Downloads.Snapshot();
+
+        // A failed attempt: the runtime's lock for it, and a clone git made read-only and then left.
+        download.Begin();
+        download.Receive(64);
+        download.Unpack();
+        File.SetAttributes(Path.Combine(download.Packs, "pack-abc.pack"), FileAttributes.ReadOnly);
+        download.Exit();
+        // Meanwhile the runtime's own new files, and a clone another git still writes.
+        File.WriteAllText(Path.Combine(download.Marketplaces, "freshness.json"), "{}");
+        File.WriteAllText(Path.Combine(download.Marketplaces, "freshness.json.lock"), "");
+        var busy = Path.Combine(download.Marketplaces, ".copilot-clone-busy");
+        Directory.CreateDirectory(busy);
+        download.Run(new GitProcess(9, $"git clone https://example.test/m.git {Path.Combine(busy, "repo")}", StartedByRuntime: false));
+
+        download.Downloads.RemoveLeftovers(before);
+
+        Assert.False(File.Exists(download.Lock));
+        Assert.False(Directory.Exists(download.Staging));
+        Assert.True(File.Exists(Path.Combine(download.Marketplaces, "freshness.json.lock")));
+        Assert.True(Directory.Exists(busy));
+        download.AssertOtherMarketplaceKept();
+
+        // Adds interrupted when Lumi closed: their clone goes once it is old enough and no git writes it,
+        // and their lock too once no add runs at all.
+        var interrupted = Path.Combine(download.Marketplaces, ".copilot-clone-old");
+        var recent = Path.Combine(download.Marketplaces, ".copilot-clone-new");
+        var interruptedLock = Path.Combine(download.Marketplaces, "interrupted-marketplace.lock");
+        Directory.CreateDirectory(interrupted);
+        Directory.CreateDirectory(recent);
+        File.WriteAllText(interruptedLock, "");
+        Directory.SetCreationTimeUtc(interrupted, DateTime.UtcNow.AddHours(-1));
+        Directory.SetCreationTimeUtc(busy, DateTime.UtcNow.AddHours(-1));
+        File.SetCreationTimeUtc(interruptedLock, DateTime.UtcNow.AddHours(-1));
+
+        download.Downloads.RemoveAbandoned(TimeSpan.FromMinutes(10));
+
+        Assert.False(Directory.Exists(interrupted));
+        Assert.True(Directory.Exists(busy));
+        Assert.True(Directory.Exists(recent));
+        Assert.True(File.Exists(interruptedLock));
+
+        download.Exit();
+        download.Downloads.RemoveAbandoned(TimeSpan.FromMinutes(10));
+
+        Assert.False(Directory.Exists(busy));
+        Assert.False(File.Exists(interruptedLock));
+        Assert.True(Directory.Exists(recent));
+        Assert.True(File.Exists(Path.Combine(download.Marketplaces, "freshness.json.lock")));
+        download.AssertOtherMarketplaceKept();
+    }
+
+    [SkippableFact]
+    public async Task Stop_EndsARealGitCloneStartedByTheRuntime()
+    {
+        // Something that accepts git's connection and never answers, so the clone waits.
+        using var silent = new TcpListener(IPAddress.Loopback, 0);
+        silent.Start();
+        var cache = Path.Combine(TestProfile.Root, "git-" + Guid.NewGuid().ToString("N"));
+        var downloads = new MarketplaceDownloads(cache, () => Environment.ProcessId);
+        var before = downloads.Snapshot();
+        var start = new ProcessStartInfo("git")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        foreach (var argument in new[] { "-c", "credential.interactive=never", "clone", "--depth", "1",
+                     $"http://127.0.0.1:{((IPEndPoint)silent.LocalEndpoint).Port}/marketplace.git",
+                     Path.Combine(downloads.Directory, ".copilot-clone-test", "repo") })
+            start.ArgumentList.Add(argument);
+        start.Environment["GIT_TERMINAL_PROMPT"] = "0";
+
+        Process git;
+        try
+        {
+            git = Process.Start(start)!;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            throw new SkipException("git is not installed.");
+        }
+
+        using (git)
+        {
+            try
+            {
+                // The clone is found through the operating system's own process information.
+                await WaitFor(() => downloads.Measure(before) is not null);
+
+                Assert.True(downloads.Stop(before));
+                Assert.True(git.WaitForExit(10_000));
+                await WaitFor(() => downloads.Measure(before) is null);
+            }
+            finally
+            {
+                if (!git.HasExited)
+                    git.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
+    internal static async Task WaitFor(Func<bool> condition)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (!condition())
+        {
+            if (elapsed.Elapsed > TimeSpan.FromSeconds(10))
+                throw new TimeoutException("The expected state was not reached.");
+            await Task.Delay(5);
+        }
+    }
+}
+
+/// <summary>Records each report as it is made, unlike <see cref="Progress{T}"/>, which posts it later.</summary>
+internal sealed class RecordedProgress<T> : IProgress<T>
+{
+    private readonly List<T> _reports = [];
+
+    public void Report(T value)
+    {
+        lock (_reports)
+            _reports.Add(value);
+    }
+
+    public bool Contains(T value)
+    {
+        lock (_reports)
+            return _reports.Contains(value);
+    }
+}
+
+/// <summary>
+/// The runtime's marketplace cache with a large download as the runtime runs it: a lock file, a staging
+/// folder git receives the repository into, and the git process cloning there. Stopping that process
+/// makes the runtime's add fail, as it does for real.
+/// </summary>
+internal sealed class FakeMarketplaceDownload
+{
+    public const int RuntimeProcessId = 7001;
+    public const int GitProcessId = 7002;
+    private readonly List<GitProcess> _running = [];
+    private readonly PluginCatalogRpc? _rpc;
+
+    public FakeMarketplaceDownload(string root, PluginCatalogRpc? rpc)
+    {
+        _rpc = rpc;
+        var cache = Path.Combine(root, "cache");
+        Marketplaces = Path.Combine(cache, "marketplaces");
+        Staging = Path.Combine(Marketplaces, ".copilot-clone-abc123");
+        Packs = Path.Combine(Staging, "repo", ".git", "objects", "pack");
+        Lock = Path.Combine(Marketplaces, "contoso-plugin-catalog.lock");
+        Directory.CreateDirectory(Path.Combine(Marketplaces, "github-awesome-copilot"));
+        File.WriteAllText(Path.Combine(Marketplaces, "github-awesome-copilot.lock"), "");
+        Downloads = new MarketplaceDownloads(cache, () => RuntimeProcessId, _ => Running(), Stop);
+    }
+
+    public string Marketplaces { get; }
+    public string Staging { get; }
+    public string Packs { get; }
+    public string Lock { get; }
+    public MarketplaceDownloads Downloads { get; }
+    public List<int> Stopped { get; } = [];
+
+    public PluginCatalogService Service(PluginCatalogRpc rpc, TimeSpan? stallTimeout = null)
+        => new(() => rpc.Client, static () => { }, downloads: Downloads)
+        {
+            ProgressInterval = TimeSpan.FromMilliseconds(10),
+            StallTimeout = stallTimeout ?? TimeSpan.FromMinutes(5),
+            StopTimeout = TimeSpan.FromSeconds(10),
+        };
+
+    /// <summary>What the runtime does as an add begins.</summary>
+    public void Begin()
+    {
+        File.WriteAllText(Lock, "");
+        Directory.CreateDirectory(Packs);
+        Run(new GitProcess(
+            GitProcessId,
+            "\"git\" -c core.askPass= -c credential.interactive=never clone --depth 1 --progress " +
+            $"https://github.com/contoso/plugin-catalog.git {Path.Combine(Staging, "repo")}",
+            StartedByRuntime: true));
+    }
+
+    /// <summary>git has received this much of the repository.</summary>
+    public void Receive(int bytes) => File.WriteAllBytes(Path.Combine(Packs, "tmp_pack_x1"), new byte[bytes]);
+
+    /// <summary>git has all of it and writes out the files.</summary>
+    public void Unpack() => File.Move(Path.Combine(Packs, "tmp_pack_x1"), Path.Combine(Packs, "pack-abc.pack"));
+
+    public void Run(GitProcess process)
+    {
+        lock (_running)
+            _running.Add(process);
+    }
+
+    public void Exit()
+    {
+        lock (_running)
+            _running.Clear();
+    }
+
+    public void AssertOtherMarketplaceKept()
+    {
+        Assert.True(Directory.Exists(Path.Combine(Marketplaces, "github-awesome-copilot")));
+        Assert.True(File.Exists(Path.Combine(Marketplaces, "github-awesome-copilot.lock")));
+    }
+
+    private IReadOnlyList<GitProcess> Running()
+    {
+        lock (_running)
+            return [.. _running];
+    }
+
+    private void Stop(int processId)
+    {
+        Stopped.Add(processId);
+        Exit();
+        _rpc?.MarketplaceAdd.TrySetException(new InvalidOperationException("Failed to fetch GitHub marketplace: git clone was stopped."));
+    }
 }
 
 internal sealed class PluginCatalogFixture : IDisposable
@@ -172,6 +522,12 @@ internal sealed class PluginCatalogRpc : IDisposable
     public string? UpdatedVersion { get; set; } = "0.3.1";
     public List<string> Calls { get; } = [];
 
+    /// <summary>What the runtime does when asked to add a marketplace, before it answers.</summary>
+    public Action? OnMarketplaceAdd { get; set; }
+
+    /// <summary>The runtime's answer to adding a marketplace: its name, or the error it fails with.</summary>
+    public TaskCompletionSource<string> MarketplaceAdd { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     public PluginCatalogRpc()
     {
         var requests = new Pipe();
@@ -195,6 +551,14 @@ internal sealed class PluginCatalogRpc : IDisposable
 
     [JsonRpcMethod("plugins.marketplaces.list")]
     public object Marketplaces() => new { marketplaces = new[] { new { name = "private-plugin", source = PluginCatalogTests.Source } } };
+
+    [JsonRpcMethod("plugins.marketplaces.add", UseSingleObjectParameterDeserialization = true)]
+    public async Task<object> AddMarketplace(object request)
+    {
+        Calls.Add("add");
+        OnMarketplaceAdd?.Invoke();
+        return new { name = await MarketplaceAdd.Task };
+    }
 
     [JsonRpcMethod("plugins.marketplaces.browse", UseSingleObjectParameterDeserialization = true)]
     public object Browse(object request)

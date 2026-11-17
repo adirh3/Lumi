@@ -517,7 +517,12 @@ names them by what they do, and keeps "MCP" for the protocol, config files and r
   (`.github/plugin/marketplace.json` or `.claude-plugin/marketplace.json`), the format GitHub Copilot,
   VS Code and Claude Code share. Lumi lists, installs, updates and removes plugins through the GitHub
   Copilot runtime, so they are the same plugins the Copilot CLI sees in `~/.copilot`. The runtime's
-  marketplaces appear automatically; add any other with `owner/repo` or a Git URL. A plugin's page
+  marketplaces appear automatically; add any other with `owner/repo` or a Git URL. Copilot downloads a
+  marketplace's whole repository to add it, so a large one can take many minutes: while it runs, Sources
+  shows what has downloaded so far and for how long, and **Cancel** stops the download and removes
+  what it left. A download that makes no progress for five minutes is stopped the same way. Closing
+  Lumi also stops it, and Discover clears what an interrupted add left once it is ten minutes old.
+  A plugin's page
   previews what it brings — skills, agents, MCP servers and whether it has hooks —
   read from its repository before you install.
   Catalog details and GitHub previews may be unavailable for private Git sources that use a different
@@ -546,7 +551,8 @@ and lists the rest by name alone, so Lumi raises that budget (`SKILL_CHAR_BUDGET
 unless you set your own) to keep a large plugin from hiding every skill installed after it. Lumi declines
 MCP sampling requests (a server asking to borrow the chat's model), which the C# SDK can't yet carry out;
 answering at once lets servers such as Azure MCP fall back to explicit commands instead of waiting forever. In Debug builds run with `LUMI_APPDATA_DIR`, plugins install into
-that folder's `copilot-home` instead of `~/.copilot`, so testing never changes your real Copilot setup.
+that folder's `copilot-home` instead of `~/.copilot`, and marketplace downloads go to its `copilot-cache`
+instead of the shared Copilot cache, so testing never changes your real Copilot setup.
 
 #### Setup suggestions
 

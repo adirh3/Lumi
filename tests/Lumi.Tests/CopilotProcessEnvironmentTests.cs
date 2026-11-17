@@ -115,6 +115,35 @@ public sealed class CopilotProcessEnvironmentTests
         Assert.Equal("90000", Assert.Single(chosen).Value);
     }
 
+    [Fact]
+    public void IsolatedRuntime_KeepsMarketplaceClonesInItsProfile_AndSharesUnpackedCliVersions()
+    {
+        var isolated = Path.Combine(TestProfile.Root, "copilot-cache");
+        var shared = Path.Combine(TestProfile.Root, "user-cache");
+
+        var user = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["COPILOT_CACHE_HOME"] = shared };
+        CopilotService.ApplyRuntimeCacheIsolation(user, isolated);
+        Assert.Equal(isolated, user["COPILOT_CACHE_HOME"]);
+        Assert.Equal(shared, user["COPILOT_PKG_CACHE_HOME"]);
+
+        var packages = Path.Combine(TestProfile.Root, "packages");
+        var chosen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["COPILOT_PKG_CACHE_HOME"] = packages };
+        CopilotService.ApplyRuntimeCacheIsolation(chosen, isolated);
+        Assert.Equal(isolated, chosen["COPILOT_CACHE_HOME"]);
+        Assert.Equal(packages, chosen["COPILOT_PKG_CACHE_HOME"]);
+
+        if (OperatingSystem.IsWindows())
+        {
+            var windows = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["LOCALAPPDATA"] = @"C:\Users\octo\AppData\Local" };
+            CopilotService.ApplyRuntimeCacheIsolation(windows, isolated);
+            Assert.Equal(@"C:\Users\octo\AppData\Local\copilot", windows["COPILOT_PKG_CACHE_HOME"]);
+        }
+
+        var normal = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["COPILOT_CACHE_HOME"] = shared };
+        CopilotService.ApplyRuntimeCacheIsolation(normal, isolatedCache: null);
+        Assert.Equal(shared, Assert.Single(normal).Value);
+    }
+
 #pragma warning disable GHCP001 // Match the SDK account identity used by the logout RPC.
     [Fact]
     public void StoredCredentialSelectionPreservesReleasedWindowsPriorityAndToolEnvironment()

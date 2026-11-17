@@ -967,6 +967,31 @@ Runtime experiments must isolate both `COPILOT_HOME` and `COPILOT_CACHE_HOME`; t
 independent of the configuration home. Never infer the cause of an access-denied error from an
 unrelated directory-in-use reproduction.
 
+### Discover marketplace downloads
+
+`plugins.marketplaces.add` clones a Git marketplace's whole repository (`git clone --depth 1`, then a
+full checkout) into a `.copilot-clone-*` staging folder of `<COPILOT_CACHE_HOME>/marketplaces` before
+moving it into place. A catalog of thousands of plugins means hundreds of MB downloaded and over a GB
+checked out to read one `marketplace.json`. Runtime 1.0.111 reports no progress, ignores JSON-RPC
+cancellation for this request (the SDK sends `$/cancelRequest`, but git keeps running and a retry
+waits on the marketplace's lock), leaves git running when the runtime exits, and never removes a
+staging folder an interrupted clone left. The upstream fix should fetch only the manifest (a sparse or
+partial clone, or the GitHub contents API, with plugin folders fetched on install), honor
+cancellation, report progress, stop its git children on exit and sweep stale staging folders.
+
+Until then `MarketplaceDownloads` works from the git command line, which names the staging folder.
+It counts only clones into this cache by git processes descended from Lumi's runtime, so a Copilot CLI
+add in a terminal is never measured or stopped. Progress is the size of `.git/objects/pack`
+(`tmp_pack_*` while receiving, then `pack-*.pack` while the files are written), read with a fresh
+`FileInfo` because a Windows directory listing reports the size a file had when git opened it.
+Cancelling, or five minutes without a change while downloading (writing files is exempt), stops that
+git process tree; the runtime then fails the add and removes the staging folder, and Lumi removes the
+lock file the runtime keeps for it. Shutdown stops the clone before stopping the runtime. Discover's
+first load removes staging folders and orphan locks more than ten minutes old that no git process
+uses, and locks only while no clone runs into the cache. Isolated Debug runtimes get their own
+`COPILOT_CACHE_HOME` (`copilot-cache` beside `copilot-home`) with `COPILOT_PKG_CACHE_HOME` left on the
+shared cache, so test profiles keep their marketplace clones without unpacking the CLI again.
+
 Updates remain runtime-owned. Lumi publishes `PluginsChanged` only after a successful update RPC;
 `ChatSessionStore` then reconfigures idle sessions and defers live-session changes. Do not preemptively
 stop connectors or active/background work to make an update succeed. Discover uses the SDK's
