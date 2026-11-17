@@ -17,7 +17,7 @@ namespace Lumi.Mobile.Views;
 /// <para>Moving to another place glides one highlight over to it while the place left behind folds its
 /// name away and the new one slides its name open, as the desktop's bar does. Each place's list has its
 /// own bar at the same spot, and a page's bar is first built when the page first shows, so the movement
-/// belongs to the window rather than to a bar: every bar draws the same glide, and a bar that comes into
+/// belongs to the window rather than to a bar: visible bars draw the same glide, and a bar that comes into
 /// view partway through joins it where it is. The glide is computed from the places' own metrics rather
 /// than read back from layout, which a hidden bar does not run.</para>
 /// </summary>
@@ -37,12 +37,15 @@ public partial class PlacesBarView : UserControl
     private readonly Button[] _places;
     private readonly Control[] _icons;
     private readonly TextBlock[] _names;
+    private readonly Grid[] _nameSlots;
     private readonly TranslateTransform[] _nameOffsets;
     private readonly StackPanel _row;
     private readonly Border _selection;
     private readonly TranslateTransform _selectionOffset = new();
     private readonly double[] _openness = new double[PlaceCount];
     private readonly double[] _nameWidths = new double[PlaceCount];
+    private TextBlock? _measureProbe;
+    private bool _namesMeasured;
     private MobileShellViewModel? _shell;
     private PlacesMotion? _motion;
     private TopLevel? _topLevel;
@@ -60,7 +63,8 @@ public partial class PlacesBarView : UserControl
             .ToArray();
         var contents = _places.Select(place => (StackPanel)place.Content!).ToArray();
         _icons = contents.Select(content => content.Children[0]).ToArray();
-        _names = contents.Select(content => (TextBlock)content.Children[1]).ToArray();
+        _nameSlots = contents.Select(content => (Grid)content.Children[1]).ToArray();
+        _names = _nameSlots.Select(slot => (TextBlock)slot.Children[0]).ToArray();
         _nameOffsets = _names.Select(name =>
         {
             var offset = new TranslateTransform();
@@ -103,6 +107,13 @@ public partial class PlacesBarView : UserControl
         Join();
     }
 
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == IsVisibleProperty && change.GetNewValue<bool>())
+            Dispatcher.UIThread.Post(Join, DispatcherPriority.Loaded);
+    }
+
     private void Follow(MobileShellViewModel? shell)
     {
         if (ReferenceEquals(shell, _shell))
@@ -116,22 +127,34 @@ public partial class PlacesBarView : UserControl
 
     private void OnShellPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MobileShellViewModel.IsDrawerPresented))
+        {
+            Dispatcher.UIThread.Post(Join, DispatcherPriority.Loaded);
+            return;
+        }
         if (e.PropertyName != nameof(MobileShellViewModel.Place))
             return;
         if (Dispatcher.UIThread.CheckAccess())
             MoveToPlace();
         else
             Dispatcher.UIThread.Post(MoveToPlace);
+        // A cached bar can become visible later in the same navigation update without a new viewport.
+        Dispatcher.UIThread.Post(Join, DispatcherPriority.Loaded);
     }
 
-    // A new type size changes how much room the open place's name needs.
+    // A new type size or localized text changes how much room the open place's name needs.
     private void OnNamePropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (e.Property != TextBlock.FontSizeProperty
+        if (e.Property != TextBlock.TextProperty
+            && e.Property != TextBlock.FontSizeProperty
             && e.Property != TextBlock.FontFamilyProperty
-            && e.Property != TextBlock.FontWeightProperty)
+            && e.Property != TextBlock.FontWeightProperty
+            && e.Property != TextBlock.FontStyleProperty
+            && e.Property != TextBlock.FontStretchProperty
+            && e.Property != TextBlock.LetterSpacingProperty)
             return;
 
+        _namesMeasured = false;
         MeasureNames();
         if (!_isGliding)
             Draw();
@@ -165,7 +188,7 @@ public partial class PlacesBarView : UserControl
     /// <summary>Shows the window's movement as it is now and follows it to its end.</summary>
     private void Join()
     {
-        if (_motion is not { } motion || _shell is null || _topLevel is not { } topLevel)
+        if (!IsEffectivelyVisible || _motion is not { } motion || _shell is null || _topLevel is not { } topLevel)
             return;
 
         var place = (int)_shell.Place;
@@ -186,6 +209,11 @@ public partial class PlacesBarView : UserControl
     {
         if (version != _frameVersion || _motion is not { } motion)
             return;
+        if (!IsEffectivelyVisible)
+        {
+            _isGliding = false;
+            return;
+        }
 
         // Every bar drawing this frame passes the same frame time, so they all draw the same moment.
         motion.Frame(time);
@@ -207,8 +235,9 @@ public partial class PlacesBarView : UserControl
         {
             var openness = _openness[i];
             var name = _names[i];
-            name.MaxWidth = _nameWidths[i] * openness;
-            name.Margin = new Thickness(NameLead * openness, 0, NameTrail * openness, 0);
+            // An auto column measures the full name once; reveal its slot without reshaping text each frame.
+            _nameSlots[i].MaxWidth = _nameWidths[i] * openness;
+            _nameSlots[i].Margin = new Thickness(NameLead * openness, 0, NameTrail * openness, 0);
             // The name follows the room opening for it: it fades in once there is space and drifts out of the icon.
             name.Opacity = Math.Clamp((openness - 0.35) / 0.65, 0, 1);
             _nameOffsets[i].X = -4 * (1 - openness);
@@ -246,33 +275,43 @@ public partial class PlacesBarView : UserControl
     }
 
     private double PlaceWidth(int index)
+        => ClosedPlaceWidth(index) + (NameLead + NameTrail + _nameWidths[index]) * _openness[index];
+
+    private double ClosedPlaceWidth(int index)
     {
         var place = _places[index];
         var icon = _icons[index];
         var iconWidth = double.IsNaN(icon.Width) ? icon.DesiredSize.Width : icon.Width;
-        var closed = Math.Max(place.MinWidth, place.Padding.Left + place.Padding.Right + iconWidth);
-        return closed + (NameLead + NameTrail + _nameWidths[index]) * _openness[index];
+        return Math.Max(place.MinWidth, place.Padding.Left + place.Padding.Right + iconWidth);
     }
 
     private void MeasureNames()
     {
+        if (_namesMeasured)
+            return;
+
+        var probe = _measureProbe ??= new TextBlock { TextWrapping = TextWrapping.NoWrap };
         for (var i = 0; i < PlaceCount; i++)
         {
             var name = _names[i];
-            var probe = new TextBlock
-            {
-                Text = name.Text,
-                FontFamily = name.FontFamily,
-                FontSize = name.FontSize,
-                FontStyle = name.FontStyle,
-                FontWeight = name.FontWeight,
-                FontStretch = name.FontStretch,
-                LetterSpacing = name.LetterSpacing,
-                TextWrapping = TextWrapping.NoWrap,
-            };
+            probe.Text = name.Text;
+            probe.FontFamily = name.FontFamily;
+            probe.FontSize = name.FontSize;
+            probe.FontStyle = name.FontStyle;
+            probe.FontWeight = name.FontWeight;
+            probe.FontStretch = name.FontStretch;
+            probe.LetterSpacing = name.LetterSpacing;
             probe.Measure(Size.Infinity);
             _nameWidths[i] = Math.Ceiling(probe.DesiredSize.Width);
         }
+
+        // The pill can resize inside a steady footprint, without remeasuring its entire page every frame.
+        var surface = this.FindControl<Border>("PlacesSurface")!;
+        Width = Enumerable.Range(0, PlaceCount).Sum(ClosedPlaceWidth)
+            + _row.Spacing * (PlaceCount - 1) + NameLead + NameTrail + _nameWidths.Max()
+            + surface.Padding.Left + surface.Padding.Right
+            + surface.BorderThickness.Left + surface.BorderThickness.Right;
+        _namesMeasured = true;
     }
 
     // The desktop's ease: quick to leave, landing softly on the new place.

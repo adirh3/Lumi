@@ -173,6 +173,14 @@ allocate in proportion to catalog size, while catalog and pin changes still upda
 they return to the viewport. These are CPU-work and correctness checks, not proof of device FPS:
 scrolling and sheet-open smoothness still need the Android benchmark on the target device.
 
+Navigation regression tests also check that the pill resizes within a steady layout footprint,
+its labels keep their shaped text during the glide, and only a fully covering, resting phone
+drawer suppresses painting the mounted chat. Drawer movement and unfolded layouts restore it.
+Hidden places bars stop requesting frames and rejoin the window's motion when shown again.
+The keyboard hide/show regression pauses a glide on Jobs and Settings, checks it stops while hidden,
+then verifies that dismissing the keyboard restores the selected place's highlight and label.
+Strata's motion tests also check that the switch-knob bounce changes pixels without remeasuring its row.
+
 `--filter scroll`, `--filter switch`, `--filter popup`, `--filter nav`, and
 `--filter composer` select
 catalog prefixes (comma-separated). The default is three fresh app/browser runs

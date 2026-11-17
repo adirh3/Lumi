@@ -128,7 +128,7 @@
                     behaviors:ScrollEdgeChrome.Footer="{Binding #DrawerFooterChrome}">
         <StackPanel x:Name="DrawerHistory">
         <ProgressBar IsIndeterminate="True" Height="2" Margin="14,4"
-                     IsVisible="{Binding ChatList.IsRefreshing}" />
+                     IsVisible="{Binding ChatList.ShowRefreshingBar}" />
         <Border Classes="mobile-card" Margin="12,8"
                 IsVisible="{Binding ChatList.LoadErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
           <StackPanel Spacing="8">

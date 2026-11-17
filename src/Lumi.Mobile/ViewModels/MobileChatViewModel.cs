@@ -2872,7 +2872,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         _modelCatalogRevision++;
 
         RefreshEffortLevels();
-        RefreshContextWindowTiers();
+        RefreshContextWindowTiers(refreshPicker: false);
         _applyingServerState = true;
         try
         {
@@ -2881,7 +2881,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 // A PC without a preference leaves the chat on the model the composer shows.
                 if (!string.IsNullOrWhiteSpace(_preferredModel) && !_pendingConfiguration.TryGetScalar("model", out _))
                     Model = _preferredModel;
-                RefreshBlankModelDefaults();
+                RefreshBlankModelDefaults(refreshPicker: false);
             }
         }
         finally
@@ -2997,7 +2997,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private RemoteModelDefaults? SelectedModelDefaults =>
         Model is { Length: > 0 } model ? _modelDefaults.GetValueOrDefault(model) : null;
 
-    private void RefreshBlankModelDefaults()
+    private void RefreshBlankModelDefaults(bool refreshPicker = true)
     {
         if (ChatId != Guid.Empty)
             return;
@@ -3016,7 +3016,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         {
             _applyingServerState = wasApplyingServerState;
         }
-        RefreshPickerOptions();
+        if (refreshPicker)
+            RefreshPickerOptions();
 
         string? Select(string key, IReadOnlyList<string> options, string? effectiveDefault)
         {
@@ -3095,7 +3096,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(RunSettingsSummary));
     }
 
-    private void RefreshContextWindowTiers()
+    private void RefreshContextWindowTiers(bool refreshPicker = true)
     {
         if (Model is not { Length: > 0 } model || !_modelContextTiers.TryGetValue(model, out var tiers))
         {
@@ -3113,7 +3114,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(HasModelSettings));
         OnPropertyChanged(nameof(ContextWindowLabel));
         OnPropertyChanged(nameof(RunSettingsSummary));
-        RefreshPickerOptions();
+        if (refreshPicker)
+            RefreshPickerOptions();
     }
 
     private static void SyncCatalog(

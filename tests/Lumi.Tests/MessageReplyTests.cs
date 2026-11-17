@@ -7,6 +7,7 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Models;
@@ -570,6 +571,10 @@ public sealed class ChatViewReplyWiringTests
 
                 var popup = Assert.IsType<Popup>(SelectionReplyPopup(message));
                 var pill = Assert.IsType<Button>(popup.Child);
+                Assert.Equal(new Thickness(10, 5, 12, 5), pill.Padding);
+                Assert.Equal(FontWeight.SemiBold, pill.FontWeight);
+                Assert.True(pill.TryFindResource("Brush.AccentGradient", pill.ActualThemeVariant, out var accent));
+                Assert.Same(accent, pill.Background);
                 for (var i = 0; i < 2; i++)
                 {
                     using var frame = window.CaptureRenderedFrame();

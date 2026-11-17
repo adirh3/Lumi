@@ -99,6 +99,39 @@ runs on the same host, and prove any new gate fails a known-bad signature or del
 budget. Failed runs remain inspectable and are not retried to manufacture a pass.
 Private profile copies and raw diagnostics must not be uploaded or committed.
 
+### Large-turn Debug reproduction
+
+The existing authenticated Debug bridge exposes `load_memory_fixture` and
+`read_memory_fixture` for an **isolated** headed Debug instance. Start it with
+`LUMI_APPDATA_DIR` set to a throwaway folder, `--skip-onboarding` and
+`--no-background-jobs`; target that instance's discovery file in
+`%LOCALAPPDATA%\Lumi\debug-bridges`, not another running app.
+
+`load_memory_fixture` opens an unsaved synthetic chat through the real transcript
+builder: one user request, 16 batches of 300 tool calls, and their answers. It
+expands the work summary and tool groups, without executing commands or sending
+model requests. The outer progressive list initially materializes six groups:
+1,350 terminal cards and 450 generic tool cards out of 4,800 available steps.
+The loader's response can precede realization; wait for those actual card counts
+before comparing runs. Keep the same window, scale, scroll position and content.
+
+`read_memory_fixture` reports the message/turn/card/control counts, geometry,
+managed bytes, GC commitment, process private commitment and total working set.
+Its optional `{"collect":true}` arguments perform a separate retained-memory
+checkpoint. Sample natural process memory **before** that checkpoint or any dump.
+These Debug, single-process figures are not the optimized runner's private-resident
+RAM verdict, and a lower footprint with fewer realized cards is not an equivalent
+workload.
+
+Component-only styles should be gated by their real static owner or named part,
+while keeping class/pseudo-class conditions and ordering. Count-only cache bounds
+do not bound a single enormous turn. Shared utilities, detached popup roots and
+host-supplied content must retain their existing style contracts; do not strip
+visuals, auto-collapse inspected work or stop background sessions to reduce memory.
+Cover populated templates as well as unrelated controls when tightening selectors:
+the main transcript and agent inspector share action/image templates, and picker, selection-reply
+and Explorer sort popups need their own static targets outside the transcript's ancestry.
+
 ### Fast coverage and measured duration
 
 On the tested machine, a complete fixed synthetic Fast run took **46 seconds** end-to-end;

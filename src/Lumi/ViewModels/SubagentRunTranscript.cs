@@ -85,7 +85,10 @@ internal sealed class SubagentRunTranscript
         _runStableId = null;
         _shape = null;
         _syncedEntryCount = 0;
+        foreach (var turn in Turns)
+            turn.ReleaseRealizedHost();
         Turns = [];
+        _builder.SetLiveTarget(Turns);
     }
 
     private const string ReasoningTailKey = "live:reasoning";

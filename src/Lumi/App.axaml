@@ -33,7 +33,7 @@
 
     <!-- One step of a plan, in its card and in the live card at a glance. -->
     <DataTemplate DataType="vm:PlanStepItem">
-      <DockPanel Classes="plan-step"
+      <DockPanel x:Name="PlanStep" Classes="plan-step"
                  Classes.done="{Binding IsDone}"
                  Classes.current="{Binding IsCurrent}"
                  Classes.failed="{Binding IsFailed}"
@@ -62,14 +62,14 @@
                              MoreInfo="{Binding ResultText}"
                              DurationMs="{Binding DurationMs}"
                              RunningSince="{Binding RunningSince}" />
-        <ItemsControl Classes="generated-images" ItemsSource="{Binding Images}"
+        <ItemsControl x:Name="GeneratedImages" Classes="generated-images" ItemsSource="{Binding Images}"
                       IsVisible="{Binding HasImages}" Margin="29,2,8,8" />
       </StackPanel>
     </DataTemplate>
 
     <!-- A created image: its thumbnail opens it; its menu opens, reveals or copies the file. -->
     <DataTemplate DataType="vm:GeneratedImageItem">
-      <Button Classes="generated-image" Command="{Binding PreviewCommand}"
+      <Button x:Name="GeneratedImage" Classes="generated-image" Command="{Binding PreviewCommand}"
               AutomationProperties.Name="{Binding FileName}">
         <Button.ContextFlyout>
           <MenuFlyout>
@@ -100,7 +100,7 @@
                            DurationMs="{Binding DurationMs}"
                            RunningSince="{Binding RunningSince}">
         <sc:StrataAiToolCall.HeaderAction>
-          <Button Classes="transcript-diff" Command="{Binding ShowDiffCommand}"
+          <Button x:Name="TranscriptAction" Classes="transcript-diff" Command="{Binding ShowDiffCommand}"
                   IsVisible="{Binding HasDiff}">
             <StackPanel Orientation="Horizontal" Spacing="5">
               <sc:StrataLineIcon Width="12" Height="12" VerticalAlignment="Center"
@@ -209,7 +209,7 @@
 
     <!-- "Show diff": an accent action beside the step, tinted on hover. Its negative vertical margin
          keeps a row with the action as tall as one without. -->
-    <Style Selector="Button.transcript-diff">
+    <Style Selector="Button#TranscriptAction.transcript-diff">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Padding" Value="7,0" />
@@ -222,34 +222,34 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
       <Setter Property="Cursor" Value="Hand" />
     </Style>
-    <Style Selector="Button.transcript-diff /template/ Border#PART_Aurora">
+    <Style Selector="Button#TranscriptAction.transcript-diff /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Button.transcript-diff:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Button#TranscriptAction.transcript-diff:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassAccentTint}" />
       <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
-    <Style Selector="Button.transcript-diff:pointerover">
+    <Style Selector="Button#TranscriptAction.transcript-diff:pointerover">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentHover}" />
     </Style>
     <!-- Strata styles every TextBlock as body text, so the label takes the action's size and colour here. -->
-    <Style Selector="Button.transcript-diff TextBlock">
+    <Style Selector="Button#TranscriptAction.transcript-diff TextBlock">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Button.transcript-diff:pointerover TextBlock">
+    <Style Selector="Button#TranscriptAction.transcript-diff:pointerover TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentHover}" />
     </Style>
 
     <!-- Images a step created: rounded thumbnails in a row that wraps, each opening its image. -->
-    <Style Selector="ItemsControl.generated-images">
+    <Style Selector="ItemsControl#GeneratedImages.generated-images">
       <Setter Property="ItemsPanel">
         <ItemsPanelTemplate>
           <WrapPanel ItemSpacing="8" LineSpacing="8" />
         </ItemsPanelTemplate>
       </Setter>
     </Style>
-    <Style Selector="Button.generated-image">
+    <Style Selector="Button#GeneratedImage.generated-image">
       <Setter Property="Padding" Value="0" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="CornerRadius" Value="10" />
@@ -258,15 +258,15 @@
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="VerticalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="Button.generated-image:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Button#GeneratedImage.generated-image:pointerover /template/ Border#PART_Surface">
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Button.generated-image Panel.generated-image-frame">
+    <Style Selector="Button#GeneratedImage.generated-image Panel.generated-image-frame">
       <Setter Property="Height" Value="148" />
       <Setter Property="MinWidth" Value="148" />
       <Setter Property="MaxWidth" Value="264" />
     </Style>
-    <Style Selector="Button.generated-image sc|StrataLineIcon.generated-image-missing">
+    <Style Selector="Button#GeneratedImage.generated-image sc|StrataLineIcon.generated-image-missing">
       <Setter Property="Width" Value="22" />
       <Setter Property="Height" Value="22" />
       <Setter Property="HorizontalAlignment" Value="Center" />
@@ -277,11 +277,11 @@
     <!-- A plan's steps: a check when done, a ring while open (the accent on the current one), a clock
          while blocked. They share a tool row's height and text column, so a plan reads as part of the
          card's list. -->
-    <Style Selector="DockPanel.plan-step">
+    <Style Selector="DockPanel#PlanStep.plan-step">
       <Setter Property="Height" Value="31" />
       <Setter Property="Margin" Value="8,0" />
     </Style>
-    <Style Selector="DockPanel.plan-step Border.plan-ring">
+    <Style Selector="DockPanel#PlanStep.plan-step Border.plan-ring">
       <Setter Property="Width" Value="12" />
       <Setter Property="Height" Value="12" />
       <Setter Property="CornerRadius" Value="6" />
@@ -290,40 +290,40 @@
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="DockPanel.plan-step sc|StrataLineIcon">
+    <Style Selector="DockPanel#PlanStep.plan-step sc|StrataLineIcon">
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="14" />
       <Setter Property="StrokeThickness" Value="2" />
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="DockPanel.plan-step TextBlock.plan-title">
+    <Style Selector="DockPanel#PlanStep.plan-step TextBlock.plan-title">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="MaxLines" Value="1" />
     </Style>
-    <Style Selector="DockPanel.plan-step.done Border.plan-ring, DockPanel.plan-step.failed Border.plan-ring, DockPanel.plan-step.blocked Border.plan-ring">
+    <Style Selector="DockPanel#PlanStep.plan-step.done Border.plan-ring, DockPanel#PlanStep.plan-step.failed Border.plan-ring, DockPanel#PlanStep.plan-step.blocked Border.plan-ring">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="DockPanel.plan-step.done sc|StrataLineIcon.plan-done">
+    <Style Selector="DockPanel#PlanStep.plan-step.done sc|StrataLineIcon.plan-done">
       <Setter Property="IsVisible" Value="True" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="DockPanel.plan-step.done TextBlock.plan-title">
+    <Style Selector="DockPanel#PlanStep.plan-step.done TextBlock.plan-title">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="DockPanel.plan-step.current Border.plan-ring">
+    <Style Selector="DockPanel#PlanStep.plan-step.current Border.plan-ring">
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="DockPanel.plan-step.current TextBlock.plan-title">
+    <Style Selector="DockPanel#PlanStep.plan-step.current TextBlock.plan-title">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="DockPanel.plan-step.failed sc|StrataLineIcon.plan-failed">
+    <Style Selector="DockPanel#PlanStep.plan-step.failed sc|StrataLineIcon.plan-failed">
       <Setter Property="IsVisible" Value="True" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
     </Style>
-    <Style Selector="DockPanel.plan-step.blocked sc|StrataLineIcon.plan-blocked">
+    <Style Selector="DockPanel#PlanStep.plan-step.blocked sc|StrataLineIcon.plan-blocked">
       <Setter Property="IsVisible" Value="True" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
