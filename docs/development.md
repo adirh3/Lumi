@@ -553,6 +553,17 @@ the desktop tools.
 
 ### Window activation and clipboard reads
 
+Normal composer paste preserves Markdown clipboard content verbatim and converts HTML/RTF
+to editable Markdown through Strata's `ChatClipboardText` reader. Both the composer's own
+paste path and `ChatView`'s host handler use it; Lumi's chat context, shared-prompt review and
+file attachments retain priority, and rich text takes priority over Office's preview image.
+Editor clipboard metadata or a standalone `white-space:pre` editor block preserves the original
+plain-text source, including indentation, line endings and Markdown punctuation. Rich-document
+conversion respects normal-weight wrappers from Google Docs without removing authored emphasis.
+Ctrl+Shift+V (Cmd+Shift+V on macOS) and the input menu's Paste as plain text bypass conversion
+and host context/attachment imports. The composer remains a Markdown source editor, not a
+WYSIWYG editor; fonts and colours without a Markdown equivalent are intentionally omitted.
+
 The automatic capability notice has a **Windows-only workaround for clipboard
 retrieval that blocks the UI thread, reproduced with Avalonia 12.1.4**.
 `TryGetTextAsync` can synchronously call an external OLE `IDataObject.GetData`:
