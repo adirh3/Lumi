@@ -58,14 +58,21 @@ public sealed record PluginUpdateOutcome(string? PreviousVersion, string? NewVer
 public sealed record MarketplaceRemoveOutcome(bool Removed, IReadOnlyList<string> DependentPlugins);
 
 /// <summary>Adding a marketplace was stopped: by whoever added it, or because its download stalled.</summary>
-public sealed class MarketplaceAddStoppedException(string message, bool stalled, bool stillRunning, CancellationToken cancellationToken)
+/// <param name="completion">The add, when the runtime goes on with it (see <see cref="Completion"/>).</param>
+public sealed class MarketplaceAddStoppedException(string message, bool stalled, Task<string>? completion, CancellationToken cancellationToken)
     : OperationCanceledException(message, cancellationToken)
 {
     /// <summary>The download made no progress for <see cref="PluginCatalogService.StallTimeout"/>.</summary>
     public bool Stalled { get; } = stalled;
 
     /// <summary>No download was stopped (none was found, or the add was at a ref), so the runtime may still add the marketplace.</summary>
-    public bool StillRunning { get; } = stillRunning;
+    public bool StillRunning => Completion is not null;
+
+    /// <summary>
+    /// While <see cref="StillRunning"/>, the add the runtime goes on with: the marketplace's name once it
+    /// is added, or the error it fails with.
+    /// </summary>
+    public Task<string>? Completion { get; } = completion;
 }
 
 /// <summary>
@@ -230,7 +237,8 @@ public sealed class PluginCatalogService
     /// <paramref name="progress"/> reports what has reached disk every <see cref="ProgressInterval"/>.
     /// The runtime ignores cancellation: cancelling, or a download that makes no progress for
     /// <see cref="StallTimeout"/>, stops the download itself, after which the runtime fails the add and
-    /// removes its clone. An add at a ref is only stopped waiting for (see <see cref="MarketplaceDownloads.Stop"/>).
+    /// removes its clone. An add at a ref is only stopped waiting for (see <see cref="MarketplaceDownloads.Stop"/>),
+    /// and so is one whose download can't be found; the exception then carries the add as it goes on.
     /// </summary>
     /// <exception cref="MarketplaceAddStoppedException">The add was cancelled or its download stalled.</exception>
     public async Task<string> AddMarketplaceAsync(
@@ -241,7 +249,7 @@ public sealed class PluginCatalogService
         source = source.Trim();
         var client = Client;
         var before = _downloads?.Snapshot() ?? new HashSet<string>();
-        var add = client.Rpc.Plugins.Marketplaces.AddAsync(source, null, CancellationToken.None);
+        var add = AddedNameAsync(client.Rpc.Plugins.Marketplaces.AddAsync(source, null, CancellationToken.None), source);
         MarketplaceDownloadProgress? last = null;
         var sinceChange = Stopwatch.StartNew();
         var stalled = false;
@@ -283,19 +291,22 @@ public sealed class PluginCatalogService
                 var message = stillRunning ? string.Format(CultureInfo.CurrentCulture, Loc.Discover_AddStillRunning, source)
                     : stalled ? string.Format(CultureInfo.CurrentCulture, Loc.Discover_AddStalled, source, (int)Math.Ceiling(StallTimeout.TotalMinutes))
                     : string.Format(CultureInfo.CurrentCulture, Loc.Discover_AddStopped, source);
-                throw new MarketplaceAddStoppedException(message, stalled, stillRunning, stalled ? CancellationToken.None : cancellationToken);
+                throw new MarketplaceAddStoppedException(message, stalled, stillRunning ? add : null, stalled ? CancellationToken.None : cancellationToken);
             }
         }
 
-        var result = await add.ConfigureAwait(false);
-        return result?.Name ?? source;
+        return await add.ConfigureAwait(false);
     }
+
+    /// <summary>The marketplace's name once the runtime has added it: as its answer names it, else the source.</summary>
+    private static async Task<string> AddedNameAsync(Task<GitHub.Copilot.Rpc.MarketplaceAddResult> add, string source)
+        => (await add.ConfigureAwait(false))?.Name ?? source;
 
     /// <summary>
     /// Stops an add's download and gives the runtime time to report the failure and remove its staging
     /// folder. True when no download was stopped and the runtime is still adding.
     /// </summary>
-    private async Task<bool> StopAsync(Task<GitHub.Copilot.Rpc.MarketplaceAddResult> add, IReadOnlySet<string> before, string source)
+    private async Task<bool> StopAsync(Task<string> add, IReadOnlySet<string> before, string source)
     {
         // A clone may not have started yet: look for it a few more times.
         var stopped = false;
@@ -309,7 +320,8 @@ public sealed class PluginCatalogService
         if (stopped)
             await Task.WhenAny(add, Task.Delay(StopTimeout)).ConfigureAwait(false);
 
-        // Once Lumi gives up on the add, nothing awaits it: observe its failure whenever it comes.
+        // Once Lumi gives up on the add, nothing may await it (a caller may ignore the exception's
+        // Completion): observe its failure whenever it comes.
         _ = add.ContinueWith(
             static task => _ = task.Exception,
             CancellationToken.None,

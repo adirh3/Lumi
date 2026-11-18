@@ -983,20 +983,24 @@ cancellation, report progress, stop its git children on exit and sweep stale sta
 Until then `MarketplaceDownloads` works from the git command line, which names the staging folder, the
 repository and the ref. An add counts only clones of its own source by git processes descended from
 Lumi's runtime: the repository argument, normalized like the source (`github.com/owner/repo` for
-GitHub, else the URL's host and path), and the ref must match. The runtime clones a ref with
-`--branch` (without `refs/heads/` or `refs/tags/`), except a 40-character commit, which it clones
-without one and fetches afterwards. So another add, a refresh or a Copilot CLI add in a terminal is
-never stopped, and is measured only when it is an add of the same repository at a pin that clones
-alike. Progress is the size of `.git/objects/pack` (`tmp_pack_*` while receiving, then `pack-*.pack`
-while the files are written), read with a fresh `FileInfo` because a Windows directory listing reports
-the size a file had when git opened it. Cancelling, or five minutes without a change while a visible
-download receives data (writing files, or a clone Lumi can't see, never counts as stalled), stops that
-git process tree; the runtime then fails the add and removes the staging folder. An add at a ref is
-never stopped this way: every commit clones without `--branch`, and `name`, `refs/heads/name` and
-`refs/tags/name` all as `--branch name`, so its clone can be another add's at a different pin of the
-same repository (two windows share the runtime). Cancel and a stall then only stop waiting for it, as
-for a clone Lumi can't see. Lumi never removes a lock file: the runtime locks it natively, so deleting
-one lets another add take a lock a running add still holds.
+GitHub, else the URL's host and path), and the ref must match. Hosts, and GitHub's owners and
+repositories, compare without case; other paths compare exactly, since a Git host may serve paths that
+differ only in case as different repositories. The runtime clones a ref with `--branch` (without
+`refs/heads/` or `refs/tags/`), except a 40-character commit, which it clones without one and fetches
+afterwards. So another add, a refresh or a Copilot CLI add in a terminal is never stopped, and is
+measured only when it is an add of the same repository at a pin that clones alike. Progress is the size
+of `.git/objects/pack` (`tmp_pack_*` while receiving, then `pack-*.pack` while the files are written),
+read with a fresh `FileInfo` because a Windows directory listing reports the size a file had when git
+opened it. Cancelling, or five minutes without a change while a visible download receives data
+(writing files, or a clone Lumi can't see, never counts as stalled), stops that git process tree; the
+runtime then fails the add and removes the staging folder. An add at a ref is never stopped this way:
+every commit clones without `--branch`, and `name`, `refs/heads/name` and `refs/tags/name` all as
+`--branch name`, so its clone can be another add's at a different pin of the same repository (two
+windows share the runtime). Cancel and a stall then only stop waiting for it, as for a clone Lumi can't
+see; the stopped exception's `Completion` is the add as the runtime goes on with it, and Sources
+reloads once it is added, or shows its failure in place of its warning (a newer status stays). Lumi
+never removes a lock file: the runtime locks it natively, so deleting one lets another add take a lock
+a running add still holds.
 Shutdown stops the clone before stopping the runtime. Discover's first load removes staging folders
 that no git process names and nothing has written to for ten minutes (between git commands, and while
 the runtime moves a finished clone into place, no git process names it). Isolated Debug runtimes get

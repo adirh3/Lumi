@@ -1135,6 +1135,8 @@ public sealed partial class DiscoverViewModel : ObservableObject
         catch (MarketplaceAddStoppedException stopped)
         {
             SourceError = stopped.Message;
+            if (stopped.Completion is { } completion)
+                _ = ShowLateOutcomeAsync(completion, stopped.Message);
         }
         catch (Exception ex)
         {
@@ -1151,6 +1153,33 @@ public sealed partial class DiscoverViewModel : ObservableObject
     }
 
     private bool CanCancelAddMarketplace() => IsAddingMarketplace && !IsStoppingMarketplaceAdd;
+
+    /// <summary>
+    /// How an add Lumi stopped waiting for ended, once the runtime finishes it: the sources and plugins
+    /// it brings, or its failure in place of its warning. A newer operation's status stays.
+    /// </summary>
+    private async Task ShowLateOutcomeAsync(Task<string> completion, string warning)
+    {
+        string? failure = null;
+        try
+        {
+            await completion;
+        }
+        catch (Exception ex)
+        {
+            failure = string.Format(CultureInfo.CurrentCulture, Loc.Discover_SourceAddFailed, Describe(ex));
+        }
+
+        // Only this add's own warning gives way: a newer status is another string, even with the same words.
+        if (ReferenceEquals(SourceError, warning))
+            SourceError = failure;
+
+        if (failure is null)
+        {
+            await LoadPluginsAsync();
+            await LoadSourcesAsync();
+        }
+    }
 
     /// <summary>Stops the marketplace's download; the runtime would otherwise carry on with it.</summary>
     [RelayCommand(CanExecute = nameof(CanCancelAddMarketplace))]

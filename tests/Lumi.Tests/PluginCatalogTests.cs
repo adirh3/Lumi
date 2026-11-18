@@ -233,6 +233,7 @@ public sealed class PluginCatalogTests
         Assert.True(stopped.StillRunning);
         Assert.Empty(download.Stopped);
         rpc.MarketplaceAdd.SetResult("plugin-catalog");
+        Assert.Equal("plugin-catalog", await Assert.IsAssignableFrom<Task<string>>(stopped.Completion));
     }
 
     [Fact]
@@ -330,6 +331,12 @@ public sealed class PluginCatalogTests
     [InlineData("contoso/plugin-catalog", "https://github.com/microsoft/work-iq.git {staging}", false)]
     [InlineData("contoso/plugin-catalog", "https://gitlab.com/contoso/plugin-catalog.git {staging}", false)]
     [InlineData("https://dev.azure.com/contoso/tools/_git/plugins", "https://notdev.azure.com/contoso/tools/_git/plugins {staging}", false)]
+    // Hosts compare without case, and so do GitHub's owners and repositories; other paths compare exactly.
+    [InlineData("https://Example.com/case/Catalog.git", "https://example.com/case/Catalog.git {staging}", true)]
+    [InlineData("git@Example.com:case/Catalog.git", "git@example.com:case/Catalog.git {staging}", true)]
+    [InlineData("http://127.0.0.1:4711/case/Catalog.git", "http://127.0.0.1:4711/case/catalog.git {staging}", false)]
+    [InlineData("http://127.0.0.1:4711/case/Catalog.GIT", "http://127.0.0.1:4711/case/Catalog.git {staging}", false)]
+    [InlineData("git@example.com:case/Catalog.git", "git@example.com:case/catalog.git {staging}", false)]
     // An add at a ref: a branch or tag is cloned by name, a commit without one, both into _pinned.
     [InlineData("Contoso/Plugin-Catalog#main", "--branch main https://github.com/contoso/plugin-catalog.git {pinned}", true)]
     [InlineData("contoso/plugin-catalog#refs/tags/v1.2", "--branch v1.2 https://github.com/contoso/plugin-catalog.git {pinned}", true)]
@@ -681,7 +688,13 @@ internal sealed class PluginCatalogRpc : IDisposable
     }
 
     [JsonRpcMethod("plugins.marketplaces.list")]
-    public object Marketplaces() => new { marketplaces = new[] { new { name = "private-plugin", source = PluginCatalogTests.Source } } };
+    public object Marketplaces()
+    {
+        var marketplaces = new List<object> { new { name = "private-plugin", source = PluginCatalogTests.Source } };
+        if (MarketplaceAdd.Task.IsCompletedSuccessfully)
+            marketplaces.Add(new { name = MarketplaceAdd.Task.Result, source = "contoso/plugin-catalog" });
+        return new { marketplaces };
+    }
 
     [JsonRpcMethod("plugins.marketplaces.add", UseSingleObjectParameterDeserialization = true)]
     public async Task<object> AddMarketplace(object request)

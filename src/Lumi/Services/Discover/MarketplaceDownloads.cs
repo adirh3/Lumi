@@ -220,7 +220,9 @@ internal sealed partial class MarketplaceDownloads
     /// <summary>
     /// The repository a marketplace source or a clone's repository argument names, as one host and path:
     /// <c>github.com/owner/repo</c> for GitHub, else the URL's host and path without its scheme, user,
-    /// ref or <c>.git</c>. Null for a local folder, which the runtime doesn't clone.
+    /// ref or <c>.git</c>. Hosts, and GitHub's owners and repositories, are lowercased; other paths keep
+    /// their case, since a Git host may serve paths that differ only in case as different repositories.
+    /// Null for a local folder, which the runtime doesn't clone.
     /// </summary>
     internal static string? CloneAddress(string source)
     {
@@ -229,18 +231,18 @@ internal sealed partial class MarketplaceDownloads
             source = source[..hash];
 
         if (GitHubRepoRef.TryParse(source) is { } github)
-            return $"github.com/{github.Owner}/{github.Repo}";
+            return $"github.com/{github.Owner}/{github.Repo}".ToLowerInvariant();
 
         string address;
         if (source.Contains("://", StringComparison.Ordinal))
         {
             if (!Uri.TryCreate(source, UriKind.Absolute, out var uri) || uri.IsFile || uri.Host.Length == 0)
                 return null;
-            address = uri.Authority + uri.AbsolutePath;
+            address = uri.Authority.ToLowerInvariant() + uri.AbsolutePath;
         }
         else if (ScpAddress().Match(source) is { Success: true } scp)
         {
-            address = scp.Groups["host"].Value + "/" + scp.Groups["path"].Value;
+            address = scp.Groups["host"].Value.ToLowerInvariant() + "/" + scp.Groups["path"].Value;
         }
         else
         {
@@ -248,7 +250,7 @@ internal sealed partial class MarketplaceDownloads
         }
 
         address = address.TrimEnd('/');
-        return address.EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? address[..^".git".Length] : address;
+        return address.EndsWith(".git", StringComparison.Ordinal) ? address[..^".git".Length] : address;
     }
 
     /// <summary>
@@ -267,7 +269,7 @@ internal sealed partial class MarketplaceDownloads
         return clone.Pinned == (reference is not null)
             && string.Equals(clone.Branch, branch, StringComparison.Ordinal)
             && CloneAddress(source) is { } address
-            && string.Equals(CloneAddress(clone.Repository), address, StringComparison.OrdinalIgnoreCase);
+            && string.Equals(CloneAddress(clone.Repository), address, StringComparison.Ordinal);
     }
 
     /// <summary>The ref a marketplace source names after <c>#</c>, or null.</summary>

@@ -467,6 +467,56 @@ public sealed class DiscoverGridUiTests
         }, CancellationToken.None);
     }
 
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("Failed to fetch git marketplace from the provided URL.", false)]
+    [InlineData(null, true)]
+    public async Task AnAddLumiStoppedWaitingFor_ShowsHowItEnded_UnlessANewerStatusReplacedItsWarning(string? failure, bool newerStatus)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc();
+            var download = new FakeMarketplaceDownload(fixture.Root, rpc);
+            var vm = PluginGallery(fixture, download.Service(rpc));
+            vm.ShowSourcesCommand.Execute(null);
+
+            // Lumi never stops an add at a ref, so Cancel only stops waiting for it.
+            vm.NewMarketplace = "contoso/plugin-catalog#main";
+            var adding = vm.AddMarketplaceCommand.ExecuteAsync(null);
+            await WaitFor(() => vm.CancelAddMarketplaceCommand.CanExecute(null));
+            vm.CancelAddMarketplaceCommand.Execute(null);
+            await adding;
+            var warning = string.Format(Loc.Discover_AddStillRunning, "contoso/plugin-catalog#main");
+            Assert.Equal(warning, vm.SourceError);
+            Assert.DoesNotContain(vm.MarketplaceRows, row => row.Name == "plugin-catalog");
+            if (newerStatus)
+            {
+                vm.NewRegistry = "not a registry";
+                await vm.AddRegistryCommand.ExecuteAsync(null);
+            }
+
+            var status = vm.SourceError;
+
+            // The runtime finishes the add on its own.
+            if (failure is null)
+            {
+                rpc.MarketplaceAdd.SetResult("plugin-catalog");
+                await WaitFor(() => vm.MarketplaceRows.Any(row => row.Name == "plugin-catalog"));
+                Assert.Equal(newerStatus ? status : null, vm.SourceError);
+            }
+            else
+            {
+                rpc.MarketplaceAdd.SetException(new InvalidOperationException(failure));
+                await WaitFor(() => vm.SourceError != warning);
+                Assert.Contains(failure, vm.SourceError);
+                Assert.StartsWith("Couldn't add that source", vm.SourceError);
+            }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public void DownloadStatus_SaysWhatHasArrivedAndForHowLong()
     {
