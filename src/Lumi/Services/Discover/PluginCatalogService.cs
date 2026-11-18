@@ -64,7 +64,7 @@ public sealed class MarketplaceAddStoppedException(string message, bool stalled,
     /// <summary>The download made no progress for <see cref="PluginCatalogService.StallTimeout"/>.</summary>
     public bool Stalled { get; } = stalled;
 
-    /// <summary>No download was found to stop, so the runtime may still add the marketplace.</summary>
+    /// <summary>No download was stopped (none was found, or the add was at a ref), so the runtime may still add the marketplace.</summary>
     public bool StillRunning { get; } = stillRunning;
 }
 
@@ -230,7 +230,7 @@ public sealed class PluginCatalogService
     /// <paramref name="progress"/> reports what has reached disk every <see cref="ProgressInterval"/>.
     /// The runtime ignores cancellation: cancelling, or a download that makes no progress for
     /// <see cref="StallTimeout"/>, stops the download itself, after which the runtime fails the add and
-    /// removes its clone.
+    /// removes its clone. An add at a ref is only stopped waiting for (see <see cref="MarketplaceDownloads.Stop"/>).
     /// </summary>
     /// <exception cref="MarketplaceAddStoppedException">The add was cancelled or its download stalled.</exception>
     public async Task<string> AddMarketplaceAsync(
@@ -293,7 +293,7 @@ public sealed class PluginCatalogService
 
     /// <summary>
     /// Stops an add's download and gives the runtime time to report the failure and remove its staging
-    /// folder. True when no download was found to stop and the runtime is still adding.
+    /// folder. True when no download was stopped and the runtime is still adding.
     /// </summary>
     private async Task<bool> StopAsync(Task<GitHub.Copilot.Rpc.MarketplaceAddResult> add, IReadOnlySet<string> before, string source)
     {

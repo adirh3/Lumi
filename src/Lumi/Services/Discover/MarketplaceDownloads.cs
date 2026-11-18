@@ -83,7 +83,8 @@ internal sealed partial class MarketplaceDownloads
 
     /// <summary>
     /// The download of the runtime's clones of <paramref name="source"/> begun after
-    /// <paramref name="before"/>, or null when none runs (or none can be seen).
+    /// <paramref name="before"/>, or null when none runs (or none can be seen). For an add at a ref this
+    /// can include another add's clone of the same repository at a pin that clones alike (see <see cref="Stop"/>).
     /// </summary>
     public MarketplaceDownloadProgress? Measure(IReadOnlySet<string> before, string? source = null)
     {
@@ -106,9 +107,15 @@ internal sealed partial class MarketplaceDownloads
     /// <summary>
     /// Stops the runtime's clones into its marketplace cache: of <paramref name="source"/> and begun
     /// after <paramref name="before"/> when given, else all of them. True when there was one to stop.
+    /// An add at a ref is never stopped: the runtime clones every commit without <c>--branch</c>, and
+    /// <c>name</c>, <c>refs/heads/name</c> and <c>refs/tags/name</c> all as <c>--branch name</c>, so its
+    /// clone can be another add's at a different pin of the same repository.
     /// </summary>
     public bool Stop(IReadOnlySet<string>? before, string? source = null)
     {
+        if (source is not null && ReferenceOf(source) is not null)
+            return false;
+
         var clones = RuntimeClones(before, source);
         foreach (var clone in clones)
         {
@@ -245,15 +252,14 @@ internal sealed partial class MarketplaceDownloads
     }
 
     /// <summary>
-    /// Whether a clone is the runtime's clone of this marketplace source: the same repository at the same
-    /// ref. The runtime stages an add at a ref in <c>_pinned</c> and clones it with <c>--branch</c>
+    /// Whether a clone looks like the runtime's clone of this marketplace source: the same repository at
+    /// the same ref. The runtime stages an add at a ref in <c>_pinned</c> and clones it with <c>--branch</c>
     /// (without <c>refs/heads/</c> or <c>refs/tags/</c>), unless the ref is a commit, which it fetches after
     /// cloning.
     /// </summary>
     internal static bool IsCloneOf(MarketplaceClone clone, string source)
     {
-        var hash = source.IndexOf('#');
-        var reference = hash >= 0 && source[(hash + 1)..].Trim() is { Length: > 0 } named ? named : null;
+        var reference = ReferenceOf(source);
         var branch = reference is null || CommitId().IsMatch(reference) ? null
             : reference.StartsWith("refs/heads/", StringComparison.Ordinal) ? reference["refs/heads/".Length..]
             : reference.StartsWith("refs/tags/", StringComparison.Ordinal) ? reference["refs/tags/".Length..]
@@ -263,6 +269,10 @@ internal sealed partial class MarketplaceDownloads
             && CloneAddress(source) is { } address
             && string.Equals(CloneAddress(clone.Repository), address, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>The ref a marketplace source names after <c>#</c>, or null.</summary>
+    private static string? ReferenceOf(string source)
+        => source.IndexOf('#') is var hash and >= 0 && source[(hash + 1)..].Trim() is { Length: > 0 } reference ? reference : null;
 
     [GeneratedRegex(@"^[^@/\s]+@(?<host>[^:/\s]+):(?<path>\S+)$")]
     private static partial Regex ScpAddress();

@@ -521,8 +521,10 @@ names them by what they do, and keeps "MCP" for the protocol, config files and r
   marketplace's whole repository to add it, so a large one can take many minutes: while it runs, Sources
   shows what has downloaded so far and for how long, and **Cancel** stops the download, after which
   Copilot removes what it left. A download that makes no progress for five minutes is stopped the same
-  way. Closing Lumi also stops it, and Discover clears what an interrupted add left once nothing has
-  written to it for ten minutes.
+  way. For a marketplace added at a branch, tag or commit (`owner/repo#ref`), Cancel and a stalled
+  download only stop Lumi waiting: Copilot keeps downloading it in the background. Closing Lumi also
+  stops it, and Discover clears what an interrupted add left once nothing has written to it for ten
+  minutes.
   A plugin's page
   previews what it brings — skills, agents, MCP servers and whether it has hooks —
   read from its repository before you install.

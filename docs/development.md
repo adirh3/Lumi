@@ -986,13 +986,17 @@ Lumi's runtime: the repository argument, normalized like the source (`github.com
 GitHub, else the URL's host and path), and the ref must match. The runtime clones a ref with
 `--branch` (without `refs/heads/` or `refs/tags/`), except a 40-character commit, which it clones
 without one and fetches afterwards. So another add, a refresh or a Copilot CLI add in a terminal is
-never measured or stopped. Progress is the size of `.git/objects/pack` (`tmp_pack_*` while receiving,
-then `pack-*.pack` while the files are
-written), read with a fresh `FileInfo` because a Windows directory listing reports the size a file had
-when git opened it. Cancelling, or five minutes without a change while a visible download receives
-data (writing files, or a clone Lumi can't see, never counts as stalled), stops that git process tree;
-the runtime then fails the add and removes the staging folder. Lumi never removes a lock file: the
-runtime locks it natively, so deleting one lets another add take a lock a running add still holds.
+never stopped, and is measured only when it is an add of the same repository at a pin that clones
+alike. Progress is the size of `.git/objects/pack` (`tmp_pack_*` while receiving, then `pack-*.pack`
+while the files are written), read with a fresh `FileInfo` because a Windows directory listing reports
+the size a file had when git opened it. Cancelling, or five minutes without a change while a visible
+download receives data (writing files, or a clone Lumi can't see, never counts as stalled), stops that
+git process tree; the runtime then fails the add and removes the staging folder. An add at a ref is
+never stopped this way: every commit clones without `--branch`, and `name`, `refs/heads/name` and
+`refs/tags/name` all as `--branch name`, so its clone can be another add's at a different pin of the
+same repository (two windows share the runtime). Cancel and a stall then only stop waiting for it, as
+for a clone Lumi can't see. Lumi never removes a lock file: the runtime locks it natively, so deleting
+one lets another add take a lock a running add still holds.
 Shutdown stops the clone before stopping the runtime. Discover's first load removes staging folders
 that no git process names and nothing has written to for ten minutes (between git commands, and while
 the runtime moves a finished clone into place, no git process names it). Isolated Debug runtimes get

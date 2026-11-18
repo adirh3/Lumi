@@ -349,6 +349,36 @@ public sealed class PluginCatalogTests
     }
 
     [Theory]
+    // The runtime clones every commit without --branch, and name, refs/heads/name and refs/tags/name all as
+    // --branch name, so adds of one repository at these pins clone alike.
+    [InlineData("contoso/plugin-catalog#0123456789abcdef0123456789abcdef01234567", "contoso/plugin-catalog#fedcba9876543210fedcba9876543210fedcba98", null)]
+    [InlineData("contoso/plugin-catalog#refs/heads/shared", "contoso/plugin-catalog#refs/tags/shared", "shared")]
+    [InlineData("contoso/plugin-catalog#shared", "contoso/plugin-catalog#refs/heads/shared", "shared")]
+    public void Stop_LeavesAnAddAtARefRunning_SinceItsCloneCanBeAnotherPins(string first, string second, string? branch)
+    {
+        using var fixture = new PluginCatalogFixture();
+        var download = new FakeMarketplaceDownload(fixture.Root, rpc: null);
+        var before = download.Downloads.Snapshot();
+        // Two Lumi windows add both pins in the runtime they share.
+        foreach (var (id, name) in new[] { (7003, "first"), (7004, "second") })
+        {
+            var target = Path.Combine(download.Marketplaces, MarketplaceDownloads.PinnedFolder, ".copilot-clone-" + name, "repo");
+            File.WriteAllBytes(Path.Combine(Directory.CreateDirectory(Path.Combine(target, ".git", "objects", "pack")).FullName, "tmp_pack_x"), new byte[512]);
+            var pin = branch is null ? "" : $"--branch {branch} ";
+            download.Run(new GitProcess(id, $"git clone --depth 1 --progress {pin}https://github.com/contoso/plugin-catalog.git {target}", StartedByRuntime: true));
+        }
+
+        foreach (var source in new[] { first, second })
+        {
+            // Its download still shows, but stopping it could end the other add's instead.
+            Assert.NotNull(download.Downloads.Measure(before, source));
+            Assert.False(download.Downloads.Stop(before, source));
+        }
+
+        Assert.Empty(download.Stopped);
+    }
+
+    [Theory]
     [InlineData("./marketplaces/local")]
     [InlineData("C:\\marketplaces\\local")]
     [InlineData("file:///C:/marketplaces/local")]
