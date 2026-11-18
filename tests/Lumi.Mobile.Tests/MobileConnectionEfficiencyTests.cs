@@ -296,6 +296,56 @@ public sealed class MobileConnectionEfficiencyTests
     }
 
     [Fact]
+    public async Task InvalidationsDuringTheInitialReadShowHistoryBeforeTheCatchUpReadFinishes()
+    {
+        using var temp = new TempDirectory();
+        var chatId = Guid.NewGuid();
+        var firstRead = new TaskCompletionSource<RemoteTranscript>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var catchUpRead = new TaskCompletionSource<RemoteTranscript>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finalRead = new TaskCompletionSource<RemoteTranscript>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var desktop = new EfficiencyDesktop
+        {
+            Snapshot = new RemoteSnapshot { HostName = "TEST-PC", IsConnected = true, ActiveChatId = chatId }
+        };
+        desktop.TranscriptResponder = (_, _) => desktop.Transcripts switch
+        {
+            1 => firstRead.Task,
+            2 => catchUpRead.Task,
+            _ => finalRead.Task
+        };
+        await using var shell = CreateShell(desktop, temp.Path, new ManualTimeProvider());
+        await shell.StartAsync();
+        await WaitUntilAsync(() => desktop.Transcripts == 1);
+
+        for (var revision = 2; revision <= 5; revision++)
+        {
+            desktop.Push(RemoteProtocol.Events.TranscriptInvalidated, JsonSerializer.Serialize(
+                new RemoteTranscriptInvalidated { ChatId = chatId, Revision = revision },
+                RemoteJsonContext.Default.RemoteTranscriptInvalidated));
+        }
+        await WaitUntilAsync(() => shell.Client.ReceivedFrameCount >= 5);
+
+        firstRead.SetResult(Transcript(chatId, "v1", "Available history"));
+        await WaitUntilAsync(() => desktop.Transcripts == 2);
+        await WaitUntilAsync(() => AnswerText(shell) == "Available history");
+        Assert.False(shell.Chat.IsLoading);
+        Assert.False(catchUpRead.Task.IsCompleted);
+
+        desktop.Push(RemoteProtocol.Events.TranscriptInvalidated, JsonSerializer.Serialize(
+            new RemoteTranscriptInvalidated { ChatId = chatId, Revision = 6 },
+            RemoteJsonContext.Default.RemoteTranscriptInvalidated));
+        await WaitUntilAsync(() => shell.Client.ReceivedFrameCount >= 6);
+        catchUpRead.SetResult(Transcript(chatId, "v5", "More history", revision: 5));
+        await WaitUntilAsync(() => desktop.Transcripts == 3);
+        await WaitUntilAsync(() => AnswerText(shell) == "More history");
+        Assert.False(finalRead.Task.IsCompleted);
+
+        finalRead.SetResult(Transcript(chatId, "v6", "Caught up", revision: 6));
+        await WaitUntilAsync(() => AnswerText(shell) == "Caught up");
+        Assert.Equal(3, desktop.Transcripts);
+    }
+
+    [Fact]
     public async Task DeltasForARowStillBeingFetchedAreReplayedWithoutAnotherFetch()
     {
         using var temp = new TempDirectory();

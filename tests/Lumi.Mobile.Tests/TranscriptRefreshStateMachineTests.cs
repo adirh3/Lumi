@@ -200,12 +200,14 @@ public sealed class TranscriptRefreshStateMachineTests
     }
 
     [Fact]
-    public async Task PairReconnectSnapshotAndInvalidationBurst_CoalescesToOneTrailingGetAndRejectsStaleApply()
+    public async Task PairReconnectSnapshotAndInvalidationBurst_AppliesInitialReadThenOneTrailingGet()
     {
         var chatId = Guid.NewGuid();
-        var stale = Transcript(chatId, "STALE", revision: 1, 0, 100, 100, ["stale-turn"]);
+        var initial = Transcript(chatId, "INITIAL", revision: 1, 0, 100, 100, ["initial-turn"]);
         var fresh = Transcript(chatId, "FRESH", revision: 2, 0, 100, 100, ["fresh-turn"]);
         var firstResponse = new TaskCompletionSource<RemoteTranscript>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var trailingResponse = new TaskCompletionSource<RemoteTranscript>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var liveEvents = new AsyncSseStream();
         var snapshot = Snapshot(chatId, "Refresh state");
@@ -215,7 +217,7 @@ public sealed class TranscriptRefreshStateMachineTests
             TranscriptResponder = (request, _) =>
                 request.Ordinal == 1
                     ? firstResponse.Task
-                    : Task.FromResult(fresh)
+                    : trailingResponse.Task
         };
         handler.EventResponseFactory = ordinal => ordinal == 1
             ? ControlledRemoteHandler.EventResponse(
@@ -225,13 +227,6 @@ public sealed class TranscriptRefreshStateMachineTests
             : ControlledRemoteHandler.EventResponse(liveEvents);
 
         await using var shell = CreateShell(handler);
-        var observedTitles = new ConcurrentQueue<string>();
-        shell.Chat.PropertyChanged += (_, args) =>
-        {
-            if (args.PropertyName == nameof(MobileChatViewModel.Title))
-                observedTitles.Enqueue(shell.Chat.Title);
-        };
-
         try
         {
             await PairAsync(shell);
@@ -269,29 +264,38 @@ public sealed class TranscriptRefreshStateMachineTests
             Assert.Equal(1, handler.ActiveTranscriptRequests);
             Assert.Equal(1, handler.MaxActiveTranscriptRequests);
 
-            var freshApplied = WaitForPropertyAsync(
+            var initialApplied = WaitForPropertyAsync(
                 shell.Chat,
                 // ApplyTranscript changes Title before Turns; IsEmpty is notified after population.
                 nameof(MobileChatViewModel.IsEmpty),
-                () => shell.Chat.Title == "FRESH" && !shell.Chat.IsEmpty);
+                () => shell.Chat.Title == "INITIAL" && !shell.Chat.IsEmpty);
 
-            firstResponse.TrySetResult(stale);
+            firstResponse.TrySetResult(initial);
 
             var trailing = await handler.NextTranscriptRequestAsync();
             Assert.Equal(2, trailing.Ordinal);
             Assert.Equal(chatId, trailing.ChatId);
             Assert.Null(trailing.BeforeMessageIndex);
+            await initialApplied;
+            Assert.Equal("initial-turn", Assert.Single(shell.Chat.Turns).Id);
+            Assert.Equal(1, handler.ActiveTranscriptRequests);
+
+            var freshApplied = WaitForPropertyAsync(
+                shell.Chat,
+                nameof(MobileChatViewModel.IsEmpty),
+                () => shell.Chat.Title == "FRESH" && !shell.Chat.IsEmpty);
+            trailingResponse.TrySetResult(fresh);
             await freshApplied;
 
             Assert.Equal(2, handler.TranscriptRequestCount);
             Assert.Equal(0, handler.ActiveTranscriptRequests);
             Assert.Equal(1, handler.MaxActiveTranscriptRequests);
-            Assert.DoesNotContain("STALE", observedTitles);
             Assert.Equal("fresh-turn", Assert.Single(shell.Chat.Turns).Id);
         }
         finally
         {
-            firstResponse.TrySetResult(stale);
+            firstResponse.TrySetResult(initial);
+            trailingResponse.TrySetResult(fresh);
             liveEvents.Complete();
         }
     }

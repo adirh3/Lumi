@@ -3226,13 +3226,19 @@ public sealed partial class MobileShellViewModel :
         Task loop;
         lock (_transcriptRefreshSync)
         {
+            // A catch-up refresh must not discard the read already arriving for this surface;
+            // otherwise continuous invalidations can keep its history empty indefinitely.
+            var version = kind == TranscriptRefreshKind.Refresh
+                          && IsLatestReadQueuedLocked(chatId, includeApplying: true)
+                ? _transcriptRequestVersion
+                : ++_transcriptRequestVersion;
             var request = new TranscriptRefreshRequest(
                 chatId,
                 beforeMessageIndex,
                 Chat.WindowEndMessageIndex,
                 kind,
                 _transcriptSurfaceGeneration,
-                ++_transcriptRequestVersion,
+                version,
                 Chat.StatusVersion,
                 // An automatic refresh of the window already on screen asks the desktop whether
                 // it changed at all; an unchanged answer costs no body, parse or projection.

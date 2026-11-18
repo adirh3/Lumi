@@ -830,6 +830,10 @@ New visible rows are hidden before their
 first paint and revealed after layout, rather than starting motion in a
 background-priority callback. An idle status received during a transcript fetch
 is held only until the reply arrives, without replacing a newer busy status.
+Automatic transcript invalidations queue one catch-up read without superseding the
+same surface's in-flight response, so ongoing desktop activity cannot hold the
+phone's initial history or subsequent updates until activity stops. Explicit
+history navigation and chat switches still supersede older reads.
 `MobileMotionTests` covers these send boundaries;
 run `MobileMotionRenderTests` in its own test process for the Skia pixel checks.
 
