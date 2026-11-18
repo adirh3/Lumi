@@ -229,7 +229,8 @@ public sealed class PluginCatalogService
     /// downloads a Git marketplace's whole repository, which takes long for a large one, so
     /// <paramref name="progress"/> reports what has reached disk every <see cref="ProgressInterval"/>.
     /// The runtime ignores cancellation: cancelling, or a download that makes no progress for
-    /// <see cref="StallTimeout"/>, stops the download itself and removes what it left behind.
+    /// <see cref="StallTimeout"/>, stops the download itself, after which the runtime fails the add and
+    /// removes its clone.
     /// </summary>
     /// <exception cref="MarketplaceAddStoppedException">The add was cancelled or its download stalled.</exception>
     public async Task<string> AddMarketplaceAsync(
@@ -286,17 +287,8 @@ public sealed class PluginCatalogService
             }
         }
 
-        try
-        {
-            var result = await add.ConfigureAwait(false);
-            return result?.Name ?? source;
-        }
-        catch
-        {
-            // The runtime removes a failed clone but keeps the lock file it created for it.
-            _downloads?.RemoveLeftovers(before);
-            throw;
-        }
+        var result = await add.ConfigureAwait(false);
+        return result?.Name ?? source;
     }
 
     /// <summary>
@@ -317,32 +309,18 @@ public sealed class PluginCatalogService
         if (stopped)
             await Task.WhenAny(add, Task.Delay(StopTimeout)).ConfigureAwait(false);
 
-        if (!add.IsCompleted)
-        {
-            _ = add.ContinueWith(
-                task =>
-                {
-                    if (!task.IsCompletedSuccessfully && task.Exception is not null)
-                        _downloads?.RemoveLeftovers(before);
-                },
-                CancellationToken.None,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
-            return true;
-        }
-
-        if (!add.IsCompletedSuccessfully)
-        {
-            _ = add.Exception;
-            _downloads?.RemoveLeftovers(before);
-        }
-
-        return false;
+        // Once Lumi gives up on the add, nothing awaits it: observe its failure whenever it comes.
+        _ = add.ContinueWith(
+            static task => _ = task.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return !add.IsCompleted;
     }
 
     /// <summary>
-    /// Removes what adds interrupted when Lumi or the runtime closed left behind (their clone and lock),
-    /// which the runtime never removes. Anything git still writes, or from the last ten minutes, stays.
+    /// Removes the clones of adds interrupted when Lumi or the runtime closed, which the runtime never
+    /// removes. Anything git still writes, or written in the last ten minutes, stays, and so do locks.
     /// An isolated Lumi profile on the user's own runtime (a Release test run) leaves that cache alone.
     /// </summary>
     public Task RemoveAbandonedDownloadsAsync()

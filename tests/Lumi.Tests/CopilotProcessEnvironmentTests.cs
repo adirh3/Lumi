@@ -144,6 +144,22 @@ public sealed class CopilotProcessEnvironmentTests
         Assert.Equal(shared, Assert.Single(normal).Value);
     }
 
+    [Fact]
+    public void RelativeCacheHome_IsResolvedOnce_SoLumiWatchesTheRuntimesCache()
+    {
+        const string Relative = "relative-copilot-cache";
+        var resolved = Path.GetFullPath(Relative);
+
+        var normal = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["COPILOT_CACHE_HOME"] = Relative };
+        Assert.Equal(resolved, CopilotService.DefaultRuntimeCacheDirectory(name => normal.TryGetValue(name, out var value) ? value : null));
+        CopilotService.ApplyRuntimeCacheIsolation(normal, isolatedCache: null);
+        Assert.Equal(resolved, normal["COPILOT_CACHE_HOME"]);
+
+        var isolated = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["COPILOT_CACHE_HOME"] = Relative };
+        CopilotService.ApplyRuntimeCacheIsolation(isolated, Path.Combine(TestProfile.Root, "copilot-cache"));
+        Assert.Equal(resolved, isolated["COPILOT_PKG_CACHE_HOME"]);
+    }
+
 #pragma warning disable GHCP001 // Match the SDK account identity used by the logout RPC.
     [Fact]
     public void StoredCredentialSelectionPreservesReleasedWindowsPriorityAndToolEnvironment()

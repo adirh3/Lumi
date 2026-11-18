@@ -314,8 +314,10 @@ public class CopilotService : IAsyncDisposable
     /// <summary>The runtime's own choice of cache folder, from these environment variables.</summary>
     internal static string DefaultRuntimeCacheDirectory(Func<string, string?> environment)
     {
-        if (environment("COPILOT_CACHE_HOME") is { Length: > 0 } configured && Path.IsPathFullyQualified(configured))
-            return configured;
+        // The runtime would resolve a relative override against its working directory, which Lumi doesn't
+        // choose, so Lumi resolves it here and passes the runtime the result (ApplyRuntimeCacheIsolation).
+        if (environment("COPILOT_CACHE_HOME") is { } configured && !string.IsNullOrWhiteSpace(configured))
+            return Path.GetFullPath(configured);
 
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (OperatingSystem.IsWindows())
@@ -326,17 +328,24 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
-    /// Points an isolated runtime at its own cache, so its plugin marketplace clones stay in the test
-    /// profile. The runtime's unpacked CLI versions stay in the shared cache, where they are reused
-    /// instead of unpacked again for each profile.
+    /// Gives the runtime the cache folder Lumi watches. An isolated runtime gets its own, so its plugin
+    /// marketplace clones stay in the test profile, while its unpacked CLI versions stay in the shared
+    /// cache, where they are reused instead of unpacked again for each profile. A relative
+    /// <c>COPILOT_CACHE_HOME</c> becomes the full path Lumi resolved it to.
     /// </summary>
     internal static void ApplyRuntimeCacheIsolation(IDictionary<string, string> environment, string? isolatedCache)
     {
+        var shared = DefaultRuntimeCacheDirectory(name => environment.TryGetValue(name, out var value) ? value : null);
         if (isolatedCache is null)
+        {
+            if (environment.TryGetValue("COPILOT_CACHE_HOME", out var configured) && !string.IsNullOrWhiteSpace(configured)
+                && !Path.IsPathFullyQualified(configured))
+                environment["COPILOT_CACHE_HOME"] = shared;
             return;
+        }
 
         if (!environment.TryGetValue("COPILOT_PKG_CACHE_HOME", out var packages) || string.IsNullOrWhiteSpace(packages))
-            environment["COPILOT_PKG_CACHE_HOME"] = DefaultRuntimeCacheDirectory(name => environment.TryGetValue(name, out var value) ? value : null);
+            environment["COPILOT_PKG_CACHE_HOME"] = shared;
         environment["COPILOT_CACHE_HOME"] = isolatedCache;
     }
 

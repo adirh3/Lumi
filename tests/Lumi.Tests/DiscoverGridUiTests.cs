@@ -455,7 +455,6 @@ public sealed class DiscoverGridUiTests
                 Assert.False(vm.IsAddingSource);
                 Assert.Equal("contoso/plugin-catalog", vm.NewMarketplace);
                 Assert.Equal([FakeMarketplaceDownload.GitProcessId], download.Stopped);
-                Assert.False(File.Exists(download.Lock));
                 Dispatcher.UIThread.RunJobs();
                 window.UpdateLayout();
                 Assert.False(row.IsEffectivelyVisible);

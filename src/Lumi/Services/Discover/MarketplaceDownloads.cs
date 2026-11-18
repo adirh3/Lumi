@@ -25,17 +25,27 @@ public sealed record MarketplaceDownloadProgress(MarketplaceDownloadPhase Phase,
 /// <summary>A running git process, and whether the Copilot runtime started it.</summary>
 internal sealed record GitProcess(int Id, string CommandLine, bool StartedByRuntime);
 
+/// <summary>A git clone into the runtime's staging, as its command line describes it.</summary>
+/// <param name="Repository">The repository argument, as the runtime passed it.</param>
+/// <param name="Branch">Its <c>--branch</c>, which the runtime passes for any ref but a commit.</param>
+/// <param name="Pinned">Whether it stages in <c>_pinned</c>, as the runtime does for an add at a ref.</param>
+internal sealed record MarketplaceClone(string Staging, string Target, string Repository, string? Branch, bool Pinned);
+
 /// <summary>
 /// The Copilot runtime adds a Git marketplace by cloning its whole repository with git into a staging
-/// folder of its cache's <c>marketplaces</c> folder. It reports no progress, ignores cancellation,
-/// leaves git running when it exits and keeps the staging folder of a clone that never finished. The
-/// git command line names that folder and the repository it clones, so Lumi uses it to show what has
-/// arrived, to stop the clone and to remove what an attempt left behind.
+/// folder of its cache's <c>marketplaces</c> folder (of <c>marketplaces/_pinned</c> for an add at a
+/// ref). It reports no progress, ignores cancellation, leaves git running when it exits and keeps the
+/// staging folder of a clone that never finished. The git command line names that folder, the
+/// repository and the ref, so Lumi uses it to show what has arrived, to stop the clone and to remove
+/// staging folders that interrupted adds left behind.
 /// </summary>
 internal sealed partial class MarketplaceDownloads
 {
     /// <summary>The runtime's staging folders; everything else in the cache is the runtime's own.</summary>
     internal const string StagingPrefix = ".copilot-clone-";
+
+    /// <summary>Where the runtime keeps marketplaces added at a ref, and stages their clones.</summary>
+    internal const string PinnedFolder = "_pinned";
 
     private static readonly StringComparison PathComparison =
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -68,21 +78,8 @@ internal sealed partial class MarketplaceDownloads
     /// <summary>The runtime's marketplace cache: a folder and a lock file per marketplace.</summary>
     public string Directory { get; }
 
-    /// <summary>The cache's entries now, to tell later what an add created.</summary>
-    public IReadOnlySet<string> Snapshot()
-    {
-        try
-        {
-            if (System.IO.Directory.Exists(Directory))
-                return System.IO.Directory.EnumerateFileSystemEntries(Directory).Select(Path.GetFileName).OfType<string>().ToHashSet(PathComparer);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Debug.WriteLine($"[Plugins] Could not read '{Directory}': {ex.Message}");
-        }
-
-        return new HashSet<string>(PathComparer);
-    }
+    /// <summary>The staging folders now, to tell later which clones an add began.</summary>
+    public IReadOnlySet<string> Snapshot() => StagingFolders().ToHashSet(PathComparer);
 
     /// <summary>
     /// The download of the runtime's clones of <paramref name="source"/> begun after
@@ -130,105 +127,93 @@ internal sealed partial class MarketplaceDownloads
     }
 
     /// <summary>
-    /// Removes what a failed or stopped add created: its clone's staging folder and, while no clone
-    /// runs into this cache, the lock file of a marketplace that was never added. Entries in
-    /// <paramref name="before"/>, and folders git still writes, stay.
-    /// </summary>
-    public void RemoveLeftovers(IReadOnlySet<string> before)
-    {
-        var inUse = StagingInUse();
-        foreach (var name in Snapshot().Where(name => !before.Contains(name)))
-        {
-            var path = Path.Combine(Directory, name);
-            if (name.StartsWith(StagingPrefix, StringComparison.Ordinal))
-            {
-                if (!inUse.Contains(path))
-                    TryDelete(path);
-            }
-            else if (inUse.Count == 0 && IsOrphanLock(path))
-            {
-                TryDelete(path);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Removes what adds interrupted when Lumi or the runtime closed left behind, which the runtime
-    /// never removes: staging folders older than <paramref name="age"/> that no git process writes and,
-    /// while no clone runs into this cache at all, lock files as old with no marketplace beside them.
+    /// Removes the staging folders of adds interrupted when Lumi or the runtime closed, which the runtime
+    /// never removes: those no git process names and nothing has written to for <paramref name="age"/>.
+    /// Lock files stay. The runtime locks them natively, so removing one would let another add take a
+    /// lock that a running add still holds.
     /// </summary>
     public void RemoveAbandoned(TimeSpan age)
     {
-        string[] entries;
-        try
-        {
-            entries = System.IO.Directory.Exists(Directory)
-                ? System.IO.Directory.GetFileSystemEntries(Directory)
-                : [];
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return;
-        }
-
-        var stagings = entries.Where(static entry => Path.GetFileName(entry).StartsWith(StagingPrefix, StringComparison.Ordinal)).ToArray();
-        var locks = entries.Where(static entry => entry.EndsWith(".lock", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (stagings.Length == 0 && locks.Length == 0)
+        var stagings = StagingFolders().ToArray();
+        if (stagings.Length == 0)
             return;
 
-        bool IsOld(string path) => DateTime.UtcNow - File.GetCreationTimeUtc(path) > age;
         var inUse = StagingInUse();
         foreach (var staging in stagings)
         {
-            if (!inUse.Contains(staging) && IsOld(staging))
+            if (!inUse.Contains(staging) && !WrittenWithin(staging, age))
                 TryDelete(staging);
         }
+    }
 
-        if (inUse.Count > 0)
-            return;
-
-        foreach (var lockFile in locks)
+    /// <summary>The runtime's staging folders, for adds without a ref and in <c>_pinned</c> for adds at one.</summary>
+    private IEnumerable<string> StagingFolders()
+    {
+        foreach (var folder in new[] { Directory, Path.Combine(Directory, PinnedFolder) })
         {
-            if (IsOrphanLock(lockFile) && IsOld(lockFile))
-                TryDelete(lockFile);
+            string[] stagings;
+            try
+            {
+                stagings = System.IO.Directory.Exists(folder) ? System.IO.Directory.GetDirectories(folder, StagingPrefix + "*") : [];
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Debug.WriteLine($"[Plugins] Could not read '{folder}': {ex.Message}");
+                continue;
+            }
+
+            foreach (var staging in stagings)
+                yield return staging;
         }
     }
 
     /// <summary>
-    /// A lock with no marketplace beside it. The runtime keeps a lock next to each marketplace and its
-    /// other files; an add holds one while it clones, so this says nothing while any clone runs.
+    /// Whether anything in a staging folder was written within <paramref name="age"/>. Between git
+    /// commands, and after the clone while the runtime moves it into place, no git process names it.
     /// </summary>
-    private static bool IsOrphanLock(string path)
+    private static bool WrittenWithin(string folder, TimeSpan age)
     {
-        if (!path.EndsWith(".lock", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        var subject = path[..^".lock".Length];
-        return !System.IO.Directory.Exists(subject) && !File.Exists(subject);
+        var since = DateTime.UtcNow - age;
+        try
+        {
+            var root = new DirectoryInfo(folder);
+            return root.LastWriteTimeUtc > since
+                || root.EnumerateFileSystemInfos("*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = 0 })
+                    .Any(entry => entry.LastWriteTimeUtc > since);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Can't tell; a later sweep can.
+            return true;
+        }
     }
 
     /// <summary>
-    /// Where a git command line clones to, when it clones into this cache's staging: the staging
-    /// folder, and the target folder, the last argument, inside it.
+    /// What a git command line clones into this cache's staging: the staging folder, the target folder
+    /// inside it (the last argument), the repository (the argument before it) and any <c>--branch</c>.
     /// </summary>
-    internal static (string Staging, string Target)? CloneInto(string commandLine, string marketplacesDirectory)
+    internal static MarketplaceClone? CloneInto(string commandLine, string marketplacesDirectory)
     {
-        commandLine = WithPlatformSeparators(commandLine);
-        if (!commandLine.Split([' ', '\t', '"'], StringSplitOptions.RemoveEmptyEntries).Contains("clone", StringComparer.Ordinal)
-            || StagingIn(commandLine, marketplacesDirectory) is not { } found)
+        var line = WithPlatformSeparators(commandLine);
+        if (!line.Split([' ', '\t', '"'], StringSplitOptions.RemoveEmptyEntries).Contains("clone", StringComparer.Ordinal)
+            || StagingIn(line, marketplacesDirectory) is not { } found)
             return null;
 
         // The target runs to its closing quote or, unquoted (ps on Linux and macOS never quotes), to the end.
-        var quoted = found.Start > 0 && commandLine[found.Start - 1] == '"';
-        var end = quoted ? commandLine.IndexOf('"', found.Start) : -1;
-        var target = commandLine[found.Start..(end < 0 ? commandLine.Length : end)].TrimEnd();
-        return (found.Staging, target);
+        var quoted = found.Start > 0 && line[found.Start - 1] == '"';
+        var end = quoted ? line.IndexOf('"', found.Start) : -1;
+        var target = line[found.Start..(end < 0 ? line.Length : end)].TrimEnd();
+
+        // The arguments before it as the runtime wrote them, so a URL keeps its slashes.
+        var arguments = commandLine[..found.Start].Split([' ', '\t', '"'], StringSplitOptions.RemoveEmptyEntries);
+        var branch = Array.LastIndexOf(arguments, "--branch") is var at and >= 0 && at < arguments.Length - 2 ? arguments[at + 1] : null;
+        return arguments.Length > 0 ? new MarketplaceClone(found.Staging, target, arguments[^1], branch, found.Pinned) : null;
     }
 
     /// <summary>
-    /// What a clone's command line names for a marketplace source: <c>/owner/repo</c> for GitHub, else
-    /// the URL's host and path without its scheme, user, ref or <c>.git</c>. Null for a local folder,
-    /// which the runtime doesn't clone.
+    /// The repository a marketplace source or a clone's repository argument names, as one host and path:
+    /// <c>github.com/owner/repo</c> for GitHub, else the URL's host and path without its scheme, user,
+    /// ref or <c>.git</c>. Null for a local folder, which the runtime doesn't clone.
     /// </summary>
     internal static string? CloneAddress(string source)
     {
@@ -237,7 +222,7 @@ internal sealed partial class MarketplaceDownloads
             source = source[..hash];
 
         if (GitHubRepoRef.TryParse(source) is { } github)
-            return $"/{github.Owner}/{github.Repo}";
+            return $"github.com/{github.Owner}/{github.Repo}";
 
         string address;
         if (source.Contains("://", StringComparison.Ordinal))
@@ -259,51 +244,59 @@ internal sealed partial class MarketplaceDownloads
         return address.EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? address[..^".git".Length] : address;
     }
 
-    /// <summary>Whether a git command line clones the repository at this <see cref="CloneAddress"/>.</summary>
-    internal static bool Clones(string commandLine, string address)
+    /// <summary>
+    /// Whether a clone is the runtime's clone of this marketplace source: the same repository at the same
+    /// ref. The runtime stages an add at a ref in <c>_pinned</c> and clones it with <c>--branch</c>
+    /// (without <c>refs/heads/</c> or <c>refs/tags/</c>), unless the ref is a commit, which it fetches after
+    /// cloning.
+    /// </summary>
+    internal static bool IsCloneOf(MarketplaceClone clone, string source)
     {
-        // One separator for all, so scp-like "host:path" and "host/path" compare equal.
-        static string Flatten(string text) => text.Replace('\\', '/').Replace(':', '/');
-        var line = Flatten(commandLine);
-        var needle = Flatten(address);
-        for (var at = line.IndexOf(needle, StringComparison.OrdinalIgnoreCase); at >= 0; at = line.IndexOf(needle, at + 1, StringComparison.OrdinalIgnoreCase))
-        {
-            if (needle[0] != '/' && at > 0 && line[at - 1] is not ('/' or '@'))
-                continue;
-
-            var end = at + needle.Length;
-            if (line.AsSpan(end).StartsWith(".git", StringComparison.OrdinalIgnoreCase))
-                end += ".git".Length;
-            if (end == line.Length || line[end] is '/' or ' ' or '\t' or '"')
-                return true;
-        }
-
-        return false;
+        var hash = source.IndexOf('#');
+        var reference = hash >= 0 && source[(hash + 1)..].Trim() is { Length: > 0 } named ? named : null;
+        var branch = reference is null || CommitId().IsMatch(reference) ? null
+            : reference.StartsWith("refs/heads/", StringComparison.Ordinal) ? reference["refs/heads/".Length..]
+            : reference.StartsWith("refs/tags/", StringComparison.Ordinal) ? reference["refs/tags/".Length..]
+            : reference;
+        return clone.Pinned == (reference is not null)
+            && string.Equals(clone.Branch, branch, StringComparison.Ordinal)
+            && CloneAddress(source) is { } address
+            && string.Equals(CloneAddress(clone.Repository), address, StringComparison.OrdinalIgnoreCase);
     }
 
     [GeneratedRegex(@"^[^@/\s]+@(?<host>[^:/\s]+):(?<path>\S+)$")]
     private static partial Regex ScpAddress();
 
+    [GeneratedRegex("^[0-9a-fA-F]{40}$")]
+    private static partial Regex CommitId();
+
     /// <summary>On Windows git and its children write paths with either separator; compare one.</summary>
     private static string WithPlatformSeparators(string path)
         => OperatingSystem.IsWindows() ? path.Replace('/', '\\') : path;
 
-    /// <summary>The staging folder of this cache a command line names, and where its path starts.</summary>
-    private static (string Staging, int Start)? StagingIn(string commandLine, string marketplacesDirectory)
+    /// <summary>The staging folder of this cache a command line names, where its path starts and whether it is pinned.</summary>
+    private static (string Staging, int Start, bool Pinned)? StagingIn(string commandLine, string marketplacesDirectory)
     {
         commandLine = WithPlatformSeparators(commandLine);
-        marketplacesDirectory = WithPlatformSeparators(marketplacesDirectory);
-        var root = Path.TrimEndingDirectorySeparator(marketplacesDirectory) + Path.DirectorySeparatorChar;
-        var start = commandLine.IndexOf(root + StagingPrefix, PathComparison);
-        if (start < 0)
-            return null;
+        marketplacesDirectory = Path.TrimEndingDirectorySeparator(WithPlatformSeparators(marketplacesDirectory));
+        foreach (var pinned in new[] { false, true })
+        {
+            var folder = pinned ? Path.Combine(marketplacesDirectory, PinnedFolder) : marketplacesDirectory;
+            var root = folder + Path.DirectorySeparatorChar;
+            var start = commandLine.IndexOf(root + StagingPrefix, PathComparison);
+            if (start < 0)
+                continue;
 
-        var end = start + root.Length + StagingPrefix.Length;
-        while (end < commandLine.Length && commandLine[end] is not ('\\' or '/' or '"' or ' ' or '\t'))
-            end++;
+            var end = start + root.Length + StagingPrefix.Length;
+            while (end < commandLine.Length && commandLine[end] is not ('\\' or '/' or '"' or ' ' or '\t'))
+                end++;
 
-        var name = commandLine[(start + root.Length)..end];
-        return name.Length > StagingPrefix.Length ? (Path.Combine(marketplacesDirectory, name), start) : null;
+            var name = commandLine[(start + root.Length)..end];
+            if (name.Length > StagingPrefix.Length)
+                return (Path.Combine(folder, name), start, pinned);
+        }
+
+        return null;
     }
 
     private IReadOnlyList<(int ProcessId, string Staging, string Target)> RuntimeClones(IReadOnlySet<string>? before, string? source)
@@ -311,18 +304,14 @@ internal sealed partial class MarketplaceDownloads
         if (_runtimeProcessId() is not { } runtime)
             return [];
 
-        // Other adds and refreshes run their own clones in the same runtime; only this source's count.
-        var address = source is null ? null : CloneAddress(source);
-        if (source is not null && address is null)
-            return [];
-
         var clones = new List<(int, string, string)>();
         foreach (var process in _gitProcesses(runtime))
         {
+            // Other adds and refreshes run their own clones in the same runtime: only this source's count.
             if (process.StartedByRuntime
                 && CloneInto(process.CommandLine, Directory) is { } clone
-                && before?.Contains(Path.GetFileName(clone.Staging)) != true
-                && (address is null || Clones(process.CommandLine, address)))
+                && before?.Contains(clone.Staging) != true
+                && (source is null || IsCloneOf(clone, source)))
             {
                 clones.Add((process.Id, clone.Staging, clone.Target));
             }
