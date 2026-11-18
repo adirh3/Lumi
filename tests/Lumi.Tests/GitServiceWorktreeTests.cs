@@ -2,13 +2,57 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
+using Lumi.Models;
 using Lumi.Services;
+using Lumi.ViewModels;
 using Xunit;
 
 namespace Lumi.Tests;
 
 public sealed class GitServiceWorktreeTests
 {
+    [Fact]
+    public async Task DetachedDeleteConfirmationPreservesWorktreeClaimedByAnotherChat()
+    {
+        using var temp = new TempDir();
+        var repo = Path.Combine(temp.Path, "repo");
+        var worktree = Path.Combine(temp.Path, "worktree");
+        Directory.CreateDirectory(repo);
+        Git(repo, "init -q");
+        Git(repo, "-c user.email=test@example.com -c user.name=Test commit -q --allow-empty -m initial");
+        Git(repo, $"worktree add -q -b lumi/delete-review \"{worktree}\"");
+        var keptFile = Path.Combine(worktree, "keep.txt");
+        File.WriteAllText(keptFile, "Uncommitted work in the other chat");
+        try
+        {
+            var project = new Project { Name = "Project", WorkingDirectory = repo };
+            var chat = new Chat { Title = "Original", ProjectId = project.Id, WorktreePath = worktree };
+            var data = new AppData
+            {
+                Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+                Projects = [project],
+                Chats = [chat],
+            };
+            using var main = new MainViewModel(new DataStore(data), TestCopilot.Shared, new UpdateService());
+            using var windowVm = new ChatWindowViewModel(main.ChatVM, main);
+            await windowVm.DeleteChatCommand.ExecuteAsync(chat);
+            Assert.True(windowVm.IsWorktreeDeleteDialogOpen);
+
+            var other = new Chat { Title = "Fork made in another window", ProjectId = project.Id, WorktreePath = worktree };
+            data.Chats.Add(other);
+            await windowVm.ConfirmDeleteWithWorktreeCommand.ExecuteAsync(null);
+
+            Assert.DoesNotContain(chat, data.Chats);
+            Assert.Contains(other, data.Chats);
+            Assert.True(File.Exists(keptFile));
+        }
+        finally
+        {
+            if (Directory.Exists(worktree))
+                await GitService.RemoveWorktreeAsync(repo, worktree);
+        }
+    }
+
     [Fact]
     public void FindRepoRoot_ReturnsRoot_ForSubfolder()
     {

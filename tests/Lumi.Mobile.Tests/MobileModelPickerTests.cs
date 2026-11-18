@@ -15,6 +15,7 @@ using Lumi.Mobile.Views;
 using Lumi.Remote.Protocol;
 using StrataTheme.Controls;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Lumi.Mobile.Tests;
 
@@ -23,7 +24,7 @@ namespace Lumi.Mobile.Tests;
 /// same facts on each row, pins shared with the PC, and effort and context kept within reach.
 /// </summary>
 [Collection("Headless mobile UI")]
-public sealed class MobileModelPickerTests
+public sealed class MobileModelPickerTests(ITestOutputHelper output)
 {
     /// <summary>A PC's picker as the desktop projects it: pinned rows first, in the order they were pinned.</summary>
     private static RemoteSettings Catalog(params string[] pinned)
@@ -405,6 +406,89 @@ public sealed class MobileModelPickerTests
             Assert.Equal(last.Name, shell.Chat.Model);
             Assert.False(shell.Chat.IsModelSheetOpen);
         });
+
+    [Fact]
+    public void ReopeningModelSheetAndStreamingStatusDoNotRebuildUnchangedModelRows()
+    {
+        var chat = OpenSheet(new PinSink(), Catalog("claude-opus-5.5"));
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Active chat", "gpt-6.1-sol");
+        chat.OpenModelSheetCommand.Execute(null);
+
+        var snapshot = chat.ModelRows.ToArray();
+        var mutations = 0;
+        chat.ModelRows.CollectionChanged += (_, _) => mutations++;
+
+        // Reopening the sheet and receiving live status updates for the same model must not churn rows.
+        chat.IsModelSheetOpen = false;
+        chat.OpenModelSheetCommand.Execute(null);
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, Model = "gpt-6.1-sol", IsBusy = true, IsStreaming = true });
+        chat.PickQualityCommand.Execute("high");
+
+        Assert.Equal(0, mutations);
+        Assert.Equal(snapshot.Length, chat.ModelRows.Count);
+        for (var index = 0; index < snapshot.Length; index++)
+            Assert.Same(snapshot[index], chat.ModelRows[index]);
+
+        // Switching models updates only the old and new selected rows in place rather than rebuilding all sections.
+        chat.PickModelCommand.Execute("claude-sonnet-5");
+        Assert.Equal(2, mutations);
+        Assert.True(Row(chat, "claude-sonnet-5").IsSelected);
+        Assert.False(Row(chat, "gpt-6.1-sol").IsSelected);
+    }
+
+    [Fact]
+    public void ReopeningModelSheetDoesNotAllocateInProportionToCatalogSize()
+    {
+        var small = OpenSheet(new PinSink(), Catalog());
+        var catalog = Catalog();
+        for (var index = 0; index < 72; index++)
+        {
+            var id = $"extra-model-{index}";
+            catalog.AvailableModels.Add(id);
+            catalog.ModelOptions.Add(new() { Model = id, DisplayName = id, ProviderName = "Extra account" });
+        }
+        var large = OpenSheet(new PinSink(), catalog);
+
+        Measure(small);
+        Measure(large);
+        var smallBytes = Measure(small);
+        var largeBytes = Measure(large);
+        output.WriteLine($"20 unchanged picker openings: 5 models = {smallBytes:N0} bytes; 77 models = {largeBytes:N0} bytes.");
+        Assert.True(largeBytes <= smallBytes + 16 * 1024,
+            $"Reopening an unchanged catalog allocated {smallBytes:N0} bytes with 5 models and {largeBytes:N0} with 77.");
+
+        static long Measure(MobileChatViewModel chat)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var index = 0; index < 20; index++)
+            {
+                chat.IsModelSheetOpen = false;
+                chat.OpenModelSheetCommand.Execute(null);
+            }
+            return GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+    }
+
+    [Fact]
+    public void CatalogRefreshUpdatesFactsEvenWhenTheModelIdsStayTheSame()
+    {
+        var chat = OpenSheet(new PinSink(), Catalog());
+        var catalog = Catalog("claude-sonnet-5");
+        var sonnet = catalog.ModelOptions.Single(row => row.Model == "claude-sonnet-5");
+        sonnet.DisplayName = "Updated Sonnet";
+        sonnet.Status = "Needs enabling";
+        sonnet.Cost = "2x";
+
+        chat.ApplyCatalogs(catalog);
+
+        var row = Row(chat, "claude-sonnet-5");
+        Assert.Equal(("Updated Sonnet", "Needs enabling", "2x"), (row.Label, row.Status, row.Cost));
+        Assert.True(row.IsPinned);
+        Assert.Equal(["claude-sonnet-5"], Section(chat, "PINNED"));
+        Assert.Equal(chat.ModelGroups.SelectMany(group => group.Options), chat.ModelOptions);
+        Assert.Equal(chat.ModelOptions, chat.ModelRows.OfType<ModelPickerOption>());
+    }
 
     private static async Task RunUiAsync(Func<MobileShellViewModel, Window, Task> test)
     {

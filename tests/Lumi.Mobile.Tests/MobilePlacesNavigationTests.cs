@@ -30,6 +30,78 @@ namespace Lumi.Mobile.Tests;
 public sealed class MobilePlacesNavigationTests
 {
     [Fact]
+    public async Task OnlyTheFullWidthRestingDrawerSkipsPaintingTheMountedChat()
+    {
+        using var session = HeadlessMobileSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(async () =>
+        {
+            await using var shell = new MobileShellViewModel(store: session.NewStore(), post: action => action());
+            shell.IsPaired = shell.IsConnected = shell.IsHostReady = true;
+            var view = new MobileShellView { DataContext = shell };
+            var window = new Window { Width = 412, Height = 892, Content = view };
+            try
+            {
+                window.Show();
+                shell.ShowHome();
+                await Frames(window, 500);
+                var drawer = view.GetVisualDescendants().OfType<StrataNavigationDrawer>().Single(control => control.Name == "NavDrawer");
+                var chat = view.FindControl<ChatDetailView>("ChatSurface")!;
+                Assert.Equal(1, drawer.Progress);
+                Assert.True(chat.IsVisible);
+                Assert.True(chat.Bounds.Width > 0);
+                Assert.Equal(0, chat.Opacity);
+
+                shell.IsDrawerOpen = false;
+                await Frames(window, 50);
+                Assert.True(drawer.Progress < 1);
+                Assert.Equal(1, chat.Opacity);
+                drawer.CompleteMotion();
+                Assert.Equal(1, chat.Opacity);
+
+                shell.ShowHome();
+                drawer.CompleteMotion();
+                Assert.Equal(0, chat.Opacity);
+
+                window.Width = 984;
+                window.Height = 1092;
+                await Frames(window, 500);
+                Assert.False(drawer.IsModal);
+                Assert.Equal(1, chat.Opacity);
+            }
+            catch (Exception error)
+            {
+                failure = ExceptionDispatchInfo.Capture(error);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+        failure?.Throw();
+    }
+
+    [Fact]
+    public async Task ChangingLibraryPlacesPublishesOnlyThePlaceBeingOpened()
+    {
+        await using var scope = new ShellScope();
+        var shell = scope.Paired(412, 892);
+        var places = new System.Collections.Generic.List<MobilePlace>();
+        shell.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName == nameof(MobileShellViewModel.Place))
+                places.Add(shell.Place);
+        };
+
+        foreach (var place in new[] { MobilePlace.Jobs, MobilePlace.Customize, MobilePlace.Settings, MobilePlace.Jobs })
+        {
+            places.Clear();
+            shell.SelectPlace(place);
+            Assert.Equal(new[] { place }, places);
+        }
+    }
+
+    [Fact]
     public async Task EachPlaceOpensWhereTheDesktopKeepsIt()
     {
         await using var scope = new ShellScope();
@@ -983,6 +1055,8 @@ public sealed class MobilePlacesNavigationTests
 
                 var chatsBar = Bar("DrawerPlaces");
                 var chats = Part<Button>(chatsBar, "PlacesChatsButton");
+                var nameLayout = Name(chatsBar, "PlacesChatsButton").TextLayout;
+                var barWidth = chatsBar.Bounds.Width;
                 var (chatsX, chatsWidth) = Selection(chatsBar);
                 Assert.Equal(chats.Bounds.X, chatsX, 1);
                 Assert.Equal(chats.Bounds.Width, chatsWidth, 1);
@@ -1009,13 +1083,16 @@ public sealed class MobilePlacesNavigationTests
                 Thread.Sleep(300);
                 Tick(window);
                 var afterStall = Selection(jobsBar).X;
-                var samples = new System.Collections.Generic.List<(double Elapsed, double X, double ListX)>();
+                var samples = new System.Collections.Generic.List<(double Elapsed, double X)>();
                 // A slow frame holds the glide rather than skipping it, so it is followed to its end.
                 while (switched.Elapsed < PlacesBarView.GlideDuration + TimeSpan.FromMilliseconds(160)
                        || (switched.Elapsed < TimeSpan.FromSeconds(4) && (jobsBar.IsGliding || chatsBar.IsGliding)))
                 {
                     Tick(window);
-                    samples.Add((switched.Elapsed.TotalMilliseconds, Selection(jobsBar).X, Selection(chatsBar).X));
+                    samples.Add((switched.Elapsed.TotalMilliseconds, Selection(jobsBar).X));
+                    Assert.Same(nameLayout, Name(chatsBar, "PlacesChatsButton").TextLayout);
+                    Assert.Equal(barWidth, chatsBar.Bounds.Width);
+                    Assert.False(chatsBar.IsGliding, "the covered bar must not keep its own frame loop alive");
                     await Task.Delay(16);
                 }
                 Tick(window);
@@ -1029,11 +1106,8 @@ public sealed class MobilePlacesNavigationTests
                 Assert.True(endX - chatsX > 40, $"Jobs sits {endX - chatsX:0.#} dp after Chats.");
                 Assert.True(afterStall - chatsX < (endX - chatsX) * 0.25,
                     $"after a stall the highlight jumped {afterStall - chatsX:0.#} dp of the {endX - chatsX:0.#} dp to Jobs.");
-                foreach (var (elapsed, x, listX) in samples)
+                foreach (var (elapsed, x) in samples)
                 {
-                    // One movement for the window: the chat list's bar, hidden now, and the bar in view draw
-                    // the same glide, though the one in view may have been built partway through it.
-                    Assert.Equal(listX, x, 1.5);
                     Assert.InRange(x, chatsX - 1, endX + 1);
                     // Early on the highlight is still on its way: it glides from Chats rather than appearing.
                     if (elapsed < PlacesBarView.GlideDuration.TotalMilliseconds * 0.3)
@@ -1048,12 +1122,81 @@ public sealed class MobilePlacesNavigationTests
                 Assert.Equal(1, Name(jobsBar, "PlacesJobsButton").Opacity, 2);
                 Assert.True(Name(jobsBar, "PlacesJobsButton").Bounds.Width > 20);
                 Assert.Equal(0, Name(jobsBar, "PlacesChatsButton").Opacity, 2);
-                Assert.Equal(0, Name(jobsBar, "PlacesChatsButton").MaxWidth, 1);
+                Assert.Equal(0, Assert.IsType<Grid>(Name(jobsBar, "PlacesChatsButton").Parent).MaxWidth, 1);
                 Assert.False(jobsBar.IsGliding);
+                Assert.False(chatsBar.IsGliding);
+                shell.SelectPlace(MobilePlace.Chats);
+                await Frames(window, 550);
+                var (returnedX, returnedWidth) = Selection(chatsBar);
+                Assert.Equal(chats.Bounds.X, returnedX, 1);
+                Assert.Equal(chats.Bounds.Width, returnedWidth, 1);
             }
             catch (Exception ex)
             {
                 failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+        failure?.Throw();
+    }
+
+    [Theory]
+    [InlineData(MobilePlace.Jobs, "LibraryPlaces", "PlacesJobsButton")]
+    [InlineData(MobilePlace.Settings, "SettingsPlaces", "PlacesSettingsButton")]
+    public async Task ClosingTheKeyboardResumesThePlacesGlide(
+        MobilePlace place, string barName, string buttonName)
+    {
+        using var session = HeadlessMobileSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(async () =>
+        {
+            await using var shell = new MobileShellViewModel(store: session.NewStore(), post: action => action());
+            shell.IsPaired = shell.IsConnected = shell.IsHostReady = true;
+            var view = new MobileShellView { DataContext = shell };
+            var window = new Window { Width = 412, Height = 892, Content = view };
+            try
+            {
+                window.Show();
+                shell.ShowLaunchHome();
+                await Frames(window, 500);
+                shell.SelectPlace(place);
+                await Frames(window, 80);
+
+                var bar = view.GetVisualDescendants().OfType<PlacesBarView>()
+                    .Single(control => control.Name == barName);
+                var selection = bar.GetVisualDescendants().OfType<Border>()
+                    .Single(control => control.Name == "PlacesSelection");
+                var button = bar.GetVisualDescendants().OfType<Button>()
+                    .Single(control => control.Name == buttonName);
+                var label = button.GetVisualDescendants().OfType<TextBlock>()
+                    .Single(control => control.Classes.Contains("place-label"));
+                Assert.True(bar.IsGliding);
+                Assert.True(label.Opacity < 1);
+
+                shell.IsKeyboardOpen = true;
+                await Frames(window, 500);
+                Assert.False(bar.IsEffectivelyVisible);
+                Assert.False(bar.IsGliding);
+                var hiddenWidth = selection.Width;
+                await Frames(window, 100);
+                Assert.Equal(hiddenWidth, selection.Width);
+
+                shell.IsKeyboardOpen = false;
+                await Frames(window, 700);
+
+                Assert.Equal(place, shell.Place);
+                Assert.True(bar.IsEffectivelyVisible);
+                Assert.False(bar.IsGliding);
+                Assert.Equal(button.Bounds.X, Assert.IsType<TranslateTransform>(selection.RenderTransform).X, 1);
+                Assert.Equal(button.Bounds.Width, selection.Width, 1);
+                Assert.Equal(1, label.Opacity, 2);
+            }
+            catch (Exception error)
+            {
+                failure = ExceptionDispatchInfo.Capture(error);
             }
             finally
             {

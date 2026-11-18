@@ -2115,9 +2115,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // If the chat has a worktree, ask the user whether to clean it up. Forks share their
         // source's worktree, so only offer removal when no other chat still points at it —
         // otherwise deleting one branch would pull the directory out from under its siblings.
-        if (chat.WorktreePath is { Length: > 0 } wt
-            && Directory.Exists(wt)
-            && !IsWorktreeSharedWithOtherChats(chat))
+        if (NeedsWorktreeDeleteConfirmation(chat))
         {
             _pendingDeleteChat = chat;
             IsWorktreeDeleteDialogOpen = true;
@@ -2126,6 +2124,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         await PerformDeleteChatAsync(chat);
     }
+
+    internal bool NeedsWorktreeDeleteConfirmation(Chat chat)
+        => chat.WorktreePath is { Length: > 0 } wt
+           && Directory.Exists(wt)
+           && !IsWorktreeSharedWithOtherChats(chat);
 
     /// <summary>
     /// True when another chat (e.g. a fork of this one, or the chat it was forked from) still
@@ -2157,16 +2160,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             _pendingDeleteChat = null;
             IsWorktreeDeleteDialogOpen = false;
-            if (!await PerformDeleteChatAsync(chat, awaitMcpProxyRelease: true))
-                return;
+            await DeleteChatWithWorktreeAsync(chat);
+        }
+    }
 
-            // Clean up worktree + branch in background
-            if (chat.WorktreePath is { Length: > 0 } wt)
-            {
-                var projectDir = GetProjectDirForChat(chat);
-                if (projectDir is not null)
-                    await GitService.RemoveWorktreeAsync(projectDir, wt);
-            }
+    internal async Task DeleteChatWithWorktreeAsync(Chat chat)
+    {
+        if (!await PerformDeleteChatAsync(chat, awaitMcpProxyRelease: true))
+            return;
+
+        // Another window may have forked the chat while its confirmation was open.
+        if (chat.WorktreePath is { Length: > 0 } wt && !IsWorktreeSharedWithOtherChats(chat))
+        {
+            var projectDir = GetProjectDirForChat(chat);
+            if (projectDir is not null)
+                await GitService.RemoveWorktreeAsync(projectDir, wt);
         }
     }
 
@@ -2518,16 +2526,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void CommitRenameChat()
     {
         if (RenamingChat is null) return;
-        var newTitle = RenamingTitle?.Trim();
+        RenameChat(RenamingChat, RenamingTitle);
+        RenamingChat = null;
+        RenamingTitle = "";
+    }
+
+    internal void RenameChat(Chat chat, string? title)
+    {
+        var newTitle = title?.Trim();
         if (!string.IsNullOrEmpty(newTitle))
         {
-            RenamingChat.Title = newTitle;
-            _dataStore.MarkChatChanged(RenamingChat);
+            chat.Title = newTitle;
+            _dataStore.MarkChatChanged(chat);
             _ = _dataStore.SaveAsync();
             RefreshChatList();
         }
-        RenamingChat = null;
-        RenamingTitle = "";
     }
 
     [RelayCommand]
@@ -2729,7 +2742,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         return new DetachedChatWindowRequest(
             chat,
-            new ChatWindowViewModel(surface),
+            new ChatWindowViewModel(surface, this),
             () => _chatSessionStore.Release(surface));
     }
 

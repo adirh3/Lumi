@@ -218,6 +218,13 @@ def surface_name(line):
     match = re.fullmatch(r"RequestedLayerState\{(.+) parentId=\d+\}", line)
     return match.group(1) if match else line
 
+def default_physical_display(text):
+    displays = [line for line in text.splitlines() if line.startswith("Display id 0:")]
+    match = re.search(r'\buniqueId "local:(\d+)"', displays[0]) if len(displays) == 1 else None
+    if match is None or not re.search(r"\bstate ON\b", displays[0]):
+        raise ValueError("An active, unambiguous physical default display is required for Android captures")
+    return match.group(1)
+
 def check_surface_poll(elapsed_seconds, refresh_ms):
     if elapsed_seconds * 1000 >= SURFACE_HISTORY_FRAMES * refresh_ms:
         raise ValueError("SurfaceFlinger sampling could have wrapped its frame history; evidence is incomplete")
@@ -537,6 +544,13 @@ class Android:
                     raise ValueError("Benchmark control response exceeded 2 MiB")
             return json.loads(data)
 
+    def screenshot(self):
+        display = default_physical_display(self.adb("shell", "cmd", "display", "get-displays"))
+        image = self.adb("exec-out", "screencap", "-p", "-d", display, binary=True)
+        if not image.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("Android did not return a PNG for the active physical display")
+        return image
+
 
 def android_trial(args, output, trial, slowdown=False):
     device = Android(args)
@@ -591,7 +605,7 @@ def android_action(device, scenario, surface, output, label, slowdown, period):
     viewport = {"width": state["viewWidth"], "height": state["viewHeight"], "scale": state["scale"]}
     target = state["target"]
     x, y = round(target["x"] * target["scale"]), round(target["y"] * target["scale"])
-    before = device.adb("exec-out", "screencap", "-p", binary=True)
+    before = device.screenshot()
     armed = device.command({"operation": "arm", "scenario": scenario, "stallMs": 120 if slowdown else 0})
     if armed.get("error"):
         raise ValueError(armed["error"])
@@ -646,7 +660,7 @@ def android_action(device, scenario, surface, output, label, slowdown, period):
     if failures or collector.is_alive():
         raise ValueError(f"Incomplete Android surface collector: {failures}")
     validate_measurement(state, scenario)
-    after = device.adb("exec-out", "screencap", "-p", binary=True)
+    after = device.screenshot()
     (output / f"{label}-before.png").write_bytes(before)
     (output / f"{label}-after.png").write_bytes(after)
     (output / f"{label}-surface.json").write_text(json.dumps(raw), encoding="utf-8")

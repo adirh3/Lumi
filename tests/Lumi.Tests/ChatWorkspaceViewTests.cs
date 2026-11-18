@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -23,6 +24,196 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ChatWorkspaceViewTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DetachedWindowRestoresOnlyAnOpenBrowserAndKeepsItsToggleWorking(bool wasOpen)
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            var data = CreateAppData();
+            var chat = new Chat { Title = "Chat with a browser" };
+            data.Chats.Add(chat);
+            var store = new DataStore(data);
+            using var chatVm = new ChatViewModel(store, TestCopilot.Shared) { CurrentChat = chat };
+            chatVm.GetOrCreateBrowserService(chat.Id);
+            chatVm.HasUsedBrowser = true;
+            chatVm.IsBrowserOpen = wasOpen;
+            using var windowVm = new ChatWindowViewModel(chatVm);
+            var window = new ChatWindow(store, windowVm);
+            window.Show();
+            try
+            {
+                await WaitForBrowserStateAsync(wasOpen);
+                var workspace = window.FindControl<ChatWorkspaceView>("DetachedChatView")!;
+                Assert.Equal(wasOpen, workspace.IsBrowserOpen);
+                Assert.Equal(wasOpen, chatVm.IsBrowserOpen);
+
+                chatVm.ToggleBrowserVisibilityCommand.Execute(null);
+                await WaitForBrowserStateAsync(!wasOpen);
+                Assert.Equal(!wasOpen, workspace.IsBrowserOpen);
+                Assert.Equal(!wasOpen, chatVm.IsBrowserOpen);
+
+                chatVm.ToggleBrowserVisibilityCommand.Execute(null);
+                await WaitForBrowserStateAsync(wasOpen);
+                Assert.Equal(wasOpen, workspace.IsBrowserOpen);
+                Assert.Equal(wasOpen, chatVm.IsBrowserOpen);
+                Assert.NotNull(chatVm.GetBrowserServiceForChat(chat.Id));
+
+                async Task WaitForBrowserStateAsync(bool expected)
+                {
+                    var deadline = DateTime.UtcNow.AddSeconds(3);
+                    await PumpAsync();
+                    while (chatVm.IsBrowserOpen != expected && DateTime.UtcNow < deadline)
+                    {
+                        await Task.Delay(10);
+                        await PumpAsync();
+                    }
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData("en")]
+    [InlineData("he")]
+    public async Task DetachedWindowShowsTheSharedHeaderAndOwnsItsRenameDialog(string language)
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            Loc.Load(language);
+            var data = CreateAppData();
+            var chat = new Chat { Title = "A separate chat" };
+            data.Chats.Add(chat);
+            var store = new DataStore(data);
+            using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService());
+            using var chatVm = new ChatViewModel(store, TestCopilot.Shared) { CurrentChat = chat };
+            using var windowVm = new ChatWindowViewModel(chatVm, main);
+            var window = new ChatWindow(store, windowVm)
+            {
+                FlowDirection = Loc.IsRightToLeft ? FlowDirection.RightToLeft : FlowDirection.LeftToRight,
+            };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                window.UpdateLayout();
+                var workspace = window.FindControl<ChatWorkspaceView>("DetachedChatView")!;
+                var view = workspace.ChatView!;
+                var shell = view.FindControl<StrataTheme.Controls.StrataChatShell>("ChatShell")!;
+                var header = shell.GetVisualDescendants().OfType<Border>()
+                    .Single(border => border.Name == "PART_HeaderChrome");
+                var title = view.FindControl<Button>("ChatTitleButton")!;
+                Assert.True(workspace.UseChatIslandChrome);
+                Assert.DoesNotContain("flat-window", shell.Classes);
+                Assert.True(header.IsVisible);
+                Assert.True(title.IsVisible);
+                Assert.True(header.Bounds.Height > 0);
+                Assert.Equal(chat.Title, view.FindControl<TextBlock>("ChatTitleText")!.Text);
+
+                var menu = Assert.IsType<MenuFlyout>(title.Flyout);
+                menu.ShowAt(title);
+                await PumpAsync();
+                var items = menu.Items.OfType<MenuItem>().ToDictionary(item => item.Name!);
+                Assert.False(items["ChatTitleNewWindowItem"].IsVisible);
+                var pin = items["ChatTitlePinItem"];
+                pin.Command!.Execute(pin.CommandParameter);
+                Assert.True(chat.IsPinned);
+                Assert.NotNull(Assert.IsType<PathIcon>(pin.Icon).Data);
+                var rename = items["ChatTitleRenameItem"];
+                Assert.NotNull(Assert.IsType<PathIcon>(rename.Icon).Data);
+                menu.Hide();
+                rename.Command!.Execute(rename.CommandParameter);
+                await PumpAsync();
+                Assert.True(window.FindControl<Panel>("RenameOverlay")!.IsVisible);
+                Assert.Null(main.RenamingChat);
+                var editor = window.FindControl<TextBox>("RenameTextBox")!;
+                Assert.True(editor.IsFocused);
+                Assert.Equal(chat.Title.Length, editor.SelectionEnd);
+
+                windowVm.RenamingTitle = "Renamed in this window";
+                editor.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+                await PumpAsync();
+                Assert.False(windowVm.IsRenaming);
+                Assert.Equal("Renamed in this window", window.Title);
+                Assert.Equal(window.Title, view.FindControl<TextBlock>("ChatTitleText")!.Text);
+
+                windowVm.StartRenameChatCommand.Execute(chat);
+                windowVm.RenamingTitle = "Discard this";
+                editor.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+                Assert.False(windowVm.IsRenaming);
+                Assert.Equal("Renamed in this window", chat.Title);
+            }
+            finally
+            {
+                window.Close();
+                Loc.Load("en");
+            }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DetachedDialogsHidePageContentWithoutClosingTheBrowser(bool rename)
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            var store = new DataStore(CreateAppData());
+            var chat = new Chat { Title = "Browser and dialog" };
+            using var chatVm = new ChatViewModel(store, TestCopilot.Shared) { CurrentChat = chat };
+            chatVm.GetOrCreateBrowserService(chat.Id);
+            chatVm.IsBrowserOpen = true;
+            using var windowVm = new ChatWindowViewModel(chatVm);
+            var window = new ChatWindow(store, windowVm);
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                var workspace = window.FindControl<ChatWorkspaceView>("DetachedChatView")!;
+                var page = workspace.FindControl<ContentControl>("WorkspacePageHost")!;
+                Assert.True(workspace.IsBrowserOpen);
+                Assert.True(page.IsEffectivelyVisible);
+
+                if (rename)
+                    windowVm.StartRenameChatCommand.Execute(chat);
+                else
+                    windowVm.IsWorktreeDeleteDialogOpen = true;
+                await PumpAsync();
+                Assert.False(workspace.IsPageContentVisible);
+                Assert.False(page.IsEffectivelyVisible);
+                Assert.True(workspace.IsBrowserOpen);
+                Assert.True(chatVm.IsBrowserOpen);
+
+                if (rename)
+                    windowVm.CancelRenameChatCommand.Execute(null);
+                else
+                    windowVm.CancelDeleteWorktreeDialogCommand.Execute(null);
+                await PumpAsync();
+                Assert.True(workspace.IsPageContentVisible);
+                Assert.True(page.IsEffectivelyVisible);
+                Assert.True(workspace.IsBrowserOpen);
+                Assert.True(chatVm.IsBrowserOpen);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task ChatIslandHighlightFollowsTheOuterRimAboveTheHeaderGlass()
     {
@@ -408,17 +599,16 @@ public sealed class ChatWorkspaceViewTests
         Assert.DoesNotContain("x:Name=\"PlanIsland\"", mainWindowXaml);
 
         Assert.Contains("<views:ChatWorkspaceView x:Name=\"DetachedChatView\"", chatWindowXaml);
-        Assert.Contains("UseChatIslandChrome=\"False\"", chatWindowXaml);
-        Assert.Contains("ShowInternalTitle=\"False\"", chatWindowXaml);
-        Assert.Contains("WorkspacePanelMargin=\"0,8,8,8\"", chatWindowXaml);
+        Assert.Contains("UseChatIslandChrome=\"True\"", chatWindowXaml);
+        Assert.Contains("ShowInternalTitle=\"True\"", chatWindowXaml);
+        Assert.Contains("Margin=\"6,0,6,6\"", chatWindowXaml);
         Assert.Contains("RowDefinitions=\"38,*\"", chatWindowXaml);
         Assert.Contains("Grid.Row=\"1\"", chatWindowXaml);
         Assert.Contains("x:Name=\"TitleDragRegion\"", chatWindowXaml);
         Assert.Contains("chrome:WindowDecorationProperties.ElementRole=\"TitleBar\"", chatWindowXaml);
         Assert.DoesNotContain("Text=\"{Binding WindowTitle}\"", chatWindowXaml);
-        Assert.Contains("x:Name=\"WindowIsland\"", chatWindowXaml);
-        Assert.Contains("CornerRadius=\"0\"", chatWindowXaml);
-        Assert.DoesNotContain("CornerRadius=\"{DynamicResource Radius.Overlay}\"", chatWindowXaml);
+        Assert.Contains("x:Name=\"AcrylicFallback\"", chatWindowXaml);
+        Assert.DoesNotContain("x:Name=\"WindowIsland\"", chatWindowXaml);
         Assert.DoesNotContain("<Grid Height=\"10\"", chatWindowXaml);
         Assert.Contains("Panel.ZIndex=\"10\"", chatWindowXaml);
         Assert.True(chatWindowXaml.IndexOf("x:Name=\"TitleDragRegion\"", StringComparison.Ordinal) <

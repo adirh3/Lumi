@@ -207,6 +207,12 @@ public partial class MobileShellView : UserControl
             ? shell.ReservesHingeForNavigation ? shell.Layout.HingePosition
                 : drawer.IsModal ? 0 : drawer.PanelWidth * drawer.Progress
             : 0;
+
+        // The phone's opaque, full-width list covers the chat completely at rest. Keep its layout
+        // mounted, but do not paint the chat's glass and shadows through an opaque page.
+        if (this.FindControl<ChatDetailView>("ChatSurface") is { } chat)
+            chat.Opacity = drawer.IsModal && drawer.Progress >= 1
+                && Bounds.Width > 0 && drawer.PanelWidth >= Bounds.Width ? 0 : 1;
     }
 
     private void OnSheetPresentationChanged(object? sender, RoutedEventArgs e)

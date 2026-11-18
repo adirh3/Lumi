@@ -140,7 +140,7 @@ python tools\mobile-smoothness\benchmark.py --platform pwa `
 # The APK has its OWN com.lumi.mobile.smoothness package and in-memory settings.
 # Use android-arm64 for a phone, android-x64 for an x64 emulator.
 dotnet publish src\Lumi.Mobile.Android\Lumi.Mobile.Android.csproj `
-  -c Release -f net10.0-android -r android-x64 -p:LumiMobileSmoothness=true `
+  -c Release -f net11.0-android -r android-x64 -p:LumiMobileSmoothness=true `
   -p:AndroidSdkDirectory="$env:LOCALAPPDATA\Android\Sdk" `
   -p:JavaSdkDirectory="$env:JAVA_HOME" -o C:\bench\reference-android
 
@@ -161,6 +161,25 @@ benchmark package afterwards. The emulator/device must already be booted and
 unlocked. It does not start, reset, reconfigure or kill other emulators.
 The simulator also supports `--mobile-smoothness --isolated --device "Pixel 8 Pro"`
 for inspecting the shared fixture; its window is not an Android/PWA timing result.
+Folded and docked-sidebar layouts are both supported. Android screenshots explicitly select
+the default logical display's active physical screen; the app's native clock uses
+`CLOCK_MONOTONIC`, as SurfaceFlinger's presentation timestamps do, not elapsed time including
+deep sleep. This matters on a real foldable that has been running for days.
+
+Mobile performance changes must preserve the existing glass, blur, shadows and stock Avalonia
+scroll gestures. `MobileModelPickerTests` checks that reopening an unchanged picker does not
+allocate in proportion to catalog size, while catalog and pin changes still update its rows.
+`ChatInitialBottomTests` checks that retained transcript turns receive structural updates when
+they return to the viewport. These are CPU-work and correctness checks, not proof of device FPS:
+scrolling and sheet-open smoothness still need the Android benchmark on the target device.
+
+Navigation regression tests also check that the pill resizes within a steady layout footprint,
+its labels keep their shaped text during the glide, and only a fully covering, resting phone
+drawer suppresses painting the mounted chat. Drawer movement and unfolded layouts restore it.
+Hidden places bars stop requesting frames and rejoin the window's motion when shown again.
+The keyboard hide/show regression pauses a glide on Jobs and Settings, checks it stops while hidden,
+then verifies that dismissing the keyboard restores the selected place's highlight and label.
+Strata's motion tests also check that the switch-knob bounce changes pixels without remeasuring its row.
 
 `--filter scroll`, `--filter switch`, `--filter popup`, `--filter nav`, and
 `--filter composer` select

@@ -13,7 +13,7 @@ namespace Lumi.Mobile.Smoothness;
 /// <summary>A deterministic, paged PC in memory. No model, pairing, disk profile or real network is used.</summary>
 internal sealed class MobileSmoothnessFixture : HttpMessageHandler
 {
-    internal const string Version = "mobile-smoothness-v5";
+    internal const string Version = "mobile-smoothness-v6";
     internal const int ChatCount = 1800;
     internal const int TurnCount = 6000;
     internal const int ModelCount = 72;

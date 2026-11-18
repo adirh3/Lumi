@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Automation;
@@ -6,6 +7,8 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Presence;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -27,6 +30,9 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
 
     public static readonly StyledProperty<bool> IsPresenceEnabledProperty =
         AvaloniaProperty.Register<ChatWorkspaceView, bool>(nameof(IsPresenceEnabled), true);
+
+    public static readonly StyledProperty<bool> IsPageContentVisibleProperty =
+        AvaloniaProperty.Register<ChatWorkspaceView, bool>(nameof(IsPageContentVisible), true);
 
     public static readonly StyledProperty<Thickness> WorkspacePanelMarginProperty =
         AvaloniaProperty.Register<ChatWorkspaceView, Thickness>(nameof(WorkspacePanelMargin), new Thickness(0));
@@ -68,6 +74,13 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
     {
         get => GetValue(IsPresenceEnabledProperty);
         set => SetValue(IsPresenceEnabledProperty, value);
+    }
+
+    /// <summary>Temporarily hides page content, including native views, beneath a host's modal dialog.</summary>
+    public bool IsPageContentVisible
+    {
+        get => GetValue(IsPageContentVisibleProperty);
+        set => SetValue(IsPageContentVisibleProperty, value);
     }
 
     /// <summary>Insets the Workspace panel (the detached window keeps it off the window edges).</summary>
@@ -149,6 +162,30 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
             ApplyChatIslandChrome();
         else if (change.Property == IsPresenceEnabledProperty)
             _presenceController?.SetEnabled(change.GetNewValue<bool>());
+        else if (change.Property == IsPageContentVisibleProperty)
+        {
+            if (IsPageContentVisible)
+                Dispatcher.UIThread.Post(UpdateNativePageVisibility, DispatcherPriority.Loaded);
+            else
+                UpdateNativePageVisibility();
+        }
+    }
+
+    private void UpdateNativePageVisibility()
+    {
+        if (_workspacePanel is null)
+            return;
+
+        foreach (var browser in _workspacePanel.GetVisualDescendants().OfType<BrowserView>())
+        {
+            if (IsPageContentVisible)
+            {
+                browser.RefreshBounds();
+                browser.ShowCurrentController();
+            }
+            else
+                browser.HideCurrentController();
+        }
     }
 
     private void InitializeComponent()

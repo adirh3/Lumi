@@ -1686,7 +1686,7 @@ public partial class ChatView : UserControl
 
         try
         {
-            var dataTransfer = await clipboard.TryGetDataAsync();
+            using var dataTransfer = await clipboard.TryGetDataAsync();
             if (dataTransfer is null) return;
 
             if (await TryPasteLumiChatContextAsync(vm, dataTransfer))
@@ -1710,10 +1710,11 @@ public partial class ChatView : UserControl
                 return;
             }
 
-            // Office apps also copy an image of selected text; prefer the text representation.
-            if (!string.IsNullOrEmpty(clipboardText))
+            // Office also copies a picture of rich text; keep the editable content, not that picture.
+            var pastedText = await ChatClipboardText.ReadAsync(dataTransfer, clipboardText);
+            if (!string.IsNullOrEmpty(pastedText))
             {
-                _composer?.InsertTextAtSelection(clipboardText);
+                _composer?.InsertTextAtSelection(pastedText);
                 FocusComposer();
                 return;
             }

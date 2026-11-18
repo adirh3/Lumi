@@ -392,6 +392,298 @@ public sealed class ChatViewClipboardTests
     }
 
     [Theory]
+    [InlineData("text/html")]
+    [InlineData("HTML Format")]
+    [InlineData("public.html")]
+    [InlineData("text/markdown")]
+    [InlineData("Rich Text Format")]
+    public async Task Paste_RichContentPreservesLinksAndFormattingAlongsideAnOfficePreview(string format)
+    {
+        using var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
+        await session.Dispatch(async () =>
+        {
+            using var vm = new ChatViewModel(new DataStore(new AppData
+            {
+                Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false }
+            }), TestCopilot.Shared);
+            var view = new ChatView { DataContext = vm };
+            var window = new Window { Width = 1100, Height = 820, Content = view };
+            using var clipboard = new DataTransfer();
+            var item = new DataTransferItem();
+            item.SetText("Read Lumi docs");
+            const string html = "<p>Read <strong><a href=\"https://example.com/docs\">Lumi docs</a></strong></p>";
+            const string markdown = "Read **[Lumi docs](https://example.com/docs)**";
+            if (format == "HTML Format")
+                item.Set(DataFormat.CreateBytesPlatformFormat(format), ChatClipboardData.BuildWindowsHtmlClipboardBytes(html));
+            else if (format == "Rich Text Format")
+                item.Set(DataFormat.CreateBytesPlatformFormat(format), System.Text.Encoding.ASCII.GetBytes(
+                    """{\rtf1\ansi Read {\b {\field{\*\fldinst HYPERLINK "https://example.com/docs"}{\fldrslt Lumi docs}}}}"""));
+            else
+                item.Set(DataFormat.CreateStringPlatformFormat(format), format == "text/markdown" ? markdown : html);
+            using var bitmap = new WriteableBitmap(new PixelSize(2, 2), new Vector(96, 96));
+            using var image = new MemoryStream();
+            bitmap.Save(image, new PngBitmapEncoderOptions());
+            item.Set(DataFormat.CreateBytesPlatformFormat("image/png"), image.ToArray());
+            clipboard.Add(item);
+            window.Show();
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+                await window.Clipboard!.SetDataAsync(clipboard);
+                var composer = view.FindControl<StrataChatComposer>("Composer")!;
+                var input = composer.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "PART_Input");
+                input.Text = "before selected after";
+                input.SelectionStart = 15;
+                input.SelectionEnd = 7;
+                input.Focus();
+                input.RaiseEvent(new KeyEventArgs
+                {
+                    RoutedEvent = InputElement.KeyDownEvent, Key = Key.V,
+                    KeyModifiers = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control
+                });
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                while (input.Text == "before selected after")
+                    await Task.Delay(10, timeout.Token);
+
+                Assert.Equal($"before {markdown} after", input.Text);
+                Assert.Equal(input.Text, vm.PromptText);
+                Assert.Empty(vm.PendingAttachments);
+                Assert.Equal(7 + markdown.Length, input.CaretIndex);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Paste_GoogleDocsNormalWeightWrapperKeepsOnlyAuthoredEmphasis()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var window = new Window();
+            window.Show();
+            try
+            {
+                using var clipboard = ChatClipboardData.CreateHtml(
+                    """
+                    <b id="docs-internal-guid-check" style="font-weight:normal">
+                    <p><span style="font-weight:400">Normal text</span>
+                    <span style="font-weight:700">bold text</span> and
+                    <b style="font-weight: 400; font-style: italic">italic text</b>;
+                    <strong>semantic bold</strong></p></b>
+                    """, "Normal text bold text and italic text; semantic bold");
+                await window.Clipboard!.SetDataAsync(clipboard);
+                using var data = await window.Clipboard.TryGetDataAsync();
+                Assert.Equal("Normal text **bold text** and *italic text*; **semantic bold**",
+                    await ChatClipboardText.ReadAsync(data!, await data!.TryGetTextAsync()));
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Paste_CodeEditorHtmlKeepsOriginalSourceIncludingWhitespaceAndMarkdown(bool hasEditorMetadata)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var window = new Window();
+            window.Show();
+            try
+            {
+                const string source = "if ready:\r\n\tRun()\r\n\r\n**bold** and [docs](https://example.com)\r\n";
+                using var clipboard = new DataTransfer();
+                var item = new DataTransferItem();
+                item.SetText(source);
+                item.Set(DataFormat.CreateStringPlatformFormat("text/html"),
+                    hasEditorMetadata
+                        ? "<div><span>if ready:</span><br><span>    Run()</span><br><span>**bold** and [docs](https://example.com)</span></div>"
+                        : """
+                          <div style="color:#cccccc;font-family:Consolas;white-space: pre;">
+                          <div><span>if ready:</span></div><div><span>    Run()</span></div>
+                          <div><span>**bold** and [docs](https://example.com)</span></div></div>
+                          """);
+                if (hasEditorMetadata)
+                    item.Set(DataFormat.CreateStringPlatformFormat("vscode-editor-data"), """{"version":1,"mode":"markdown"}""");
+                clipboard.Add(item);
+                await window.Clipboard!.SetDataAsync(clipboard);
+                using var data = await window.Clipboard.TryGetDataAsync();
+                Assert.Equal(source, await ChatClipboardText.ReadAsync(data!, await data!.TryGetTextAsync()));
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Paste_HtmlKeepsDocumentStructureAndInlineStylesWithoutExecutingOrIncludingScripts()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var window = new Window();
+            window.Show();
+            try
+            {
+                using var clipboard = ChatClipboardData.CreateHtml(
+                    """
+                    <div style="white-space:pre">
+                    <h2>Plan</h2>
+                    <p><span style="font-weight:700">Bold</span> and <span style="font-style:italic">italic</span>
+                    <del>old</del> <code>a*b</code> &amp; text</p>
+                    <ul><li>First<ul><li>Nested</li></ul></li><li>Second</li></ul>
+                    <ol start="3"><li>Third</li></ol>
+                    <blockquote><p>Quoted</p></blockquote>
+                    <div style="white-space:pre">An embedded preformatted note</div>
+                    <pre><code class="language-csharp">if (ready) {
+                        Run();
+                    }</code></pre>
+                    <table><tr><th>Name</th><th>Link</th></tr>
+                    <tr><td>Lumi</td><td><a href="https://example.com/?a=1&amp;b=2">Docs</a></td></tr></table>
+                    <script>unwanted()</script><style>.noise { color:red }</style>
+                    </div>
+                    """, "unformatted fallback");
+                await window.Clipboard!.SetDataAsync(clipboard);
+                using var data = await window.Clipboard.TryGetDataAsync();
+                var text = await ChatClipboardText.ReadAsync(data!, "unformatted fallback");
+                Assert.NotNull(text);
+                Assert.Contains("## Plan", text);
+                Assert.Contains("**Bold**", text);
+                Assert.Contains("*italic*", text);
+                Assert.Contains("~~old~~", text);
+                Assert.Contains("`a*b`", text);
+                Assert.Contains("& text", text);
+                Assert.Contains("- First\n  - Nested", text);
+                Assert.Contains("3. Third", text);
+                Assert.Contains("> Quoted", text);
+                Assert.Contains("```csharp\nif (ready) {\n    Run();\n}", text);
+                Assert.Contains("| Name | Link |", text);
+                Assert.Contains("[Docs](https://example.com/?a=1&b=2)", text);
+                Assert.DoesNotContain("unwanted", text);
+                Assert.DoesNotContain("color:red", text);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public void WindowsHtml_UsesUtf8ByteOffsetsAndOnlyTheSelectedFragment()
+    {
+        const string fragment = "<p>שלום <a href=\"https://example.com/\">🌟 docs</a></p>";
+        var bytes = ChatClipboardData.BuildWindowsHtmlClipboardBytes(fragment);
+        Assert.Equal(fragment, ChatClipboardText.ExtractWindowsHtml(bytes));
+        var withoutOffsets = System.Text.Encoding.UTF8.GetBytes(
+            $"Version:1.0\r\nStartHTML:-1\r\nEndHTML:-1\r\nStartFragment:-1\r\nEndFragment:-1\r\n" +
+            $"<html><body>outside<!--StartFragment-->{fragment}<!--EndFragment-->outside</body></html>\0");
+        Assert.Equal(fragment, ChatClipboardText.ExtractWindowsHtml(withoutOffsets));
+    }
+
+    [Theory]
+    [InlineData("<p></p>")]
+    [InlineData("<script>not content</script><style>body { color:red }</style>")]
+    public async Task Paste_EmptyRichRepresentationKeepsThePlainTextFallback(string html)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var window = new Window();
+            window.Show();
+            try
+            {
+                using var clipboard = ChatClipboardData.CreateHtml(html, "copied text");
+                await window.Clipboard!.SetDataAsync(clipboard);
+                using var data = await window.Clipboard.TryGetDataAsync();
+                Assert.Equal("copied text", await ChatClipboardText.ReadAsync(data!, "copied text"));
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Paste_MarkdownRemainsVerbatimAndExplicitMarkdownWinsOverHtml(bool explicitMarkdown)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var composer = new StrataChatComposer();
+            var window = new Window { Width = 700, Height = 400, Content = composer };
+            window.Show();
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+                const string markdown = "# Heading\r\n\r\n**bold** [docs](https://example.com)\r\n\r\n```cs\r\n  Run();\r\n```\r\n";
+                using var clipboard = new DataTransfer();
+                var item = new DataTransferItem();
+                item.SetText(explicitMarkdown ? "Heading bold docs" : markdown);
+                if (explicitMarkdown)
+                {
+                    item.Set(DataFormat.CreateStringPlatformFormat("text/markdown"), markdown);
+                    item.Set(DataFormat.CreateStringPlatformFormat("text/html"), "<p>Not the Markdown source</p>");
+                }
+                clipboard.Add(item);
+                await window.Clipboard!.SetDataAsync(clipboard);
+                var input = composer.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "PART_Input");
+                input.Focus();
+                input.RaiseEvent(new KeyEventArgs
+                {
+                    RoutedEvent = InputElement.KeyDownEvent, Key = Key.V,
+                    KeyModifiers = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control
+                });
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                while (string.IsNullOrEmpty(input.Text))
+                    await Task.Delay(10, timeout.Token);
+                Assert.Equal(markdown, composer.PromptText);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PasteAsPlainText_KeyboardAndContextMenuBypassRichTextAndHostImports(bool contextMenu)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var composer = new StrataChatComposer { ClipboardPasteInterceptFormats = new[] { DataFormat.Text } };
+            var intercepted = false;
+            composer.ClipboardImagePasteRequested += (_, _) => intercepted = true;
+            var window = new Window { Width = 700, Height = 400, Content = composer };
+            window.Show();
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+                using var clipboard = ChatClipboardData.CreateHtml("<p><b>formatted</b></p>", "plain fallback");
+                await window.Clipboard!.SetDataAsync(clipboard);
+                var input = composer.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "PART_Input");
+                input.Focus();
+                if (contextMenu)
+                {
+                    var paste = input.ContextMenu!.Items.OfType<MenuItem>()
+                        .Single(item => Equals(item.Header, InteractiveLabels.Current["pasteAsPlainText"]));
+                    paste.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                }
+                else
+                    input.RaiseEvent(new KeyEventArgs
+                    {
+                        RoutedEvent = InputElement.KeyDownEvent, Key = Key.V,
+                        KeyModifiers = (OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control) | KeyModifiers.Shift
+                    });
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                while (string.IsNullOrEmpty(input.Text))
+                    await Task.Delay(10, timeout.Token);
+                Assert.Equal("plain fallback", composer.PromptText);
+                Assert.False(intercepted);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
     [InlineData("Text copied from PowerPoint", true, false)]
     [InlineData("Plain text", false, false)]
     [InlineData(null, true, false)]

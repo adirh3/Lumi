@@ -102,7 +102,9 @@ public sealed partial class LibraryEntryViewModel : ObservableObject
     private string? _groupLabel;
 
     /// <summary>The row opens its group, so a card rounds its top and draws no divider above it.</summary>
-    [ObservableProperty] private bool _isGroupStart;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowRowDivider))]
+    private bool _isGroupStart;
 
     /// <summary>The row closes its group, so a card rounds its bottom.</summary>
     [ObservableProperty] private bool _isGroupEnd;
@@ -121,9 +123,13 @@ public sealed partial class LibraryEntryViewModel : ObservableObject
     /// <summary>Connectors and jobs are switched on and off right on their row.</summary>
     public bool HasSwitch => Section is LibrarySection.McpServers or LibrarySection.Jobs;
 
+    public bool ShowRowDivider => HasSwitch && !IsGroupStart;
+
     public bool ShowBadge => HasBadge && !HasSwitch;
 
-    public string SwitchLabel => Strings.Get("SwitchState", Name, Strings.Get(IsEnabled ? "SwitchOn" : "SwitchOff"));
+    public string SwitchLabel => HasSwitch
+        ? Strings.Get("SwitchState", Name, Strings.Get(IsEnabled ? "SwitchOn" : "SwitchOff"))
+        : "";
 
     /// <summary>Agents and skills wear their own emoji; the other sections their line icon.</summary>
     public bool UsesGlyph => Section is LibrarySection.Skills or LibrarySection.Lumis;
@@ -153,9 +159,19 @@ public sealed partial class LibraryEntryViewModel : ObservableObject
 
     partial void OnNameChanged(string value) => OnPropertyChanged(nameof(SwitchLabel));
 
-    public required LibrarySection Section { get; init; }
+    private LibrarySection _entrySection;
+    public required LibrarySection Section
+    {
+        get => _entrySection;
+        init => _entrySection = value;
+    }
 
-    public required string Identifier { get; init; }
+    private string _entryIdentifier = "";
+    public required string Identifier
+    {
+        get => _entryIdentifier;
+        init => _entryIdentifier = value;
+    }
 
     public bool CanEdit =>
         !IsBuiltIn
@@ -176,18 +192,42 @@ public sealed partial class LibraryEntryViewModel : ObservableObject
 
     internal void UpdateFrom(LibraryEntryViewModel source)
     {
+        var previousSection = _entrySection;
+        _entrySection = source.Section;
+        _entryIdentifier = source.Identifier;
         Name = source.Name;
         Description = source.Description;
         Glyph = source.Glyph;
         Badge = source.Badge;
         IsBuiltIn = source.IsBuiltIn;
-        if (!IsSwitchBusy)
+        if (!IsSwitchBusy || previousSection != source.Section)
+        {
+            IsSwitchBusy = false;
             IsEnabled = source.IsEnabled;
+        }
         Subtitle = source.Subtitle;
         Kind = source.Kind;
         BodyLabel = source.BodyLabel;
         Facts = source.Facts;
         ChatId = source.ChatId;
+
+        if (previousSection != source.Section)
+        {
+            OnPropertyChanged(nameof(Section));
+            OnPropertyChanged(nameof(HasSwitch));
+            OnPropertyChanged(nameof(ShowRowDivider));
+            OnPropertyChanged(nameof(ShowBadge));
+            OnPropertyChanged(nameof(SwitchLabel));
+            OnPropertyChanged(nameof(UsesGlyph));
+            OnPropertyChanged(nameof(IsProject));
+            OnPropertyChanged(nameof(IsMemory));
+            OnPropertyChanged(nameof(IsConnector));
+            OnPropertyChanged(nameof(IsJob));
+            OnPropertyChanged(nameof(CanEdit));
+            OnPropertyChanged(nameof(HasActions));
+            OnPropertyChanged(nameof(HasEnabledState));
+            OnPropertyChanged(nameof(ReadOnlyNote));
+        }
     }
 }
 
@@ -316,7 +356,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// <summary>The sections of the current scope, in the desktop's Customize order.</summary>
     public ObservableCollection<LibrarySectionOption> ScopeSections { get; } = [];
 
-    public bool ShowSectionChips => ScopeSections.Count > 1;
+    public bool ShowSectionChips => SectionsFor(_scope).Count > 1;
 
     public string ScopeTitle => _scope switch
     {
@@ -367,6 +407,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         ]
     };
 
+    private bool _suppressSearchRebuild;
+
     private void ApplyScope(LibraryScope scope)
     {
         _lastSectionByScope[_scope] = Section;
@@ -375,7 +417,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         EndEdit();
         CloseView();
         IsRowActionsOpen = false;
-        SearchText = "";
+        ClearSearchWithoutRebuild();
         RebuildScopeSections();
 
         var sections = SectionsFor(scope);
@@ -399,16 +441,47 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     private void RebuildScopeSections()
     {
-        ScopeSections.Clear();
-        foreach (var section in SectionsFor(_scope))
+        var sections = SectionsFor(_scope);
+        // Single-section places hide the picker, so keep a multi-section scope's rows ready in place.
+        if (sections.Count <= 1 && ScopeSections.Count > 1)
         {
-            ScopeSections.Add(new LibrarySectionOption
+            foreach (var option in ScopeSections)
             {
-                Section = section,
-                Name = SectionNames[(int)section],
-                IsSelected = section == _section,
-                Count = CountOf(section)
-            });
+                option.IsSelected = false;
+                option.Count = CountOf(option.Section);
+            }
+            return;
+        }
+
+        while (ScopeSections.Count > sections.Count)
+            ScopeSections.RemoveAt(ScopeSections.Count - 1);
+
+        for (var i = 0; i < sections.Count; i++)
+        {
+            var section = sections[i];
+            var name = SectionNames[(int)section];
+            var count = CountOf(section);
+            var selected = section == _section;
+            if (i < ScopeSections.Count && ScopeSections[i].Section == section)
+            {
+                var existing = ScopeSections[i];
+                existing.IsSelected = selected;
+                existing.Count = count;
+            }
+            else
+            {
+                var option = new LibrarySectionOption
+                {
+                    Section = section,
+                    Name = name,
+                    IsSelected = selected,
+                    Count = count
+                };
+                if (i < ScopeSections.Count)
+                    ScopeSections[i] = option;
+                else
+                    ScopeSections.Add(option);
+            }
         }
     }
 
@@ -764,9 +837,22 @@ public sealed partial class LibraryViewModel : ObservableObject
         _actionGeneration++;
         IsRowActionsOpen = false;
         ActionEntry = null;
-        SearchText = "";
+        ClearSearchWithoutRebuild();
         StatusMessage = null;
         Apply(new RemoteLibrary());
+    }
+
+    private void ClearSearchWithoutRebuild()
+    {
+        _suppressSearchRebuild = true;
+        try
+        {
+            SearchText = "";
+        }
+        finally
+        {
+            _suppressSearchRebuild = false;
+        }
     }
 
     private void OnSectionChanged()
@@ -791,7 +877,11 @@ public sealed partial class LibraryViewModel : ObservableObject
         Rebuild();
     }
 
-    partial void OnSearchTextChanged(string value) => Rebuild();
+    partial void OnSearchTextChanged(string value)
+    {
+        if (!_suppressSearchRebuild)
+            Rebuild();
+    }
 
     [RelayCommand]
     private void ClearSearch() => SearchText = "";
@@ -838,10 +928,55 @@ public sealed partial class LibraryViewModel : ObservableObject
             entry.IsGroupEnd = i == projected.Count - 1 || group != GroupOf(projected[i + 1]);
         }
 
-        // Publish a changed page once. Replaying hundreds of Add notifications builds off-screen
-        // templates on the UI thread; an unchanged snapshot should not disturb the current rows.
+        // Reuse live row instances in place when switching sections or places: replacing an item in
+        // ObservableCollection detaches and re-styles its entire visual subtree, whereas updating
+        // the row's bindable properties keeps every realized container attached.
         if (!Entries.SequenceEqual(projected))
-            Entries = new ObservableCollection<LibraryEntryViewModel>(projected);
+        {
+            var countDelta = Math.Abs(Entries.Count - projected.Count);
+            if (projected.Count == 0)
+            {
+                Entries.Clear();
+            }
+            else if ((Entries.Count == 0 && projected.Count > 64) || countDelta > 128)
+            {
+                Entries = new ObservableCollection<LibraryEntryViewModel>(projected);
+            }
+            else
+            {
+                var targetSet = projected.ToHashSet(ReferenceEqualityComparer.Instance);
+                var sharedCount = Math.Min(Entries.Count, projected.Count);
+                for (var i = 0; i < sharedCount; i++)
+                {
+                    var current = Entries[i];
+                    var desired = projected[i];
+                    if (ReferenceEquals(current, desired))
+                        continue;
+
+                    if (!current.IsSwitchBusy
+                        && !targetSet.Contains(current)
+                        && !ReferenceEquals(current, SelectedEntry)
+                        && !ReferenceEquals(current, ViewedEntry)
+                        && !ReferenceEquals(current, ActionEntry))
+                    {
+                        current.UpdateFrom(desired);
+                        current.GroupLabel = desired.GroupLabel;
+                        current.IsGroupStart = desired.IsGroupStart;
+                        current.IsGroupEnd = desired.IsGroupEnd;
+                        current.IsOpen = false;
+                    }
+                    else
+                    {
+                        Entries[i] = desired;
+                    }
+                }
+
+                while (Entries.Count > projected.Count)
+                    Entries.RemoveAt(Entries.Count - 1);
+                for (var i = Entries.Count; i < projected.Count; i++)
+                    Entries.Add(projected[i]);
+            }
+        }
 
         OnPropertyChanged(nameof(IsEmpty));
         OnPropertyChanged(nameof(HasSearchQuery));

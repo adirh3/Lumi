@@ -242,10 +242,12 @@
 
         <Panel x:Name="WorkspaceBody">
           <views:WorkspaceOverview x:Name="WorkspaceOverview" />
-          <ContentControl x:Name="WorkspacePageHost"
-                          IsVisible="False"
-                          HorizontalContentAlignment="Stretch"
-                          VerticalContentAlignment="Stretch" />
+          <Panel IsVisible="{Binding IsPageContentVisible, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}">
+            <ContentControl x:Name="WorkspacePageHost"
+                            IsVisible="False"
+                            HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Stretch" />
+          </Panel>
         </Panel>
       </DockPanel>
     </Border>

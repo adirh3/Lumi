@@ -17,6 +17,78 @@ namespace Lumi.Mobile.Tests;
 public sealed class MobileSmoothnessSurfaceTests(ITestOutputHelper output)
 {
     [Fact]
+    public async Task DockedSidebarDoesNotBlockComposerSetupOrChatReadiness()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            await using var shell = MobileSmoothnessFixture.CreateShell();
+            var view = new MobileShellView { DataContext = shell };
+            var window = new Window { Width = 984, Height = 1092, Content = view };
+            try
+            {
+                window.Show();
+                await shell.StartAsync();
+                using var benchmark = new MobileSmoothnessSession(view);
+                foreach (var scenario in new[] { "composer-empty", "switch-plain" })
+                {
+                    var prepare = benchmark.CommandAsync(JsonSerializer.Serialize(
+                        new SmoothnessRequest("prepare", scenario), SmoothnessJsonContext.Default.SmoothnessRequest));
+                    await PumpUntil(() => prepare.IsCompleted);
+                    using var prepared = JsonDocument.Parse(await prepare);
+                    Assert.Equal(JsonValueKind.Null, prepared.RootElement.GetProperty("error").ValueKind);
+                    Assert.True(shell.IsDrawerDocked);
+                    Assert.True(shell.IsDrawerPresented);
+
+                    if (scenario == "composer-empty")
+                        continue;
+
+                    var target = prepared.RootElement.GetProperty("target");
+                    var x = target.GetProperty("x").GetDouble();
+                    var y = target.GetProperty("y").GetDouble();
+                    await benchmark.CommandAsync("""{"operation":"arm","scenario":"switch-plain"}""");
+                    benchmark.ObserveHostTouch(x, y, pressed: true);
+                    shell.ChatList.OpenChatCommand.Execute(shell.ChatList.Groups.SelectMany(group => group.Chats)
+                        .Single(chat => chat.Id == MobileSmoothnessFixture.ChatId(0)));
+                    benchmark.ObserveHostTouch(x, y, pressed: false);
+                    await benchmark.CommandAsync("""{"operation":"finish-input"}""");
+
+                    var complete = false;
+                    var deadline = DateTime.UtcNow.AddSeconds(5);
+                    while (!complete && DateTime.UtcNow < deadline)
+                    {
+                        await Pump();
+                        using var state = JsonDocument.Parse(
+                            await benchmark.CommandAsync("""{"operation":"read"}"""));
+                        complete = state.RootElement.GetProperty("measurement").GetProperty("complete").GetBoolean();
+                        if (complete)
+                            Assert.Equal(JsonValueKind.Null,
+                                state.RootElement.GetProperty("measurement").GetProperty("error").ValueKind);
+                    }
+                    Assert.True(complete, "The docked chat did not become ready.");
+                }
+
+                async Task PumpUntil(Func<bool> done)
+                {
+                    var deadline = DateTime.UtcNow.AddSeconds(5);
+                    while (!done() && DateTime.UtcNow < deadline)
+                        await Pump();
+                    Assert.True(done(), "The docked benchmark did not reach its expected state.");
+                }
+
+                async Task Pump()
+                {
+                    window.UpdateLayout();
+                    Dispatcher.UIThread.RunJobs();
+                    Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    await Task.Delay(16);
+                }
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task AQuietGapBetweenStrokesDoesNotFinishTheDriversInputBatch()
     {
         using var session = HeadlessMobileSession.Start();
@@ -226,6 +298,85 @@ public sealed class MobileSmoothnessSurfaceTests(ITestOutputHelper output)
                         $"{scenario}: {result.RootElement.GetProperty("error")}");
                     Assert.Equal(JsonValueKind.Object, result.RootElement.GetProperty("target").ValueKind);
                     Assert.True(result.RootElement.GetProperty("target").GetProperty("width").GetDouble() > 0);
+                }
+            }
+            catch (Exception error)
+            {
+                failure = ExceptionDispatchInfo.Capture(error);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+        failure?.Throw();
+    }
+
+    [Fact]
+    public async Task PlaceSwitchesReuseRealizedRowsAndSectionPicker()
+    {
+        using var session = HeadlessMobileSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(async () =>
+        {
+            await using var shell = MobileSmoothnessFixture.CreateShell();
+            var view = new MobileShellView { DataContext = shell };
+            var window = new Window { Width = 390, Height = 844, Content = view };
+            try
+            {
+                window.Show();
+                await shell.StartAsync();
+                var deadline = DateTime.UtcNow.AddSeconds(5);
+                while ((!shell.IsConnected || !shell.IsHostReady || shell.ChatList.Groups.Count == 0) && DateTime.UtcNow < deadline)
+                {
+                    window.UpdateLayout();
+                    Dispatcher.UIThread.RunJobs();
+                    await Task.Delay(16);
+                }
+                shell.ShowHome();
+                Assert.False(view.FindControl<Control>("LibraryHost")!.IsVisible);
+                Assert.False(view.FindControl<Control>("SettingsPage")!.IsVisible);
+
+                var lib = view.FindControl<LibraryView>("LibraryPage")!;
+                var sectionPicker = lib.FindControl<ListBox>("SectionPicker")!;
+                Button[] RealizedEntryButtons() => [.. lib.GetVisualDescendants().OfType<Button>().Where(b => b.Name == "LibraryEntryButton")];
+                ListBoxItem[] RealizedSectionItems() => [.. sectionPicker.GetVisualDescendants().OfType<ListBoxItem>()];
+
+                void SwitchTo(MobilePlace place)
+                {
+                    shell.SelectPlace(place);
+                    window.UpdateLayout();
+                    Dispatcher.UIThread.RunJobs();
+                    window.UpdateLayout();
+                }
+
+                SwitchTo(MobilePlace.Customize);
+                shell.Library.Section = LibrarySection.Skills;
+                window.UpdateLayout();
+                Dispatcher.UIThread.RunJobs();
+                var sectionItems = RealizedSectionItems();
+                Assert.Equal(4, sectionItems.Length);
+
+                SwitchTo(MobilePlace.Jobs);
+                var jobButtons = RealizedEntryButtons();
+                Assert.InRange(jobButtons.Length, 1, 20);
+                Assert.Equal(jobButtons.Length, lib.GetVisualDescendants().OfType<ToggleSwitch>().Count(t => t.IsEffectivelyVisible));
+
+                SwitchTo(MobilePlace.Customize);
+                var skillButtons = RealizedEntryButtons();
+                Assert.Equal(0, lib.GetVisualDescendants().OfType<ToggleSwitch>().Count(t => t.IsEffectivelyVisible));
+                Assert.All(jobButtons.Take(Math.Min(jobButtons.Length, skillButtons.Length)), b => Assert.Contains(b, skillButtons));
+
+                for (var iteration = 0; iteration < 3; iteration++)
+                {
+                    SwitchTo(MobilePlace.Settings);
+                    SwitchTo(MobilePlace.Chats);
+                    SwitchTo(MobilePlace.Jobs);
+                    Assert.All(RealizedEntryButtons(), b => Assert.True(((LibraryEntryViewModel)b.DataContext!).IsJob));
+                    SwitchTo(MobilePlace.Customize);
+                    Assert.Equal(sectionItems, RealizedSectionItems());
+                    Assert.All(jobButtons.Take(Math.Min(jobButtons.Length, RealizedEntryButtons().Length)), b => Assert.Contains(b, RealizedEntryButtons()));
+                    Assert.Equal(0, lib.GetVisualDescendants().OfType<ToggleSwitch>().Count(t => t.IsEffectivelyVisible));
                 }
             }
             catch (Exception error)

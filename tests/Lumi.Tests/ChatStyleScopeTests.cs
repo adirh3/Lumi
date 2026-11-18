@@ -24,6 +24,140 @@ namespace Lumi.Tests;
 public sealed class ChatStyleScopeTests
 {
     [Fact]
+    public Task TranscriptDetailsStayWithTheirPartsAndKeepTheirPresentation() => WithWindow((window, chat) =>
+    {
+        var foreignText = new TextBlock { Text = "Unrelated output", Classes = { "console-text" } };
+        var foreign = new Border
+        {
+            Classes = { "transcript-well", "transcript-error", "source-initial", "single-step-line", "agent-cluster-avatar" },
+            Child = foreignText,
+        };
+        var scope = new StackPanel { Name = "Transcript", Children = { foreign } };
+        var terminal = new SingleToolItem(new TerminalPreviewItem("Command", "echo fixture", StrataAiToolCallStatus.Completed)
+        {
+            Output = "Fixture output"
+        }) { IsExpanded = true };
+        var details = new SingleToolItem(new ToolCallItem("Read", StrataAiToolCallStatus.Completed)
+        {
+            InputParameters = "**Path:** fixture.cs"
+        }) { IsExpanded = true };
+        foreach (var item in new TranscriptItem[] { terminal, details, new ErrorMessageItem("Fixture error") })
+        {
+            var view = chat.DataTemplates.Single(template => template.Match(item)).Build(item)!;
+            view.DataContext = item;
+            scope.Children.Add(view);
+        }
+        var panel = chat.FindControl<Panel>("ChatPanel")!;
+        panel.IsVisible = true;
+        panel.Children.Add(scope);
+        Pump(window);
+
+        Assert.Null(foreign.Background);
+        Assert.Null(foreign.BorderBrush);
+        Assert.Equal(default, foreign.Padding);
+        var wells = scope.GetVisualDescendants().OfType<Border>()
+            .Where(control => control.Name is "SingleToolConsole" or "SingleToolDetails").ToArray();
+        Assert.Equal(4, wells.Length);
+        Assert.All(wells, well =>
+        {
+            Assert.Equal(new Thickness(12, 10, 12, 11), well.Padding);
+            AssertBrush(well, "Brush.GlassWell", well.Background);
+        });
+        var console = wells.Single(control => control.Name == "SingleToolConsole" && control.IsVisible);
+        var output = console.GetVisualDescendants().OfType<TextBlock>().Last();
+        Assert.Equal(TextWrapping.Wrap, output.TextWrapping);
+        Assert.NotEqual(output.FontFamily, foreignText.FontFamily);
+        var error = scope.GetVisualDescendants().OfType<Border>().Single(control => control.Name == "TranscriptError");
+        AssertBrush(error, "Brush.GlassFill", error.Background);
+    });
+
+    [Fact]
+    public Task RunInspectorChromeDoesNotStyleUnrelatedRunContent() => WithWindow((_, chat) =>
+    {
+        var model = Assert.IsType<ChatViewModel>(chat.DataContext);
+        model.SelectedSubagentRun = new SubagentToolCallItem("Reviewer", StrataAiToolCallStatus.Completed)
+        {
+            Prompt = new string('x', 400),
+            StartedAt = DateTimeOffset.Now.AddMinutes(-2),
+        };
+        var view = new SubagentRunView { DataContext = model };
+        var foreign = new Border { Classes = { "run-well", "run-task", "run-error" } };
+        ((Panel)view.Content!).Children.Add(foreign);
+        var window = new Window { Width = 700, Height = 600, Content = view };
+        window.Show();
+        try
+        {
+            Pump(window);
+            Assert.Null(foreign.Background);
+            Assert.Equal(default, foreign.Padding);
+            var task = view.GetVisualDescendants().OfType<Border>().Single(control => control.Name == "RunTaskCard");
+            Assert.Equal(new Thickness(13, 10, 13, 12), task.Padding);
+            var heading = view.GetVisualDescendants().OfType<Grid>().Single(control => control.Name == "RunTaskHeading")
+                .GetVisualDescendants().OfType<TextBlock>().Single(control => control.Classes.Contains("run-kicker"));
+            Assert.Equal(11.5, heading.FontSize);
+            AssertBrush(heading, "Brush.TextSecondary", heading.Foreground);
+        }
+        finally
+        {
+            window.Close();
+            model.SelectedSubagentRun = null;
+        }
+    });
+
+    [Fact]
+    public Task HeaderAndVoiceHelpersStayWithTheirNamedOwners() => WithWindow((window, chat) =>
+    {
+        var foreignText = new TextBlock { Text = "Unrelated content", Classes = { "header-pill-text", "voice-title" } };
+        var foreignBorder = new Border { Classes = { "header-tools", "voice-tile" }, Child = foreignText };
+        chat.FindControl<Panel>("ChatPanel")!.Children.Add(foreignBorder);
+        var header = chat.FindControl<Panel>("ChatHeaderLayer")!;
+        header.IsVisible = true;
+        var headerText = new TextBlock { Text = "Header", Classes = { "header-pill-text" } };
+        header.Children.Add(headerText);
+        var voice = chat.FindControl<Border>("VoiceSetupCard")!;
+        voice.IsVisible = true;
+        Pump(window);
+
+        Assert.Null(foreignBorder.Background);
+        Assert.Equal(FontWeight.Normal, foreignText.FontWeight);
+        Assert.Equal(12.5, headerText.FontSize);
+        AssertBrush(headerText, "Brush.TextSecondary", headerText.Foreground);
+        var voiceTitle = voice.GetVisualDescendants().OfType<TextBlock>()
+            .Single(control => control.Classes.Contains("voice-title"));
+        Assert.Equal(13, voiceTitle.FontSize);
+        Assert.Equal(FontWeight.SemiBold, voiceTitle.FontWeight);
+        AssertBrush(voiceTitle, "Brush.TextPrimary", voiceTitle.Foreground);
+    });
+
+    [Fact]
+    public Task ContextPopupKeepsItsCardAndGaugeStyles() => WithWindow((window, chat) =>
+    {
+        var button = chat.FindControl<Button>("ContextWindowButton")!;
+        button.IsVisible = true;
+        Pump(window);
+        var flyout = Assert.IsType<Flyout>(button.Flyout);
+        flyout.ShowAt(button);
+        try
+        {
+            Pump(window);
+            var content = Assert.IsAssignableFrom<Control>(flyout.Content);
+            var gauge = content.GetVisualDescendants().OfType<Panel>()
+                .Single(control => control.Classes.Contains("context-ring-gauge"));
+            Assert.Equal(16, gauge.Width);
+            Assert.Equal(16, gauge.Height);
+            var title = content.GetVisualDescendants().OfType<TextBlock>()
+                .Single(control => control.Classes.Contains("header-card-title"));
+            Assert.Equal(14.5, title.FontSize);
+            AssertBrush(title, "Brush.TextPrimary", title.Foreground);
+        }
+        finally
+        {
+            flyout.Hide();
+            Pump(window);
+        }
+    });
+
+    [Fact]
     public Task SurfaceStylesStayWithTheirOwnersIncludingTheDerivedTranscriptControl() => WithWindow((window, chat) =>
     {
         var unrelated = new Border { Classes = { "project-switcher-surface", "launchpad-card" } };

@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.Services;
+using Lumi.Services.Appearance;
 using Lumi.ViewModels;
 
 namespace Lumi.Views;
@@ -40,6 +41,16 @@ public partial class ChatWindow : Window
         Background = Brushes.Transparent;
         TransparencyBackgroundFallback = Brushes.Transparent;
         AppIcon.ApplyWindowIcon(this);
+        PropertyChanged += (_, e) =>
+        {
+            if (e.Property == ActualTransparencyLevelProperty)
+                UpdateTransparencyFallbackOpacity();
+        };
+        Opened += (_, _) =>
+        {
+            UpdateTransparencyFallbackOpacity();
+            _viewModel?.ChatVM.RestoreBrowserPanelForActiveChat();
+        };
     }
 
     public ChatWindow(DataStore dataStore, ChatWindowViewModel viewModel) : this()
@@ -47,7 +58,10 @@ public partial class ChatWindow : Window
         _viewModel = viewModel;
         DataContext = viewModel;
         if (_chatWorkspace is not null)
+        {
             _chatWorkspace.DataStore = dataStore;
+            _chatWorkspace.IsPageContentVisible = !viewModel.HasOpenDialog;
+        }
         ApplyUiScaleToChrome(dataStore.Data.Settings.UiScalePercent);
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
         UpdateAutomationName();
@@ -70,6 +84,25 @@ public partial class ChatWindow : Window
         if (e.Handled)
             return;
 
+        if (_viewModel is { IsRenaming: true } && e.KeyModifiers == KeyModifiers.None
+            && e.Key is Key.Enter or Key.Escape)
+        {
+            if (e.Key == Key.Enter)
+                _viewModel.CommitRenameChatCommand.Execute(null);
+            else
+                _viewModel.CancelRenameChatCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        if (_viewModel is { IsWorktreeDeleteDialogOpen: true } && e.KeyModifiers == KeyModifiers.None
+            && e.Key == Key.Escape)
+        {
+            _viewModel.CancelDeleteWorktreeDialogCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
         var scaleDelta = UiScaleService.GetShortcutDelta(e.Key, e.KeyModifiers);
         if (scaleDelta != 0 && Application.Current is App app && app.TryAdjustUiScale(scaleDelta))
             e.Handled = true;
@@ -91,6 +124,25 @@ public partial class ChatWindow : Window
     {
         if (e.PropertyName == nameof(ChatWindowViewModel.WindowTitle))
             UpdateAutomationName();
+        else if (e.PropertyName == nameof(ChatWindowViewModel.HasOpenDialog)
+                 && _viewModel is { } viewModel && _chatWorkspace is { } workspace)
+            workspace.IsPageContentVisible = !viewModel.HasOpenDialog;
+        else if (e.PropertyName == nameof(ChatWindowViewModel.IsRenaming))
+        {
+            if (_viewModel?.IsRenaming == true)
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (_viewModel.IsRenaming && this.FindControl<TextBox>("RenameTextBox") is { } editor)
+                    {
+                        editor.Focus();
+                        editor.SelectAll();
+                    }
+                }, DispatcherPriority.Input);
+            }
+            else
+                FocusComposer();
+        }
     }
 
     private void UpdateAutomationName()
@@ -102,4 +154,10 @@ public partial class ChatWindow : Window
 
     internal void ApplyUiScaleToChrome(int scalePercent)
         => ExtendClientAreaTitleBarHeightHint = BaseTitleBarHeight * UiScaleService.GetScale(scalePercent);
+
+    private void UpdateTransparencyFallbackOpacity()
+    {
+        if (this.FindControl<Border>("AcrylicFallback") is { } fallback)
+            fallback.Opacity = WindowMaterials.FallbackOpacityFor(ActualTransparencyLevel, OperatingSystem.IsMacOS());
+    }
 }

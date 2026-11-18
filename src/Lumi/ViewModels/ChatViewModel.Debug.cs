@@ -137,7 +137,23 @@ public partial class ChatViewModel
         return await browser.OpenAndSnapshotAsync(url);
     }
 
-    public void LoadDebugTranscriptFixture(Chat? preparedFixture = null)
+    internal void LoadDebugMemoryTurnFixture()
+    {
+        if (!Services.DataStore.UsesIsolatedProfile)
+            throw new InvalidOperationException("Memory fixtures require an isolated Debug profile.");
+        LoadDebugTranscriptFixture(DebugAgentHarness.CreateMemoryTurnFixtureChat(), includePromptSharing: false);
+        foreach (var item in TranscriptTurns.SelectMany(static turn => turn.EnumerateItems()).ToArray())
+        {
+            if (item is TurnSummaryItem summary)
+                summary.IsExpanded = true;
+            if (item is ToolGroupItem group)
+                group.IsExpanded = true;
+        }
+        StatusText = "Memory lab - 4,800 synthetic steps; no commands run";
+        ScrollToEndRequested?.Invoke();
+    }
+
+    public void LoadDebugTranscriptFixture(Chat? preparedFixture = null, bool includePromptSharing = true)
     {
         ClearChat();
 
@@ -224,7 +240,8 @@ public partial class ChatViewModel
             Messages.Add(new ChatMessageViewModel(message));
         }
 
-        foreach (var message in DebugAgentHarness.CreatePromptSharingFixtureMessages(_dataStore))
+        foreach (var message in includePromptSharing
+                     ? DebugAgentHarness.CreatePromptSharingFixtureMessages(_dataStore) : [])
         {
             fixture.Messages.Add(message);
             Messages.Add(new ChatMessageViewModel(message));

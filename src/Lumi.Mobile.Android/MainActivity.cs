@@ -107,7 +107,8 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
                 { MainView: MobileShellView view } && Avalonia.Controls.TopLevel.GetTopLevel(view) is not null
                 && _nativeComposerEditorFactory is { } editorFactory)
             {
-                _smoothnessHost = new(view, 47692, () => SystemClock.ElapsedRealtimeNanos() / 1_000_000d,
+                // SurfaceFlinger's presentation timestamps use CLOCK_MONOTONIC, not the clock that includes sleep.
+                _smoothnessHost = new(view, 47692, () => global::Java.Lang.JavaSystem.NanoTime() / 1_000_000d,
                     softKeyboardExpected: true,
                     nativeEditorHitTest: editorFactory.CanReceiveSmoothnessTouch);
                 return false;

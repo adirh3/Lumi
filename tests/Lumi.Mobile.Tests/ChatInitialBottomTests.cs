@@ -166,6 +166,59 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task RetainedTurnAppliesNewItemsWhenItReturnsToTheViewport()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MobileShellViewModel(
+                store: session.NewStore(), post: action => action());
+            var view = new ChatDetailView { DataContext = model };
+            var window = new Window { Width = 412, Height = 892, Content = view };
+            window.Show();
+            try
+            {
+                var chatId = Guid.NewGuid();
+                await OpenChatAsync(model, chatId);
+                var shell = view.FindControl<StrataChatShell>("ChatShell")!;
+                var transcript = view.FindControl<ItemsControl>("Transcript")!;
+                var tail = TurnView(transcript, 23);
+                var retained = Assert.IsType<ItemsControl>(tail.Child);
+                var snapshot = Assert.IsType<System.Collections.ObjectModel.ObservableCollection<TranscriptItemViewModel>>(
+                    retained.ItemsSource);
+                var originalCount = snapshot.Count;
+
+                shell.PreserveViewport();
+                transcript.ScrollIntoView(0);
+                await PumpAsync();
+                Assert.False(tail.IsRealized);
+
+                var update = Transcript(chatId, revision: 2);
+                update.Turns[^1].Items.Add(new RemoteTranscriptItem
+                {
+                    Id = "tail-follow-up",
+                    Kind = RemoteProtocol.ItemKinds.Assistant,
+                    Text = "An additional answer arrived while this turn was hidden."
+                });
+                model.Chat.ApplyTranscript(update);
+                await PumpAsync();
+                Assert.False(tail.IsRealized);
+                Assert.Equal(originalCount, snapshot.Count);
+
+                shell.JumpToLatest();
+                await PumpAsync();
+                Assert.True(tail.IsRealized);
+                Assert.Same(retained, tail.Child);
+                Assert.Equal(model.Chat.Turns[^1].DisplayItems, snapshot);
+                Assert.True(snapshot.Count > originalCount);
+                Assert.Contains(tail.GetVisualDescendants().OfType<StrataMarkdown>(),
+                    markdown => markdown.Markdown == "An additional answer arrived while this turn was hidden.");
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task TranscriptPreparesTurnsAheadOneLayoutAtATimeAndKeepsThemNearby()
     {
         using var session = HeadlessMobileSession.Start();

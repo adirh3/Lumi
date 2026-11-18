@@ -519,7 +519,11 @@ public sealed partial class MobileShellViewModel :
         };
 
         Library.CloseRequested += GoBack;
-        Library.ScopeChanged += NotifyPlaceChanged;
+        Library.ScopeChanged += () =>
+        {
+            if (Page == MobilePage.Library)
+                NotifyPlaceChanged();
+        };
         // A job's page opens the chat it runs in, as the desktop's job page does.
         Library.ChatRequested += (chatId, title) =>
         {
@@ -1482,7 +1486,6 @@ public sealed partial class MobileShellViewModel :
         Library.RequestScope(scope);
         Page = MobilePage.Library;
         IsDrawerOpen = false;
-        NotifyPlaceChanged();
         RememberNavigation(previous);
     }
 
@@ -2724,46 +2727,58 @@ public sealed partial class MobileShellViewModel :
     /// Picks the copy of each section to apply: the snapshot's own, or the cached one the desktop
     /// reported unchanged. Null means the section is not applied at all.
     /// </summary>
-    private (RemoteChatPage? Chats, RemoteLibrary? Library, RemoteSettings Settings) ResolveSnapshotSections(
-        RemoteSnapshot snapshot)
+    private (RemoteChatPage? Chats, bool ChatsChanged, RemoteLibrary? Library, bool LibraryChanged, RemoteSettings Settings, bool SettingsChanged)
+        ResolveSnapshotSections(RemoteSnapshot snapshot)
     {
         var unchanged = snapshot.UnchangedSections ?? [];
         lock (_sectionCacheSync)
         {
             RemoteChatPage? chats = null;
+            var chatsChanged = false;
             RemoteLibrary? library = null;
+            var libraryChanged = false;
             if (!snapshot.IsPartial)
             {
                 chats = Resolve(
                     RemoteProtocol.SnapshotSections.Chats,
                     snapshot.Chats,
                     snapshot.ChatsVersion,
-                    ref _cachedChatPage);
+                    ref _cachedChatPage,
+                    out chatsChanged);
                 library = Resolve(
                     RemoteProtocol.SnapshotSections.Library,
                     snapshot.Library,
                     snapshot.LibraryVersion,
-                    ref _cachedLibrary);
+                    ref _cachedLibrary,
+                    out libraryChanged);
             }
 
             var settings = Resolve(
                 RemoteProtocol.SnapshotSections.Settings,
                 snapshot.Settings,
                 snapshot.SettingsVersion,
-                ref _cachedSettings) ?? snapshot.Settings;
-            return (chats, library, settings);
+                ref _cachedSettings,
+                out var settingsChanged) ?? snapshot.Settings;
+            return (chats, chatsChanged, library, libraryChanged, settings, settingsChanged);
         }
 
-        T? Resolve<T>(string section, T incoming, string? version, ref T? cached) where T : class
+        T? Resolve<T>(string section, T incoming, string? version, ref T? cached, out bool changed) where T : class
         {
             if (unchanged.Contains(section, StringComparer.Ordinal))
             {
                 if (cached is null)
+                {
                     _sectionVersions.Remove(section);
+                    changed = false;
+                    return null;
+                }
+
+                changed = false;
                 return cached;
             }
 
             cached = incoming;
+            changed = true;
             if (version is { Length: > 0 })
                 _sectionVersions[section] = version;
             else
@@ -2779,7 +2794,7 @@ public sealed partial class MobileShellViewModel :
             !Chat.HasChat &&
             !Chat.HasStagedBlankState;
         var didAdoptDesktopChat = false;
-        var (chats, library, settings) = ResolveSnapshotSections(snapshot);
+        var (chats, chatsChanged, library, libraryChanged, settings, settingsChanged) = ResolveSnapshotSections(snapshot);
 
         // Exactly one snapshot gets to choose the launch surface. Reconnects and later catalog
         // refreshes are data updates, not navigation commands.
@@ -2798,26 +2813,32 @@ public sealed partial class MobileShellViewModel :
         if (IsConnected)
             ConnectionMessage = snapshot.ConnectionStatus;
 
-        UserName = settings.UserName;
-        ApplyPcNotificationSettings(settings);
+        if (settingsChanged)
+        {
+            UserName = settings.UserName;
+            ApplyPcNotificationSettings(settings);
+        }
         Chat.ApplyRemoteProtocolVersion(snapshot.ProtocolVersion);
 
         if (!snapshot.IsPartial)
         {
-            if (chats is not null)
+            if (chats is not null && chatsChanged)
             {
                 if (string.IsNullOrWhiteSpace(ChatList.SearchText) && ChatList.ProjectFilterId is null)
                     ChatList.Apply(chats);
                 else
                     _ = ChatList.RefreshFromServerAsync();
             }
-            if (Page == MobilePage.Search)
+            if (Page == MobilePage.Search && chatsChanged)
                 _ = SearchChatList.RefreshFromServerAsync();
-            if (library is not null)
+            if (library is not null && libraryChanged)
                 ApplyLibrary(library, reconcileSelections: false);
         }
-        Chat.ApplyCatalogs(settings);
-        ApplyNewChatExperience(settings.NewChat);
+        if (settingsChanged)
+        {
+            Chat.ApplyCatalogs(settings);
+            ApplyNewChatExperience(settings.NewChat);
+        }
 
         // Adopt the desktop's active chat on first connect so the phone opens where the PC left off.
         if (!snapshot.IsPartial &&
@@ -2845,7 +2866,7 @@ public sealed partial class MobileShellViewModel :
             SendFromNotificationWhenReady();
         }
 
-        if (!snapshot.IsPartial)
+        if (!snapshot.IsPartial && (chatsChanged || source == SnapshotSource.Bootstrap))
             UpdateSendReconciliationCandidates(chats ?? new RemoteChatPage(), snapshot.ActiveChatId);
         QueueSubscriptionUpdate();
 

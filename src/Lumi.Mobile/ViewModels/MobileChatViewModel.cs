@@ -536,6 +536,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // via _applyingServerState, leaving only the ones the user actually made on the phone.
         SkillChips.CollectionChanged += (_, e) => PushChipAdditions(e, "addSkills");
         McpChips.CollectionChanged += (_, e) => PushChipAdditions(e, "addMcps");
+        AvailableModels.CollectionChanged += (_, _) => _modelCatalogRevision++;
         InitializeComposerContext();
         Attachments.CollectionChanged += (_, _) =>
         {
@@ -938,8 +939,19 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>Why the last pin did not reach the PC, shown in the model sheet until it is next used.</summary>
     [ObservableProperty] private string? _modelPinError;
 
+    private long _modelCatalogRevision;
+    private (long Revision, string? SelectedModel, bool CanPin, string Language) _lastBuiltModelRowsKey = (-1, null, false, "");
+
     private void RefreshPickerOptions()
     {
+        SyncOptions(QualityOptions, QualityLevels, Quality, EffortDisplay);
+        SyncOptions(ContextTierOptions, ContextWindowTiers, ContextWindowTier, ContextDisplay);
+
+        var nextKey = (Revision: _modelCatalogRevision, SelectedModel: Model, CanPin: CanPinModels, Language: Strings.Language);
+        if (_lastBuiltModelRowsKey == nextKey && (ModelRows.Count > 0 || AvailableModels.Count == 0))
+            return;
+
+        _lastBuiltModelRowsKey = nextKey;
         var sections = StrataModelPicker.GetModelSections(
             OrderPinnedFirst(AvailableModels
                 .Where(model => FindModelRow(model) is not { } row || row.Model == model).ToArray())
@@ -957,7 +969,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
         while (ModelGroups.Count > sections.Count)
             ModelGroups.RemoveAt(ModelGroups.Count - 1);
-        var displayRows = new List<object>();
+        var displayRows = new List<object>(sections.Count + rows.Count);
         foreach (var group in ModelGroups)
         {
             displayRows.Add(group);
@@ -972,8 +984,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
             else if (!Equals(ModelRows[i], displayRows[i]))
                 ModelRows[i] = displayRows[i];
         }
-        SyncOptions(QualityOptions, QualityLevels, Quality, EffortDisplay);
-        SyncOptions(ContextTierOptions, ContextWindowTiers, ContextWindowTier, ContextDisplay);
 
         static void SyncRows(ObservableCollection<ModelPickerOption> target, IReadOnlyList<ModelPickerOption> source)
         {
@@ -1143,6 +1153,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         _pendingModelPins[model] = (pinned, version);
         ModelPinError = null;
         SetPinned(_pinnedModels, model, pinned);
+        _modelCatalogRevision++;
         RefreshPickerOptions();
 
         RemoteCommandResult result;
@@ -1173,6 +1184,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // Back to the PC's own pins rather than the row's previous state: an unpinned row returns to its
         // place among them, and a pin the PC took anyway, as a catalog may already have said, stays.
         ShowModelPins();
+        _modelCatalogRevision++;
         if (IsModelPinned(model) != pinned)
             ModelPinError = Strings.Get(pinned ? "PinModelFailed" : "UnpinModelFailed", option.Label, result.Error).TrimEnd();
         RefreshPickerOptions();
@@ -1539,6 +1551,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             finally { _applyingServerState = wasApplying; }
             _pendingConfiguration.RemoveScalar("quality");
         }
+        RefreshPickerOptions();
     }
 
     partial void OnQualityChanged(string? value)
@@ -2207,6 +2220,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         _pcPinnedModels.Clear();
         _pinnedModels.Clear();
         _pendingModelPins.Clear();
+        _modelCatalogRevision++;
         ModelPinError = null;
         AvailableModels.Clear();
         Reset(Guid.Empty, Strings.Get("NewChat"));
@@ -2855,9 +2869,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 SetPinned(_pcPinnedModels, row.Model, pinned: true);
         }
         ShowModelPins();
+        _modelCatalogRevision++;
 
         RefreshEffortLevels();
-        RefreshContextWindowTiers();
+        RefreshContextWindowTiers(refreshPicker: false);
         _applyingServerState = true;
         try
         {
@@ -2866,7 +2881,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 // A PC without a preference leaves the chat on the model the composer shows.
                 if (!string.IsNullOrWhiteSpace(_preferredModel) && !_pendingConfiguration.TryGetScalar("model", out _))
                     Model = _preferredModel;
-                RefreshBlankModelDefaults();
+                RefreshBlankModelDefaults(refreshPicker: false);
             }
         }
         finally
@@ -2982,7 +2997,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private RemoteModelDefaults? SelectedModelDefaults =>
         Model is { Length: > 0 } model ? _modelDefaults.GetValueOrDefault(model) : null;
 
-    private void RefreshBlankModelDefaults()
+    private void RefreshBlankModelDefaults(bool refreshPicker = true)
     {
         if (ChatId != Guid.Empty)
             return;
@@ -3001,7 +3016,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         {
             _applyingServerState = wasApplyingServerState;
         }
-        RefreshPickerOptions();
+        if (refreshPicker)
+            RefreshPickerOptions();
 
         string? Select(string key, IReadOnlyList<string> options, string? effectiveDefault)
         {
@@ -3080,7 +3096,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(RunSettingsSummary));
     }
 
-    private void RefreshContextWindowTiers()
+    private void RefreshContextWindowTiers(bool refreshPicker = true)
     {
         if (Model is not { Length: > 0 } model || !_modelContextTiers.TryGetValue(model, out var tiers))
         {
@@ -3098,7 +3114,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(HasModelSettings));
         OnPropertyChanged(nameof(ContextWindowLabel));
         OnPropertyChanged(nameof(RunSettingsSummary));
-        RefreshPickerOptions();
+        if (refreshPicker)
+            RefreshPickerOptions();
     }
 
     private static void SyncCatalog(
