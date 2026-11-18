@@ -1,0 +1,11 @@
+{
+  "tunnel": {
+    "tunnelId": "lumi-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.eun1",
+    "hostConnections": 0,
+    "ports": [
+      {
+        "portNumber": 47653
+      }
+    ]
+  }
+}

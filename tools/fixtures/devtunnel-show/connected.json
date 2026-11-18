@@ -1,0 +1,12 @@
+{
+  "tunnel": {
+    "tunnelId": "lumi-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.eun1",
+    "hostConnections": 1,
+    "ports": [
+      {
+        "portNumber": 47653,
+        "portUri": "https://example-47653.eun1.devtunnels.ms/"
+      }
+    ]
+  }
+}

@@ -878,8 +878,12 @@ both need the reachable, running desktop; Microsoft Dev Tunnel remains PWA-only.
 Optional external watchdogs can import `probe_tunnel_route` from
 `tools/lumi_phone_tunnel_health.py` to classify the `tunnel` object returned by
 `devtunnel show <id> --json`. Pass the expected tunnel ID, local port, verified
-owned host PID (or `None`), and a read-only HTTP-status callback. The helper does
-not read a profile, sign in, launch/stop processes or perform recovery itself.
+owned host PID (or `None`), and a read-only `http_status(url)` callback. It must
+return an integer HTTP status, or `None` when the endpoint is unreachable.
+Exceptions propagate: callers using a client that throws on connection refusal
+or timeout must translate those failures to `None` to get an unavailable state.
+The helper does not read a profile, sign in, launch/stop processes or perform
+recovery itself.
 It is not installed or enabled by the desktop app.
 
 A tunnel with zero host connections may omit `portUri`. That is a disconnected
@@ -889,7 +893,9 @@ connection, an unexpected identity/port or an untrusted URL still fails
 explicitly. Callers must retain their process-identity rechecks and repeated
 stable disconnected samples before taking recovery action; a missing URI alone
 does not authorize restarting anything. An unavailable local server and an
-unverified host remain distinct from a disconnected route.
+unverified host remain distinct from a disconnected route. `connected` means
+the route and verified-host checks passed; it does not establish authenticated
+end-to-end phone access. The gateway may, for example, return `401` or `403`.
 
 Run the model-free regression checks (Python 3.9+, no account, profile or
 network access):

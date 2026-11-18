@@ -4,7 +4,11 @@ import urllib.parse
 
 
 def probe_tunnel_route(tunnel, expected_tunnel_id, port, host_pid, http_status):
-    """Classify a CLI `show --json` tunnel; callers retain process ownership checks."""
+    """Classify a CLI `show --json` tunnel; callers retain process ownership checks.
+
+    http_status(url) returns an integer status or None when unreachable; exceptions
+    propagate. "connected" describes these probes, not authenticated phone access.
+    """
     hosts = tunnel.get("hostConnections")
     if (tunnel.get("tunnelId") != expected_tunnel_id
             or type(hosts) is not int or hosts < 0):

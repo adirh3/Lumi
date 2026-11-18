@@ -1,7 +1,12 @@
+import json
+from pathlib import Path
 import unittest
 from unittest.mock import Mock, call
 
 from lumi_phone_tunnel_health import probe_tunnel_route
+
+
+FIXTURES = Path(__file__).with_name("fixtures") / "devtunnel-show"
 
 
 class PhoneTunnelHealthTests(unittest.TestCase):
@@ -17,6 +22,22 @@ class PhoneTunnelHealthTests(unittest.TestCase):
 
     def probe(self, http, host_pid=None):
         return probe_tunnel_route(self.tunnel, self.tunnel_id, self.port, host_pid, http)
+
+    def test_sanitized_cli_samples(self):
+        local = call("http://127.0.0.1:47653/lumi/hello")
+        gateway = call("https://example-47653.eun1.devtunnels.ms/app/")
+        samples = (
+            ("connected", "a", 202, [200, 401], [local, gateway]),
+            ("disconnected", "b", None, [200], [local]),
+        )
+        for state, id_character, host_pid, statuses, expected_calls in samples:
+            with self.subTest(state=state):
+                fixture = FIXTURES / f"{state}.json"
+                tunnel = json.loads(fixture.read_text(encoding="utf-8"))["tunnel"]
+                http = Mock(side_effect=statuses)
+                result = probe_tunnel_route(tunnel, f"lumi-{id_character * 32}.eun1", 47653, host_pid, http)
+                self.assertEqual(state, result["state"])
+                self.assertEqual(expected_calls, http.call_args_list)
 
     def test_disconnected_without_uri_reaches_recovery_state(self):
         for host_pid in (None, 202):
