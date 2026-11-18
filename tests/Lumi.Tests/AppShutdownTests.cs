@@ -1,3 +1,5 @@
+using System.Reflection;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using Xunit;
 
@@ -7,14 +9,24 @@ namespace Lumi.Tests;
 public sealed class AppShutdownTests
 {
     [Theory]
-    [InlineData(false, false, false)]
-    [InlineData(true, false, true)]
-    [InlineData(false, true, true)]
-    [InlineData(true, true, true)]
+    [InlineData(false, false, true, false)] // Windows/X11 session end
+    [InlineData(true, false, false, true)] // Programmatic shutdown
+    [InlineData(false, true, false, true)] // Ordinary native macOS Quit
+    [InlineData(true, true, false, true)] // Programmatic macOS Quit
+    [InlineData(false, true, true, false)] // macOS logout, restart or shutdown
     public void OnlyApplicationRequestsAndNativeMacQuitMayBeDeferred(
-        bool applicationInitiated, bool isMacOS, bool expected)
+        bool applicationInitiated, bool isMacOS, bool osSessionEnding, bool expected)
     {
-        Assert.Equal(expected, App.ShouldDeferShutdown(applicationInitiated, isMacOS));
+        var args = new ShutdownRequestedEventArgs();
+        if (osSessionEnding)
+        {
+            var flag = typeof(ShutdownRequestedEventArgs)
+                .GetProperty("IsOSShutdown", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            Assert.NotNull(flag);
+            flag.SetValue(args, true);
+        }
+
+        Assert.Equal(expected, App.ShouldDeferShutdown(args, applicationInitiated, isMacOS));
     }
 
     [Fact]

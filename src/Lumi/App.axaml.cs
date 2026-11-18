@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
@@ -42,6 +43,8 @@ public partial class App : Application
     private readonly HashSet<ChatWindow> _openChatWindows = [];
     private bool _isShuttingDown;
     private bool _applicationShutdownRequested;
+    private static readonly PropertyInfo? OsShutdownFlag = typeof(ShutdownRequestedEventArgs)
+        .GetProperty("IsOSShutdown", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 #if DEBUG
     private LumiDebugBridge? _debugBridge;
 #endif
@@ -364,7 +367,7 @@ public partial class App : Application
 
             desktop.ShutdownRequested += async (_, args) =>
             {
-                if (!ShouldDeferShutdown(_applicationShutdownRequested, OperatingSystem.IsMacOS()))
+                if (!ShouldDeferShutdown(args, _applicationShutdownRequested, OperatingSystem.IsMacOS()))
                 {
                     if (!_isShuttingDown)
                     {
@@ -1253,12 +1256,24 @@ public partial class App : Application
         Dispatcher.UIThread.Post(() => _mainViewModel?.RefreshChatList());
     }
 
-    internal static bool ShouldDeferShutdown(bool applicationInitiated, bool isMacOS) =>
-        applicationInitiated || isMacOS;
+    internal static bool ShouldDeferShutdown(
+        ShutdownRequestedEventArgs args, bool applicationInitiated, bool isMacOS)
+    {
+        if (!isMacOS)
+            return applicationInitiated;
+
+        // Avalonia receives the native session-end reason but keeps it internal in 12.1.4.
+        // If that contract changes, never veto an unclassified native request.
+        if (OsShutdownFlag?.GetValue(args) is bool isOsShutdown)
+            return !isOsShutdown;
+
+        Trace.TraceWarning("[Shutdown] Avalonia did not expose the macOS shutdown reason; using bounded cleanup.");
+        return applicationInitiated;
+    }
 
     internal static bool RunOsShutdownCleanup(Func<Task> disposeServicesAsync, TimeSpan timeout)
     {
-        // Windows/X11 session end cannot be resumed after a veto. Do not wait indefinitely
+        // An OS session end cannot be resumed after a veto. Do not wait indefinitely
         // for work that needs the dispatcher, or run UI disposal inside that native callback.
         var cleanup = Task.Run(async () =>
         {
