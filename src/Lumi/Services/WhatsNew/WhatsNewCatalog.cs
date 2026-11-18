@@ -88,6 +88,25 @@ public static class WhatsNewCatalog
 {
     public static IReadOnlyList<WhatsNewRelease> Releases { get; } =
     [
+        new("1.0.3",
+        [
+            new(nameof(StrataIcons.Phone), nameof(Loc.WhatsNew_MobileLaunchpad_Title), nameof(Loc.WhatsNew_MobileLaunchpad_Body))
+            {
+                IsSpotlight = true,
+                EyebrowKey = nameof(Loc.WhatsNew_MobileLaunchpad_Eyebrow),
+                ActionKey = nameof(Loc.WhatsNew_Phone_Connect),
+                Destination = WhatsNewDestination.PhoneSettings,
+                Points =
+                [
+                    new(nameof(StrataIcons.Lightbulb), nameof(Loc.WhatsNew_MobileLaunchpad_Starters)),
+                    new(nameof(StrataIcons.Files), nameof(Loc.WhatsNew_MobileLaunchpad_Html)),
+                ],
+            },
+            new(nameof(StrataIcons.Bookmark), nameof(Loc.WhatsNew_Launchpad_Title), nameof(Loc.WhatsNew_Launchpad_Body)),
+            new(nameof(StrataIcons.Search), nameof(Loc.WhatsNew_Explorer_Title), nameof(Loc.WhatsNew_Explorer_Body)),
+            new(nameof(StrataIcons.Globe), nameof(Loc.WhatsNew_Citations_Title), nameof(Loc.WhatsNew_Citations_Body)),
+            new(nameof(StrataIcons.Files), nameof(Loc.WhatsNew_RichPaste_Title), nameof(Loc.WhatsNew_RichPaste_Body)),
+        ]),
         new("1.0.2",
         [
             // Lumi on your phone gathers what the phone gained since 1.0 (notifications in 1.0.1, suggestions in 1.0.2).
