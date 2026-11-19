@@ -105,12 +105,16 @@ public partial class SettingsViewModel
 
     public bool CanRetryMobileDevTunnel =>
         RemoteAccessEnabled && UseDevTunnelForMobile
-        && _remoteServer is { RequiresDevTunnelSignIn: false } server
+        && _remoteServer is { RequiresDevTunnelSignIn: false, RequiresDevTunnelSignInReset: false } server
         && (!server.IsDevTunnelStarting || server.IsDevTunnelReconnecting);
 
     public bool CanSignInMobileDevTunnel =>
         RemoteAccessEnabled && UseDevTunnelForMobile
         && _remoteServer is { IsRunning: true, IsDevTunnelStarting: false, RequiresDevTunnelSignIn: true };
+
+    public bool CanResetMobileDevTunnelSignIn =>
+        RemoteAccessEnabled && UseDevTunnelForMobile
+        && _remoteServer is { IsRunning: true, IsDevTunnelStarting: false, RequiresDevTunnelSignInReset: true };
 
     public bool CanCancelMobileDevTunnelSetup =>
         _remoteServer is { IsDevTunnelStarting: true, RequiresDevTunnelInstallConfirmation: false };
@@ -196,7 +200,8 @@ public partial class SettingsViewModel
         IsDevTunnelSetupBusy = server is { IsDevTunnelStarting: true, RequiresDevTunnelInstallConfirmation: false };
         DevTunnelSetupTitle = Loc.Get(server switch
         {
-            { DevTunnelError: not null } or { StartError: not null } => "Remote_DevTunnelErrorTitle",
+            { DevTunnelError: not null } or { StartError: not null } or { RequiresDevTunnelSignInReset: true } =>
+                "Remote_DevTunnelErrorTitle",
             { DevTunnelOrigin: not null, IsWebAppAvailable: false } => "Remote_DevTunnelErrorTitle",
             { RequiresDevTunnelInstallConfirmation: true } => "Remote_DevTunnelInstallTitle",
             { RequiresDevTunnelSignIn: true } or { IsDevTunnelSigningIn: true } => "Remote_DevTunnelSignInTitle",
@@ -230,10 +235,12 @@ public partial class SettingsViewModel
         }
         RetryMobileDevTunnelCommand.NotifyCanExecuteChanged();
         SignInMobileDevTunnelCommand.NotifyCanExecuteChanged();
+        ResetMobileDevTunnelSignInCommand.NotifyCanExecuteChanged();
         UseDevTunnelBrowserSignInCommand.NotifyCanExecuteChanged();
         CancelMobileDevTunnelSetupCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanRetryMobileDevTunnel));
         OnPropertyChanged(nameof(CanSignInMobileDevTunnel));
+        OnPropertyChanged(nameof(CanResetMobileDevTunnelSignIn));
         OnPropertyChanged(nameof(CanUseDevTunnelBrowserSignIn));
         OnPropertyChanged(nameof(CanCancelMobileDevTunnelSetup));
         OnPropertyChanged(nameof(DevTunnelRetryActionText));
@@ -496,6 +503,13 @@ public partial class SettingsViewModel
     private void SignInMobileDevTunnel()
     {
         _remoteServer?.RestartDevTunnel(signIn: true);
+        RefreshRemoteState();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanResetMobileDevTunnelSignIn))]
+    private void ResetMobileDevTunnelSignIn()
+    {
+        _remoteServer?.RestartDevTunnel(signIn: true, resetSignIn: true);
         RefreshRemoteState();
     }
 

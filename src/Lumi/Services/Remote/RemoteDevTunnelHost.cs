@@ -19,7 +19,8 @@ internal sealed record RemoteDevTunnelState(
     bool RequiresSignIn = false,
     bool IsSigningIn = false,
     RemoteDevTunnelSignIn? SignIn = null,
-    bool IsReconnecting = false);
+    bool IsReconnecting = false,
+    bool RequiresSignInReset = false);
 
 internal sealed record RemoteDevTunnelSignIn(string Url, string Code);
 
@@ -88,8 +89,9 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
         string requestedTunnelId,
         Func<string, CancellationToken, Task> persistTunnelId,
         bool signIn = false,
-        bool useDeviceCode = false) =>
-        Start(lifetime => RunAsync(port, requestedTunnelId, persistTunnelId, lifetime, signIn, useDeviceCode));
+        bool useDeviceCode = false,
+        bool resetSignIn = false) =>
+        Start(lifetime => RunAsync(port, requestedTunnelId, persistTunnelId, lifetime, signIn, useDeviceCode, resetSignIn));
 
     internal void Start(Func<CancellationTokenSource, Task> run)
     {
@@ -187,7 +189,8 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
         Func<string, CancellationToken, Task> persistTunnelId,
         CancellationTokenSource lifetime,
         bool signIn,
-        bool useDeviceCode)
+        bool useDeviceCode,
+        bool resetSignIn)
     {
         string? account = null;
         try
@@ -245,7 +248,11 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                         SetupMessage: Loc.Get(useDeviceCode
                             ? "Remote_DevTunnelGettingSignInCode" : "Remote_DevTunnelDesktopSigningIn"))),
                     ct,
-                    signIn, useDeviceCode);
+                    signIn, useDeviceCode,
+                    resetSignIn && OperatingSystem.IsWindows()
+                        ? resetToken => RemoteDevTunnelCli.BackUpMicrosoftSignInCache(
+                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), resetToken)
+                        : null);
             // Retry cached-account checks, but never repeat an interactive sign-in automatically.
             var identity = signIn
                 ? await ResolveIdentity(token).ConfigureAwait(false)
@@ -277,6 +284,12 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                 },
                 ReportReconnect,
                 token).ConfigureAwait(false);
+        }
+        catch (RemoteDevTunnelCliException ex) when (ex.RequiresSignInReset)
+        {
+            Trace.TraceWarning($"[Remote] Dev Tunnel sign-in needs a reset: {ex.Message}");
+            Publish(lifetime, new RemoteDevTunnelState(
+                Account: account, RequiresSignInReset: true, SetupMessage: ex.Message));
         }
         catch (RemoteDevTunnelCliException ex) when (ex.RequiresSignIn)
         {
@@ -598,9 +611,19 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
         Action reportSigningIn,
         CancellationToken cancellationToken,
         bool signIn = false,
-        bool useDeviceCode = false)
+        bool useDeviceCode = false,
+        Action<CancellationToken>? resetSignInCache = null)
     {
-        var json = await runCli(["user", "show", "--json"], cancellationToken).ConfigureAwait(false);
+        string json;
+        try
+        {
+            json = await runCli(["user", "show", "--json"], cancellationToken).ConfigureAwait(false);
+        }
+        catch (RemoteDevTunnelCliException ex) when (ex.RequiresSignInReset && signIn && resetSignInCache is not null)
+        {
+            resetSignInCache(cancellationToken);
+            return await SignInAsync().ConfigureAwait(false);
+        }
         using (var document = JsonDocument.Parse(json))
         {
             var root = document.RootElement;
@@ -608,17 +631,23 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                             && status.GetString() is "Not logged in" or "Login token expired";
             var github = status.ValueKind == JsonValueKind.String && status.GetString() == "Logged in"
                          && root.TryGetProperty("provider", out var provider) && provider.GetString() == "github";
-            if (signIn)
-            {
-                reportSigningIn();
-                await runCli(useDeviceCode ? DeviceSignInArguments : DefaultSignInArguments, cancellationToken)
-                    .ConfigureAwait(false);
-                json = await runCli(["user", "show", "--json"], cancellationToken).ConfigureAwait(false);
-            }
-            else if (signedOut || github)
+            var needsMicrosoftSignIn = signedOut || github;
+            if (signIn && (needsMicrosoftSignIn || resetSignInCache is null))
+                return await SignInAsync().ConfigureAwait(false);
+            if (needsMicrosoftSignIn)
                 return null;
         }
         return ParseMicrosoftIdentity(json);
+
+        async Task<(string Username, string ObjectId, string TenantId)> SignInAsync()
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            reportSigningIn();
+            await runCli(useDeviceCode ? DeviceSignInArguments : DefaultSignInArguments, cancellationToken)
+                .ConfigureAwait(false);
+            return ParseMicrosoftIdentity(
+                await runCli(["user", "show", "--json"], cancellationToken).ConfigureAwait(false));
+        }
     }
 
     internal static RemoteDevTunnelSignIn? ParseDeviceSignIn(string output)

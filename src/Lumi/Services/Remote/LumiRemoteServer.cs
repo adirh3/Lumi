@@ -162,6 +162,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     public bool IsDevTunnelSigningIn => _devTunnel.State.IsSigningIn;
     public bool IsDevTunnelReconnecting => _devTunnel.State.IsReconnecting;
     public bool RequiresDevTunnelSignIn => _devTunnel.State.RequiresSignIn;
+    public bool RequiresDevTunnelSignInReset => _devTunnel.State.RequiresSignInReset;
     public string? DevTunnelSignInUrl => _devTunnel.State.SignIn?.Url;
     public string? DevTunnelSignInCode => _devTunnel.State.SignIn?.Code;
     public string? DevTunnelAccount => _devTunnel.State.Account;
@@ -173,13 +174,15 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     public void RespondToDevTunnelInstallConfirmation(bool approved) =>
         _devTunnel.RespondToInstallConfirmation(approved);
 
-    public void RestartDevTunnel(bool signIn = false, bool useDeviceCode = false)
+    public void RestartDevTunnel(bool signIn = false, bool useDeviceCode = false, bool resetSignIn = false)
     {
         if (!IsRunning || _disposed || !_dataStore.Data.Settings.RemoteUseDevTunnel)
             return;
+        if (resetSignIn && (!signIn || !RequiresDevTunnelSignInReset))
+            return;
         var port = Port;
         _devTunnel.Start(port, EnsureDevTunnelId(),
-            (id, ct) => PersistDevTunnelRouteAsync(id, port, ct), signIn, useDeviceCode);
+            (id, ct) => PersistDevTunnelRouteAsync(id, port, ct), signIn, useDeviceCode, resetSignIn);
     }
 
     public void CancelDevTunnelSetup() => _devTunnel.CancelSetup();

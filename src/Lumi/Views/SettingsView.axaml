@@ -426,6 +426,11 @@
                           IsVisible="{Binding CanSignInMobileDevTunnel}"
                           Command="{Binding SignInMobileDevTunnelCommand}"
                           Content="{loc:Str Remote_DevTunnelSignInButton}" />
+                  <Button x:Name="MobileDevTunnelResetSignInButton"
+                          Classes="accent motion-action" MinHeight="48" Margin="0,0,8,0"
+                          IsVisible="{Binding CanResetMobileDevTunnelSignIn}"
+                          Command="{Binding ResetMobileDevTunnelSignInCommand}"
+                          Content="{loc:Str Remote_DevTunnelSignInResetButton}" />
                   <Button x:Name="MobileDevTunnelRetryButton"
                           Classes="subtle motion-action" MinHeight="48" Margin="0,0,8,0"
                           IsVisible="{Binding CanRetryMobileDevTunnel}"

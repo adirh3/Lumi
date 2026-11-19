@@ -486,6 +486,121 @@ public sealed class RemoteDevTunnelCliTests
     }
 
     [Theory]
+    [InlineData("The data is invalid", false)]
+    [InlineData("System.Security.Cryptography.ProtectedData.Unprotect(Byte[] encryptedData)", false)]
+    [InlineData("   at System.Security.Cryptography.ProtectedData.Unprotect(Byte[] encryptedData)\n" +
+                "   at Microsoft.Identity.Client.Extensions.Msal.DpApiEncryptedFileAccessor.Read()", true)]
+    public void OnlyTheWindowsMsalCacheReadFailureSuggestsAReset(string diagnostic, bool expected) =>
+        Assert.Equal(expected, RemoteDevTunnelCli.IsSignInCacheDecryptionFailure(diagnostic));
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task UnreadableCacheRequiresExplicitResetBeforeMicrosoftSignIn(bool signIn, bool approveReset)
+    {
+        var calls = new List<string[]>();
+        var order = new List<string>();
+        Task<string> Run(string[] arguments, CancellationToken token)
+        {
+            calls.Add(arguments);
+            return calls.Count switch
+            {
+                1 => throw new RemoteDevTunnelCliException("Unreadable cache", canRetry: false, requiresSignInReset: true),
+                2 => Task.FromResult("{}"),
+                _ => Task.FromResult(MicrosoftIdentity)
+            };
+        }
+
+        var operation = RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+            Run, () => order.Add("sign in"), CancellationToken.None, signIn,
+            resetSignInCache: approveReset ? _ => order.Add("reset") : null);
+
+        if (approveReset)
+        {
+            Assert.Equal("owner-id", (await operation)!.Value.ObjectId);
+            Assert.Equal(["reset", "sign in"], order);
+            Assert.Equal(3, calls.Count);
+            Assert.Equal(RemoteDevTunnelHost.DefaultSignInArguments, calls[1]);
+            Assert.Equal(["user", "show", "--json"], calls[2]);
+        }
+        else
+        {
+            Assert.True((await Assert.ThrowsAsync<RemoteDevTunnelCliException>(() => operation)).RequiresSignInReset);
+            Assert.Empty(order);
+            Assert.Single(calls);
+        }
+    }
+
+    [Fact]
+    public async Task ResetReusesARepairedMicrosoftSignInWithoutMovingTheCacheOrStartingLogin()
+    {
+        var calls = new List<string[]>();
+        var identity = await RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+            (args, _) =>
+            {
+                calls.Add(args);
+                return Task.FromResult(MicrosoftIdentity);
+            },
+            () => throw new InvalidOperationException("The repaired sign-in must not prompt again."),
+            CancellationToken.None, signIn: true,
+            resetSignInCache: _ => throw new InvalidOperationException("The readable cache must not be moved."));
+
+        Assert.Equal("owner-id", identity!.Value.ObjectId);
+        Assert.Equal(["user", "show", "--json"], Assert.Single(calls));
+    }
+
+    [Fact]
+    public async Task ResetStillSignsInIfTheUserAlreadyClearedTheCache()
+    {
+        var calls = new List<string[]>();
+        var identity = await RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+            (args, _) =>
+            {
+                calls.Add(args);
+                return Task.FromResult(calls.Count switch
+                {
+                    1 => """{"status":"Not logged in"}""",
+                    2 => "{}",
+                    _ => MicrosoftIdentity
+                });
+            },
+            () => { }, CancellationToken.None, signIn: true,
+            resetSignInCache: _ => throw new InvalidOperationException("There is no unreadable cache to move."));
+
+        Assert.Equal("owner-id", identity!.Value.ObjectId);
+        Assert.Equal(3, calls.Count);
+        Assert.Equal(RemoteDevTunnelHost.DefaultSignInArguments, calls[1]);
+        Assert.Equal(["user", "show", "--json"], calls[2]);
+    }
+
+    [Fact]
+    public void ResetMovesOnlyTheMicrosoftCacheAndKeepsExistingBackups()
+    {
+        using var files = new Files();
+        var cache = files.Create("DevTunnels", "devtunnels-tokens-microsoft");
+        var oldBackup = files.Create("DevTunnels", "devtunnels-tokens-microsoft.bak-old");
+        var otherProvider = files.Create("DevTunnels", "devtunnels-tokens-github");
+        var settings = files.Create("DevTunnels", "devtunnels.json");
+        File.WriteAllText(cache, "unreadable fixture");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(
+            () => RemoteDevTunnelCli.BackUpMicrosoftSignInCache(files.Root, cancellation.Token));
+        Assert.True(File.Exists(cache));
+
+        RemoteDevTunnelCli.BackUpMicrosoftSignInCache(files.Root, CancellationToken.None);
+
+        Assert.False(File.Exists(cache));
+        var backup = Assert.Single(Directory.GetFiles(Path.GetDirectoryName(cache)!, "devtunnels-tokens-microsoft.bak-*"),
+            file => file != oldBackup);
+        Assert.Equal("unreadable fixture", File.ReadAllText(backup));
+        Assert.All(new[] { oldBackup, otherProvider, settings }, path => Assert.True(File.Exists(path)));
+        Assert.True(Assert.Throws<RemoteDevTunnelCliException>(
+            () => RemoteDevTunnelCli.BackUpMicrosoftSignInCache(files.Root, CancellationToken.None)).RequiresSignInReset);
+    }
+
+    [Theory]
     [InlineData("""{"status":"Not logged in"}""")]
     [InlineData("""{"status":"Login token expired","provider":"microsoft"}""")]
     public async Task IdentityRecoveryStillWaitsForExplicitSignInWhenCredentialsAreMissing(string response)

@@ -1476,6 +1476,11 @@ Desktop setup is guided after selecting **Dev Tunnel**:
    on a working connection. Microsoft's CLI replaces its cached login when a new
    sign-in starts; canceling that operation leaves sign-in pending, while the saved
    link and Lumi device pairing remain intact.
+   If Windows cannot decrypt the Dev Tunnel CLI's saved Microsoft sign-in, choose
+   **Reset and sign in**. Lumi moves the unreadable Microsoft cache aside as a
+   backup, then opens Microsoft sign-in. If the sign-in was already repaired
+   elsewhere, Lumi reuses it without prompting again. A reset doesn't delete your
+   tunnels, change your saved link or unpair phones.
    The visible sign-in flow allows up to 15 minutes for account selection and MFA,
    rather than canceling a still-valid Microsoft code after five minutes.
    **Cancel setup** cancels the owned operation without closing your browser.

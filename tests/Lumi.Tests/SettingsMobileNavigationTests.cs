@@ -334,8 +334,21 @@ public sealed class SettingsMobileNavigationTests
                     Assert.False(view.FindSettingsControl<Expander>("MobileDevTunnelSignInHelp")!.IsExpanded);
                     Assert.True(settings.DevTunnelStatusText.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 12);
 
+                    SetState(new RemoteDevTunnelState(RequiresSignInReset: true,
+                        SetupMessage: Loc.Get("Remote_DevTunnelSignInResetRequired")));
+                    var reset = view.FindSettingsControl<Button>("MobileDevTunnelResetSignInButton")!;
+                    Assert.True(reset.IsVisible);
+                    Assert.True(reset.IsEffectivelyEnabled);
+                    Assert.Equal("Reset and sign in", reset.Content);
+                    Assert.Equal(Loc.Get("Remote_DevTunnelSignInResetRequired"),
+                        view.FindSettingsControl<TextBlock>("MobileDevTunnelStatus")!.Text);
+                    Assert.False(view.FindSettingsControl<Button>("MobileDevTunnelRetryButton")!.IsVisible);
+                    Assert.False(view.FindSettingsControl<Button>("MobileDevTunnelSignInButton")!.IsVisible);
+                    Assert.False(view.FindSettingsControl<Expander>("MobileDevTunnelSignInHelp")!.IsVisible);
+
                     SetState(new RemoteDevTunnelState(IsStarting: true, IsSigningIn: true,
                         SetupMessage: Loc.Get("Remote_DevTunnelDesktopSigningIn")));
+                    Assert.False(reset.IsVisible);
                     Assert.True(view.FindSettingsControl<ProgressBar>("MobileDevTunnelProgress")!.IsVisible);
                     Assert.True(view.FindSettingsControl<Button>("MobileDevTunnelCancelSetupButton")!.IsVisible);
                     Assert.False(view.FindSettingsControl<StackPanel>("MobileDevTunnelSignInPanel")!.IsVisible);

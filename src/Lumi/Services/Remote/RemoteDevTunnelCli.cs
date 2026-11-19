@@ -8,11 +8,12 @@ using Lumi.Localization;
 namespace Lumi.Services.Remote;
 
 internal sealed class RemoteDevTunnelCliException(
-    string message, bool requiresSignIn = false, bool canRetry = true)
+    string message, bool requiresSignIn = false, bool canRetry = true, bool requiresSignInReset = false)
     : InvalidOperationException(message)
 {
     public bool RequiresSignIn { get; } = requiresSignIn;
     public bool CanRetry { get; } = canRetry;
+    public bool RequiresSignInReset { get; } = requiresSignInReset;
 }
 
 internal static class RemoteDevTunnelCli
@@ -286,11 +287,63 @@ internal static class RemoteDevTunnelCli
         if (result.ExitCode != 0)
         {
             var error = string.IsNullOrWhiteSpace(result.Error) ? result.Output.Trim() : result.Error.Trim();
+            var requiresSignIn = IsAuthenticationFailure(error);
+            var canRetry = IsTransientFailure(error);
+            if (OperatingSystem.IsWindows() && arguments is ["user", "show", "--json"]
+                && !requiresSignIn && !canRetry
+                && await HasUnreadableSignInCacheAsync(executablePath, cancellationToken).ConfigureAwait(false))
+            {
+                throw new RemoteDevTunnelCliException(
+                    Loc.Get("Remote_DevTunnelSignInResetRequired"), canRetry: false, requiresSignInReset: true);
+            }
             throw new RemoteDevTunnelCliException(
-                Loc.Get("Remote_DevTunnelCliFailed", error),
-                IsAuthenticationFailure(error), IsTransientFailure(error));
+                Loc.Get("Remote_DevTunnelCliFailed", error), requiresSignIn, canRetry);
         }
         return NormalizeOutput(result.Output);
+    }
+
+    private static async Task<bool> HasUnreadableSignInCacheAsync(string executablePath, CancellationToken token)
+    {
+        // The normal error can be a generic, localized Windows message. Use the MSAL stack
+        // signature from a read-only probe; don't publish or log its verbose authentication output.
+        try
+        {
+            var result = await RunProcessAsync(
+                    CreateStartInfo(executablePath, ["user", "show", "--json", "--verbose"]),
+                    TimeSpan.FromSeconds(10), token)
+                .ConfigureAwait(false);
+            return result.ExitCode != 0
+                && (IsSignInCacheDecryptionFailure(result.Output) || IsSignInCacheDecryptionFailure(result.Error));
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            return false; // Keep reporting the original CLI error if the probe times out.
+        }
+    }
+
+    internal static bool IsSignInCacheDecryptionFailure(string diagnostic) =>
+        diagnostic.Contains("System.Security.Cryptography.ProtectedData.Unprotect(", StringComparison.Ordinal)
+        && diagnostic.Contains("Microsoft.Identity.Client.Extensions.Msal.DpApiEncryptedFileAccessor.Read(",
+            StringComparison.Ordinal);
+
+    internal static void BackUpMicrosoftSignInCache(string localAppData, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (!Path.IsPathFullyQualified(localAppData))
+            throw new RemoteDevTunnelCliException(Loc.Get("Remote_DevTunnelSignInResetFailed"),
+                canRetry: false, requiresSignInReset: true);
+
+        var path = Path.Combine(localAppData, "DevTunnels", "devtunnels-tokens-microsoft");
+        try
+        {
+            File.Move(path, $"{path}.bak-{Guid.NewGuid():N}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Trace.TraceWarning($"[Remote] Could not back up the Dev Tunnel Microsoft sign-in cache: {ex.Message}");
+            throw new RemoteDevTunnelCliException(Loc.Get("Remote_DevTunnelSignInResetFailed"),
+                canRetry: false, requiresSignInReset: true);
+        }
     }
 
     internal static ProcessStartInfo CreateCommandStartInfo(string executablePath, string[] arguments)
