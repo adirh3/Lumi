@@ -82,6 +82,7 @@ public class CopilotService : IAsyncDisposable
     private ConnectionState _state = ConnectionState.Disconnected;
     private readonly SemaphoreSlim _connectGate = new(1, 1);
     private Action? _cleanupProcessHandlers;
+    private int? _runtimeProcessId;
     private IDisposable? _lifecycleSub;
     private CopilotSession? _suggestionSession;
     private string? _suggestionSessionModelSignature;
@@ -300,6 +301,57 @@ public class CopilotService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Where the runtime keeps data it can download again, such as plugin marketplace clones
+    /// (<c>COPILOT_CACHE_HOME</c>, else the platform's cache folder). The runtime home does not move
+    /// it, so an isolated runtime home gets its own cache too.
+    /// </summary>
+    public static string RuntimeCacheDirectory
+        => IsolatedRuntimeHome is null
+            ? DefaultRuntimeCacheDirectory(Environment.GetEnvironmentVariable)
+            : Path.Combine(DataStore.AppDirectory, "copilot-cache");
+
+    /// <summary>The runtime's own choice of cache folder, from these environment variables.</summary>
+    internal static string DefaultRuntimeCacheDirectory(Func<string, string?> environment)
+    {
+        // The runtime would resolve a relative override against its working directory, which Lumi doesn't
+        // choose, so Lumi resolves it here and passes the runtime the result (ApplyRuntimeCacheIsolation).
+        if (environment("COPILOT_CACHE_HOME") is { } configured && !string.IsNullOrWhiteSpace(configured))
+            return Path.GetFullPath(configured);
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (OperatingSystem.IsWindows())
+            return Path.Combine(environment("LOCALAPPDATA") is { Length: > 0 } local ? local : Path.Combine(home, ".cache"), "copilot");
+        if (OperatingSystem.IsMacOS())
+            return Path.Combine(home, "Library", "Caches", "copilot");
+        return Path.Combine(environment("XDG_CACHE_HOME") is { Length: > 0 } cache ? cache : Path.Combine(home, ".cache"), "copilot");
+    }
+
+    /// <summary>
+    /// Gives the runtime the cache folder Lumi watches. An isolated runtime gets its own, so its plugin
+    /// marketplace clones stay in the test profile, while its unpacked CLI versions stay in the shared
+    /// cache, where they are reused instead of unpacked again for each profile. A relative
+    /// <c>COPILOT_CACHE_HOME</c> becomes the full path Lumi resolved it to.
+    /// </summary>
+    internal static void ApplyRuntimeCacheIsolation(IDictionary<string, string> environment, string? isolatedCache)
+    {
+        var shared = DefaultRuntimeCacheDirectory(name => environment.TryGetValue(name, out var value) ? value : null);
+        if (isolatedCache is null)
+        {
+            if (environment.TryGetValue("COPILOT_CACHE_HOME", out var configured) && !string.IsNullOrWhiteSpace(configured)
+                && !Path.IsPathFullyQualified(configured))
+                environment["COPILOT_CACHE_HOME"] = shared;
+            return;
+        }
+
+        if (!environment.TryGetValue("COPILOT_PKG_CACHE_HOME", out var packages) || string.IsNullOrWhiteSpace(packages))
+            environment["COPILOT_PKG_CACHE_HOME"] = shared;
+        environment["COPILOT_CACHE_HOME"] = isolatedCache;
+    }
+
+    /// <summary>The local runtime process, while one is connected.</summary>
+    internal int? RuntimeProcessId => _client is not null ? _runtimeProcessId : null;
+
     public bool IsConnected => _client is not null && State == ConnectionState.Connected;
 
     /// <summary>The current connection state of the underlying CopilotClient.
@@ -356,6 +408,7 @@ public class CopilotService : IAsyncDisposable
             if (IsolatedRuntimeHome is { } isolatedHome)
             {
                 Directory.CreateDirectory(isolatedHome);
+                Directory.CreateDirectory(RuntimeCacheDirectory);
                 ((OwnedRuntimeConnection)clientOptions.Runtime!).BaseDirectory = isolatedHome;
             }
 
@@ -365,6 +418,7 @@ public class CopilotService : IAsyncDisposable
             await newClient.StartAsync(ct);
 
             _client = newClient;
+            _runtimeProcessId = null;
             _selectedStoredUser = storedUser is null ? null : (newClient, storedUser);
             _state = ConnectionState.Connected;
             InvalidateModelCatalog();
@@ -542,6 +596,7 @@ public class CopilotService : IAsyncDisposable
             if (processProp?.GetValue(result) is Process cliProcess)
             {
                 process = cliProcess;
+                _runtimeProcessId = cliProcess.Id;
                 processHandler = (_, _) => FireOnce();
                 cliProcess.EnableRaisingEvents = true;
                 cliProcess.Exited += processHandler;
@@ -1960,6 +2015,7 @@ public class CopilotService : IAsyncDisposable
         if (!OperatingSystem.IsWindows())
             env["PATH"] = UnixShellPath.Augment(env.TryGetValue("PATH", out var existingPath) ? existingPath : null);
 
+        ApplyRuntimeCacheIsolation(env, IsolatedRuntimeHome is null ? null : RuntimeCacheDirectory);
         ApplyAgentProcessEnvironment(env);
         ApplySkillListingBudget(env);
         ApplyAutoReviewFeature(env);
@@ -2484,6 +2540,11 @@ public class CopilotService : IAsyncDisposable
 
         if (suggestionSession is not null)
             await DisposeAndDeleteSessionAsync(suggestionSession).ConfigureAwait(false);
+
+        // git outlives the runtime: a plugin marketplace download it started would carry on alone,
+        // into a folder nothing removes. Stopping it first lets the runtime clean up as it stops.
+        if (RuntimeProcessId is { } runtime)
+            new Discover.MarketplaceDownloads(RuntimeCacheDirectory, () => runtime).Stop(before: null);
 
         if (_client is not null)
         {

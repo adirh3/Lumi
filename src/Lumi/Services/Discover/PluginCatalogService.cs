@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -55,6 +57,24 @@ public sealed record PluginUpdateOutcome(string? PreviousVersion, string? NewVer
 
 public sealed record MarketplaceRemoveOutcome(bool Removed, IReadOnlyList<string> DependentPlugins);
 
+/// <summary>Adding a marketplace was stopped: by whoever added it, or because its download stalled.</summary>
+/// <param name="completion">The add, when the runtime goes on with it (see <see cref="Completion"/>).</param>
+public sealed class MarketplaceAddStoppedException(string message, bool stalled, Task<string>? completion, CancellationToken cancellationToken)
+    : OperationCanceledException(message, cancellationToken)
+{
+    /// <summary>The download made no progress for <see cref="PluginCatalogService.StallTimeout"/>.</summary>
+    public bool Stalled { get; } = stalled;
+
+    /// <summary>No download was stopped (none was found, or the add was at a ref), so the runtime may still add the marketplace.</summary>
+    public bool StillRunning => Completion is not null;
+
+    /// <summary>
+    /// While <see cref="StillRunning"/>, the add the runtime goes on with: the marketplace's name once it
+    /// is added, or the error it fails with.
+    /// </summary>
+    public Task<string>? Completion { get; } = completion;
+}
+
 /// <summary>
 /// Plugins through the GitHub Copilot runtime: its marketplaces, installs, updates and removals.
 /// Lumi shares the runtime's home with Copilot CLI, so a plugin added in either appears in both.
@@ -71,6 +91,7 @@ public sealed class PluginCatalogService
     private readonly Action _pluginsChanged;
     private readonly GitHubRepoReader _reader;
     private readonly PluginInspector _inspector;
+    private readonly MarketplaceDownloads? _downloads;
     private readonly ConcurrentDictionary<string, Task<IReadOnlyList<MarketplaceListing>>> _manifests = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _failedRefreshes = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, Task<PluginContents>> _contents = new(StringComparer.OrdinalIgnoreCase);
@@ -79,20 +100,33 @@ public sealed class PluginCatalogService
         : this(
             () => copilotService.IsConnected ? copilotService.Client : null,
             copilotService.NotifyPluginsChanged,
-            reader)
+            reader,
+            new MarketplaceDownloads(CopilotService.RuntimeCacheDirectory, () => copilotService.RuntimeProcessId))
     {
     }
 
+    /// <param name="downloads">The runtime's marketplace downloads; without them, an add can't be measured or stopped.</param>
     internal PluginCatalogService(
         Func<CopilotClient?> client,
         Action pluginsChanged,
-        GitHubRepoReader? reader = null)
+        GitHubRepoReader? reader = null,
+        MarketplaceDownloads? downloads = null)
     {
         _client = client;
         _pluginsChanged = pluginsChanged;
         _reader = reader ?? new GitHubRepoReader();
         _inspector = new PluginInspector(_reader);
+        _downloads = downloads;
     }
+
+    /// <summary>How often an add checks the download's progress.</summary>
+    internal TimeSpan ProgressInterval { get; init; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>How long a download may make no progress before Lumi stops it.</summary>
+    internal TimeSpan StallTimeout { get; init; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>How long the runtime gets to report a stopped download and remove its staging folder.</summary>
+    internal TimeSpan StopTimeout { get; init; } = TimeSpan.FromSeconds(60);
 
     /// <summary>False until the Copilot runtime is connected.</summary>
     public bool IsAvailable => _client() is not null;
@@ -197,12 +231,114 @@ public sealed class PluginCatalogService
         return new PluginUpdateOutcome(result?.PreviousVersion, result?.NewVersion);
     }
 
-    /// <summary>Registers a marketplace (<c>owner/repo</c>, a Git URL or a local folder).</summary>
-    public async Task<string> AddMarketplaceAsync(string source, CancellationToken cancellationToken)
+    /// <summary>
+    /// Registers a marketplace (<c>owner/repo</c>, a Git URL or a local folder). The runtime first
+    /// downloads a Git marketplace's whole repository, which takes long for a large one, so
+    /// <paramref name="progress"/> reports what has reached disk every <see cref="ProgressInterval"/>.
+    /// The runtime ignores cancellation: cancelling, or a download that makes no progress for
+    /// <see cref="StallTimeout"/>, stops the download itself, after which the runtime fails the add and
+    /// removes its clone. An add at a ref is only stopped waiting for (see <see cref="MarketplaceDownloads.Stop"/>),
+    /// and so is one whose download can't be found; the exception then carries the add as it goes on.
+    /// </summary>
+    /// <exception cref="MarketplaceAddStoppedException">The add was cancelled or its download stalled.</exception>
+    public async Task<string> AddMarketplaceAsync(
+        string source,
+        CancellationToken cancellationToken,
+        IProgress<MarketplaceDownloadProgress?>? progress = null)
     {
-        var result = await Client.Rpc.Plugins.Marketplaces.AddAsync(source.Trim(), null, cancellationToken).ConfigureAwait(false);
-        return result?.Name ?? source.Trim();
+        source = source.Trim();
+        var client = Client;
+        var before = _downloads?.Snapshot() ?? new HashSet<string>();
+        var add = AddedNameAsync(client.Rpc.Plugins.Marketplaces.AddAsync(source, null, CancellationToken.None), source);
+        MarketplaceDownloadProgress? last = null;
+        var sinceChange = Stopwatch.StartNew();
+        var stalled = false;
+        try
+        {
+            while (!add.IsCompleted)
+            {
+                await Task.WhenAny(add, Task.Delay(ProgressInterval, cancellationToken)).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (add.IsCompleted)
+                    break;
+
+                var current = _downloads?.Measure(before, source);
+                if (current != last)
+                {
+                    last = current;
+                    sinceChange.Restart();
+                }
+                else if (current is { Phase: MarketplaceDownloadPhase.Downloading } && sinceChange.Elapsed >= StallTimeout)
+                {
+                    // Only a download Lumi can see is judged: writing out the files is local work, and
+                    // a clone Lumi can't find may still be making progress.
+                    stalled = true;
+                    break;
+                }
+
+                progress?.Report(current);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+
+        if ((stalled || cancellationToken.IsCancellationRequested) && !add.IsCompleted)
+        {
+            var stillRunning = await StopAsync(add, before, source).ConfigureAwait(false);
+            if (!add.IsCompletedSuccessfully)
+            {
+                var message = stillRunning ? string.Format(CultureInfo.CurrentCulture, Loc.Discover_AddStillRunning, source)
+                    : stalled ? string.Format(CultureInfo.CurrentCulture, Loc.Discover_AddStalled, source, (int)Math.Ceiling(StallTimeout.TotalMinutes))
+                    : string.Format(CultureInfo.CurrentCulture, Loc.Discover_AddStopped, source);
+                throw new MarketplaceAddStoppedException(message, stalled, stillRunning ? add : null, stalled ? CancellationToken.None : cancellationToken);
+            }
+        }
+
+        return await add.ConfigureAwait(false);
     }
+
+    /// <summary>The marketplace's name once the runtime has added it: as its answer names it, else the source.</summary>
+    private static async Task<string> AddedNameAsync(Task<Microsoft.Copilot.Rpc.MarketplaceAddResult> add, string source)
+        => (await add.ConfigureAwait(false))?.Name ?? source;
+
+    /// <summary>
+    /// Stops an add's download and gives the runtime time to report the failure and remove its staging
+    /// folder. True when no download was stopped and the runtime is still adding.
+    /// </summary>
+    private async Task<bool> StopAsync(Task<string> add, IReadOnlySet<string> before, string source)
+    {
+        // A clone may not have started yet: look for it a few more times.
+        var stopped = false;
+        for (var attempt = 0; attempt < 5 && !add.IsCompleted && !stopped; attempt++)
+        {
+            stopped = _downloads?.Stop(before, source) == true;
+            if (!stopped)
+                await Task.WhenAny(add, Task.Delay(ProgressInterval)).ConfigureAwait(false);
+        }
+
+        if (stopped)
+            await Task.WhenAny(add, Task.Delay(StopTimeout)).ConfigureAwait(false);
+
+        // Once Lumi gives up on the add, nothing may await it (a caller may ignore the exception's
+        // Completion): observe its failure whenever it comes.
+        _ = add.ContinueWith(
+            static task => _ = task.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return !add.IsCompleted;
+    }
+
+    /// <summary>
+    /// Removes the clones of adds interrupted when Lumi or the runtime closed, which the runtime never
+    /// removes. Anything git still writes, or written in the last ten minutes, stays, and so do locks.
+    /// An isolated Lumi profile on the user's own runtime (a Release test run) leaves that cache alone.
+    /// </summary>
+    public Task RemoveAbandonedDownloadsAsync()
+        => _downloads is { } downloads && !(DataStore.UsesIsolatedProfile && CopilotService.IsolatedRuntimeHome is null)
+            ? Task.Run(() => downloads.RemoveAbandoned(TimeSpan.FromMinutes(10)))
+            : Task.CompletedTask;
 
     public async Task<MarketplaceRemoveOutcome> RemoveMarketplaceAsync(string name, CancellationToken cancellationToken)
     {

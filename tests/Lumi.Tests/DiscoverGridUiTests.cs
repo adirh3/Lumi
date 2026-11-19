@@ -240,11 +240,15 @@ public sealed class DiscoverGridUiTests
 
     private static DiscoverViewModel PluginGallery(
         PluginCatalogFixture fixture, PluginCatalogRpc rpc, Func<string, string?>? registry = null)
+        => PluginGallery(fixture, fixture.Service(rpc), registry);
+
+    private static DiscoverViewModel PluginGallery(
+        PluginCatalogFixture fixture, PluginCatalogService plugins, Func<string, string?>? registry = null)
         => new(
             new DataStore(
                 new AppData { Settings = new UserSettings { McpRegistryUrls = ["https://registry.test"] } },
                 Path.Combine(fixture.Root, "skills")),
-            fixture.Service(rpc),
+            plugins,
             new McpRegistryClient(new HttpClient(new StubRegistry(registry ?? (_ => Page(0, 0, null))))),
             static () => null);
 
@@ -401,6 +405,171 @@ public sealed class DiscoverGridUiTests
             vm.SearchQuery = "";
             Assert.Equal(shown, vm.PluginPreview);
         }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task AddingAMarketplace_ShowsItsDownload_AndCancelStopsIt()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc();
+            var download = new FakeMarketplaceDownload(fixture.Root, rpc);
+            rpc.OnMarketplaceAdd = () =>
+            {
+                download.Begin();
+                download.Receive(2048);
+            };
+            var vm = PluginGallery(fixture, download.Service(rpc));
+            vm.ShowSourcesCommand.Execute(null);
+            var view = new DiscoverView { DataContext = vm };
+            var window = new Window { Content = view, Width = 1100, Height = 900 };
+            window.Show();
+            try
+            {
+                vm.NewMarketplace = "contoso/plugin-catalog";
+                var adding = vm.AddMarketplaceCommand.ExecuteAsync(null);
+                await WaitFor(() => vm.AddMarketplaceStatus.StartsWith("Downloading · 2.0 KB · 0:0", StringComparison.Ordinal));
+                Assert.Equal("Adding contoso/plugin-catalog", vm.AddingMarketplaceTitle);
+                Assert.False(vm.IsAddingRegistry);
+
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var row = view.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "DiscoverMarketplaceProgress");
+                var cancel = view.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "DiscoverCancelMarketplaceButton");
+                Assert.True(row.IsEffectivelyVisible);
+                Assert.True(row.Bounds.Height > 0);
+                Assert.True(cancel.IsEffectivelyEnabled);
+                Assert.Contains(view.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == vm.AddMarketplaceStatus && text.IsEffectivelyVisible);
+
+                vm.CancelAddMarketplaceCommand.Execute(null);
+                Assert.Equal("Stopping the download…", vm.AddMarketplaceStatus);
+                Assert.False(vm.CancelAddMarketplaceCommand.CanExecute(null));
+                await adding;
+
+                Assert.Equal("Stopped adding contoso/plugin-catalog", vm.Toast);
+                Assert.False(vm.HasSourceError);
+                Assert.False(vm.IsAddingMarketplace);
+                Assert.False(vm.IsAddingSource);
+                Assert.Equal("contoso/plugin-catalog", vm.NewMarketplace);
+                Assert.Equal([FakeMarketplaceDownload.GitProcessId], download.Stopped);
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                Assert.False(row.IsEffectivelyVisible);
+            }
+            finally
+            {
+                view.DataContext = null;
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("Failed to fetch git marketplace from the provided URL.", false)]
+    [InlineData(null, true)]
+    public async Task AnAddLumiStoppedWaitingFor_ShowsHowItEnded_UnlessANewerStatusReplacedItsWarning(string? failure, bool newerStatus)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc();
+            var download = new FakeMarketplaceDownload(fixture.Root, rpc);
+            var vm = PluginGallery(fixture, download.Service(rpc));
+            vm.ShowSourcesCommand.Execute(null);
+
+            // Lumi never stops an add at a ref, so Cancel only stops waiting for it.
+            vm.NewMarketplace = "contoso/plugin-catalog#main";
+            var adding = vm.AddMarketplaceCommand.ExecuteAsync(null);
+            await WaitFor(() => vm.CancelAddMarketplaceCommand.CanExecute(null));
+            vm.CancelAddMarketplaceCommand.Execute(null);
+            await adding;
+            var warning = string.Format(Loc.Discover_AddStillRunning, "contoso/plugin-catalog#main");
+            Assert.Equal(warning, vm.SourceError);
+            Assert.DoesNotContain(vm.MarketplaceRows, row => row.Name == "plugin-catalog");
+            if (newerStatus)
+            {
+                vm.NewRegistry = "not a registry";
+                await vm.AddRegistryCommand.ExecuteAsync(null);
+            }
+
+            var status = vm.SourceError;
+
+            // The runtime finishes the add on its own.
+            if (failure is null)
+            {
+                rpc.MarketplaceAdd.SetResult("plugin-catalog");
+                await WaitFor(() => vm.MarketplaceRows.Any(row => row.Name == "plugin-catalog"));
+                Assert.Equal(newerStatus ? status : null, vm.SourceError);
+            }
+            else
+            {
+                rpc.MarketplaceAdd.SetException(new InvalidOperationException(failure));
+                await WaitFor(() => vm.SourceError != warning);
+                Assert.Contains(failure, vm.SourceError);
+                Assert.StartsWith("Couldn't add that source", vm.SourceError);
+            }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnAddThatEndsInTheBackground_ReportsAFailedReload_UnlessANewerStatusShows(bool newerStatus)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc();
+            var download = new FakeMarketplaceDownload(fixture.Root, rpc);
+            var vm = PluginGallery(fixture, download.Service(rpc));
+            vm.ShowSourcesCommand.Execute(null);
+            vm.NewMarketplace = "contoso/plugin-catalog#main";
+            var adding = vm.AddMarketplaceCommand.ExecuteAsync(null);
+            await WaitFor(() => vm.CancelAddMarketplaceCommand.CanExecute(null));
+            vm.CancelAddMarketplaceCommand.Execute(null);
+            await adding;
+
+            // The runtime adds it later; Discover's reload waits for the list...
+            var list = rpc.MarketplaceList = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            rpc.MarketplaceAdd.SetResult("plugin-catalog");
+            await WaitFor(() => vm.SourceError is null);
+            if (newerStatus)
+            {
+                vm.NewRegistry = "not a registry";
+                await vm.AddRegistryCommand.ExecuteAsync(null);
+            }
+
+            var status = vm.SourceError;
+
+            // ...which then fails. Only the reload of Sources rebuilds its rows after a failed list.
+            var reloaded = false;
+            vm.MarketplaceRows.CollectionChanged += (_, _) => reloaded = true;
+            list.SetException(new InvalidOperationException("The marketplace list is unavailable."));
+            await WaitFor(() => reloaded);
+            if (newerStatus)
+                Assert.Same(status, vm.SourceError);
+            else
+                Assert.Contains("The marketplace list is unavailable.", vm.SourceError);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public void DownloadStatus_SaysWhatHasArrivedAndForHowLong()
+    {
+        Loc.Load("en");
+        Assert.Equal("Starting the download · 0:04", DiscoverViewModel.DescribeDownload(null, TimeSpan.FromSeconds(4)));
+        Assert.Equal("Downloading · 547.0 MB · 6:32", DiscoverViewModel.DescribeDownload(
+            new MarketplaceDownloadProgress(MarketplaceDownloadPhase.Downloading, 547L * 1024 * 1024), new TimeSpan(0, 6, 32)));
+        Assert.Equal("Writing files · 618.0 MB downloaded · 1:02:05", DiscoverViewModel.DescribeDownload(
+            new MarketplaceDownloadProgress(MarketplaceDownloadPhase.Unpacking, 618L * 1024 * 1024), new TimeSpan(1, 2, 5)));
     }
 
     private static async Task WaitFor(Func<bool> condition)
