@@ -147,15 +147,32 @@ public class RemoteClientEndToEndTests
             () => shell.ChatList.VisibleChatCount == RemoteProtocol.ChatPageSize * 2,
             "the second chat page");
 
-        shell.ChatList.SearchText = "Chat 499";
-        await WaitAsync(
-            () =>
+        // Snapshot the result on the publishing thread, after the observable groups are rebuilt.
+        // The socket continuation can mutate those collections while the test thread polls.
+        var result = new TaskCompletionSource<(int MatchingCount, string[] Titles)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnChatListChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName == nameof(ChatListViewModel.VisibleChatCount)
+                && shell.ChatList.VisibleChatCount == 1)
             {
-                var visible = shell.ChatList.Groups.SelectMany(group => group.Chats).ToList();
-                return visible.Count == 1 && visible[0].Title == "Chat 499";
-            },
-            "a server-side search result outside the bootstrap page");
-        Assert.Equal(1, shell.ChatList.MatchingChatCount);
+                result.TrySetResult((shell.ChatList.MatchingChatCount,
+                    shell.ChatList.Groups.SelectMany(group => group.Chats).Select(chat => chat.Title).ToArray()));
+            }
+        }
+
+        shell.ChatList.PropertyChanged += OnChatListChanged;
+        try
+        {
+            shell.ChatList.SearchText = "Chat 499";
+            var search = await result.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(1, search.MatchingCount);
+            Assert.Equal(["Chat 499"], search.Titles);
+        }
+        finally
+        {
+            shell.ChatList.PropertyChanged -= OnChatListChanged;
+        }
     }
 
     [Fact]

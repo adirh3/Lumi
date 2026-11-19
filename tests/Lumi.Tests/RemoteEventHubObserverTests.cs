@@ -354,6 +354,9 @@ public sealed class RemoteEventHubObserverTests
             {
                 var mainChat = Chat("Main");
                 var detachedChat = Chat("Detached");
+                // Regrouping a running row can send a list update. Keep this activity change
+                // in the same date group regardless of the runner's time zone.
+                detachedChat.UpdatedAt = new DateTimeOffset(2020, 1, 2, 12, 0, 0, TimeSpan.Zero);
                 var dataStore = new DataStore(new AppData { Chats = [mainChat, detachedChat] });
                 main = new MainViewModel(
                     dataStore,
@@ -453,7 +456,7 @@ public sealed class RemoteEventHubObserverTests
                 var chatFramesBeforeHiddenContent = CountEvent(
                     mainStream.Text,
                     RemoteProtocol.Events.Chats);
-                detachedChat.UpdatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+                detachedChat.UpdatedAt = detachedChat.UpdatedAt.AddMinutes(1);
                 detachedChat.Preview = "streamed item changed";
                 typeof(RemoteEventHub)
                     .GetMethod("OnChatContentChanged", BindingFlags.Instance | BindingFlags.NonPublic)!

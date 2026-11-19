@@ -35,12 +35,13 @@ public sealed class AnimationLifecycleRegressionTests
         new("Views/OnboardingView.axaml", "Border.ob-scan-dot[IsVisible=True]", 0.4, 1, 0.8, "Alternate"),
         new("Views/Controls/EasyConnectView.axaml", "Border.acct-pulse", 0.3, 1, 1.1, "Alternate", "SineEaseInOut"),
         new("Views/Controls/EasyConnectDialogView.axaml", "Border.ec-pulse", 0.3, 1, 0.9, "Alternate", "SineEaseInOut"),
-        new("Views/ChatView.axaml", "Border.steer-pill.steering Ellipse.steer-dot", 1, 0.25, 1.1, Easing: "SineEaseInOut"),
-        new("Views/ChatView.axaml", "Border.suggestion-pill.pill-a", 0.3, 0.6, 0.95, PeakAt: 0.38),
-        new("Views/ChatView.axaml", "Border.suggestion-pill.pill-b", 0.3, 0.6, 0.95, HoldUntil: 0.18, PeakAt: 0.56),
-        new("Views/ChatView.axaml", "Border.suggestion-pill.pill-c", 0.3, 0.6, 0.95, HoldUntil: 0.36, PeakAt: 0.74),
-        new("Views/ChatView.axaml", "Button.refreshing sc|StrataLineIcon.git-icon", 1, 0.25, 0.9, "Alternate"),
-        new("Views/ChatView.axaml", "#Transcript Border.single-step-line", 1, 0.35, 1.6, Easing: "SineEaseInOut"),
+        new("Views/ChatView.axaml", "Border#SteerBadge.steer-pill.steering Ellipse.steer-dot", 1, 0.25, 1.1, Easing: "SineEaseInOut"),
+        new("Views/ChatView.axaml", "#SuggestionLoadingRow Border.suggestion-pill.pill-a", 0.3, 0.6, 0.95, PeakAt: 0.38),
+        new("Views/ChatView.axaml", "#SuggestionLoadingRow Border.suggestion-pill.pill-b", 0.3, 0.6, 0.95, HoldUntil: 0.18, PeakAt: 0.56),
+        new("Views/ChatView.axaml", "#SuggestionLoadingRow Border.suggestion-pill.pill-c", 0.3, 0.6, 0.95, HoldUntil: 0.36, PeakAt: 0.74),
+        new("Views/ChatView.axaml", "#HeaderGitPill Button.refreshing sc|StrataLineIcon.git-icon", 1, 0.25, 0.9, "Alternate"),
+        new("Views/ChatView.axaml", "#ComposerGitChip Button.refreshing sc|StrataLineIcon.git-icon", 1, 0.25, 0.9, "Alternate"),
+        new("Views/ChatView.axaml", "#Transcript Border#SingleStepLine.single-step-line", 1, 0.35, 1.6, Easing: "SineEaseInOut"),
         new("Views/MainWindow.axaml", "Border#PillBusyDot", 1, 0.3, 1.2, "Alternate"),
         new("Views/MainWindow.axaml", "Border#BusyIndicator", 1, 0.3, 1.2, "Alternate"),
         new("Views/MainWindow.axaml", "Border#ProjectBusyIndicator", 1, 0.3, 1.2, "Alternate"),
@@ -79,12 +80,17 @@ public sealed class AnimationLifecycleRegressionTests
 
         foreach (var expected in ExpectedLumiPulses)
         {
-            var style = XDocument
+            var styles = XDocument
                 .Load(Path.Combine(lumiSourceRoot, expected.RelativePath.Replace('/', Path.DirectorySeparatorChar)))
                 .Descendants(avalonia + "Style")
-                .Single(element =>
-                    string.Equals((string?)element.Attribute("Selector"), expected.Selector, StringComparison.Ordinal) &&
-                    FindSetter(element, avalonia, "LifecycleOpacityPulse.IsActive") is not null);
+                .Where(element =>
+                    FindSetter(element, avalonia, "LifecycleOpacityPulse.IsActive") is not null &&
+                    ((string?)element.Attribute("Selector"))?.Split(',', StringSplitOptions.TrimEntries)
+                        .Contains(expected.Selector, StringComparer.Ordinal) == true)
+                .ToArray();
+            Assert.True(styles.Length == 1,
+                $"{expected.RelativePath}: expected one pulse style for '{expected.Selector}', found {styles.Length}.");
+            var style = styles[0];
 
             Assert.Equal(expected.FromOpacity, ParseDouble(style, avalonia, "LifecycleOpacityPulse.FromOpacity"));
             Assert.Equal(expected.ToOpacity, ParseDouble(style, avalonia, "LifecycleOpacityPulse.ToOpacity"));

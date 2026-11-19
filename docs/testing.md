@@ -383,6 +383,9 @@ native runners. The longer Windows desktop batches and
 complete mobile suite run nightly, or via **Run workflow > full_suite**.
 This removes account/native/animation-sensitive tests from the ordinary PR
 critical path without deleting their broader coverage.
+After a successful build, independent test steps still run if another suite
+fails, so the same run reports CoreQA, packaging and platform-specific results.
+Any failed suite still fails the required **Validate** check.
 
 Builds make at most three attempts to download the official Copilot CLI within
 the original download deadline. Connection failures, HTTP 408/429 and 5xx

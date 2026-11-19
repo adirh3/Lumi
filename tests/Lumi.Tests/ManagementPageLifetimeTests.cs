@@ -103,11 +103,11 @@ public sealed class ManagementPageLifetimeTests
                 Assert.DoesNotContain(page.GetVisualDescendants().OfType<Control>(), control => control.Name == "JobNameInput");
 
                 main.JobsVM.EnabledFacet.SelectCommand.Execute(null);
-                Pump(window);
                 Assert.Empty(gallery.Items);
                 main.JobsVM.AllFacet.SelectCommand.Execute(null);
-                Pump(window);
+                // Check the synchronous first page before pumping any pending fill timer.
                 Assert.Equal(gallery.InitialItemCount, gallery.ShownCount);
+                Pump(window);
 
                 var scroll = page.FindControl<ScrollViewer>("JobsOverviewScroll")!;
                 for (var attempt = 0; attempt < 150 && gallery.ShownCount < 36; attempt++)

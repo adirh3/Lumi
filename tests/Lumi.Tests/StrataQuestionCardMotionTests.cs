@@ -29,33 +29,26 @@ public sealed class StrataQuestionCardMotionTests
                 var chipHeight = row.Card.Bounds.Height;
                 Click(row, "PART_ExpandButton");
                 Assert.True(row.Item.IsExpanded);
-                await AdvanceAsync(row.Window);
-                await AdvanceAsync(row.Window, 40);
-                Assert.InRange(row.Layout.Reveal, 0.01, 0.99);
-                Assert.InRange(row.Body.Opacity, 0.01, 0.99);
+                var opening = await SampleAsync(row, target: 1);
+                var expandedHeight = row.Card.Bounds.Height;
                 var naturalHeight = row.Body.Bounds.Height;
-                var midHeight = row.Card.Bounds.Height;
-                var opening = await SampleAsync(row);
-                Assert.InRange(midHeight, chipHeight + 1, row.Card.Bounds.Height - 1);
-                Assert.Equal(naturalHeight, row.Body.Bounds.Height);
+                Assert.Contains(opening, frame => frame.Height > chipHeight + 1 && frame.Height < expandedHeight - 1);
+                AssertIntermediateFrames(opening, naturalHeight);
                 Assert.True(row.Body.Bounds.Width + row.Body.Margin.Left + row.Body.Margin.Right
                     >= row.Body.DesiredSize.Width - 1);
                 Assert.Equal(1, row.Body.Opacity);
                 Assert.False(Part<Button>(row.Card, "PART_ExpandButton").IsVisible);
                 Assert.All(opening.Zip(opening.Skip(1)),
-                    step => Assert.True(step.Second >= step.First - 0.5));
+                    step => Assert.True(step.Second.Height >= step.First.Height - 0.5));
 
                 Click(row, "PART_CollapseButton");
                 Assert.False(row.Item.IsExpanded);
-                await AdvanceAsync(row.Window);
-                await AdvanceAsync(row.Window, 30);
-                Assert.InRange(row.Layout.Reveal, 0.01, 0.99);
-                Assert.Equal(naturalHeight, row.Body.Bounds.Height);
-                var closing = await SampleAsync(row);
+                var closing = await SampleAsync(row, target: 0);
+                AssertIntermediateFrames(closing, naturalHeight);
                 Assert.False(row.Body.IsVisible);
                 Assert.Equal(chipHeight, row.Card.Bounds.Height, 1);
                 Assert.All(closing.Zip(closing.Skip(1)),
-                    step => Assert.True(step.Second <= step.First + 0.5));
+                    step => Assert.True(step.Second.Height <= step.First.Height + 0.5));
             }
             finally
             {
@@ -111,14 +104,13 @@ public sealed class StrataQuestionCardMotionTests
             {
                 await AdvanceAsync(row.Window);
                 Click(row, "PART_ExpandButton");
-                await AdvanceAsync(row.Window);
-                await AdvanceAsync(row.Window, 40);
+                await AdvanceUntilAsync(row, () => row.Layout.Reveal > 0);
                 var beforeReverse = row.Layout.Reveal;
+                Assert.True(beforeReverse < 1, "The card must still be opening when its direction reverses.");
                 Part<Button>(row.Card, "PART_CollapseButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Assert.Equal(beforeReverse, row.Layout.Reveal);
-                await AdvanceAsync(row.Window);
-                await AdvanceAsync(row.Window, 20);
-                Assert.InRange(row.Layout.Reveal, 0.001, beforeReverse - 0.001);
+                await AdvanceUntilAsync(row, () => row.Layout.Reveal < beforeReverse);
+                Assert.True(row.Layout.Reveal > 0, "The card must still be closing when it reopens.");
                 Part<Button>(row.Card, "PART_ExpandButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
                 var parent = (StackPanel)row.Window.Content!;
@@ -130,8 +122,7 @@ public sealed class StrataQuestionCardMotionTests
                 await AdvanceAsync(row.Window, 300);
                 Assert.Equal(1, row.Layout.Reveal);
                 Click(row, "PART_CollapseButton");
-                await SampleAsync(row);
-                Assert.Equal(0, row.Layout.Reveal);
+                await AdvanceUntilAsync(row, () => row.Layout.Reveal == 0);
             }
             finally
             {
@@ -211,16 +202,41 @@ public sealed class StrataQuestionCardMotionTests
         row.Window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
     }
 
-    private static async Task<List<double>> SampleAsync(Row row)
+    private sealed record MotionFrame(double Reveal, double Height, double BodyHeight, double Opacity);
+
+    private static async Task<List<MotionFrame>> SampleAsync(Row row, double target)
     {
-        var heights = new List<double>();
-        var elapsed = Stopwatch.StartNew();
-        while (elapsed.ElapsedMilliseconds < 350)
+        var frames = new List<MotionFrame>();
+        await AdvanceUntilAsync(row, () =>
         {
-            await AdvanceAsync(row.Window, 16);
-            heights.Add(row.Card.Bounds.Height);
+            frames.Add(new(row.Layout.Reveal, row.Card.Bounds.Height, row.Body.Bounds.Height, row.Body.Opacity));
+            return row.Layout.Reveal == target;
+        });
+        return frames;
+    }
+
+    private static void AssertIntermediateFrames(List<MotionFrame> frames, double naturalHeight)
+    {
+        var intermediate = frames.Where(frame => frame.Reveal is > 0 and < 1).ToArray();
+        Assert.NotEmpty(intermediate);
+        Assert.All(intermediate, frame =>
+        {
+            Assert.Equal(naturalHeight, frame.BodyHeight);
+            Assert.Equal(frame.Reveal, frame.Opacity);
+        });
+    }
+
+    private static async Task AdvanceUntilAsync(Row row, Func<bool> observe)
+    {
+        var elapsed = Stopwatch.StartNew();
+        do
+        {
+            await AdvanceAsync(row.Window);
+            if (observe())
+                return;
         }
-        return heights;
+        while (elapsed.Elapsed < TimeSpan.FromSeconds(2));
+        Assert.Fail($"Question card motion did not reach the expected state (reveal: {row.Layout.Reveal}).");
     }
 
     private static async Task AdvanceAsync(Window window, int milliseconds = 1)
