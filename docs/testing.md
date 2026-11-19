@@ -212,8 +212,8 @@ native Chromium `--dpr` override select a form factor. `--workerframes 1` exerci
 bitmap worker presentation separately from the benchmark's normal-renderer default.
 `--workerframes clock` (URL: `?workerframes=clock`) keeps the worker clock,
 touch resampling and retained drawing buffer, but presents the WebGL canvas
-directly without copying it to the worker. Android Chrome still defaults to
-bitmap worker presentation; `workerframes=0` disables the worker entirely.
+directly without copying it to the worker. This is the app's default on compatible
+Android Chromium browsers; `workerframes=0` disables the worker entirely.
 `--refresh-hz`
 can require a known refresh mode instead of silently accepting a different one.
 PWA trials also record `controlAndCanvasReadyMs`: cold app navigation until its diagnostic

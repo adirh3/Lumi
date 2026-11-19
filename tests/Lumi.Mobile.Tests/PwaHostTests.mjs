@@ -588,23 +588,24 @@ test('the runtime starts in the page language and loads every translated resourc
     assert.equal(japanese.errors.length, 0);
 });
 
-test('Android Chromium enables worker rendering without diagnostic UI; other browsers keep their renderer', async () => {
-    for (const [userAgent, search, expected] of [
-        ['Android 15 Chrome/143.0.0.0', '', true],
-        ['Android 15 SamsungBrowser/30 Chrome/143.0.0.0', '', true],
-        ['Android 15 Firefox/143.0', '', false],
-        ['Windows Chrome/143.0.0.0', '', false],
-        ['iPhone Safari/605.1', '', false],
-        ['Android 15 Chrome/143.0.0.0', '?workerframes=0', false],
-        ['Windows Chrome/143.0.0.0', '?workerframes=1', true],
-        ['Android 15 Chrome/143.0.0.0', '?workerframes=clock', true]
+test('Android Chromium defaults to the copy-free worker clock and preserves explicit renderer overrides', async () => {
+    for (const [userAgent, search, mode] of [
+        ['Android 15 Chrome/143.0.0.0', '', 'clock'],
+        ['Android 15 SamsungBrowser/30 Chrome/143.0.0.0', '', 'clock'],
+        ['Android 15 Firefox/143.0', '', 'direct'],
+        ['Windows Chrome/143.0.0.0', '', 'direct'],
+        ['iPhone Safari/605.1', '', 'direct'],
+        ['Android 15 Chrome/143.0.0.0', '?workerframes=0', 'direct'],
+        ['Android 15 Chrome/143.0.0.0', '?workerframes=1', 'bitmap'],
+        ['Windows Chrome/143.0.0.0', '?workerframes=1', 'bitmap'],
+        ['Windows Chrome/143.0.0.0', '?workerframes=clock', 'clock']
     ]) {
         const app = startup(null, { userAgent, search });
         await app.ready;
-        assert.equal(app.installed.length, expected ? 1 : 0, `${userAgent} ${search}`);
-        if (expected) {
-            assert.equal(app.installed[0].showStatus, search === '?workerframes=1');
-            assert.equal(app.installed[0].presentBitmaps, search !== '?workerframes=clock');
+        assert.equal(app.installed.length, mode === 'direct' ? 0 : 1, `${userAgent} ${search}`);
+        if (mode !== 'direct') {
+            assert.equal(app.installed[0].showStatus, mode === 'bitmap');
+            assert.equal(app.installed[0].presentBitmaps, mode === 'bitmap');
         }
         assert.equal(app.started, true);
         assert.equal(app.errors.length, 0);

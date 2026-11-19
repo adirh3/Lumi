@@ -1165,26 +1165,23 @@ intermediates be reused without repeatedly allocating textures while scrolling. 
 soft cache budgets, not upfront allocations or hard caps on total graphics memory: resources
 still in use and buffers outside the cache can exceed them. Rendering resolution and quality are unchanged.
 
-Compatible Android Chromium browsers present completed WebGL frames through a worker-owned
-canvas. Its frame clock avoids Chromium's main-frame high-refresh throttle while rendering
-or touching, with touch moves resampled to that clock. The implementation adapts the
+Compatible Android Chromium browsers display Avalonia's WebGL canvas directly instead of
+copying each frame to a second canvas. A worker supplies the frame clock while drawing or
+touching, with touch moves resampled to that clock. The implementation adapts the
 MIT-licensed [flutter_shim](https://github.com/aumb/flutter_shim) approach to Avalonia's
 WebGL renderer without clearing Skia's drawing buffer. Native editors, mouse/pen input,
 and trusted down/up events keep their normal path. The clock returns to native scheduling
 after drawing stops. Clock messages are bounded to one queued tick, so a busy UI thread
-does not replay a backlog of old refreshes. Acknowledging a received tick lets the next
-refresh overlap rendering; input resampling and animation timestamps advance to the
-current refresh after a stall. Bitmap presentation remains independent of that handshake.
-Unsupported browsers and worker failures use the original canvas.
-The runtime remains single-threaded .NET 10 AOT; no cross-origin isolation is required.
+does not replay a backlog of old refreshes. On other browsers, or if the worker fails,
+Lumi uses normal browser scheduling. Avalonia still draws on the main thread with
+single-threaded .NET 11 Mono AOT; no cross-origin isolation is required.
 
-`/app/?workerframes=1` shows the renderer status badge and enables the path for desktop
-Chromium testing. It separates the worker's Hz clock from new frames transferred to its
-canvas each second; neither is a measurement of physical display presentation.
-`/app/?workerframes=0` explicitly selects the normal renderer. Both overrides survive
-cache recovery and app reload without clearing pairing. High-refresh scheduling depends
-on the browser and display; it adds snapshot cost and can increase battery use while
-animating. Normal launches show no diagnostic badge and do not record or upload profiling data.
+`/app/?workerframes=clock` explicitly selects the copy-free worker clock on compatible
+Chromium browsers. Use `workerframes=0` to disable the worker, or `workerframes=1` to
+compare the old bitmap-copy path with a renderer status badge. The badge reports worker
+ticks and bitmap updates, not display FPS. All three overrides survive cache recovery
+and app reload without clearing pairing. Normal launches show no diagnostic badge and
+do not record or upload profiling data.
 
 Mobile uses Strata's short, interruptible rise-and-fade motion for chat switches, new chats,
 page returns and Library categories; native forms and pairing steps fade without moving
