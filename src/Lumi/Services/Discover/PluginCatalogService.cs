@@ -299,7 +299,7 @@ public sealed class PluginCatalogService
     }
 
     /// <summary>The marketplace's name once the runtime has added it: as its answer names it, else the source.</summary>
-    private static async Task<string> AddedNameAsync(Task<GitHub.Copilot.Rpc.MarketplaceAddResult> add, string source)
+    private static async Task<string> AddedNameAsync(Task<Microsoft.Copilot.Rpc.MarketplaceAddResult> add, string source)
         => (await add.ConfigureAwait(false))?.Name ?? source;
 
     /// <summary>

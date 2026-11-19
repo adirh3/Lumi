@@ -976,9 +976,11 @@ plugins means hundreds of MB downloaded and over a GB checked out to read one `m
 Runtime 1.0.111 reports no progress, ignores JSON-RPC
 cancellation for this request (the SDK sends `$/cancelRequest`, but git keeps running and a retry
 waits on the marketplace's lock), leaves git running when the runtime exits, and never removes a
-staging folder an interrupted clone left. The upstream fix should fetch only the manifest (a sparse or
-partial clone, or the GitHub contents API, with plugin folders fetched on install), honor
-cancellation, report progress, stop its git children on exit and sweep stale staging folders.
+staging folder an interrupted clone left. 1.0.114, which Lumi pins since the SDK v2 migration, still
+clones the whole repository, ignores cancellation and leaves git running when it exits. The upstream
+fix should fetch only the manifest (a sparse or partial clone, or the GitHub contents API, with plugin
+folders fetched on install), honor cancellation, report progress, stop its git children on exit and
+sweep stale staging folders.
 
 Until then `MarketplaceDownloads` works from the git command line, which names the staging folder, the
 repository and the ref. An add counts only clones of its own source by git processes descended from
