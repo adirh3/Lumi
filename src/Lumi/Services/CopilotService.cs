@@ -1354,11 +1354,11 @@ public class CopilotService : IAsyncDisposable
             return CopilotSignInResult.Success;
         }
 
-        // Capture stdout/stderr to extract device code
+        // The panel expects a device code; the CLI otherwise defaults to a browser callback on desktops.
         var psi = new ProcessStartInfo
         {
             FileName = cliPath,
-            Arguments = "--no-auto-update login",
+            Arguments = "--no-auto-update login --device-code",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

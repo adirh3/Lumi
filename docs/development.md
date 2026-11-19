@@ -101,7 +101,8 @@ reuse the cached package.
 **GitHub sign-in and runtime:** [Lumi's CLI acquisition target](../build/Copilot/CopilotCli.targets)
 supplies one checksum-pinned full Copilot CLI through the SDK's
 `CopilotCliBinaryPath` override. The CLI handles both protocol-4 sessions over
-stdio and browser/device authorization via `copilot login`; Lumi does not ship
+stdio and browser-based authorization via `copilot login --device-code` in the
+sign-in panel; Lumi does not ship
 the SDK's separate runtime bundle. Explicit stdio retains the child-process
 boundary instead of using v2's default in-process runtime. The full CLI pins
 cover all supported RIDs and verify both release archives and extracted
