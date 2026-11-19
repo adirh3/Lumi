@@ -596,13 +596,16 @@ test('Android Chromium enables worker rendering without diagnostic UI; other bro
         ['Windows Chrome/143.0.0.0', '', false],
         ['iPhone Safari/605.1', '', false],
         ['Android 15 Chrome/143.0.0.0', '?workerframes=0', false],
-        ['Windows Chrome/143.0.0.0', '?workerframes=1', true]
+        ['Windows Chrome/143.0.0.0', '?workerframes=1', true],
+        ['Android 15 Chrome/143.0.0.0', '?workerframes=clock', true]
     ]) {
         const app = startup(null, { userAgent, search });
         await app.ready;
         assert.equal(app.installed.length, expected ? 1 : 0, `${userAgent} ${search}`);
-        if (expected)
+        if (expected) {
             assert.equal(app.installed[0].showStatus, search === '?workerframes=1');
+            assert.equal(app.installed[0].presentBitmaps, search !== '?workerframes=clock');
+        }
         assert.equal(app.started, true);
         assert.equal(app.errors.length, 0);
         assert.ok(!app.modules.includes('./pwaDiagnostics.js'));
@@ -1156,6 +1159,8 @@ test('exact worker-renderer overrides survive cache recovery and app reload with
     assert.deepEqual(combined.navigations, ['https://lumi.test/app/?workerframes=1']);
     const disabled = await recovery({ query: '?workerframes=0' });
     assert.deepEqual(disabled.navigations, ['https://lumi.test/app/?workerframes=0']);
+    const clockOnly = await recovery({ query: '?workerframes=clock&token=SECRET' });
+    assert.deepEqual(clockOnly.navigations, ['https://lumi.test/app/?workerframes=clock']);
     const invalid = await recovery({ query: '?workerframes=true' });
     assert.deepEqual(invalid.navigations, ['https://lumi.test/app/']);
     const app = host();
@@ -1165,6 +1170,9 @@ test('exact worker-renderer overrides survive cache recovery and app reload with
     app.window.location.href = 'https://lumi.test/app/?workerframes=0';
     app.context.reloadWebApp();
     assert.equal(app.navigations.at(-1), 'https://lumi.test/app/?lumi-refresh=1&workerframes=0');
+    app.window.location.href = 'https://lumi.test/app/?workerframes=clock&secret=private';
+    app.context.reloadWebApp();
+    assert.equal(app.navigations.at(-1), 'https://lumi.test/app/?lumi-refresh=1&workerframes=clock');
 });
 
 function worker({

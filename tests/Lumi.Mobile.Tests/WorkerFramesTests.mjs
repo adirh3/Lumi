@@ -29,7 +29,10 @@ const bitmap = (width = 100, height = 200) => ({
     width, height, closed: 0, close() { this.closed++; }
 });
 
-function host({ threaded = false, showStatus = true, unsupported = false, workerError, snapshot, snapshotError } = {}) {
+function host({
+    threaded = false, showStatus = true, presentBitmaps = true, unsupported = false,
+    workerError, snapshot, snapshotError
+} = {}) {
     let now = 0, nextFrame = 0, nextTimer = 0;
     const frames = new Map(), timers = new Map(), errors = [], warnings = [], captures = [];
     const workers = [], children = [];
@@ -112,7 +115,7 @@ function host({ threaded = false, showStatus = true, unsupported = false, worker
         .replace('import.meta.url', '"https://lumi.test/app/workerFrames.js"'), context);
     const nativeRaf = window.requestAnimationFrame;
     const originalGetContext = Canvas.prototype.getContext;
-    const status = context.installWorkerFrames({ threaded, showStatus });
+    const status = context.installWorkerFrames({ threaded, showStatus, presentBitmaps });
     return {
         window, document, context, status, frames, timers, workers, errors, warnings, captures,
         Canvas, children, nativeRaf, originalGetContext,
@@ -182,6 +185,34 @@ test('only the Avalonia app canvas gets a worker presenter and retained drawing 
     assert.equal(canvas.style.opacity, '0');
     assert.equal(app.status.state, 'active');
     assert.equal(app.status.presented, 1);
+});
+
+test('clock-only mode resamples touch and runs animation frames without copying or hiding the canvas', async () => {
+    const app = host({ presentBitmaps: false });
+    const canvas = app.canvas();
+    const gl = canvas.getContext('webgl2');
+    gl.drawArrays();
+    await settle();
+    app.tick(10);
+    assert.equal(app.status.state, 'active');
+    assert.equal(canvas.options.preserveDrawingBuffer, true);
+    assert.equal(canvas.style.opacity, '');
+    app.pointer('pointerdown', canvas, { x: 10, time: 10 });
+    assert.equal(app.pointer('pointermove', canvas, { x: 30, time: 20 }).stopped, true);
+    const frames = [];
+    app.window.requestAnimationFrame(time => { frames.push(time); gl.drawElements(); });
+    app.tick(32);
+    await settle();
+    assert.deepEqual(frames, [32]);
+    assert.equal(canvas.forwarded[0].clientX, 30);
+    assert.equal(app.status.resampledMoves, 1);
+    assert.equal(app.captures.length, 0);
+    assert.ok(!app.workers[0].messages.some(message => message.type === 'frame'));
+    assert.equal(canvas.style.opacity, '');
+    app.workers[0].onmessage({ data: { error: 'Clock stopped' } });
+    assert.equal(app.status.state, 'fallback');
+    assert.equal(canvas.style.opacity, '');
+    assert.equal(app.Canvas.prototype.getContext, app.originalGetContext);
 });
 
 test('worker ticks drive callbacks, honor same-frame cancellation and defer newly queued callbacks', async () => {
@@ -662,9 +693,8 @@ test('worker reports unavailable APIs and closes frames that cannot be presented
     assert.match(uninitialized.messages[0].error, /initialized/);
 });
 
-test('the renderer defaults to Android, permits explicit testing and retains its MIT attribution', () => {
+test('the worker installs before Avalonia starts and retains its MIT attribution', () => {
     const main = source('main.js');
-    assert.match(main, /workerFrameMode === '1' \|\| workerFrameMode !== '0' &&\s*\/Android\//);
     assert.ok(main.indexOf("await import('./workerFrames.js')") < main.indexOf('await runtime.runMain'));
     for (const name of ['workerFrames.js', 'workerFramePresenter.js']) {
         assert.match(source(name), /Copyright \(c\) 2026 Mathiew Abbas/);

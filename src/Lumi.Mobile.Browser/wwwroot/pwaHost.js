@@ -143,7 +143,7 @@ function navigateToApp(marker) {
     const url = new URL('/app/', window.location.origin);
     url.searchParams.set(marker, '1');
     const workerFrames = new URL(window.location.href).searchParams.get('workerframes');
-    if (workerFrames === '1' || workerFrames === '0')
+    if (workerFrames === '1' || workerFrames === '0' || workerFrames === 'clock')
         url.searchParams.set('workerframes', workerFrames);
     window.location.assign(url.href);
 }

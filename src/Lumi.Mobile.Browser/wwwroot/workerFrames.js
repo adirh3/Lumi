@@ -49,14 +49,14 @@ export function samplePointerPosition(samples, time) {
     return { x: a.x + (b.x - a.x) * amount, y: a.y + (b.y - a.y) * amount };
 }
 
-export function installWorkerFrames({ threaded = false, showStatus = false } = {}) {
+export function installWorkerFrames({ threaded = false, showStatus = false, presentBitmaps = true } = {}) {
     const status = {
         state: 'starting', clockActive: false, clockHz: 0,
         captured: 0, presented: 0, resampledMoves: 0, error: null
     };
     window.lumiWorkerFrames = status;
     let badge;
-    if (showStatus) {
+    if (showStatus && presentBitmaps) {
         badge = document.createElement('div');
         badge.dataset.lumiWorkerFrames = '';
         badge.setAttribute('role', 'status');
@@ -247,7 +247,7 @@ export function installWorkerFrames({ threaded = false, showStatus = false } = {
     };
 
     const capture = () => {
-        if (failed || !surface?.dirty || surface.capturing || document.hidden)
+        if (!presentBitmaps || failed || !surface?.dirty || surface.capturing || document.hidden)
             return;
         surface.dirty = false;
         surface.capturing = true;
@@ -427,16 +427,16 @@ export function installWorkerFrames({ threaded = false, showStatus = false } = {
             acknowledgeTick();
             if (failed)
                 return;
-            if (data.presented) {
+            if (data.presented)
                 status.presented = data.presented;
-                if (status.state !== 'active') {
+            if (status.state !== 'active' && (data.presented || !presentBitmaps)) {
+                if (presentBitmaps)
                     surface.canvas.style.opacity = '0';
-                    status.state = 'active';
-                    if (badge) {
-                        badge.textContent = uiText('WorkerRenderer', 'Worker renderer');
-                        lastBadge = performance.now();
-                        lastBadgePresented = status.presented;
-                    }
+                status.state = 'active';
+                if (badge) {
+                    badge.textContent = uiText('WorkerRenderer', 'Worker renderer');
+                    lastBadge = performance.now();
+                    lastBadgePresented = status.presented;
                 }
             }
             clearTimeout(startupTimeout);

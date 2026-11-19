@@ -63,13 +63,14 @@ try {
     }
 
     const workerFrameMode = new URLSearchParams(location.search).get('workerframes');
-    if (workerFrameMode === '1' || workerFrameMode !== '0' &&
+    if (workerFrameMode === '1' || workerFrameMode === 'clock' || workerFrameMode !== '0' &&
         /Android/.test(navigator.userAgent) && /Chrome\//.test(navigator.userAgent)) {
         try {
             const { installWorkerFrames } = await import('./workerFrames.js');
             installWorkerFrames({
                 threaded: globalThis.getDotnetRuntime(0).runtimeBuildInfo.wasmEnableThreads,
-                showStatus: workerFrameMode === '1'
+                showStatus: workerFrameMode === '1',
+                presentBitmaps: workerFrameMode !== 'clock'
             });
         } catch (error) {
             console.warn('[Lumi PWA] Worker renderer could not be loaded; using normal rendering.', error);

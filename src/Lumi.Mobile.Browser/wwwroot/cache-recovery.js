@@ -60,7 +60,7 @@ async function recoverCachedApp() {
         stage = uiText('WebOpeningStage', 'Opening Lumi');
         const destination = new URL(app.href);
         const workerFrames = new URL(window.location.href).searchParams.get('workerframes');
-        if (workerFrames === '1' || workerFrames === '0')
+        if (workerFrames === '1' || workerFrames === '0' || workerFrames === 'clock')
             destination.searchParams.set('workerframes', workerFrames);
         window.location.replace(destination.href);
     } catch (error) {
