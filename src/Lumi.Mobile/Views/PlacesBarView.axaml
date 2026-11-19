@@ -9,6 +9,122 @@
              HorizontalAlignment="Center"
              ClipToBounds="False">
 
+  <UserControl.Styles>
+    <!--
+      ══ Places ═══════════════════════════════════════════════════════════════════════════════════════════
+      The desktop's navigation pill (MainWindow's nav-pill) at touch size, in the floating glass the
+      composer and the title bar wear: the same tint, rim and elevation over a frost of its own
+      (places-frost), so only what passes beneath the pill softens and the list stays sharp all around
+      it. The pill's 4 dp inset keeps the open place's highlight concentric with it, as on the desktop.
+      The desktop's accent glow marks the open place and glides between places (PlacesBarView). Four
+      48 dp places and the longest name fit a 320 dp column.
+    -->
+    <Style Selector="Border.places-surface">
+      <Setter Property="CornerRadius" Value="31" />
+      <Setter Property="Padding" Value="4" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
+    </Style>
+    <!-- The floating glass's frost, clipped to the pill. It takes in what lies just around the pill too, as
+         glass does, so rows crossing its rim blur into it smoothly instead of lighting the rim up. -->
+    <Style Selector="sc|StrataBackdropBlur.places-frost">
+      <Setter Property="CornerRadius" Value="31" />
+      <Setter Property="SamplesBeyondEdges" Value="True" />
+      <Setter Property="BlurRadius" Value="{DynamicResource Glass.FloatingBlurRadius}" />
+      <Setter Property="Saturation" Value="{DynamicResource Glass.FloatingSaturation}" />
+    </Style>
+    <!-- The open place, as the desktop marks it: the accent's soft glow inside a brighter rim. -->
+    <Style Selector="Border.places-selection">
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="CornerRadius" Value="26" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentGlowStrong}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.place">
+      <Setter Property="Height" Value="52" />
+      <Setter Property="MinHeight" Value="52" />
+      <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Padding" Value="13,0" />
+      <Setter Property="CornerRadius" Value="26" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.place /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button.place /template/ Border#PART_Aurora">
+      <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="Button.place:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button.place:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
+    </Style>
+    <!-- As on the desktop, the places you are not in are quiet glyphs, and the open one takes the accent. -->
+    <Style Selector="Button.place PathIcon">
+      <Setter Property="Width" Value="22" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Opacity" Value="0.6" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.24" Easing="CubicEaseOut" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.24" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.place:pressed PathIcon">
+      <Setter Property="Opacity" Value="0.75" />
+    </Style>
+    <Style Selector="Button.place.active PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <!-- The Customize glyph is three layers, dimmed as one as on the desktop. Skia applies an opacity to each
+         layer's paint, which would show a brighter knob where it overlaps its track, so the group is dimmed
+         by an opacity mask, which composites it as a single layer. -->
+    <Style Selector="Button.place Panel.place-tune">
+      <Setter Property="Width" Value="22" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="OpacityMask" Value="#99FFFFFF" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="OpacityMask" Duration="0:0:0.24" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.place:pressed Panel.place-tune">
+      <Setter Property="OpacityMask" Value="#BFFFFFFF" />
+    </Style>
+    <Style Selector="Button.place.active Panel.place-tune">
+      <Setter Property="OpacityMask" Value="#FFFFFFFF" />
+    </Style>
+    <Style Selector="Button.place Panel.place-tune > PathIcon">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <!-- The open place's name, in the desktop's ink: PlacesBarView opens and closes the room for it and
+         fades it as it moves. -->
+    <Style Selector="Button.place TextBlock.place-label">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
+      <Setter Property="ClipToBounds" Value="True" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+  </UserControl.Styles>
+
   <!--
     The desktop's places, in its order, on one glass pill centred in the thumb zone of its column.
     The place you are in always wears its name, as on the desktop; the others are glyphs. Every

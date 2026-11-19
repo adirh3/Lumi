@@ -12,6 +12,10 @@
              x:DataType="vm:MobileShellViewModel"
              Background="{DynamicResource Brush.Surface0}">
 
+  <UserControl.Styles>
+    <StyleInclude Source="avares://Lumi.Mobile/Styles/ConversationListStyles.axaml" />
+  </UserControl.Styles>
+
   <!--
     Full-screen search. On a phone the keyboard already claims half the display, so a search that
     filters a list *behind* it leaves the user reading three visible rows through a letterbox.

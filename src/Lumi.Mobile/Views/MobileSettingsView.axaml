@@ -352,6 +352,43 @@
     <Style Selector="Grid.toggle-row:disabled">
       <Setter Property="Opacity" Value="0.5" />
     </Style>
+    <Style Selector="sc|StrataSettingGroup.mobile /template/ Border#PART_Card">
+      <Setter Property="Background" Value="{DynamicResource Brush.GroupSurface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GroupBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Padding" Value="16,14,16,6" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Group}" />
+    </Style>
+    <Style Selector="sc|StrataSettingGroup.mobile:focus-within /template/ Border#PART_Card">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GroupBorder}" />
+    </Style>
+    <Style Selector="sc|StrataSettingGroup.mobile /template/ StackPanel#PART_HeaderSection">
+      <Setter Property="Margin" Value="0,0,0,2" />
+    </Style>
+    <Style Selector="sc|StrataSettingGroup.mobile /template/ StackPanel#PART_HeaderSection > TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+
+    <Style Selector="sc|StrataSetting.mobile /template/ Border#PART_RowBorder">
+      <Setter Property="Padding" Value="0,10" />
+    </Style>
+
+    <Style Selector="sc|StrataSetting.mobile /template/ Border#PART_Separator">
+      <Setter Property="Background" Value="{DynamicResource Brush.RowDivider}" />
+      <Setter Property="Margin" Value="0" />
+    </Style>
+
+    <Style Selector="sc|StrataSetting.mobile /template/ Border#PART_HighlightBar">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+
+    <Style Selector="sc|StrataSetting.mobile /template/ TextBlock#PART_Description">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="LineHeight" Value="{DynamicResource Font.LineHeightMeta}" />
+    </Style>
   </UserControl.Styles>
 
   <Panel>

@@ -1,0 +1,153 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:sa="using:StrataTheme.Animation"
+        xmlns:sc="using:StrataTheme.Controls">
+
+  <Style Selector="TextBlock.group-label.drawer-group-label">
+    <Setter Property="Margin" Value="{DynamicResource Mobile.Drawer.GroupLabelMargin}" />
+  </Style>
+
+  <!-- Search is a reading task, and the row is the only target. -->
+  <Style Selector="Button.search-result">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="12,11" />
+    <Setter Property="MinHeight" Value="60" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+
+  <Style Selector="Button.search-result:pressed">
+    <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+  </Style>
+
+  <!-- Drawer rows are the full-width list items Material specifies: 48dp+ tall, pill-highlighted. -->
+  <Style Selector="Button.drawer-row">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Margin" Value="{DynamicResource Mobile.Drawer.RowMargin}" />
+    <Setter Property="Padding" Value="{DynamicResource Mobile.Drawer.RowPadding}" />
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.RowHeight}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Background" Duration="0:0:0.14" />
+      </Transitions>
+    </Setter>
+  </Style>
+
+  <Style Selector="Button.drawer-row:pressed">
+    <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+  </Style>
+
+  <Style Selector="Button.drawer-row.selected">
+    <Setter Property="Background" Value="{DynamicResource Brush.NavigationSelected}" />
+  </Style>
+
+  <!-- History rows: dense enough to show many chats, but never below a comfortable thumb target. -->
+  <Style Selector="Button.drawer-chat">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Margin" Value="{DynamicResource Mobile.Drawer.RowMargin}" />
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+
+  <Style Selector="Button.drawer-chat:pressed">
+    <Setter Property="Background" Value="{DynamicResource Brush.ChatRowSelected}" />
+  </Style>
+
+  <!-- The open chat, as the desktop's list marks it: a neutral wash and the slim accent pipe. -->
+  <Style Selector="Button.drawer-chat.selected">
+    <Setter Property="Background" Value="{DynamicResource Brush.ChatRowSelected}" />
+  </Style>
+
+  <Style Selector="TextBlock.conversation-title">
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="Button.drawer-conversation.unread TextBlock.conversation-title,
+                   Button.search-result.unread TextBlock.conversation-title">
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <!-- The desktop's row marks: a dot that pulses while Lumi works and stays while a reply waits to be
+       read, a ring while background work still runs, and a quiet pin. -->
+  <Style Selector="Border.chat-row-dot">
+    <Setter Property="Width" Value="6" />
+    <Setter Property="Height" Value="6" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Margin" Value="0,0,9,0" />
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+    <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.3" />
+    <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.2" />
+    <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+  </Style>
+  <Style Selector="Border.chat-row-background">
+    <Setter Property="Width" Value="8" />
+    <Setter Property="Height" Value="8" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="BorderThickness" Value="1.5" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="PathIcon.chat-row-pin">
+    <Setter Property="Width" Value="14" />
+    <Setter Property="Height" Value="14" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <!--
+    ══ Chat rows ═══════════════════════════════════════════════════════════════════════════════
+    One line, as the desktop's sidebar rows: a dot while Lumi works or a reply waits, the title, and
+    a quiet pin. The date groups already say when; a list of titles scans like the desktop's.
+  -->
+  <Style Selector="Button.drawer-conversation">
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="Padding" Value="14,6,14,6" />
+  </Style>
+  <!-- The desktop's selection pipe: short and centred on the row, not a full-height bar. -->
+  <Style Selector="Border.row-marker.chat-pipe">
+    <Setter Property="Height" Value="16" />
+    <Setter Property="CornerRadius" Value="1.5" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.conversation-preview">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="TextWrapping" Value="NoWrap" />
+  </Style>
+  <Style Selector="TextBlock.conversation-working">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <!-- Where a search result lives: quiet words before its reply, not a box competing with them. -->
+  <Style Selector="Border.project-chip">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.project-chip PathIcon">
+    <Setter Property="Width" Value="13" />
+    <Setter Property="Height" Value="13" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Project}" />
+  </Style>
+  <Style Selector="Border.project-chip TextBlock">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="MaxWidth" Value="140" />
+  </Style>
+</Styles>

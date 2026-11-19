@@ -12,6 +12,49 @@
              x:DataType="vm:MobileShellViewModel"
              Background="{DynamicResource Brush.NavigationSurface}">
 
+  <UserControl.Styles>
+    <StyleInclude Source="avares://Lumi.Mobile/Styles/ConversationListStyles.axaml" />
+    <!-- The project lens is the title bar's glass, a pill as wide as the list built as the chat's title
+         pill is (floating-action supplies the glass, its frost, rim and press). -->
+    <Style Selector="Button.project-switcher">
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Padding" Value="8,0,15,0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <!-- All chats wears the accent's glow and the desktop's line glyph for chats, where a project wears
+         its own mark. -->
+    <Style Selector="Border.chat-mark.project-switcher-all">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
+    </Style>
+    <Style Selector="Border.project-switcher-all sc|StrataLineIcon">
+      <Setter Property="Width" Value="17" />
+      <Setter Property="Height" Value="17" />
+      <Setter Property="StrokeThickness" Value="1.9" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.project-switcher-title">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <!-- How many projects there are, at the far end beside the chevron, as on the desktop. -->
+    <Style Selector="TextBlock.project-switcher-meta">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Margin" Value="10,1,0,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+  </UserControl.Styles>
+
   <!--
     The chat list: home on a phone, the sidebar beside the chat when there is room for both. Its title
     bar's glass buttons and the project lens float above it and the glass places pill sits centred in the
