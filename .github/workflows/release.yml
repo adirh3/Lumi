@@ -124,19 +124,13 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
       - name: Setup .NET 11
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '11.0.x'
-          dotnet-quality: preview
 
-      - name: Install .NET 10 WebAssembly workload
-        run: dotnet workload install wasm-tools-net10
+      - name: Install WebAssembly workload
+        run: dotnet workload install wasm-tools
 
       - name: Publish Avalonia PWA
         run: >
@@ -180,7 +174,7 @@ jobs:
             throw "Android installer must use the package-scoped official release flow."
           }
 
-          $assembly = Get-Item "src\Lumi.Mobile.Browser\bin\Release\net10.0-browser\Lumi.Mobile.Browser.dll"
+          $assembly = Get-Item "src\Lumi.Mobile.Browser\bin\Release\net11.0-browser\Lumi.Mobile.Browser.dll"
           $publishedVersion = ($assembly.VersionInfo.ProductVersion -split "\+", 2)[0]
           if ($publishedVersion -ne $env:RELEASE_VERSION) {
             throw "Browser publish version is $publishedVersion; expected $env:RELEASE_VERSION."

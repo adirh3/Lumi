@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.WebAssembly">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-browser</TargetFramework>
+    <TargetFramework>net11.0-browser</TargetFramework>
     <OutputType>Exe</OutputType>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
@@ -19,6 +19,9 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Browser" Version="$(AvaloniaVersion)" />
+    <!-- .NET 11 needs Emscripten 6 native assets; keep the managed/native Skia pair browser-only. -->
+    <PackageReference Include="SkiaSharp" Version="4.156.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.156.1" />
   </ItemGroup>
 
   <ItemGroup>
