@@ -9,7 +9,7 @@ using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using StrataTheme.Controls;
 using Lumi.Views;
 using Xunit;

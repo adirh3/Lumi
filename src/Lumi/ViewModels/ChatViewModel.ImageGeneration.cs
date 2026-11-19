@@ -1,7 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using Avalonia.Threading;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Byok;

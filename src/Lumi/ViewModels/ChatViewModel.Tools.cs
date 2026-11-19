@@ -7,7 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -622,7 +622,7 @@ public partial class ChatViewModel
         // auth header to the new provider). Detect this mismatch here and force a session
         // recreation on the next SendMessage instead.
         var modelRoute = ResolveModelRouteForChat(modelId);
-        if (modelRoute.IsInvalidByok || string.IsNullOrWhiteSpace(modelRoute.WireModelId))
+        if (modelRoute.IsInvalidByok || string.IsNullOrWhiteSpace(modelRoute.SessionModelId))
         {
             InvalidateCurrentSessionForModelSwitch();
             return false;
@@ -634,7 +634,7 @@ public partial class ChatViewModel
             InvalidateCurrentSessionForModelSwitch();
             try
             {
-                await WaitForSessionRebuildAsync(chat, modelRoute.WireModelId, selectionToken);
+                await WaitForSessionRebuildAsync(chat, modelRoute.SessionModelId, selectionToken);
             }
             catch (OperationCanceledException) when (selectionToken.IsCancellationRequested)
             {
@@ -669,7 +669,7 @@ public partial class ChatViewModel
                 await SwitchSessionModelAsync(
                     chat,
                     session,
-                    modelRoute.WireModelId,
+                    modelRoute,
                     SessionConfigBuilder.CreateSetModelOptions(
                         modelRoute.SelectionToken, reasoningEffort, contextTier,
                         ByokConfigHelper.BuildModelCapabilitiesOverride(modelRoute.ByokModel, contextTier)),

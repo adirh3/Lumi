@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
@@ -1392,8 +1392,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     DefaultReasoningEffort = defaultEffort,
                 };
                 if (model.DefaultContextWindowTokens is > 0)
-                    info.Capabilities = new ModelCapabilities
-                    { Limits = new ModelLimits { MaxContextWindowTokens = model.DefaultContextWindowTokens.Value } };
+                    info.Capabilities = new Microsoft.Copilot.Rpc.ModelCapabilities
+                    {
+                        Limits = new Microsoft.Copilot.Rpc.ModelCapabilitiesLimits
+                        {
+                            MaxContextWindowTokens = model.DefaultContextWindowTokens.Value
+                        }
+                    };
                 return info;
             })
             .ToList();

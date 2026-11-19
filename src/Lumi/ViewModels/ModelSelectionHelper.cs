@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 

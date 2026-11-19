@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services.Byok;
 using Microsoft.Extensions.AI;

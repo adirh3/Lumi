@@ -8,7 +8,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Microsoft.Extensions.AI;
@@ -217,10 +217,10 @@ public class PresentationRoutingEval
             // A chat appends Lumi's prompt to the runtime's own instead of replacing it, so the eval does too.
             config.SystemMessage = new SystemMessageConfig { Content = prompt, Mode = SystemMessageMode.Append };
             // Only the stand-ins: the runtime's own web_search would otherwise answer from the live web.
-            config.AvailableTools = new ToolSet().AddCustom("web_search").AddCustom("lumi_fetch");
-            config.ExcludedTools = new ToolSet().AddBuiltIn("*").AddMcp("*");
+            config.Tools.AvailableTools = new ToolSet().AddCustom("web_search").AddCustom("lumi_fetch");
+            config.Tools.ExcludedTools = new ToolSet().AddBuiltIn("*").AddMcp("*");
             if (effort is not null)
-                config.ReasoningEffort = effort;
+                config.Inference.ReasoningEffort = effort;
 
             session = await service.CreateSessionAsync(config);
             using var subscription = session.On<SessionEvent>(evt =>

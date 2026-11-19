@@ -1,10 +1,10 @@
 using System.Collections.Generic;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Xunit;
-using RpcMcpServer = GitHub.Copilot.Rpc.McpServer;
+using RpcMcpServer = Microsoft.Copilot.Rpc.McpServer;
 
 // Lumi.csproj already suppresses GHCP001 for the SDK's experimental types; the tests exercise the same
 // types, so suppress it here too rather than for the whole test assembly.

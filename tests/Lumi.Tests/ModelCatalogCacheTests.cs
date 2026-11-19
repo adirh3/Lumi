@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Services;
 using Xunit;
 
@@ -32,7 +32,10 @@ public class ModelCatalogCacheTests
             }
         },
         Billing = new ModelBilling { Multiplier = changedField == "billing" ? 0.5 : 1 },
-        Policy = new ModelPolicy { State = changedField == "policy" ? "unconfigured" : "enabled" }
+        Policy = new ModelPolicy
+        {
+            State = changedField == "policy" ? ModelPolicyState.Unconfigured : ModelPolicyState.Enabled
+        }
     };
 
     private static ModelContextWindowCatalog Catalog(params string[] longContextModelIds)

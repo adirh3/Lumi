@@ -2137,7 +2137,7 @@
   "Setting_StatsAgents": "智能体",
   "Setting_StatsProjects": "项目",
   "Setting_BuiltWith": "技术支持",
-  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, GitHub Copilot SDK, CommunityToolkit.Mvvm",
+  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, Microsoft Copilot SDK, CommunityToolkit.Mvvm",
   "Setting_Language": "界面语言",
   "SettingDesc_Language": "更改界面语言（需重启）",
   "Button_ClearChats": "清除聊天",

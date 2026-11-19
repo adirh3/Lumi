@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Xunit;
@@ -45,19 +45,20 @@ public sealed class BrowserScreenshotSessionIntegrationTests(ITestOutputHelper o
         var ct = timeout.Token;
         try
         {
+            var runtime = RuntimeConnection.ForSpawnedStdio(TestCopilot.BundledRuntimePath);
+            runtime.BaseDirectory = Path.Combine(root, "copilot");
+            runtime.WorkingDirectory = root;
             await using var client = new CopilotClient(new CopilotClientOptions
             {
                 Mode = CopilotClientMode.Empty,
-                BaseDirectory = Path.Combine(root, "copilot"),
-                WorkingDirectory = root,
-                UseLoggedInUser = false,
-                Connection = RuntimeConnection.ForStdio(),
-                RequestHandler = handler,
-                LogLevel = CopilotLogLevel.Error
+                Runtime = runtime,
+                GitHub = new ClientGitHubOptions { UseLoggedInUser = false },
+                Models = new ClientModelOptions { RequestHandler = handler },
+                Observability = new ClientObservabilityOptions { LogLevel = CopilotLogLevel.Error }
             });
             await client.StartAsync(ct);
             var session = await client.CreateSessionAsync(
-                (SessionConfig)Configure(root, Capture, resume: false), ct);
+                (CreateSessionOptions)Configure(root, Capture, resume: false), ct);
             var sessionId = session.SessionId;
             try
             {
@@ -106,7 +107,7 @@ public sealed class BrowserScreenshotSessionIntegrationTests(ITestOutputHelper o
                 await session.DisposeAsync();
                 handler.BeginOrdinaryTurn();
                 session = await client.ResumeSessionAsync(
-                    sessionId, (ResumeSessionConfig)Configure(root, Capture, resume: true), ct);
+                    sessionId, (ResumeSessionOptions)Configure(root, Capture, resume: true), ct);
                 await SendCheck(session, ct);
                 Assert.Equal(1, captureCount);
                 AssertScreenshotIsAdvertised(Assert.Single(handler.Requests));
@@ -123,26 +124,20 @@ public sealed class BrowserScreenshotSessionIntegrationTests(ITestOutputHelper o
         }
     }
 
-    private static SessionConfigBase Configure(
+    private static SessionOptionsBase Configure(
         string root, Func<string?, Task<BrowserScreenshot>> capture, bool resume)
     {
         var tool = ChatViewModel.BuildBrowserScreenshotTool(capture);
-        SessionConfigBase config = resume
-            ? SessionConfigBuilder.BuildForResume(
-                "Synthetic screenshot check.", null, root, null, [], [], [tool], null, null, null, null,
-                enableCapabilityDiscovery: false)
-            : SessionConfigBuilder.Build(
-                "Synthetic screenshot check.", null, root, null, [], [], [tool], null, null, null, null,
-                enableCapabilityDiscovery: false);
-        config.ConfigDirectory = Path.Combine(root, "config");
-        config.Model = "gpt-4o-mini";
-        config.Provider = new ProviderConfig
+        var provider = new ProviderConfig
         {
-            Type = "openai", WireApi = "completions",
+            Type = "openai",
+            WireApi = "completions",
             BaseUrl = "https://lumi-screenshot-test.invalid/v1",
-            ApiKey = "synthetic-test-key", ModelId = "gpt-4o-mini", WireModel = "gpt-4o-mini"
+            ApiKey = "synthetic-test-key",
+            ModelId = "gpt-4o-mini",
+            WireModel = "gpt-4o-mini"
         };
-        config.ModelCapabilities = new()
+        var capabilities = new Microsoft.Copilot.Rpc.ModelCapabilitiesOverride
         {
             Supports = new() { Vision = true },
             Limits = new()
@@ -150,12 +145,20 @@ public sealed class BrowserScreenshotSessionIntegrationTests(ITestOutputHelper o
                 Vision = new() { MaxPromptImages = 5, MaxPromptImageSize = 3 * 1024 * 1024, SupportedMediaTypes = ["image/png"] }
             }
         };
-        config.EnableSessionStore = false;
-        config.EnableSessionTelemetry = false;
-        config.EnableFileHooks = false;
-        config.EnableSkills = false;
-        config.RequestExtensions = false;
-        config.AvailableTools = [ToolDisplayHelper.BrowserScreenshotToolName];
+        SessionOptionsBase config = resume
+            ? SessionConfigBuilder.BuildForResume(
+                "Synthetic screenshot check.", provider.ModelId, root, null, [], [], [tool], null, null, null, null,
+                provider: provider, enableCapabilityDiscovery: false, modelCapabilities: capabilities)
+            : SessionConfigBuilder.Build(
+                "Synthetic screenshot check.", provider.ModelId, root, null, [], [], [tool], null, null, null, null,
+                provider: provider, enableCapabilityDiscovery: false, modelCapabilities: capabilities);
+        config.ConfigDirectory = Path.Combine(root, "config");
+        config.State.EnableCrossSessionStore = false;
+        config.GitHub.TelemetryEnabled = false;
+        config.Hooks.EnableRepositoryHooks = false;
+        config.Skills.Enabled = false;
+        config.Extensions.Enabled = false;
+        config.Tools.AvailableTools = [ToolDisplayHelper.BrowserScreenshotToolName];
         return config;
     }
 

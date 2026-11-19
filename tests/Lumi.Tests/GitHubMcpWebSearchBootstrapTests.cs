@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Services;
 using Xunit;
 

@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Remote;
@@ -37,28 +37,34 @@ public sealed class GeminiProviderSessionIntegrationTests(ITestOutputHelper outp
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+            var runtime = RuntimeConnection.ForSpawnedStdio(TestCopilot.BundledRuntimePath);
+            runtime.BaseDirectory = Path.Combine(root, "copilot");
+            runtime.WorkingDirectory = root;
             await using var client = new CopilotClient(new CopilotClientOptions
             {
                 Mode = CopilotClientMode.Empty,
-                BaseDirectory = Path.Combine(root, "copilot"),
-                WorkingDirectory = root,
-                UseLoggedInUser = false,
-                Connection = RuntimeConnection.ForStdio(),
-                LogLevel = CopilotLogLevel.Error
+                Runtime = runtime,
+                GitHub = new ClientGitHubOptions { UseLoggedInUser = false },
+                Observability = new ClientObservabilityOptions { LogLevel = CopilotLogLevel.Error }
             });
             await client.StartAsync(timeout.Token);
-            await using var session = await client.CreateSessionAsync(new SessionConfig
-            {
-                Model = "gemini-2.5-flash", Streaming = true,
-                Provider = ByokConfigHelper.BuildProviderConfig(new ByokEndpoint
+            var provider = ByokConfigHelper.BuildProviderConfig(new ByokEndpoint
                 {
                     Name = "Gemini HTTP fixture", ProviderType = "openai",
                     BaseUrl = $"http://127.0.0.1:{server.Port}/v1beta/openai",
                     ApiKeyMode = ByokApiKeyMode.Stored, ApiKey = "synthetic-gemini-key"
-                }),
-                AvailableTools = [], EnableSessionStore = false, EnableSessionTelemetry = false,
-                EnableSkills = false, EnableFileHooks = false, RequestExtensions = false
-            }, timeout.Token);
+                });
+            var config = SessionConfigBuilder.Build(
+                null, "gemini-2.5-flash", root, null, [], [], [], null, null, null, null,
+                provider: provider, enableCapabilityDiscovery: false);
+            config.Events.Streaming = true;
+            config.State.EnableCrossSessionStore = false;
+            config.GitHub.TelemetryEnabled = false;
+            config.Skills.Enabled = false;
+            config.Hooks.EnableRepositoryHooks = false;
+            config.Extensions.Enabled = false;
+            config.Tools.AvailableTools = [];
+            await using var session = await client.CreateSessionAsync(config, timeout.Token);
             var result = await session.SendAndWaitAsync(
                 new MessageOptions { Prompt = "Reply with LUMI_GEMINI_HTTP_OK." }, TimeSpan.FromSeconds(30), timeout.Token);
             Assert.Equal("LUMI_GEMINI_HTTP_OK", result?.Data.Content);
@@ -95,18 +101,19 @@ public sealed class GeminiProviderSessionIntegrationTests(ITestOutputHelper outp
         var ct = timeout.Token;
         try
         {
+            var runtime = RuntimeConnection.ForSpawnedStdio(TestCopilot.BundledRuntimePath);
+            runtime.BaseDirectory = Path.Combine(root, "copilot");
+            runtime.WorkingDirectory = root;
             await using var client = new CopilotClient(new CopilotClientOptions
             {
                 Mode = CopilotClientMode.Empty,
-                BaseDirectory = Path.Combine(root, "copilot"),
-                WorkingDirectory = root,
-                UseLoggedInUser = false,
-                Connection = RuntimeConnection.ForStdio(),
-                RequestHandler = inference,
-                LogLevel = CopilotLogLevel.Error
+                Runtime = runtime,
+                GitHub = new ClientGitHubOptions { UseLoggedInUser = false },
+                Models = new ClientModelOptions { RequestHandler = inference },
+                Observability = new ClientObservabilityOptions { LogLevel = CopilotLogLevel.Error }
             });
             await client.StartAsync(ct);
-            var session = await client.CreateSessionAsync((SessionConfig)Configure(resume: false), ct);
+            var session = await client.CreateSessionAsync((CreateSessionOptions)Configure(resume: false), ct);
             try
             {
                 var response = await session.SendAndWaitAsync(
@@ -116,7 +123,7 @@ public sealed class GeminiProviderSessionIntegrationTests(ITestOutputHelper outp
                 Assert.Equal("LUMI_CONNECTION_OK", response?.Data.Content);
                 var sessionId = session.SessionId;
                 await session.DisposeAsync();
-                session = await client.ResumeSessionAsync(sessionId, (ResumeSessionConfig)Configure(resume: true), ct);
+                session = await client.ResumeSessionAsync(sessionId, (ResumeSessionOptions)Configure(resume: true), ct);
                 response = await session.SendAndWaitAsync(
                     new MessageOptions { Prompt = "Reply with LUMI_GEMINI_CHAT_OK." }, TimeSpan.FromSeconds(30), ct);
                 Assert.Equal("LUMI_GEMINI_CHAT_OK", response?.Data.Content);
@@ -150,24 +157,22 @@ public sealed class GeminiProviderSessionIntegrationTests(ITestOutputHelper outp
             Directory.Delete(root, recursive: true);
         }
 
-        SessionConfigBase Configure(bool resume)
+        SessionOptionsBase Configure(bool resume)
         {
-            SessionConfigBase config = resume
+            SessionOptionsBase config = resume
                 ? SessionConfigBuilder.BuildForResume(
-                    "Synthetic Gemini check.", null, root, null, [], [], [tool], null, null, null, null,
-                    enableCapabilityDiscovery: false)
+                    "Synthetic Gemini check.", "gemini-3.5-flash-lite", root, null, [], [], [tool], null, null, null, null,
+                    provider: ByokConfigHelper.BuildProviderConfig(endpoint), enableCapabilityDiscovery: false)
                 : SessionConfigBuilder.Build(
-                    "Synthetic Gemini check.", null, root, null, [], [], [tool], null, null, null, null,
-                    enableCapabilityDiscovery: false);
+                    "Synthetic Gemini check.", "gemini-3.5-flash-lite", root, null, [], [], [tool], null, null, null, null,
+                    provider: ByokConfigHelper.BuildProviderConfig(endpoint), enableCapabilityDiscovery: false);
             config.ConfigDirectory = Path.Combine(root, "config");
-            config.Model = "gemini-3.5-flash-lite";
-            config.Provider = ByokConfigHelper.BuildProviderConfig(endpoint);
-            config.EnableSessionStore = false;
-            config.EnableSessionTelemetry = false;
-            config.EnableFileHooks = false;
-            config.EnableSkills = false;
-            config.RequestExtensions = false;
-            config.AvailableTools = ["lumi_connection_check"];
+            config.State.EnableCrossSessionStore = false;
+            config.GitHub.TelemetryEnabled = false;
+            config.Hooks.EnableRepositoryHooks = false;
+            config.Skills.Enabled = false;
+            config.Extensions.Enabled = false;
+            config.Tools.AvailableTools = ["lumi_connection_check"];
             return config;
         }
     }

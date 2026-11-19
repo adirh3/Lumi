@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services.Byok;
@@ -18,6 +18,13 @@ public sealed record SessionModelRoute(
     bool IsInvalidByok)
 {
     public bool IsByok => Provider is not null;
+
+    public string? SessionModelId
+        => Provider is null
+            ? CopilotModelCatalog.GetWireModelId(SelectionToken)
+            : ByokModel is { } model
+                ? $"{ByokConfigHelper.SessionProviderName}/{model.Id}"
+                : null;
 }
 
 public enum ByokTokenLimitWarningKind
@@ -50,6 +57,7 @@ public static class ByokConfigHelper
 {
     /// <summary>Prefix for all BYOK picker tokens.</summary>
     public const string TokenPrefix = "byok:";
+    internal const string SessionProviderName = "lumi-byok";
 
     /// <summary>Fallback environment variable when an endpoint's <see cref="ByokEndpoint.ApiKeyEnvVar"/> is blank.</summary>
     public const string FallbackApiKeyEnvVar = "LUMI_BYOK_API_KEY";
@@ -376,7 +384,7 @@ public static class ByokConfigHelper
     /// Builds a <see cref="ProviderConfig"/> from an endpoint. <c>ModelId</c> and
     /// <c>WireModel</c> are intentionally NOT set — callers supply the actual model id via
     /// <see cref="TryBuildProviderConfig"/>, which routes it to
-    /// <c>SessionConfig.Model</c> via SDK fallback.
+    /// <c>CreateSessionOptions.Model</c> via SDK fallback.
     /// When <paramref name="model"/> is supplied, its advanced token limits
     /// (<see cref="ByokModel.MaxOutputTokens"/>, <see cref="ByokModel.MaxPromptTokens"/>) are
     /// copied onto the resulting <c>ProviderConfig</c> so the SDK forwards them to the provider.
@@ -558,7 +566,7 @@ public static class ByokConfigHelper
         return copy;
     }
 
-    public static GitHub.Copilot.Rpc.ModelCapabilitiesOverride? BuildModelCapabilitiesOverride(
+    public static Microsoft.Copilot.Rpc.ModelCapabilitiesOverride? BuildModelCapabilitiesOverride(
         ByokModel? model,
         string? contextTier)
     {
@@ -573,10 +581,10 @@ public static class ByokConfigHelper
             ? normalized.LongContextWindowTokens
             : normalized.DefaultContextWindowTokens;
         var supports = normalized.SupportsReasoningEffort
-            ? new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideSupports { ReasoningEffort = true }
+            ? new Microsoft.Copilot.Rpc.ModelCapabilitiesOverrideSupports { ReasoningEffort = true }
             : null;
         var limits = maxContextWindowTokens is > 0
-            ? new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideLimits
+            ? new Microsoft.Copilot.Rpc.ModelCapabilitiesOverrideLimits
             {
                 MaxContextWindowTokens = maxContextWindowTokens
             }
@@ -584,7 +592,7 @@ public static class ByokConfigHelper
 
         return supports is null && limits is null
             ? null
-            : new GitHub.Copilot.Rpc.ModelCapabilitiesOverride
+            : new Microsoft.Copilot.Rpc.ModelCapabilitiesOverride
             {
                 Supports = supports,
                 Limits = limits
@@ -720,6 +728,42 @@ public static class ByokConfigHelper
         return $"{signature}|capabilities={modelCapabilitiesSignature}";
     }
 
+    internal static string? BuildSessionProviderSignature(
+        NamedProviderConfig? provider,
+        ProviderModelConfig? model)
+    {
+        if (provider is null)
+            return null;
+
+        var headers = provider.Headers is null
+            ? ""
+            : string.Join("&",
+                provider.Headers
+                    .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                    .Select(kv => $"{kv.Key}={HashOpaqueSecret(kv.Value)}"));
+        var signature = string.Join(
+            "|",
+            provider.Name,
+            provider.Type?.Trim() ?? "",
+            provider.BaseUrl?.Trim() ?? "",
+            provider.WireApi?.Trim() ?? "",
+            HashOpaqueSecret(provider.ApiKey),
+            HashOpaqueSecret(provider.BearerToken),
+            provider.Azure?.ApiVersion?.Trim() ?? "",
+            headers,
+            model?.Id,
+            model?.ModelId,
+            model?.WireModel,
+            $"out={model?.MaxOutputTokens?.ToString() ?? ""}",
+            $"in={model?.MaxPromptTokens?.ToString() ?? ""}",
+            $"context={model?.MaxContextWindowTokens?.ToString() ?? ""}",
+            $"cap-context={model?.Capabilities?.Limits?.MaxContextWindowTokens?.ToString() ?? ""}",
+            $"cap-output={model?.Capabilities?.Limits?.MaxOutputTokens?.ToString() ?? ""}",
+            $"vision={model?.Capabilities?.Supports?.Vision == true}",
+            $"reasoning={model?.Capabilities?.Supports?.ReasoningEffort == true}");
+        return signature;
+    }
+
     /// <summary>
     /// Resolves a selected model token to its model entry + endpoint + the wire model id
     /// to pass to the SDK. Returns <c>false</c> (and null outputs) when:
@@ -774,15 +818,21 @@ public static class ByokConfigHelper
         string? selectedModel,
         string? reportedModelId)
     {
-        return !string.IsNullOrWhiteSpace(reportedModelId)
-            && TryResolveModel(settings, selectedModel, out _, out _, out var wireModelId)
-            && string.Equals(wireModelId, reportedModelId, StringComparison.Ordinal);
+        if (string.IsNullOrWhiteSpace(reportedModelId)
+            || !TryResolveModel(settings, selectedModel, out var model, out _, out var wireModelId))
+            return false;
+
+        return string.Equals(wireModelId, reportedModelId, StringComparison.Ordinal)
+            || string.Equals(
+                SessionProviderName + "/" + model!.Id,
+                reportedModelId,
+                StringComparison.Ordinal);
     }
 
     /// <summary>
     /// Entry point for session construction: resolves the selected model to a
     /// <see cref="ProviderConfig"/> and the wire model id to pass to
-    /// <c>SessionConfig.Model</c>. Returns <c>null</c> for non-BYOK tokens (caller should
+    /// <c>CreateSessionOptions.Model</c>. Returns <c>null</c> for non-BYOK tokens (caller should
     /// use the regular non-BYOK session build path) or stale BYOK tokens (caller must
     /// surface a BYOK error and not fall back silently).
     /// </summary>
@@ -870,7 +920,7 @@ public static class ByokConfigHelper
     /// AND has a non-empty <c>BaseUrl</c>. This is the authoritative "is this a BYOK request?"
     /// check used by the non-BYOK block, rather than relying on the <c>byok:</c> token prefix.
     /// </summary>
-    public static bool HasValidByokUrl(GitHub.Copilot.ProviderConfig? provider)
+    public static bool HasValidByokUrl(Microsoft.Copilot.ProviderConfig? provider)
         => provider is not null
            && !string.IsNullOrWhiteSpace(provider.BaseUrl);
 

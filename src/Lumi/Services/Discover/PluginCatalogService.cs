@@ -6,7 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 
 namespace Lumi.Services.Discover;
@@ -215,7 +215,7 @@ public sealed class PluginCatalogService
     {
         _manifests.Clear();
         _contents.Clear();
-        var result = await Client.Rpc.Plugins.Marketplaces.RefreshAsync(null, cancellationToken).ConfigureAwait(false);
+        var result = await Client.Rpc.Plugins.Marketplaces.RefreshAsync(new(), cancellationToken).ConfigureAwait(false);
         _failedRefreshes.Clear();
         foreach (var entry in result?.Results ?? [])
         {

@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Services;
 
 namespace Lumi.Tests;
@@ -38,6 +38,13 @@ public static class TestCopilot
     /// <summary>The shared service handed to test surfaces that just need a non-null CopilotService.</summary>
     public static CopilotService Shared => LazyShared.Value;
 
+    /// <summary>
+    /// Explicit runtime path for integration fixtures. Leaving it implicit would let an inherited
+    /// COPILOT_CLI_PATH redirect tests to a different CLI version.
+    /// </summary>
+    internal static string BundledRuntimePath => CopilotService.BundledRuntimePath
+        ?? throw new FileNotFoundException("The SDK-bundled Copilot runtime was not copied to the test output.");
+
     // Use only in the non-parallel Headless UI collection. No CLI process is started.
     internal sealed class SimulatedConnection : IAsyncDisposable
     {
@@ -49,7 +56,8 @@ public static class TestCopilot
         private readonly object? _previousGeneration = GenerationField.GetValue(Shared);
         private readonly CopilotClient _client = new(new CopilotClientOptions
         {
-            Connection = RuntimeConnection.ForUri("127.0.0.1:1")
+            Mode = CopilotClientMode.CodingAgent,
+            Runtime = RuntimeConnection.ForTcp("127.0.0.1", 1)
         });
 
         public SimulatedConnection()

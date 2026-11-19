@@ -15,12 +15,13 @@ The Copilot SDK archives below are unchanged and are not active dependencies.
 
 ## Archived Copilot SDK packages
 
-Lumi now references official `GitHub.Copilot.SDK 1.0.30-preview.1` from NuGet.org
-and implements its upstream `ISkillProvider` API. The packages below are retained
-only as historical provenance: they are not referenced or source-mapped by Lumi.
+Lumi now references official `Microsoft.Copilot.SDK 2.0.1` from NuGet.org.
+The packages below are retained only as historical provenance: they are not
+referenced or source-mapped by Lumi.
 This directory is retained as an archive, not an active package feed.
-Full CLI acquisition has moved to `build/Copilot/CopilotCli.targets`, which uses
-the official SDK's supported binary-path override.
+`build/Copilot/CopilotCli.targets` supplies the full CLI for both protocol-4
+runtime hosting and sign-in via the SDK's binary-path override. See
+[development.md](../../docs/development.md) for the current layout.
 
 `Lumi.Copilot.SDK` is an **unofficial, temporary prerelease build** of the GitHub
 Copilot .NET SDK with the native in-memory skill provider proposed upstream and
@@ -46,17 +47,15 @@ and metadata; it does not alter SDK authentication or skill-provider code.
 
 ### Historical consumption and updating
 
-Normal `dotnet restore`, `dotnet build`, and publish use this feed and the package's
-build targets automatically. No separate Lumi acquisition task, import, or opt-out
-flag is needed. The package verifies official archive and executable SHA-256 pins
-for eight portable RIDs and copies one `copilot[.exe]` plus `.copilot-explicit-cli`
-to `runtimes/{rid}/native`. The existing SDK recognizes that marker for default
-stdio startup. Old headless payloads are removed on incremental builds.
+When this package was active, restore, build and publish used its feed and targets.
+It verified official archive and executable SHA-256 pins for eight portable RIDs
+and copied one `copilot[.exe]` plus `.copilot-explicit-cli` to
+`runtimes/{rid}/native`. The existing SDK recognized that marker for default
+stdio startup. Old headless payloads were removed on incremental builds.
 
-The default is full-CLI stdio/TCP hosting, not FFI/in-process hosting. The public
-`CopilotSkipCliDownload` and `CopilotCliBinaryPath` overrides remain available.
-The CLI's own extraction-cache and storage behavior is unchanged; no second
-runtime or separate Node.js installation is shipped.
+That archived package used full-CLI stdio/TCP hosting, not FFI/in-process
+hosting. Current builds use the official SDK's `CopilotCliBinaryPath` override
+with a full CLI that supports protocol 4.
 
 ### Reproducing the package
 

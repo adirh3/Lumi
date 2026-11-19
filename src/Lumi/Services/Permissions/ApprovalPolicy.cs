@@ -1,6 +1,6 @@
 using System.Collections.Frozen;
-using GitHub.Copilot;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot;
+using Microsoft.Copilot.Rpc;
 using Lumi.Models;
 
 namespace Lumi.Services.Permissions;

@@ -2,8 +2,8 @@ using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using GitHub.Copilot;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot;
+using Microsoft.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -210,9 +210,9 @@ public sealed class PermissionControlsTests
     public async Task CreateAndResume_InstallLumisHandler_WithoutDroppingProviderOrTools(bool resume, ApprovalMode mode)
     {
         var handler = SessionConfigBuilder.BuildPermissionHandler(() => mode);
-        var provider = new GitHub.Copilot.ProviderConfig { Type = "openai", BaseUrl = "https://provider.example/v1" };
+        var provider = new Microsoft.Copilot.ProviderConfig { Type = "openai", BaseUrl = "https://provider.example/v1" };
         AIFunction[] tools = [AIFunctionFactory.Create(() => "receipt", "ask_question"), AIFunctionFactory.Create(() => "receipt", "ui_do")];
-        SessionConfigBase config = resume
+        SessionOptionsBase config = resume
             ? SessionConfigBuilder.BuildForResume(
                 "prompt", "private-model", null, null, [], [], [.. tools], null, null, handler,
                 ChatViewModel.BuildSessionHooks(), provider: provider)
@@ -220,22 +220,23 @@ public sealed class PermissionControlsTests
                 "prompt", "private-model", null, null, [], [], [.. tools], null, null, handler,
                 ChatViewModel.BuildSessionHooks(), provider: provider);
 
-        Assert.Same(provider, config.Provider);
-        Assert.Equal("private-model", config.Model);
-        Assert.True(config.Tools!.Single(tool => tool.Name == "ask_question").AdditionalProperties
+        var sessionProvider = Assert.Single(config.Inference.Providers!);
+        Assert.Equal(provider.BaseUrl, sessionProvider.BaseUrl);
+        Assert.Equal("lumi-byok/private-model", config.Model);
+        Assert.True(config.Tools.Definitions!.Single(tool => tool.Name == "ask_question").AdditionalProperties
             .TryGetValue("skip_permission", out var skip) && skip is true);
-        Assert.False(config.Tools!.Single(tool => tool.Name == "ui_do").AdditionalProperties.ContainsKey("skip_permission"));
+        Assert.False(config.Tools.Definitions!.Single(tool => tool.Name == "ui_do").AdditionalProperties.ContainsKey("skip_permission"));
 
-        var decision = await config.OnPermissionRequest!(
+        var decision = await config.Permissions.OnRequest!(
             new PermissionRequestCustomTool { ToolName = "ui_do", ToolDescription = "Click a button" },
             new PermissionInvocation { SessionId = "own-session" });
         if (mode == ApprovalMode.FullAccess)
             Assert.IsType<PermissionDecisionApproveOnce>(decision);
         else
             Assert.IsType<PermissionDecisionNoResult>(decision);
-        Assert.Null((await config.Hooks!.OnPreToolUse!(new(), new()))!.PermissionDecision);
+        Assert.Null((await config.Hooks.Handlers!.OnPreToolUse!(new(), new()))!.PermissionDecision);
         if (resume)
-            Assert.False(Assert.IsType<ResumeSessionConfig>(config).ContinuePendingWork);
+            Assert.False(Assert.IsType<ResumeSessionOptions>(config).ContinuePendingWork);
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.ViewModels;
 using Xunit;

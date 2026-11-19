@@ -6,7 +6,7 @@ Work on code, files, documents and the web, and pick up a task from your phone.
 Bring GitHub Copilot, a ChatGPT plan, an API key or a local model. Lumi is a
 native desktop application for **Windows, macOS and Linux**, built with C#/.NET
 and [Avalonia](https://avaloniaui.net/), with an Android and mobile web companion.
-The [GitHub Copilot SDK](https://github.com/github/copilot-sdk) supplies the agent runtime.
+The [Microsoft Copilot SDK](https://github.com/microsoft/copilot-sdk), formerly the GitHub Copilot SDK, supplies the agent runtime.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -308,7 +308,7 @@ usable.
 - **.NET** with C#
 - **Avalonia UI** — cross-platform desktop framework
 - **CommunityToolkit.Mvvm** — MVVM source generators
-- **GitHub Copilot SDK** — agentic LLM backend
+- **Microsoft Copilot SDK** — agentic LLM backend
 - **[StrataTheme](https://github.com/adirh3/Strata)** — custom UI component library
 
 Current dependency versions live in the [project file](src/Lumi/Lumi.csproj) and

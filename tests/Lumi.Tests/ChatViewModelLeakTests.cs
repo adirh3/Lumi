@@ -10,7 +10,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -3465,7 +3465,7 @@ public sealed class ChatViewModelLeakTests
         [
             CreateUserMessageEvent("continue"),
             CreateAssistantMessageEvent("msg-1", "First reply"),
-            CreateAssistantMessageEvent("tool-1", "Tool transcript", parentToolCallId: "call-1"),
+            CreateAssistantMessageEvent("tool-1", "Tool transcript", agentId: "subagent-1"),
             CreateAssistantMessageEvent("msg-2", "Second reply")
         ];
 
@@ -4246,21 +4246,19 @@ public sealed class ChatViewModelLeakTests
             }
         };
 
-#pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; test fixture mirrors the runtime sub-agent payload.
     private static AssistantMessageEvent CreateAssistantMessageEvent(
         string messageId,
         string content,
-        string? parentToolCallId = null)
+        string? agentId = null)
         => new()
         {
+            AgentId = agentId,
             Data = new AssistantMessageData
             {
                 MessageId = messageId,
-                Content = content,
-                ParentToolCallId = parentToolCallId
+                Content = content
             }
         };
-#pragma warning restore CS0618
 
     private sealed class CountingDisposable : IDisposable
     {

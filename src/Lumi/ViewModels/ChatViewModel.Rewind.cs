@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -51,7 +51,9 @@ public partial class ChatViewModel
         // The edit is sent with the model the composer has for it: the edited message's own, unless another is
         // picked while editing (see OnSelectedModelChanged). The chat's last model may be on another account.
         if (chat.CopilotSessionId is not { Length: > 0 } sessionId
-            || !EditResumesSession(chat, SelectedModel, out var provider))
+            || !EditResumesSession(
+                chat, SelectedModel, out var provider, out var providerModelId,
+                out var wireModelId, out var providerModelCapabilities))
         {
             return;
         }
@@ -65,7 +67,9 @@ public partial class ChatViewModel
             try
             {
                 var userMessagesBefore = await _dataStore.CountUserMessagesBeforeAsync(chat, message);
-                var read = ReadFilesToPutBackAsync(chat, sessionId, provider, userMessagesBefore, ct);
+                var read = ReadFilesToPutBackAsync(
+                    chat, sessionId, provider, providerModelId, wireModelId,
+                    providerModelCapabilities, userMessagesBefore, ct);
                 if (await Task.WhenAny(read, Task.Delay(EditRewindCheckingDelay, ct)) != read
                     && ReferenceEquals(_editRewindCts, cts))
                 {
@@ -113,7 +117,14 @@ public partial class ChatViewModel
     /// bar shouldn't spend on a read. The edit resumes the session properly when it is sent.
     /// </remarks>
     private async Task<RewindFilesPreview?> ReadFilesToPutBackAsync(
-        Chat chat, string sessionId, ProviderConfig? provider, int userMessagesBefore, CancellationToken ct)
+        Chat chat,
+        string sessionId,
+        ProviderConfig? provider,
+        string? providerModelId,
+        string? wireModelId,
+        Microsoft.Copilot.Rpc.ModelCapabilitiesOverride? providerModelCapabilities,
+        int userMessagesBefore,
+        CancellationToken ct)
     {
         // A release of the chat's session still in flight is waited out, as a resume would wait for it.
         await AwaitPendingSessionReleaseAsync(chat.Id, ct);
@@ -126,7 +137,8 @@ public partial class ChatViewModel
                 return null;
         }
 
-        var read = _copilotService.UseResumedSessionReadOnlyAsync(sessionId, PreviewAsync, ct, provider);
+        var read = _copilotService.UseResumedSessionReadOnlyAsync(
+            sessionId, PreviewAsync, ct, provider, providerModelId, wireModelId, providerModelCapabilities);
         // The bare handle is released when the read ends. Tracked as a pending release, it keeps this
         // surface from resuming the chat's own session (a send, say) while the handle is still out.
         TrackPendingSessionRelease(chat.Id, read.ContinueWith(
@@ -150,10 +162,20 @@ public partial class ChatViewModel
     /// <c>ConsumePendingSessionInvalidation</c> acts on first); otherwise it starts a new session, which has
     /// nothing to put back.
     /// </summary>
-    private bool EditResumesSession(Chat chat, string? model, out ProviderConfig? provider)
+    private bool EditResumesSession(
+        Chat chat,
+        string? model,
+        out ProviderConfig? provider,
+        out string? providerModelId,
+        out string? wireModelId,
+        out Microsoft.Copilot.Rpc.ModelCapabilitiesOverride? providerModelCapabilities)
     {
         var route = ResolveModelRouteForChat(model, chat, allowLegacyByWireId: true);
         provider = route.Provider;
+        providerModelId = route.ByokModel?.Id;
+        wireModelId = route.WireModelId;
+        providerModelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+            route.ByokModel, chat.LastContextWindowTierUsed);
         return !_pendingSessionInvalidations.Contains(chat.Id)
             && !route.IsInvalidByok
             && (!_dataStore.Data.Settings.UseBYOKOnly || route.IsByok)
@@ -174,7 +196,8 @@ public partial class ChatViewModel
             && !_suppressModelSelectionSideEffects
             && CurrentChat is { } chat
             && _editingUserMessage is { } message
-            && EditResumesSession(chat, oldValue, out _) != EditResumesSession(chat, newValue, out _))
+            && EditResumesSession(chat, oldValue, out _, out _, out _, out _)
+                != EditResumesSession(chat, newValue, out _, out _, out _, out _))
         {
             OfferEditFileRewind(chat, message);
         }

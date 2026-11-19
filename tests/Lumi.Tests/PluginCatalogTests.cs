@@ -11,8 +11,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot;
+using Microsoft.Copilot.Rpc;
 using Lumi.Services.Discover;
 using Lumi.ViewModels;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -180,7 +180,7 @@ internal sealed class PluginCatalogRpc : IDisposable
             responses.Writer.AsStream(), requests.Reader.AsStream(), new JsonMessageFormatter()));
         _server.AddLocalRpcTarget(this);
         _server.StartListening();
-        var rpcType = typeof(CopilotClient).Assembly.GetType("GitHub.Copilot.JsonRpc", throwOnError: true)!;
+        var rpcType = typeof(CopilotClient).Assembly.GetType("Microsoft.Copilot.JsonRpc", throwOnError: true)!;
         _sdkRpc = (IDisposable)Activator.CreateInstance(rpcType,
             requests.Writer.AsStream(), responses.Reader.AsStream(),
             new JsonSerializerOptions(JsonSerializerDefaults.Web) { TypeInfoResolver = new DefaultJsonTypeInfoResolver() },

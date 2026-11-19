@@ -817,9 +817,9 @@ public sealed class ByokModel : INotifyPropertyChanged
     /// <summary>
     /// Maximum number of output (completion) tokens the provider may generate per turn.
     /// <c>null</c> (the default) means "inherit the provider/SDK default" — Lumi does not
-    /// set <c>ProviderConfig.MaxOutputTokens</c> at all, so existing behavior is preserved
-    /// for users who never configure this field. Verified to reach the provider via
-    /// <c>ProviderConfig.MaxOutputTokens</c> (GitHub.Copilot.SDK 1.0.1).
+    /// set <c>ProviderModelConfig.MaxOutputTokens</c> at all, so existing behavior is preserved
+    /// for users who never configure this field. The limit is supplied as named-provider model
+    /// metadata to Microsoft Copilot SDK 2.x.
     /// </summary>
     public int? MaxOutputTokens
     {

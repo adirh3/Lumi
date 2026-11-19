@@ -20,6 +20,8 @@ internal sealed class LiveShellOutput
     /// </summary>
     public bool IsTail { get; private set; }
 
+    public string Snapshot() => _text.ToString();
+
     /// <summary>Adds the next chunk and returns the output as it now stands.</summary>
     public string Append(string? chunk)
     {

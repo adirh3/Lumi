@@ -82,8 +82,8 @@ internal sealed partial class MemoryStressHarness
                 Path.Combine(DataStore.AppDirectory, "copilot-home"), StringComparison.OrdinalIgnoreCase);
             if (!report.RuntimeHomeIsolated)
                 throw new InvalidOperationException("The Copilot runtime home is not isolated; refusing to benchmark shared user state.");
-            using (var executable = File.OpenRead(CopilotService.BundledCliPath
-                ?? throw new FileNotFoundException("The bundled Copilot executable was not found.")))
+            using (var executable = File.OpenRead(CopilotService.BundledRuntimePath
+                ?? throw new FileNotFoundException("The bundled Copilot runtime executable was not found.")))
                 report.CliSha256 = Convert.ToHexString(SHA256.HashData(executable));
             await _copilotService.ConnectAsync().WaitAsync(TimeSpan.FromSeconds(45));
             if (!_copilotService.IsConnected)

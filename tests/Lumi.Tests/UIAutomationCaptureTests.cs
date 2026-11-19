@@ -1,5 +1,5 @@
 using System.Text.Json;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;

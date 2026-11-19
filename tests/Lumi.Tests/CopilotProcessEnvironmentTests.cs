@@ -1,5 +1,5 @@
 using System.Reflection;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Services;
 using Xunit;
 
@@ -13,17 +13,19 @@ public sealed class CopilotProcessEnvironmentTests
     public void ClientOptions_DisableTelemetryAndNativeIdleExpiry(string? cliPath, string expectedPath)
     {
         var options = CopilotService.BuildClientOptions(cliPath);
-        var connection = Assert.IsType<StdioRuntimeConnection>(options.Connection);
+        var connection = Assert.IsType<SpawnedStdioRuntimeConnection>(options.Runtime);
+        CopilotService.ConfigureAuthenticationSelection(options, null, null);
 
         Assert.Equal(expectedPath, connection.Path);
-        Assert.Contains("--disable-client-telemetry", connection.Args!);
-        Assert.Equal(0, options.SessionIdleTimeoutSeconds);
-        Assert.Equal(CopilotLogLevel.Error, options.LogLevel);
+        Assert.DoesNotContain("--disable-client-telemetry", connection.Args ?? []);
+        Assert.Equal(0, connection.SessionIdleTimeoutSeconds);
+        Assert.Equal(CopilotLogLevel.Error, options.Observability.LogLevel);
 #pragma warning disable GHCP001 // Preserve the SDK extension launcher without opting into telemetry forwarding.
-        Assert.NotNull(options.ExtensionLaunchProvider);
-        Assert.Null(options.Telemetry);
-        Assert.Null(options.OnGitHubTelemetry);
+        Assert.NotNull(options.Extensions.LaunchProvider);
+        Assert.Null(options.Observability.Telemetry);
+        Assert.Null(options.GitHub.OnTelemetry);
 #pragma warning restore GHCP001
+        Assert.Equal("true", connection.Environment!["COPILOT_TELEMETRY_DISABLED"]);
     }
 
     [Fact]
@@ -48,23 +50,23 @@ public sealed class CopilotProcessEnvironmentTests
     [Fact]
     public void ConfigureAuthentication_AlwaysPassesAgentProcessEnvironmentToCli()
     {
-        var options = new CopilotClientOptions();
+        var options = CopilotService.BuildClientOptions(null);
 
         typeof(CopilotService)
             .GetMethod("ConfigureAuthentication", BindingFlags.Static | BindingFlags.NonPublic)!
             .Invoke(null, [options]);
 
-        Assert.NotNull(options.Environment);
-        Assert.Equal("1", options.Environment["MSBUILDDISABLENODEREUSE"]);
-        Assert.Equal("0", options.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"]);
-        Assert.Equal("false", options.Environment["UseSharedCompilation"]);
-        Assert.False(string.IsNullOrWhiteSpace(options.Environment[CopilotService.SkillListingBudgetVariable]));
+        var environment = Assert.IsType<SpawnedStdioRuntimeConnection>(options.Runtime).Environment!;
+        Assert.Equal("1", environment["MSBUILDDISABLENODEREUSE"]);
+        Assert.Equal("0", environment["DOTNET_CLI_USE_MSBUILD_SERVER"]);
+        Assert.Equal("false", environment["UseSharedCompilation"]);
+        Assert.False(string.IsNullOrWhiteSpace(environment[CopilotService.SkillListingBudgetVariable]));
         Assert.Contains(CopilotService.AutoReviewFeatureFlag,
-            options.Environment[CopilotService.FeatureFlagsVariable].Split(','));
+            environment[CopilotService.FeatureFlagsVariable].Split(','));
         Assert.Contains("DYNAMIC_AUTO_TIERS",
-            options.Environment[CopilotService.FeatureFlagsVariable].Split(','));
+            environment[CopilotService.FeatureFlagsVariable].Split(','));
         Assert.Contains("HYDRAFUSION_PLAN_V2",
-            options.Environment[CopilotService.FeatureFlagsVariable].Split(','));
+            environment[CopilotService.FeatureFlagsVariable].Split(','));
     }
 
     [Fact]
@@ -117,42 +119,44 @@ public sealed class CopilotProcessEnvironmentTests
     [Fact]
     public void StoredCredentialSelectionPreservesReleasedWindowsPriorityAndToolEnvironment()
     {
-        var options = new CopilotClientOptions();
+        var options = CopilotService.BuildClientOptions(null);
 
         var selected = CopilotService.ConfigureAuthenticationSelection(
             options, null, ("stored-token", "https://github.com", "stored-user"));
 
         Assert.Equal("stored-user", selected?.Login);
-        Assert.Equal("stored-token", options.GitHubToken);
-        Assert.False(options.UseLoggedInUser);
-        Assert.Equal("stored-token", options.Environment!["GITHUB_PERSONAL_ACCESS_TOKEN"]);
-        Assert.Equal("stored-token", options.Environment["GITHUB_COPILOT_GITHUB_TOKEN"]);
+        Assert.Equal("stored-token", options.GitHub.Token);
+        Assert.False(options.GitHub.UseLoggedInUser);
+        var environment = Assert.IsType<SpawnedStdioRuntimeConnection>(options.Runtime).Environment!;
+        Assert.Equal("stored-token", environment["GITHUB_PERSONAL_ACCESS_TOKEN"]);
+        Assert.Equal("stored-token", environment["GITHUB_COPILOT_GITHUB_TOKEN"]);
     }
 
     [Fact]
     public void ExplicitTokenIsNeverTreatedAsStoredUser()
     {
-        var options = new CopilotClientOptions();
+        var options = CopilotService.BuildClientOptions(null);
 
         var selected = CopilotService.ConfigureAuthenticationSelection(
             options, "external-token", ("stored-token", "https://github.com", "stored-user"));
 
         Assert.Null(selected);
-        Assert.Equal("external-token", options.GitHubToken);
-        Assert.False(options.UseLoggedInUser);
-        Assert.Equal("external-token", options.Environment!["GITHUB_COPILOT_GITHUB_TOKEN"]);
+        Assert.Equal("external-token", options.GitHub.Token);
+        Assert.False(options.GitHub.UseLoggedInUser);
+        var environment = Assert.IsType<SpawnedStdioRuntimeConnection>(options.Runtime).Environment!;
+        Assert.Equal("external-token", environment["GITHUB_COPILOT_GITHUB_TOKEN"]);
     }
 
     [Fact]
     public void NoTokenStillUsesTheSdkStoredUserOrGitHubCliFallback()
     {
-        var options = new CopilotClientOptions();
+        var options = CopilotService.BuildClientOptions(null);
 
         var selected = CopilotService.ConfigureAuthenticationSelection(options, null, null);
 
         Assert.Null(selected);
-        Assert.Null(options.GitHubToken);
-        Assert.True(options.UseLoggedInUser);
+        Assert.Null(options.GitHub.Token);
+        Assert.True(options.GitHub.UseLoggedInUser);
     }
 #pragma warning restore GHCP001
 }

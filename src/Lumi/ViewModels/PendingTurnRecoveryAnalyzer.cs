@@ -4,7 +4,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Services;
 
 namespace Lumi.ViewModels;
@@ -104,14 +104,12 @@ internal static class PendingTurnRecoveryAnalyzer
                     break;
 
                 case AssistantMessageEvent assistantMessage:
-#pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; still required to detect sub-agent assistant messages.
                     state.RecordAssistantMessage(
-                        assistantMessage.Data.ParentToolCallId,
+                        assistantMessage.AgentId,
                         assistantMessage.Data.Content,
                         assistantMessage.Data.Phase,
                         assistantMessage.Data.ToolRequests is { Length: > 0 },
                         assistantMessage.Data.ApiCallId);
-#pragma warning restore CS0618
                     break;
 
                 case AssistantTurnEndEvent:
@@ -128,8 +126,8 @@ internal static class PendingTurnRecoveryAnalyzer
                         toolComplete.Data.Success == true);
                     break;
 
-                case ToolExecutionPartialResultEvent partialResult:
-                    state.RecordToolActivity(partialResult.Data.ToolCallId);
+                case ToolShellOutputEvent shellOutput:
+                    state.RecordToolActivity(shellOutput.Data.ToolCallId);
                     break;
 
                 case ToolExecutionProgressEvent progress:
@@ -585,7 +583,7 @@ internal static class PendingTurnRecoveryAnalyzer
 
                 case "assistant.message":
                     state.RecordAssistantMessage(
-                        TryGetString(data, "parentToolCallId"),
+                        TryGetString(root, "agentId") ?? TryGetString(data, "parentToolCallId"),
                         TryGetString(data, "content"),
                         TryGetString(data, "phase"),
                         data.ValueKind == JsonValueKind.Object

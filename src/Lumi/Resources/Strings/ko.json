@@ -2137,7 +2137,7 @@
   "Setting_StatsAgents": "에이전트",
   "Setting_StatsProjects": "프로젝트",
   "Setting_BuiltWith": "사용 기술",
-  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, GitHub Copilot SDK, CommunityToolkit.Mvvm",
+  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, Microsoft Copilot SDK, CommunityToolkit.Mvvm",
   "Setting_Language": "표시 언어",
   "SettingDesc_Language": "인터페이스 언어를 변경해요(다시 시작 필요)",
   "Button_ClearChats": "채팅 삭제",

@@ -4,7 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -153,7 +153,7 @@ public partial class ChatViewModel
                 case AssistantMessageDeltaEvent:
                 case AssistantMessageEvent:
                 case ToolExecutionStartEvent:
-                case ToolExecutionPartialResultEvent:
+                case ToolShellOutputEvent:
                 case ToolExecutionProgressEvent:
                 case ToolExecutionCompleteEvent:
                 case AssistantTurnEndEvent:

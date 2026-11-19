@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using GitHub.Copilot;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot;
+using Microsoft.Copilot.Rpc;
 using Lumi.Models;
 using Microsoft.Extensions.AI;
 
@@ -22,12 +22,13 @@ public sealed class LightweightSessionOptions
     public string? WorkingDirectory { get; init; }
     public string? ConfigDir { get; init; }
     public List<AIFunction>? Tools { get; init; }
-    public GitHub.Copilot.ProviderConfig? Provider { get; init; }
+    public Microsoft.Copilot.ProviderConfig? Provider { get; init; }
+    public string? ProviderModelId { get; init; }
     public ModelCapabilitiesOverride? ModelCapabilities { get; init; }
 }
 
 /// <summary>
-/// Builds <see cref="SessionConfig"/> and <see cref="ResumeSessionConfig"/>
+/// Builds <see cref="CreateSessionOptions"/> and <see cref="ResumeSessionOptions"/>
 /// for creating and resuming Copilot sessions with consistent defaults.
     /// </summary>
     public static class SessionConfigBuilder
@@ -74,9 +75,9 @@ public sealed class LightweightSessionOptions
             .AddBuiltIn("ask_user");
 
     /// <summary>
-    /// Builds a <see cref="SessionConfig"/> for creating a new session.
+    /// Builds a <see cref="CreateSessionOptions"/> for creating a new session.
     /// </summary>
-    public static SessionConfig Build(
+    public static CreateSessionOptions Build(
         string? systemPrompt,
         string? model,
         string? workingDirectory,
@@ -90,39 +91,50 @@ public sealed class LightweightSessionOptions
         SessionHooks? hooks,
         string? agentName = null,
         string? contextTier = null,
-        GitHub.Copilot.ProviderConfig? provider = null,
+        Microsoft.Copilot.ProviderConfig? provider = null,
         bool enableCapabilityDiscovery = true,
         ISkillProvider? skillProvider = null,
         ModelCapabilitiesOverride? modelCapabilities = null,
-        IReadOnlyList<string>? pluginDirectories = null)
+        IReadOnlyList<string>? pluginDirectories = null,
+        string? providerModelId = null)
     {
-        var config = new SessionConfig
+        var config = new CreateSessionOptions
         {
             ClientName = ClientName,
-            Model = CopilotModelCatalog.GetWireModelId(model, provider),
-            Capi = CopilotModelCatalog.CreateCapiOptions(model, provider),
-            Streaming = true,
+            Model = SessionModelId(model, provider, providerModelId),
             WorkingDirectory = workingDirectory,
             ConfigDirectory = GetDefaultConfigDir(),
             EnableConfigDiscovery = enableCapabilityDiscovery && EnableSdkConfigDiscovery,
-            SkillProvider = skillProvider,
-            EnableSessionStore = true,
-            EnableSessionTelemetry = false,
-            EnableFileChangeTracking = true,
-            ExcludedTools = ExcludedBuiltInTools(),
-            InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
-            OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
-            ContextTier = CreateContextTier(contextTier),
-            McpOAuthTokenStorage = McpOAuthTokenStorage,
-            Provider = provider,
-            ModelCapabilities = modelCapabilities,
-            EnableMcpApps = enableCapabilityDiscovery && NativeBrowserLogic.IsEmbeddedBrowserAvailable,
-            RequestCanvasRenderer = enableCapabilityDiscovery && NativeBrowserLogic.IsEmbeddedBrowserAvailable,
-            RequestExtensions = enableCapabilityDiscovery && NativeBrowserLogic.IsEmbeddedBrowserAvailable
-                && CopilotExtensionLaunchProvider.NodePath is not null,
+            Inference = CreateInferenceOptions(model, reasoningEffort, contextTier, provider, providerModelId, modelCapabilities),
+            Events = new SessionEventOptions { Streaming = true },
+            Filesystem = new CreateSessionFilesystemOptions { TrackFileChanges = true },
+            State = new SessionStateOptions
+            {
+                EnableCrossSessionStore = true,
+                InfiniteSessions = new InfiniteSessionConfig { Enabled = true }
+            },
+            Permissions = new SessionPermissionOptions { OnRequest = onPermission ?? PermissionHandler.ApproveAll },
+            GitHub = CreateGitHubOptions(model, provider),
+            Skills = new SessionSkillOptions { Provider = skillProvider },
+            Tools = new SessionToolOptions { ExcludedTools = ExcludedBuiltInTools() },
+            Mcp = new SessionMcpOptions
+            {
+                OauthTokenStorage = McpOAuthTokenStorage,
+                EnableApps = enableCapabilityDiscovery && NativeBrowserLogic.IsEmbeddedBrowserAvailable
+            },
+            Canvases = new SessionCanvasOptions
+            {
+                RequestRenderer = enableCapabilityDiscovery && NativeBrowserLogic.IsEmbeddedBrowserAvailable
+            },
+            Extensions = BuildExtensionOptions(enableCapabilityDiscovery),
+            Agents = new SessionAgentOptions(),
+            Interaction = new SessionInteractionOptions(),
+            Hooks = new SessionHookOptions(),
+            Plugins = new SessionPluginOptions(),
+            Policy = new SessionPolicyOptions()
         };
 
-        Populate(config, systemPrompt, reasoningEffort, mcpPlan, skillDirectories,
+        Populate(config, systemPrompt, mcpPlan, skillDirectories,
             customAgents, tools, userInputHandler, hooks, agentName, enableCapabilityDiscovery);
         ApplySessionPluginDirectories(config, enableCapabilityDiscovery, pluginDirectories);
 
@@ -130,14 +142,14 @@ public sealed class LightweightSessionOptions
     }
 
     /// <summary>
-    /// Builds a <see cref="ResumeSessionConfig"/> for resuming an existing session.
+    /// Builds a <see cref="ResumeSessionOptions"/> for resuming an existing session.
     /// </summary>
     /// <remarks>
     /// File-change tracking (what lets an edit put back the files the agent changed) only starts
     /// with a session's first turn: a session resumed after untracked turns stays untracked, and a
     /// tracked one keeps tracking.
     /// </remarks>
-    public static ResumeSessionConfig BuildForResume(
+    public static ResumeSessionOptions BuildForResume(
         string? systemPrompt,
         string? model,
         string? workingDirectory,
@@ -151,40 +163,51 @@ public sealed class LightweightSessionOptions
         SessionHooks? hooks,
         string? agentName = null,
         string? contextTier = null,
-        GitHub.Copilot.ProviderConfig? provider = null,
+        Microsoft.Copilot.ProviderConfig? provider = null,
         bool enableCapabilityDiscovery = true,
         ISkillProvider? skillProvider = null,
         ModelCapabilitiesOverride? modelCapabilities = null,
-        IReadOnlyList<string>? pluginDirectories = null)
+        IReadOnlyList<string>? pluginDirectories = null,
+        string? providerModelId = null)
     {
-        var config = new ResumeSessionConfig
+        var config = new ResumeSessionOptions
         {
             ContinuePendingWork = false,
             ClientName = ClientName,
-            Model = CopilotModelCatalog.GetWireModelId(model, provider),
-            Capi = CopilotModelCatalog.CreateCapiOptions(model, provider),
-            Streaming = true,
+            Model = SessionModelId(model, provider, providerModelId),
             WorkingDirectory = workingDirectory,
             ConfigDirectory = GetDefaultConfigDir(),
             EnableConfigDiscovery = enableCapabilityDiscovery && EnableSdkConfigDiscovery,
-            SkillProvider = skillProvider,
-            EnableSessionStore = true,
-            EnableSessionTelemetry = false,
-            EnableFileChangeTracking = true,
-            ExcludedTools = ExcludedBuiltInTools(),
-            InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
-            OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
-            ContextTier = CreateContextTier(contextTier),
-            McpOAuthTokenStorage = McpOAuthTokenStorage,
-            Provider = provider,
-            ModelCapabilities = modelCapabilities,
-            EnableMcpApps = enableCapabilityDiscovery && NativeBrowserLogic.IsEmbeddedBrowserAvailable,
-            RequestCanvasRenderer = enableCapabilityDiscovery && NativeBrowserLogic.IsEmbeddedBrowserAvailable,
-            RequestExtensions = enableCapabilityDiscovery && NativeBrowserLogic.IsEmbeddedBrowserAvailable
-                && CopilotExtensionLaunchProvider.NodePath is not null,
+            Inference = CreateInferenceOptions(model, reasoningEffort, contextTier, provider, providerModelId, modelCapabilities),
+            Events = new SessionEventOptions { Streaming = true },
+            Filesystem = new SessionFilesystemOptions { TrackFileChanges = true },
+            State = new SessionStateOptions
+            {
+                EnableCrossSessionStore = true,
+                InfiniteSessions = new InfiniteSessionConfig { Enabled = true }
+            },
+            Permissions = new SessionPermissionOptions { OnRequest = onPermission ?? PermissionHandler.ApproveAll },
+            GitHub = CreateGitHubOptions(model, provider),
+            Skills = new SessionSkillOptions { Provider = skillProvider },
+            Tools = new SessionToolOptions { ExcludedTools = ExcludedBuiltInTools() },
+            Mcp = new SessionMcpOptions
+            {
+                OauthTokenStorage = McpOAuthTokenStorage,
+                EnableApps = enableCapabilityDiscovery && NativeBrowserLogic.IsEmbeddedBrowserAvailable
+            },
+            Canvases = new ResumeSessionCanvasOptions
+            {
+                RequestRenderer = enableCapabilityDiscovery && NativeBrowserLogic.IsEmbeddedBrowserAvailable
+            },
+            Extensions = BuildExtensionOptions(enableCapabilityDiscovery),
+            Agents = new SessionAgentOptions(),
+            Interaction = new SessionInteractionOptions(),
+            Hooks = new SessionHookOptions(),
+            Plugins = new SessionPluginOptions(),
+            Policy = new SessionPolicyOptions()
         };
 
-        Populate(config, systemPrompt, reasoningEffort, mcpPlan, skillDirectories,
+        Populate(config, systemPrompt, mcpPlan, skillDirectories,
             customAgents, tools, userInputHandler, hooks, agentName, enableCapabilityDiscovery);
         ApplySessionPluginDirectories(config, enableCapabilityDiscovery, pluginDirectories);
 
@@ -192,7 +215,7 @@ public sealed class LightweightSessionOptions
     }
 
     /// <summary>
-    /// Builds the bare <see cref="ResumeSessionConfig"/> of a handle resumed only to read a session (to
+    /// Builds the bare <see cref="ResumeSessionOptions"/> of a handle resumed only to read a session (to
     /// fork it, or to see which files an edit can put back): no prompt, tools or connectors, and no
     /// capability discovery, which would start every discovered MCP server for a handle thrown away at once.
     /// </summary>
@@ -200,37 +223,54 @@ public sealed class LightweightSessionOptions
     /// The account the session's chat uses. Without one, a profile that uses only its own accounts
     /// refuses the resume.
     /// </param>
-    public static ResumeSessionConfig BuildForReadOnlyResume(GitHub.Copilot.ProviderConfig? provider = null)
+    public static ResumeSessionOptions BuildForReadOnlyResume(
+        Microsoft.Copilot.ProviderConfig? provider = null,
+        string? providerModelId = null,
+        string? wireModelId = null,
+        ModelCapabilitiesOverride? modelCapabilities = null)
         => BuildForResume(
-            systemPrompt: null, model: null, workingDirectory: null, mcpPlan: null,
+            systemPrompt: null,
+            model: wireModelId ?? provider?.WireModel ?? provider?.ModelId,
+            workingDirectory: null, mcpPlan: null,
             skillDirectories: null, customAgents: null, tools: null, reasoningEffort: null,
             userInputHandler: null, onPermission: null, hooks: null,
-            provider: provider, enableCapabilityDiscovery: false);
+            provider: provider, enableCapabilityDiscovery: false,
+            providerModelId: providerModelId, modelCapabilities: modelCapabilities);
 
     /// <summary>
-    /// Builds a lightweight single-purpose <see cref="SessionConfig"/> for helper flows.
+    /// Builds a lightweight single-purpose <see cref="CreateSessionOptions"/> for helper flows.
     /// One-shot callers delete the session after use. A warm helper must use native
     /// transient queries rather than append unrelated requests to its conversation.
     /// </summary>
-    public static SessionConfig BuildLightweight(LightweightSessionOptions options)
+    public static CreateSessionOptions BuildLightweight(LightweightSessionOptions options)
     {
-        var config = new SessionConfig
+        var config = new CreateSessionOptions
         {
             ClientName = ClientName,
-            Model = CopilotModelCatalog.GetWireModelId(options.Model, options.Provider),
-            Capi = CopilotModelCatalog.CreateCapiOptions(options.Model, options.Provider),
-            Provider = options.Provider,
-            ModelCapabilities = options.ModelCapabilities,
-            Streaming = options.Streaming,
+            Model = SessionModelId(options.Model, options.Provider, options.ProviderModelId),
             WorkingDirectory = options.WorkingDirectory,
             ConfigDirectory = options.ConfigDir ?? GetDefaultConfigDir(),
             EnableConfigDiscovery = EnableLightweightConfigDiscovery,
-            EnableSessionStore = false,
-            EnableSessionTelemetry = false,
-            RequestExtensions = false,
-            RequestCanvasRenderer = false,
-            InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
-            OnPermissionRequest = PermissionHandler.ApproveAll,
+            Inference = CreateInferenceOptions(
+                options.Model, null, null, options.Provider, options.ProviderModelId, options.ModelCapabilities),
+            Events = new SessionEventOptions { Streaming = options.Streaming },
+            State = new SessionStateOptions
+            {
+                EnableCrossSessionStore = false,
+                InfiniteSessions = new InfiniteSessionConfig { Enabled = false }
+            },
+            Permissions = new SessionPermissionOptions { OnRequest = PermissionHandler.ApproveAll },
+            GitHub = CreateGitHubOptions(options.Model, options.Provider),
+            Skills = new SessionSkillOptions { Enabled = false },
+            Mcp = new SessionMcpOptions { EnableApps = false },
+            Canvases = new SessionCanvasOptions { RequestRenderer = false },
+            Extensions = new SessionExtensionOptions { Enabled = false },
+            Tools = new SessionToolOptions(),
+            Agents = new SessionAgentOptions(),
+            Interaction = new SessionInteractionOptions(),
+            Hooks = new SessionHookOptions(),
+            Plugins = new SessionPluginOptions(),
+            Policy = new SessionPolicyOptions(),
             SystemMessage = new SystemMessageConfig
             {
                 Content = options.SystemPrompt,
@@ -240,16 +280,53 @@ public sealed class LightweightSessionOptions
 
         if (options.Tools is { Count: > 0 })
         {
-            config.Tools = PreloadLumiTools(options.Tools);
-            config.AvailableTools = options.Tools.Select(t => t.Name).ToList();
+            config.Tools.Definitions = PreloadLumiTools(options.Tools);
+            config.Tools.AvailableTools = options.Tools.Select(t => t.Name).ToList();
         }
         else
         {
-            config.AvailableTools = [];
-            config.ExcludedTools = ExcludeAllToolSources();
+            config.Tools.AvailableTools = [];
+            config.Tools.ExcludedTools = ExcludeAllToolSources();
         }
 
         return config;
+    }
+
+    internal static void ApplyProviderRouting(
+        SessionOptionsBase config,
+        string? wireModel,
+        ProviderConfig provider,
+        string? providerModelId,
+        ModelCapabilitiesOverride? capabilities)
+    {
+        config.Inference ??= new SessionInferenceOptions();
+        config.GitHub ??= new SessionGitHubOptions();
+        config.Model = SessionModelId(wireModel, provider, providerModelId);
+        config.Inference.Providers = [CreateNamedProvider(provider)];
+        config.Inference.Models = [CreateProviderModel(provider, wireModel, providerModelId, capabilities)];
+        config.Inference.Capabilities = null;
+        config.GitHub.Capi = new Microsoft.Copilot.CapiSessionOptions { Enabled = false };
+    }
+
+    internal static async Task EnsureProviderModelRegisteredAsync(
+        CopilotSession session,
+        SessionModelRoute route,
+        ModelCapabilitiesOverride? capabilities,
+        CancellationToken cancellationToken)
+    {
+        if (route.Provider is null || route.ByokModel is null || route.SessionModelId is not { } sessionModelId)
+            return;
+
+        var catalog = await session.Rpc.Model.ListAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (catalog.List.Any(model =>
+                model.TryGetProperty("id", out var id)
+                && string.Equals(id.GetString(), sessionModelId, StringComparison.Ordinal)))
+            return;
+
+        await session.Rpc.Provider.AddAsync(
+            models: [CreateProviderModelRpc(
+                route.Provider, route.WireModelId, route.ByokModel.Id, capabilities)],
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     internal static SetModelOptions CreateSetModelOptions(
@@ -341,14 +418,14 @@ public sealed class LightweightSessionOptions
     /// rather than replacing it, so project, plugin and built-in skills keep loading normally.
     /// </remarks>
     private static void ApplySessionSkillRoots(
-        SessionConfigBase config,
+        SessionOptionsBase config,
         bool enableCapabilityDiscovery,
         List<string>? skillDirectories)
     {
         if (!enableCapabilityDiscovery || skillDirectories is not { Count: > 0 })
             return;
 
-        config.SkillDirectories = skillDirectories;
+        config.Skills.Directories = skillDirectories;
     }
 
     /// <summary>
@@ -361,15 +438,22 @@ public sealed class LightweightSessionOptions
     /// from that snapshot.
     /// </remarks>
     private static void ApplySessionPluginDirectories(
-        SessionConfigBase config,
+        SessionOptionsBase config,
         bool enableCapabilityDiscovery,
         IReadOnlyList<string>? pluginDirectories)
     {
         if (!enableCapabilityDiscovery || pluginDirectories is not { Count: > 0 })
             return;
 
-        config.PluginDirectories = pluginDirectories.ToList();
+        config.Plugins.Directories = pluginDirectories.ToList();
     }
+
+    private static SessionExtensionOptions BuildExtensionOptions(bool enableCapabilityDiscovery)
+        => new()
+        {
+            Enabled = enableCapabilityDiscovery && NativeBrowserLogic.IsEmbeddedBrowserAvailable
+                && CopilotExtensionLaunchProvider.NodePath is not null
+        };
 
     internal static Verbosity CreateResponseVerbosity(ResponseDetailLevel detail) => detail switch
     {
@@ -392,11 +476,10 @@ public sealed class LightweightSessionOptions
         };
     }
 
-    /// <summary>Sets the shared optional properties on a <see cref="SessionConfig"/>.</summary>
+    /// <summary>Sets the optional properties shared by full chat creation and resume.</summary>
     private static void Populate(
-        SessionConfig config,
+        SessionOptionsBase config,
         string? systemPrompt,
-        string? reasoningEffort,
         McpSessionPlan? mcpPlan,
         List<string>? skillDirectories,
         List<CustomAgentConfig>? customAgents,
@@ -406,10 +489,7 @@ public sealed class LightweightSessionOptions
         string? agentName,
         bool enableCapabilityDiscovery = true)
     {
-        if (!string.IsNullOrWhiteSpace(reasoningEffort))
-            config.ReasoningEffort = reasoningEffort;
-
-        config.ReasoningSummary = DefaultReasoningSummary;
+        config.Inference.ReasoningSummary = DefaultReasoningSummary;
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
             config.SystemMessage = new SystemMessageConfig
@@ -418,87 +498,130 @@ public sealed class LightweightSessionOptions
                 Mode = SystemMessageMode.Append
             };
 
-        config.EnableSkills = enableCapabilityDiscovery || config.SkillProvider is not null;
+        config.Skills.Enabled = enableCapabilityDiscovery || config.Skills.Provider is not null;
         if (!enableCapabilityDiscovery)
-            config.IncludedBuiltinSkills = [];
+            config.Skills.IncludedBuiltinSkills = [];
 
         ApplySessionSkillRoots(config, enableCapabilityDiscovery, skillDirectories);
 
         if (customAgents is { Count: > 0 })
-            config.CustomAgents = customAgents;
+            config.Agents.Definitions = customAgents;
 
         if (tools is { Count: > 0 })
-            config.Tools = PreloadLumiTools(tools);
+            config.Tools.Definitions = PreloadLumiTools(tools);
 
         if (mcpPlan is not null)
         {
-            config.McpServers = mcpPlan.Servers;
+            config.Mcp.Servers = mcpPlan.Servers;
             if (mcpPlan.DisabledServerNames.Count > 0)
-                config.DisabledMcpServers = mcpPlan.DisabledServerNames.ToList();
+                config.Mcp.DisabledServers = mcpPlan.DisabledServerNames.ToList();
         }
 
         if (userInputHandler is not null)
-            config.OnUserInputRequest = userInputHandler;
+            config.Interaction.OnUserInputRequest = userInputHandler;
 
         if (hooks is not null)
-            config.Hooks = hooks;
+            config.Hooks.Handlers = hooks;
 
         if (!string.IsNullOrWhiteSpace(agentName))
-            config.Agent = agentName;
+            config.Agents.Selected = agentName;
     }
 
-    /// <summary>Sets the shared optional properties on a <see cref="ResumeSessionConfig"/>.</summary>
-    private static void Populate(
-        ResumeSessionConfig config,
-        string? systemPrompt,
+    private static SessionInferenceOptions CreateInferenceOptions(
+        string? model,
         string? reasoningEffort,
-        McpSessionPlan? mcpPlan,
-        List<string>? skillDirectories,
-        List<CustomAgentConfig>? customAgents,
-        List<AIFunction>? tools,
-        Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
-        SessionHooks? hooks,
-        string? agentName,
-        bool enableCapabilityDiscovery = true)
+        string? contextTier,
+        ProviderConfig? provider,
+        string? providerModelId,
+        ModelCapabilitiesOverride? modelCapabilities)
     {
-        if (!string.IsNullOrWhiteSpace(reasoningEffort))
-            config.ReasoningEffort = reasoningEffort;
-
-        config.ReasoningSummary = DefaultReasoningSummary;
-
-        if (!string.IsNullOrWhiteSpace(systemPrompt))
-            config.SystemMessage = new SystemMessageConfig
-            {
-                Content = systemPrompt,
-                Mode = SystemMessageMode.Append
-            };
-
-        config.EnableSkills = enableCapabilityDiscovery || config.SkillProvider is not null;
-        if (!enableCapabilityDiscovery)
-            config.IncludedBuiltinSkills = [];
-
-        ApplySessionSkillRoots(config, enableCapabilityDiscovery, skillDirectories);
-
-        if (customAgents is { Count: > 0 })
-            config.CustomAgents = customAgents;
-
-        if (tools is { Count: > 0 })
-            config.Tools = PreloadLumiTools(tools);
-
-        if (mcpPlan is not null)
+        var inference = new SessionInferenceOptions
         {
-            config.McpServers = mcpPlan.Servers;
-            if (mcpPlan.DisabledServerNames.Count > 0)
-                config.DisabledMcpServers = mcpPlan.DisabledServerNames.ToList();
+            ReasoningEffort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort,
+            ContextTier = CreateContextTier(contextTier),
+            Capabilities = provider is null ? modelCapabilities : null
+        };
+        if (provider is not null)
+        {
+            inference.Providers = [CreateNamedProvider(provider)];
+            inference.Models = [CreateProviderModel(provider, model, providerModelId, modelCapabilities)];
         }
 
-        if (userInputHandler is not null)
-            config.OnUserInputRequest = userInputHandler;
+        return inference;
+    }
 
-        if (hooks is not null)
-            config.Hooks = hooks;
+    private static SessionGitHubOptions CreateGitHubOptions(string? model, ProviderConfig? provider)
+        => new()
+        {
+            Capi = provider is null
+                ? CopilotModelCatalog.CreateCapiOptions(model)
+                : new Microsoft.Copilot.CapiSessionOptions { Enabled = false },
+            TelemetryEnabled = false
+        };
 
-        if (!string.IsNullOrWhiteSpace(agentName))
-            config.Agent = agentName;
+    private static string? SessionModelId(string? model, ProviderConfig? provider, string? providerModelId)
+    {
+        if (provider is null)
+            return CopilotModelCatalog.GetWireModelId(model);
+
+        return $"{ByokConfigHelper.SessionProviderName}/{GetProviderModelId(provider, model, providerModelId)}";
+    }
+
+    private static string GetProviderModelId(ProviderConfig provider, string? model, string? providerModelId)
+    {
+        var id = string.IsNullOrWhiteSpace(providerModelId)
+            ? string.IsNullOrWhiteSpace(provider.ModelId) ? model : provider.ModelId
+            : providerModelId;
+        return string.IsNullOrWhiteSpace(id) || id.Contains('/') ? "selected" : id;
+    }
+
+    private static Microsoft.Copilot.NamedProviderConfig CreateNamedProvider(ProviderConfig provider)
+        => new()
+        {
+            Name = ByokConfigHelper.SessionProviderName,
+            Type = provider.Type,
+            WireApi = provider.WireApi,
+            BaseUrl = provider.BaseUrl,
+            ApiKey = provider.ApiKey,
+            BearerToken = provider.BearerToken,
+            Azure = provider.Azure,
+            Headers = provider.Headers
+        };
+
+    private static Microsoft.Copilot.ProviderModelConfig CreateProviderModel(
+        ProviderConfig provider,
+        string? model,
+        string? providerModelId,
+        ModelCapabilitiesOverride? capabilities)
+        => new()
+        {
+            Provider = ByokConfigHelper.SessionProviderName,
+            Id = GetProviderModelId(provider, model, providerModelId),
+            ModelId = provider.ModelId ?? model,
+            WireModel = provider.WireModel ?? model,
+            Name = model,
+            MaxPromptTokens = provider.MaxPromptTokens,
+            MaxOutputTokens = provider.MaxOutputTokens,
+            Capabilities = capabilities
+        };
+
+    private static Microsoft.Copilot.Rpc.ProviderModelConfig CreateProviderModelRpc(
+        ProviderConfig provider,
+        string? model,
+        string? providerModelId,
+        ModelCapabilitiesOverride? capabilities)
+    {
+        var definition = CreateProviderModel(provider, model, providerModelId, capabilities);
+        return new Microsoft.Copilot.Rpc.ProviderModelConfig
+        {
+            Provider = definition.Provider,
+            Id = definition.Id,
+            ModelId = definition.ModelId,
+            WireModel = definition.WireModel,
+            Name = definition.Name,
+            MaxPromptTokens = definition.MaxPromptTokens,
+            MaxOutputTokens = definition.MaxOutputTokens,
+            Capabilities = definition.Capabilities
+        };
     }
 }

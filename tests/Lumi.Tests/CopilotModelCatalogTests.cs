@@ -1,5 +1,5 @@
 using System.Text.Json;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -21,18 +21,18 @@ public sealed class CopilotModelCatalogTests
     }
 
 #pragma warning disable GHCP001
-    internal static GitHub.Copilot.Rpc.ModelList NativeCatalog() =>
-        JsonSerializer.Deserialize<GitHub.Copilot.Rpc.ModelList>("""
+    internal static Microsoft.Copilot.Rpc.ModelList NativeCatalog() =>
+        JsonSerializer.Deserialize<Microsoft.Copilot.Rpc.ModelList>("""
         {
           "models": [
             {"id":"auto","name":"Auto","capabilities":{}},
             {"id":"gpt-6-luna","name":"GPT-6 Luna",
              "capabilities":{"supports":{"vision":true,"reasoningEffort":true},
-                             "limits":{"max_context_window_tokens":272000}},
+                             "limits":{"max_context_window_tokens":272000,"max_output_tokens":1000}},
              "policy":{"state":"enabled","terms":"Canonical terms"},
              "supportedReasoningEfforts":["low","high"],"defaultReasoningEffort":"high",
              "billing":{"multiplier":1,"tokenPrices":{"batchSize":1000,"inputPrice":0.2,"outputPrice":0.4,
-                         "contextMax":272000,"longContext":{"contextMax":1000000}}}}
+                         "maxPromptTokens":271000,"longContext":{"maxPromptTokens":999000}}}}
           ],
           "auto": {
             "defaultTier":"balance",
@@ -91,7 +91,7 @@ public sealed class CopilotModelCatalogTests
             _ => Task.FromResult(CopilotModelCatalog.BuildSnapshot(native)));
         await cache.GetModelsAsync();
 #pragma warning disable GHCP001
-        native.Models.Add(new GitHub.Copilot.Rpc.Model { Id = "gemini-advertised", Name = "Gemini advertised" });
+        native.Models.Add(new Microsoft.Copilot.Rpc.Model { Id = "gemini-advertised", Name = "Gemini advertised" });
         native.Auto!.Tiers.Single(tier => tier.Id == "hydrafusion").Status.Enabled = false;
 #pragma warning restore GHCP001
 
@@ -108,7 +108,7 @@ public sealed class CopilotModelCatalogTests
     public void AllSessionKindsSendAutoWithTheSelectedNativeTier(string kind)
     {
         const string selection = "auto:hydrafusion-max";
-        SessionConfigBase config = kind switch
+        SessionOptionsBase config = kind switch
         {
             "create" => SessionConfigBuilder.Build(
                 "prompt", selection, null, null, [], [], [], null, null, null, null),
@@ -121,9 +121,9 @@ public sealed class CopilotModelCatalogTests
         };
 
         Assert.Equal("auto", config.Model);
-        Assert.Equal("hydrafusion-max", config.Capi?.AutoTier?.Value);
-        Assert.Null(config.Provider);
-        Assert.Null(config.ReasoningEffort);
+        Assert.Equal("hydrafusion-max", config.GitHub.Capi?.AutoTier?.Value);
+        Assert.Null(config.Inference.Providers);
+        Assert.Null(config.Inference.ReasoningEffort);
         var route = ByokConfigHelper.ResolveSessionModelRoute(new UserSettings(), selection);
         Assert.Equal(selection, route.SelectionToken);
         Assert.Equal("auto", route.WireModelId);
@@ -153,8 +153,9 @@ public sealed class CopilotModelCatalogTests
         {
             SystemPrompt = "prompt", Model = "auto:deployment", Provider = provider
         });
-        Assert.Equal("auto:deployment", config.Model);
-        Assert.Null(config.Capi);
+        Assert.Equal("lumi-byok/auto:deployment", config.Model);
+        Assert.Equal("auto:deployment", Assert.Single(config.Inference.Models!).WireModel);
+        Assert.Equal(false, config.GitHub.Capi?.Enabled);
     }
 
     [Fact]
@@ -352,8 +353,8 @@ public sealed class CopilotModelCatalogUiTests
                 "fixture", vm.SelectedModel, null, null, [], [], [],
                 vm.GetSelectedReasoningEffort(), null, null, null);
             Assert.Equal("auto", native.Model);
-            Assert.Equal("hydrafusion", native.Capi?.AutoTier?.Value);
-            Assert.Null(native.ReasoningEffort);
+            Assert.Equal("hydrafusion", native.GitHub.Capi?.AutoTier?.Value);
+            Assert.Null(native.Inference.ReasoningEffort);
 
             vm.TogglePinnedModelCommand.Execute(fusion);
             Assert.Empty(data.Settings.FavoriteModelIds);

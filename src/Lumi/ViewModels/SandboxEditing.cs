@@ -1,6 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services.Permissions;

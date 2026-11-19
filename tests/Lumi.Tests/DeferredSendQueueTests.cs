@@ -7,8 +7,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
 using Avalonia.Threading;
-using GitHub.Copilot;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot;
+using Microsoft.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
@@ -2370,7 +2370,7 @@ public sealed partial class DeferredSendQueueTests
             rpc.Emit(new UserMessageEvent { AgentId = "child", Data = new UserMessageData { Content = "child prompt" } });
             rpc.Emit(new AssistantTurnStartEvent { AgentId = "child", Data = new AssistantTurnStartData { TurnId = "child-turn" } });
             rpc.Emit(new AssistantTurnEndEvent { AgentId = "child", Data = new AssistantTurnEndData { TurnId = "child-turn" } });
-            rpc.Emit(new AbortEvent { AgentId = "child", Data = new AbortData { Reason = new GitHub.Copilot.AbortReason("subagent_cancelled") } });
+            rpc.Emit(new AbortEvent { AgentId = "child", Data = new AbortData { Reason = new Microsoft.Copilot.AbortReason("subagent_cancelled") } });
             rpc.Emit(new SessionErrorEvent { AgentId = "child", Data = new SessionErrorData { ErrorType = "test", Message = "Child failed" } });
             rpc.Emit(new SessionIdleEvent { AgentId = "child", Data = new SessionIdleData() });
             Dispatcher.UIThread.RunJobs();
@@ -2545,7 +2545,7 @@ public sealed partial class DeferredSendQueueTests
             Dispatcher.UIThread.RunJobs();
 
             if (abort)
-                rpc.Emit(new AbortEvent { Data = new AbortData { Reason = GitHub.Copilot.AbortReason.UserInitiated } });
+                rpc.Emit(new AbortEvent { Data = new AbortData { Reason = Microsoft.Copilot.AbortReason.UserInitiated } });
             else
                 rpc.Emit(new SessionIdleEvent { Data = new SessionIdleData() });
 
@@ -3466,7 +3466,7 @@ public sealed partial class DeferredSendQueueTests
             _rpc.AddLocalRpcTarget(this);
             _rpc.StartListening();
 
-            var rpcType = typeof(CopilotSession).Assembly.GetType("GitHub.Copilot.JsonRpc", throwOnError: true)!;
+            var rpcType = typeof(CopilotSession).Assembly.GetType("Microsoft.Copilot.JsonRpc", throwOnError: true)!;
             _sdkRpc = (IDisposable)Activator.CreateInstance(
                 rpcType,
                 requests.Writer.AsStream(),

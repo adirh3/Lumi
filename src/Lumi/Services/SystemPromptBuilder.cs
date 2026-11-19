@@ -641,7 +641,7 @@ public static class SystemPromptBuilder
         AppendBrief(promptBuilder, project, brief, activeChats);
 
         // Note: copilot-instructions.md / AGENTS.md injection is handled by the Copilot SDK
-        // via the WorkingDirectory in SessionConfig — no need to manually inject them here.
+        // via the WorkingDirectory in CreateSessionOptions — no need to manually inject them here.
 
         // Active skills selected by the user for this chat (full content in system prompt).
         // File-based Copilot skills are deliberately NOT included: they are activated per-turn

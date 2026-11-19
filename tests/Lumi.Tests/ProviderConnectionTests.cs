@@ -643,7 +643,7 @@ public sealed class ProviderConnectionTests
         typeof(MainViewModel).GetMethod("ApplyModelCatalog", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .Invoke(vm, [
                 new ModelCatalogSnapshot(
-                    [new GitHub.Copilot.ModelInfo { Id = "claude-sonnet-4.5", Name = "Claude Sonnet 4.5" }],
+                    [new ModelInfo { Id = "claude-sonnet-4.5", Name = "Claude Sonnet 4.5" }],
                     ModelCatalogCache.Empty),
                 true]);
 
@@ -1104,11 +1104,11 @@ public sealed class ProviderConnectionTests
     [Fact]
     public async Task ExplicitVerificationProviderIsNeverRerouted()
     {
-        var provider = new GitHub.Copilot.ProviderConfig { BaseUrl = "https://verify.example/v1", Type = "openai" };
+        var provider = new Microsoft.Copilot.ProviderConfig { BaseUrl = "https://verify.example/v1", Type = "openai" };
         var config = await TestCopilot.Shared.BuildLightweightSessionConfigAsync(new()
         { SystemPrompt = "verify", Model = "test-model", Provider = provider });
-        Assert.Same(provider, config.Provider);
-        Assert.Equal("test-model", config.Model);
+        Assert.Equal(provider.BaseUrl, Assert.Single(config.Inference.Providers!).BaseUrl);
+        Assert.Equal("lumi-byok/test-model", config.Model);
     }
 
     [Fact]

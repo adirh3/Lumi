@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Services.Discover;
 
 namespace Lumi.Services.Capabilities;
@@ -157,7 +157,7 @@ public sealed class CopilotSdkCapabilityProvider : ICapabilityProvider
     /// This reads the single file the runtime named — it is not discovery, and an agent with no
     /// reachable file (remote, plugin-hosted) simply has no body.
     /// </remarks>
-    private static string? ResolveAgentPrompt(GitHub.Copilot.Rpc.AgentInfo agent)
+    private static string? ResolveAgentPrompt(Microsoft.Copilot.Rpc.AgentInfo agent)
     {
         if (!string.IsNullOrWhiteSpace(agent.Prompt))
             return agent.Prompt;
@@ -258,7 +258,7 @@ public sealed class CopilotSdkCapabilityProvider : ICapabilityProvider
         CancellationToken cancellationToken)
     {
         var result = await client.Rpc.Agents
-            .DiscoverAsync(projectPaths, excludeHostAgents: null, cancellationToken)
+            .DiscoverAsync(projectPaths, excludeHostAgents: null, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         if (result?.Agents is not { Count: > 0 } discovered)

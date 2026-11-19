@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 
@@ -657,7 +657,7 @@ public partial class ChatViewModel
                 Id = DebugBackgroundShellTaskId,
                 Description = "Wait 10 minutes without blocking the turn",
                 Command = "Start-Sleep -Seconds 600",
-                Status = GitHub.Copilot.Rpc.TaskStatus.Running,
+                Status = Microsoft.Copilot.Rpc.TaskStatus.Running,
                 ExecutionMode = TaskExecutionMode.Background,
                 AttachmentMode = TaskShellInfoAttachmentMode.Attached,
                 StartedAt = fixtureStart,
@@ -670,7 +670,7 @@ public partial class ChatViewModel
                 Description = "Review session cleanup paths",
                 Prompt = "Review how Lumi releases a chat's session resources.",
                 ToolCallId = DebugBackgroundAgentToolCallId,
-                Status = GitHub.Copilot.Rpc.TaskStatus.Running,
+                Status = Microsoft.Copilot.Rpc.TaskStatus.Running,
                 ExecutionMode = TaskExecutionMode.Background,
                 StartedAt = fixtureStart,
             },

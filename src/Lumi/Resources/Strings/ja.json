@@ -2137,7 +2137,7 @@
   "Setting_StatsAgents": "エージェント",
   "Setting_StatsProjects": "プロジェクト",
   "Setting_BuiltWith": "使用技術",
-  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, GitHub Copilot SDK, CommunityToolkit.Mvvm",
+  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, Microsoft Copilot SDK, CommunityToolkit.Mvvm",
   "Setting_Language": "表示言語",
   "SettingDesc_Language": "画面の言語を変更します（再起動が必要）",
   "Button_ClearChats": "チャットを削除",

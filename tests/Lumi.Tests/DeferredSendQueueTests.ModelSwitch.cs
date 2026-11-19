@@ -6,7 +6,7 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -285,6 +285,44 @@ public sealed partial class DeferredSendQueueTests
 
             Assert.Null(host.Runtime.PendingModelSwitch);
             Assert.Equal(ModelSwitchNotice.None, host.ViewModel.ModelSwitchNotice);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ByokModelChange_KeepsOnlyTheSelectableAccountModelInThePicker()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            using var rpc = StartWorkingTurn(host, subscribe: true);
+            var settings = host.DataStore.Data.Settings;
+            settings.UseBYOKOnly = true;
+            settings.ByokEndpoints.Add(new ByokEndpoint
+            {
+                Id = "e1", Name = "Local", ProviderType = "openai", BaseUrl = "https://api.example.com/v1",
+                WireApi = "completions", ApiKeyMode = ByokApiKeyMode.None, IsEnabled = true
+            });
+            var model = new ByokModel { Id = "m1", EndpointId = "e1", ModelId = "local-model", DisplayName = "Local", IsEnabled = true };
+            settings.ByokModels.Add(model);
+            var selection = ByokConfigHelper.BuildModelToken(model);
+            host.ViewModel.ApplyModelSelection(selection, reasoningEffort: null);
+            host.Chat.LastModelUsed = selection;
+            host.ViewModel.ApplyAvailableModels([selection], selection);
+
+            var runtimeId = $"{ByokConfigHelper.SessionProviderName}/{model.Id}";
+            host.Runtime.PendingModelSwitch = new PendingModelSwitch(runtimeId, []);
+            rpc.Emit(new SessionModelChangeEvent
+            {
+                Data = new SessionModelChangeData { PreviousModel = RunningModel, NewModel = runtimeId }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(selection, Assert.Single(host.ViewModel.AvailableModels));
+            Assert.Equal(selection, host.Runtime.ActiveModelId);
+            Assert.Equal(selection, host.Chat.LastModelUsed);
+            Assert.Null(host.Runtime.PendingModelSwitch);
         }, CancellationToken.None);
     }
 

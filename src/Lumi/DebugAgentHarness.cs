@@ -12,7 +12,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Platform;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Capabilities;
@@ -1633,13 +1633,13 @@ public static class DebugAgentHarness
                 + "with the requested value and include the contract token and exact MCP marker text in "
                 + "your final answer.";
 
-            SessionConfig BuildCreateConfig() => SessionConfigBuilder.Build(
+            CreateSessionOptions BuildCreateConfig() => SessionConfigBuilder.Build(
                 systemPrompt: sysPrompt,
                 model: model, workingDirectory: root, mcpPlan: mcpPlan, skillDirectories: null, customAgents: null,
                 tools: null, reasoningEffort: null, userInputHandler: null,
                 onPermission: null, hooks: null);
 
-            ResumeSessionConfig BuildResumeConfig() => SessionConfigBuilder.BuildForResume(
+            ResumeSessionOptions BuildResumeConfig() => SessionConfigBuilder.BuildForResume(
                 systemPrompt: sysPrompt,
                 model: model, workingDirectory: root, mcpPlan: mcpPlan, skillDirectories: null, customAgents: null,
                 tools: null, reasoningEffort: null, userInputHandler: null,

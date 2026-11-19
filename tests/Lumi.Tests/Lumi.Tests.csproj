@@ -8,6 +8,7 @@
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Features>$(Features);runtime-async=on</Features>
+    <NoWarn>$(NoWarn);GHCP001;MCPSDK001</NoWarn>
   </PropertyGroup>
 
   <!-- Match Lumi's platform-conditional TFM -->
