@@ -1404,9 +1404,77 @@ public sealed partial class DeferredSendQueueTests
         Assert.Equal("", host.ViewModel.PromptText);
         await rpc.AbortReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        abortReply.SetResult(new AbortResult { Success = false, Error = "The session could not be interrupted." });
-        eventsReply.SetResult(new { events = Array.Empty<object>() });
+        try
+        {
+            Assert.True(host.ViewModel.IsPreparingEditedResend);
+            Assert.False(host.ViewModel.IsComposerBusy);
+            Assert.Null(host.ViewModel.TryReserveExternalSend(host.Chat.Id));
+            Assert.Same(original, Assert.Single(host.Chat.Messages));
+        }
+        finally
+        {
+            abortReply.SetResult(new AbortResult { Success = false, Error = "The session could not be interrupted." });
+            eventsReply.SetResult(new { events = Array.Empty<object>() });
+        }
         await sending.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(host.ViewModel.IsPreparingEditedResend);
+        Assert.False(host.ViewModel.IsExternalSendReserved(host.Chat.Id));
+        Assert.Contains("The session could not be interrupted.", host.ViewModel.StatusText);
+    }
+
+    [Fact]
+    public async Task SendingAnEdit_ShowsPreparationUntilTheNormalReplyStarts()
+    {
+        using var ui = HeadlessTestSession.Start();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await ui.Dispatch(async () =>
+        {
+            var eventsReply = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc { EventsReply = eventsReply };
+            host.AttachSession(rpc);
+            var original = host.AddTranscriptMessage("Say hello.", MessageSteerState.None);
+            host.BeginEdit(original.Message);
+            await rpc.EventsRequests.WaitAsync(timeout.Token); // The edit bar's file preview.
+
+            host.ViewModel.PromptText = "Say hello twice.";
+            var sending = host.ViewModel.SendMessageCommand.ExecuteAsync(null);
+            try
+            {
+                await rpc.EventsRequests.WaitAsync(timeout.Token); // The resend is reading history for rewind.
+                Assert.Equal("Say hello twice.", Assert.Single(host.Chat.Messages).Content);
+                Assert.True(host.ViewModel.IsPreparingEditedResend);
+                Assert.False(host.ViewModel.IsComposerBusy);
+                Assert.Null(host.ViewModel.TryReserveExternalSend(host.Chat.Id));
+
+                host.ViewModel.PromptText = "Next draft";
+                await host.ViewModel.SendMessageCommand.ExecuteAsync(null);
+                Assert.Equal("Next draft", host.ViewModel.PromptText);
+                Assert.Equal(0, rpc.SendCount);
+            }
+            finally
+            {
+                eventsReply.TrySetResult(new
+                {
+                    events = new[]
+                    {
+                        new
+                        {
+                            id = Guid.NewGuid(),
+                            type = "user.message",
+                            timestamp = DateTimeOffset.UtcNow,
+                            data = new { content = original.Message.Content }
+                        }
+                    }
+                });
+            }
+            await sending.WaitAsync(timeout.Token);
+
+            Assert.False(host.ViewModel.IsPreparingEditedResend);
+            Assert.True(host.ViewModel.IsComposerBusy);
+            Assert.Equal("Say hello twice.", Assert.Single(rpc.SentMessages).GetProperty("prompt").GetString());
+        }, timeout.Token);
     }
 
     [Fact]
@@ -3148,7 +3216,7 @@ public sealed partial class DeferredSendQueueTests
             => (Task)Invoke("StopAndSendMessage")!;
 
         public Task<string?> StopGenerationAsync()
-            => (Task<string?>)Invoke("StopGenerationInternal", Chat, true)!;
+            => (Task<string?>)Invoke("StopGenerationInternal", Chat, true, null)!;
 
         public bool CanStartTurnOnReadySession()
             => (bool)Invoke("CanStartTurnOnReadySession", Chat)!;

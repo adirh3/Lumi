@@ -504,7 +504,7 @@ public partial class ChatViewModel
             return;
         }
 
-        if (_pendingWorktreeCreations.Contains(chatId))
+        if (_pendingWorktreeCreations.Contains(chatId) || IsPreparingEditedResend)
             return;
 
         if (IsChatRuntimeActive(chatId) && !CanStartTurnOnReadySession(CurrentChat))

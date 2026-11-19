@@ -857,6 +857,9 @@ marked **Not delivered**, so their text is kept.
 attachments, skills or model. A bar above the composer says what sending does, and everything
 after the message fades, since sending replaces it. The send button turns into a check: press it
 (or Enter) to update and resend, or press **Cancel** (or Esc) to leave the message as it was.
+**Preparing edited message…** appears above the composer while Lumi stops any remaining work
+and rewinds the conversation.
+The normal reply controls return when the new turn starts.
 
 When Lumi changed files since that message, the bar also offers **Undo Lumi's changes to N
 files**, on by default: each file goes back to how it was before the message, so the new request

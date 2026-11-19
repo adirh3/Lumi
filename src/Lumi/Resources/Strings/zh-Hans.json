@@ -1088,6 +1088,7 @@
   "Chat_EditPlaceholder": "编辑你的消息...",
   "Chat_EditTitle": "正在编辑消息",
   "Chat_EditStatus": "发送后，这条消息及之后的所有内容都会被替换。",
+  "Chat_PreparingEditedResend": "正在准备编辑后的消息\u2026",
   "Chat_ResendChatBusy": "此聊天正在开始另一条回复，因此未重新发送消息。请在完成后重试。",
   "Chat_ResendSaveFailed": "Lumi 无法保存聊天，因此未重新发送消息。请检查可用磁盘空间后重试。",
   "Chat_EditUnavailableMissingMessages": "此聊天的部分旧消息无法读取，因此无法编辑消息。",

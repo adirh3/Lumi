@@ -1088,6 +1088,7 @@
   "Chat_EditPlaceholder": "메시지 편집...",
   "Chat_EditTitle": "메시지 편집 중",
   "Chat_EditStatus": "보내면 이 메시지와 그 이후의 모든 내용이 대체돼요.",
+  "Chat_PreparingEditedResend": "수정한 메시지를 준비하는 중\u2026",
   "Chat_ResendChatBusy": "다른 답변이 시작되어 메시지를 다시 보내지 않았어요. 완료된 후 다시 시도하세요.",
   "Chat_ResendSaveFailed": "채팅을 저장하지 못해 메시지를 다시 보내지 않았어요. 디스크 여유 공간을 확인하고 다시 시도하세요.",
   "Chat_EditUnavailableMissingMessages": "이 채팅의 이전 메시지 일부를 읽지 못해 메시지를 편집할 수 없어요.",

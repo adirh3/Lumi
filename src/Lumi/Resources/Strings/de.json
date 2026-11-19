@@ -1088,6 +1088,7 @@
   "Chat_EditPlaceholder": "Deine Nachricht bearbeiten...",
   "Chat_EditTitle": "Nachricht wird bearbeitet",
   "Chat_EditStatus": "Beim Senden werden diese Nachricht und alles danach ersetzt.",
+  "Chat_PreparingEditedResend": "Bearbeitete Nachricht wird vorbereitet\u2026",
   "Chat_ResendChatBusy": "In diesem Chat beginnt gerade eine andere Antwort, deshalb wurde die Nachricht nicht erneut gesendet. Versuche es danach noch einmal.",
   "Chat_ResendSaveFailed": "Lumi konnte den Chat nicht speichern, deshalb wurde die Nachricht nicht erneut gesendet. Prüfe den freien Speicherplatz und versuche es erneut.",
   "Chat_EditUnavailableMissingMessages": "Einige ältere Nachrichten dieses Chats konnten nicht gelesen werden. Seine Nachrichten können deshalb nicht bearbeitet werden.",

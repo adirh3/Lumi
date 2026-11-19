@@ -1935,6 +1935,8 @@ public sealed class ChatStorageTests : IDisposable
                     // While the cut waits for the database, a job, the phone or the composer cannot start
                     // a turn: it would be counted among the turns kept before the edit.
                     Assert.False(editing.IsCompleted);
+                    Assert.True(vm.IsPreparingEditedResend);
+                    Assert.False(vm.IsComposerBusy);
                     Assert.True(vm.IsChatBusyForSend(stored.Id));
                     Assert.Null(vm.TryReserveExternalSend(stored.Id));
                 }
@@ -1945,6 +1947,8 @@ public sealed class ChatStorageTests : IDisposable
 
                 await held;
                 await editing;
+                Assert.False(vm.IsPreparingEditedResend);
+                Assert.True(vm.IsEditingMessage);
                 using var later = vm.TryReserveExternalSend(stored.Id);
                 Assert.NotNull(later);
             }

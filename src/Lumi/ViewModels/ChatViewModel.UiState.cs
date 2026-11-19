@@ -1312,6 +1312,7 @@ public partial class ChatViewModel
     partial void OnCurrentChatChanged(Chat? value)
     {
         CancelVoice();
+        OnPropertyChanged(nameof(IsPreparingEditedResend));
         if (value is null)
         {
             _draftApprovalMode = null;

@@ -1088,6 +1088,7 @@
   "Chat_EditPlaceholder": "メッセージを編集...",
   "Chat_EditTitle": "メッセージを編集中",
   "Chat_EditStatus": "送信すると、このメッセージとそれ以降のすべてが置き換えられます。",
+  "Chat_PreparingEditedResend": "編集したメッセージを準備中\u2026",
   "Chat_ResendChatBusy": "別の返信が始まったため、再送信しませんでした。完了後にもう一度お試しください。",
   "Chat_ResendSaveFailed": "チャットを保存できなかったため、再送信しませんでした。ディスクの空き容量を確認して、もう一度お試しください。",
   "Chat_EditUnavailableMissingMessages": "古いメッセージの一部を読み取れないため、このチャットのメッセージは編集できません。",

@@ -3512,18 +3512,31 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
     }
 
-    internal ExternalSendReservation? TryReserveExternalSend(Guid chatId)
+    public bool IsPreparingEditedResend
+    {
+        get
+        {
+            lock (_externalSendReservationLock)
+                return CurrentChat is { } chat
+                    && _externalSendReservations.TryGetValue(chat.Id, out var reservation)
+                    && reservation.IsEditedResend;
+        }
+    }
+
+    internal ExternalSendReservation? TryReserveExternalSend(Guid chatId, bool isEditedResend = false)
     {
         lock (_externalSendReservationLock)
         {
-            if (HasPendingAssistantWork(chatId) || _externalSendReservations.ContainsKey(chatId))
+            if (_externalSendReservations.ContainsKey(chatId)
+                || (HasPendingAssistantWork(chatId) && !(isEditedResend && IsChatRuntimeActive(chatId))))
                 return null;
 
             var token = Guid.NewGuid();
             var cancellation = new CancellationTokenSource();
             _externalSendReservations[chatId] = new ExternalSendReservationState(
                 token,
-                cancellation);
+                cancellation,
+                isEditedResend);
             return new ExternalSendReservation(this, chatId, token, cancellation);
         }
     }
@@ -3557,7 +3570,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         lock (_externalSendReservationLock)
         {
-            if (!_externalSendReservations.TryGetValue(chatId, out var reservation))
+            if (!_externalSendReservations.TryGetValue(chatId, out var reservation) || reservation.IsEditedResend)
                 return false;
 
             reservation.Cancellation.Cancel();
@@ -3567,20 +3580,25 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void ReleaseExternalSendReservation(Guid chatId, Guid token)
     {
+        bool wasEditedResend;
         lock (_externalSendReservationLock)
         {
-            if (_externalSendReservations.TryGetValue(chatId, out var reservation)
-                && reservation.Token == token)
-            {
-                _externalSendReservations.Remove(chatId);
-                reservation.Cancellation.Dispose();
-            }
+            if (!_externalSendReservations.TryGetValue(chatId, out var reservation) || reservation.Token != token)
+                return;
+
+            _externalSendReservations.Remove(chatId);
+            reservation.Cancellation.Dispose();
+            wasEditedResend = reservation.IsEditedResend;
         }
+
+        if (wasEditedResend && CurrentChat?.Id == chatId)
+            OnPropertyChanged(nameof(IsPreparingEditedResend));
     }
 
     private sealed record ExternalSendReservationState(
         Guid Token,
-        CancellationTokenSource Cancellation);
+        CancellationTokenSource Cancellation,
+        bool IsEditedResend);
 
     internal readonly record struct ExternalMessageStartResult(
         bool Accepted,
@@ -4186,7 +4204,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat is null || userMessage.Role != "user")
             return;
 
-        if (IsBusy)
+        if (IsBusy || IsPreparingEditedResend)
             return;
 
         // Editing rewinds the chat's Copilot session by the positions of its turns, which only line
@@ -4783,6 +4801,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task SendMessage()
     {
+        if (IsPreparingEditedResend)
+            return;
+
         if (!await FinishVoiceBeforeSendAsync())
             return;
         if (IsPaused && _editingUserMessage is not null)
@@ -6275,8 +6296,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// </param>
     private Task<string?> StopGenerationInternal(
         Chat chat,
-        bool resolvePendingSteersAsFailed)
+        bool resolvePendingSteersAsFailed,
+        Guid? reservationToken = null)
     {
+        if (CurrentChat?.Id == chat.Id && IsPreparingEditedResend
+            && IsExternalSendReservedByAnother(chat.Id, reservationToken))
+            return Task.FromResult<string?>(Loc.Get("Chat_PreparingEditedResend"));
+
         var runtime = GetOrCreateRuntimeState(chat.Id);
         return runtime.PauseResumeOperation is { IsCompleted: false } pending
             ? StopAfterPauseTransitionAsync(chat, resolvePendingSteersAsFailed, pending)
@@ -7231,15 +7257,28 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // An edit owns preparation from before the interruption until the replacement turn takes over.
+        using var editReservation = wasEdited ? TryReserveExternalSend(targetChat.Id, isEditedResend: true) : null;
+        if (wasEdited)
+        {
+            if (editReservation is null)
+            {
+                RejectCompetingSend();
+                return;
+            }
+            OnPropertyChanged(nameof(IsPreparingEditedResend));
+        }
+
         // Regenerate/edit shares the same completed interruption as Stop and Send now.
-        if (IsChatRuntimeActive(CurrentChat.Id))
+        if (IsChatRuntimeActive(targetChat.Id))
         {
             var stopError = await StopGenerationInternal(
-                CurrentChat,
-                resolvePendingSteersAsFailed: true);
+                targetChat,
+                resolvePendingSteersAsFailed: true,
+                reservationToken: editReservation?.Token);
             if (stopError is not null)
             {
-                ApplyStopError(CurrentChat.Id, stopError);
+                ApplyStopError(targetChat.Id, stopError);
                 return;
             }
         }
@@ -7257,15 +7296,19 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // Cutting stored history waits for the database, and the turn starts only after it: until then
-        // nothing else may start a turn in the chat, or it would count as one kept before the edit.
-        var needsReservation = editsStoredHistory || onAccepted is not null;
-        using var historyCutReservation = needsReservation ? TryReserveExternalSend(CurrentChat.Id) : null;
-        if (needsReservation && historyCutReservation is null)
+        // A regeneration from stored history also needs to keep other sends out while it cuts history.
+        var needsHistoryReservation = !wasEdited && (editsStoredHistory || onAccepted is not null);
+        using var historyReservation = needsHistoryReservation ? TryReserveExternalSend(targetChat.Id) : null;
+        var resendReservation = editReservation ?? historyReservation;
+        var competingSend = wasEdited
+            ? HasPendingAssistantWork(targetChat.Id)
+            : needsHistoryReservation ? historyReservation is null : IsExternalSendReserved(targetChat.Id);
+        if (competingSend)
         {
-            StatusText = Loc.Get("Chat_ResendChatBusy");
-            if (wasEdited && onAccepted is null)
-                ReturnEditToComposer(userMessage);
+            editReservation?.Dispose();
+            if (wasEdited)
+                ScheduleQueuedBusySendDrain(targetChat.Id);
+            RejectCompetingSend();
             return;
         }
         // Regenerate and Edit come from the person in the chat, even after a job's turn.
@@ -7303,6 +7346,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Trace.TraceWarning("[Chat] Could not cut the chat's history to send a message again: {0}", ex.Message);
+                resendReservation?.Dispose();
                 if (CurrentChat?.Id == editedChat.Id)
                 {
                     if (onAccepted is null)
@@ -7560,9 +7604,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             RestoreDisplayedSessionFromCache();
             var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
-            // The turn holds the chat from here, as an external send's does once it starts.
-            historyCutReservation?.Dispose();
             ApplyDisplayedRuntimeState(runtime);
+            // The existing reply lifecycle owns the chat from here.
+            resendReservation?.Dispose();
             if (WorktreePath is { Length: > 0 } wtPath && attachments.Count > 0)
             {
                 var projDir = GetProjectWorkingDirectory();
@@ -7726,6 +7770,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (CurrentChat is not null)
                 ClearPendingTurnTracking(CurrentChat.Id);
             HandleSendError(ex, WasCancelledByUser(CurrentChat?.Id));
+        }
+
+        void RejectCompetingSend()
+        {
+            StatusText = Loc.Get("Chat_ResendChatBusy");
+            if (wasEdited && onAccepted is null)
+                ReturnEditToComposer(userMessage);
         }
     }
 

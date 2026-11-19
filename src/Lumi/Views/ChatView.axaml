@@ -2811,6 +2811,10 @@
          put back, and how to leave it. The composer below is the editor (its send button becomes Update), and
          what sending replaces fades back in the transcript. Selectors name their own classes, because the
          bar's Review card is a flyout, which sits under the bar in the logical tree. -->
+    <Style Selector="sc|StrataChatComposer#Composer.preparing-resend /template/ Button#PART_SendButton">
+      <Setter Property="IsEnabled" Value="False" />
+    </Style>
+
     <Style Selector="Border#ComposerEditBar.edit-bar">
       <Setter Property="Margin" Value="0,0,0,8" />
       <Setter Property="CornerRadius" Value="16" />
@@ -6432,10 +6436,18 @@
         </Grid>
       </Border>
 
+      <sc:StrataTypingIndicator x:Name="EditedResendProgress"
+                                HorizontalAlignment="Left"
+                                IsVisible="{Binding IsPreparingEditedResend}"
+                                IsActive="{Binding AreAnimationsEnabled}"
+                                Label="{loc:Str Chat_PreparingEditedResend}"
+                                AutomationProperties.Name="{loc:Str Chat_PreparingEditedResend}" />
+
       <sc:StrataChatComposer x:Name="Composer"
                              Classes="glass"
                              TextOptions.TextRenderingMode="Antialias"
                              Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
+                             Classes.preparing-resend="{Binding IsPreparingEditedResend}"
                              Classes.frosted="{Binding #ChatShell.IsContentUnderComposer}"
                              Placeholder="{Binding ComposerPlaceholder}"
                              PromptText="{Binding PromptText, Mode=TwoWay}"

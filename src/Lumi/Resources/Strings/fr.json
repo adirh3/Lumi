@@ -1088,6 +1088,7 @@
   "Chat_EditPlaceholder": "Modifiez votre message...",
   "Chat_EditTitle": "Modification du message",
   "Chat_EditStatus": "L’envoi remplace ce message et tout ce qui suit.",
+  "Chat_PreparingEditedResend": "Préparation du message modifié\u2026",
   "Chat_ResendChatBusy": "Une autre réponse démarre dans cette conversation ; le message n’a pas été renvoyé. Réessayez à la fin.",
   "Chat_ResendSaveFailed": "Lumi n’a pas pu enregistrer la conversation ; le message n’a pas été renvoyé. Vérifiez l’espace disque et réessayez.",
   "Chat_EditUnavailableMissingMessages": "Certains anciens messages sont illisibles ; les messages de cette conversation ne peuvent pas être modifiés.",
