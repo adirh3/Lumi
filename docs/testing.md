@@ -119,6 +119,25 @@ builds. Missing coverage fails the action. Each turn's cold/retained activation
 and measured layout duration are correlated with frame timestamps in `presentations`.
 These diagnostics do not claim that a layout ending is the physical display's paint.
 
+For a native-versus-browser CPU comparison, the opt-in `prepare-layout-costs`
+control operation takes the same scenario as `prepare` and returns
+`preparationPresentations`: measured turn-layout durations, item kinds and visual
+counts during setup. Using `scroll-reveal-retained` visits the bounded mixed page,
+including its initially cold controls. Match view size, scale, content, rendering-library
+versions and control counts before comparing costs. This is a layout diagnostic,
+not trusted-input scrolling or an FPS measurement; ordinary `prepare` does not
+enable this extra observer.
+
+For manual phone diagnostics, stage `tools\mobile-smoothness\phone-perf.mjs`
+beside `main.js` in a **copy of a published preview**. Copy its `index.html` to
+`diagnostics.html` and change only that page's module entry point to
+`./phone-perf.mjs`. Start an isolated Debug host with that web root; the host
+indexes assets at startup. Do not change the ordinary entry point or offline
+asset inventory. The **Perf** menu records the next touch and exports renderer,
+backing-store, frame timing, and main-thread long-task summaries. Canvas draw
+batches and worker updates are separate observations, not physical display FPS.
+The report stays in that tab and contains no chat content or credentials.
+
 ### Build and run
 
 Use optimized, explicitly instrumented builds. Normal Release builds do not include
@@ -185,11 +204,25 @@ Strata's motion tests also check that the switch-knob bounce changes pixels with
 `--filter composer` select
 catalog prefixes (comma-separated). The default is three fresh app/browser runs
 with one unmeasured warmup per action. `--repeats` cannot be less than three.
+Before arming an action, setup waits up to 15 seconds for its rendered target to become
+touch-reachable; a covered target fails instead of receiving replayed or synthetic input.
 The PWA uses an actual headed browser surface with a fixed 390 × 844 CSS/DIP
 app viewport, not emulated browser DPR. `--width`, `--height`, and an optional
 native Chromium `--dpr` override select a form factor. `--workerframes 1` exercises
-worker presentation separately from the default normal renderer. `--refresh-hz`
+bitmap worker presentation separately from the benchmark's normal-renderer default.
+`--workerframes clock` (URL: `?workerframes=clock`) keeps the worker clock,
+touch resampling and retained drawing buffer, but presents the WebGL canvas
+directly without copying it to the worker. Android Chrome still defaults to
+bitmap worker presentation; `workerframes=0` disables the worker entirely.
+`--refresh-hz`
 can require a known refresh mode instead of silently accepting a different one.
+PWA trials also record `controlAndCanvasReadyMs`: cold app navigation until its diagnostic
+channel and canvas geometry are ready. Each trial uses a fresh browser profile and uncompressed
+localhost assets; this is not browser-process startup, first visible paint, or mobile-network
+download time. Compare published Brotli asset sizes separately from that local loading metric.
+Adjacent UI observations with the same clock timestamp are coalesced into one instant
+(the latest state), never counted as extra frames. Reports keep the raw observations and
+`coalescedUiSamples`; backwards timestamps and insufficient distinct samples still fail.
 
 ### What the numbers mean
 

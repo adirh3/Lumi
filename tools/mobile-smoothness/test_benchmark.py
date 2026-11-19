@@ -1,5 +1,6 @@
 import io
 import copy
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -190,6 +191,27 @@ class MeasurementTests(unittest.TestCase):
         self.assertEqual("actual-fixture", result["fixture"])
         self.assertEqual("Debug", result["configuration"])
 
+    def test_equal_clock_samples_are_one_observation_without_hiding_backwards_time(self):
+        state = {
+            "fixture": "fixture", "configuration": "Release", "loadedTurns": 16,
+            "measurement": {
+                "scenario": "scroll-rich", "complete": True, "error": None,
+                "inputToReadyMs": 16, "inputToScrollMs": 16, "startMs": 0, "activeEndMs": 32,
+                "travel": 270, "gestureUpdates": 4,
+                "frames": [{"timeMs": time, "offset": offset, "blankFraction": 0}
+                           for time, offset in ((0, 0), (16, 0), (16, 160), (32, 270))]
+            }
+        }
+        result = benchmark.summarize(state, 16, [0, 16, 32], .2)
+        self.assertEqual(1, result["coalescedUiSamples"])
+        self.assertEqual(3, result["uiFrameOpportunities"]["frames"])
+        self.assertEqual(3, result["contentFrameGaps"]["frames"])
+        self.assertEqual(4, len(result["measurement"]["frames"]))
+
+        state["measurement"]["frames"][2]["timeMs"] = 15
+        with self.assertRaises(ValueError):
+            benchmark.summarize(state, 16, [0, 16, 32], .2)
+
     def test_reveal_workload_proves_cold_builds_and_retained_return_separately(self):
         state = {"loadedTurns": 16, "measurement": {
             "scenario": "scroll-reveal-cold", "complete": True, "error": None,
@@ -220,6 +242,20 @@ class MeasurementTests(unittest.TestCase):
             self.assertIn("Missing &lt;frames&gt;", document)
             self.assertIn("Complete:</strong> False", document)
             self.assertTrue((root / "report.json").is_file())
+
+    def test_pwa_report_keeps_cold_navigation_distinct_from_paint_and_interaction_times(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report = {
+                "trials": [{"rows": [], "controlAndCanvasReadyMs": value} for value in (1200, 900, 1100)],
+                "scenarios": [], "platform": "pwa", "errors": [], "complete": False
+            }
+            benchmark.write_report(root, report)
+            document = (root / "report.html").read_text(encoding="utf-8")
+            self.assertIn("median: 1100.0 ms", document)
+            self.assertIn("not first visible paint", document)
+            self.assertEqual(report["trials"],
+                             json.loads((root / "report.json").read_text(encoding="utf-8"))["trials"])
 
 
 if __name__ == "__main__":

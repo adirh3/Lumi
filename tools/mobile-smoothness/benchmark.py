@@ -275,6 +275,14 @@ def controls(rows, slowed):
 
 def summarize(state, refresh_ms, render_stamps, changed):
     row, frames = validate_measurement(state, state["measurement"]["scenario"])
+    distinct_frames = []
+    for frame in frames:
+        if distinct_frames and frame["timeMs"] == distinct_frames[-1]["timeMs"]:
+            distinct_frames[-1] = frame
+        else:
+            distinct_frames.append(frame)
+    coalesced_ui_samples = len(frames) - len(distinct_frames)
+    frames = distinct_frames
     opportunities = cadence([frame["timeMs"] for frame in frames], refresh_ms,
                             3 if row["scenario"].startswith("scroll-") else 2)
     # Repeated identical offsets do not make a frozen transcript smooth just because its glow renders.
@@ -300,6 +308,7 @@ def summarize(state, refresh_ms, render_stamps, changed):
         "contentFrameGaps": content,
         "renderOutputGaps": render,
         "renderedFrames": len(render_stamps),
+        "coalescedUiSamples": coalesced_ui_samples,
         "blankP95": percentile([frame["blankFraction"] for frame in frames], .95),
         "blankMax": max(frame["blankFraction"] for frame in frames),
         "unbuiltViewportMs": sum(
@@ -394,6 +403,7 @@ async def browser_trial(args, root, output, trial, slowdown=False):
                             position:'absolute',left:'0',top:'0',right:'auto',bottom:'auto'}});
                     }});
                 """)
+                navigation_started = time.monotonic()
                 await page.goto(f"http://127.0.0.1:{server.server_port}/app/?smoothness=1&workerframes={args.workerframes}")
                 await page.wait_for_function("window.lumiSmoothness", timeout=120000)
                 await page.wait_for_function("""() => {
@@ -404,6 +414,7 @@ async def browser_trial(args, root, output, trial, slowdown=False):
                         Math.abs(canvas.width-box.width*devicePixelRatio)<=1 &&
                         Math.abs(canvas.height-box.height*devicePixelRatio)<=1;
                 }""", timeout=10000)
+                control_and_canvas_ready_ms = (time.monotonic() - navigation_started) * 1000
                 cdp = await context.new_cdp_session(page)
                 identity = await page.evaluate("""() => {
                     const canvas=document.querySelector('#out canvas.avalonia-canvas');
@@ -446,6 +457,7 @@ async def browser_trial(args, root, output, trial, slowdown=False):
                     raise ValueError(f"Browser runtime errors: {errors}")
                 return {"browserVersion": browser.version, "browserSha256": digest(args.browser_exe),
                         "viewport": identity, "refreshMs": refresh_ms,
+                        "controlAndCanvasReadyMs": control_and_canvas_ready_ms,
                         "calibration": calibration, "rows": rows}
             finally:
                 if "page" in locals():
@@ -502,6 +514,14 @@ async def browser_action(page, cdp, scenario, output, label, slowdown):
         if state.get("error") or state.get("measurement", {}).get("complete"):
             break
         if time.monotonic() > deadline:
+            (output / f"{label}-state.json").write_text(json.dumps(state), encoding="utf-8")
+            diagnostics = await page.evaluate("""() => ({
+                visibility:document.visibilityState, focused:document.hasFocus(),
+                activeElement:document.activeElement?.tagName,
+                touches:__lumiSmoothness.touches, errors:__lumiSmoothness.errors,
+                batches:__lumiSmoothness.batches.length
+            })""")
+            (output / f"{label}-browser.json").write_text(json.dumps(diagnostics), encoding="utf-8")
             raise ValueError(f"Timed out waiting for {scenario}")
     (output / f"{label}-state.json").write_text(json.dumps(state), encoding="utf-8")
     validate_measurement(state, scenario)
@@ -757,6 +777,13 @@ def write_report(output, report):
                              f"<td>{timing('inputToKeyboardRequestMs')}</td>"
                              f"<td>{timing('inputToKeyboardReportedMs')}</td></tr>")
     errors = "".join(f"<li>{html.escape(error)}</li>" for error in report["errors"])
+    startup = [trial["controlAndCanvasReadyMs"] for trial in report["trials"]
+               if "controlAndCanvasReadyMs" in trial]
+    startup_html = (
+        f"<p>Cold app navigation to control/canvas-ready, median: {statistics.median(startup):.1f} ms. "
+        "Fresh browser profiles on uncompressed localhost assets; not first visible paint, browser startup, "
+        "or a mobile-network loading measurement.</p>"
+        if startup else "")
     content = f"""<!doctype html><html lang="en"><meta charset="utf-8">
 <title>Lumi mobile smoothness</title><style>
 body{{font:15px system-ui;margin:40px auto;max-width:1100px;padding:0 20px;background:#15151a;color:#ededf1}}
@@ -767,6 +794,7 @@ th{{color:#b7b8cf}}code{{word-break:break-all}}a{{color:#a4b9ff}}p{{line-height:
  · <strong>Known stall detected:</strong> {report.get('controls',{}).get('known120MsStallDetected','not established')}</p>
 <p>Trusted touch, real shared mobile views, independent frame channels. Times are milliseconds;
 these are not physical touch-to-photon measurements. Rows are ranked by readiness/worst content gap.</p>
+{startup_html}
 <table><tr><th>Action</th><th>Ready p95</th><th>Content gap p95<br>(median run)</th>
 <th>Worst content gap<br>(median run)</th><th>Rendered gap p95</th><th>Unbuilt viewport p95</th><th>Repeatable</th></tr>
 {''.join(row for _,row in sorted(table,reverse=True))}</table><ul>{errors}</ul>
@@ -870,7 +898,7 @@ def main():
     parser.add_argument("--height", type=int, default=844)
     parser.add_argument("--dpr", type=float, default=0, help="Native Chromium scale override; 0 uses the display's own scale")
     parser.add_argument("--refresh-hz", type=float)
-    parser.add_argument("--workerframes", choices=("0", "1"), default="0")
+    parser.add_argument("--workerframes", choices=("0", "1", "clock"), default="0")
     parser.add_argument("--compare", nargs=2, type=Path, metavar=("BASELINE", "CANDIDATE"))
     args = parser.parse_args()
     if args.compare:

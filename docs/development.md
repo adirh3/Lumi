@@ -775,6 +775,15 @@ redistributing Strata. Adding that notice upstream is a maintainer follow-up.
 
 ## Mobile development
 
+Keep styles on the narrowest owner that contains all of their targets. For
+example, the model picker styles live on `ModelSheet`, and the drawer and search
+views alone include `ConversationListStyles.axaml`. `MobileStyles.axaml` is for
+rules genuinely shared across surfaces. Avalonia scans inherited style
+collections as new controls attach; a selector that names an ancestor still
+costs a check on unrelated transcript controls when declared globally. Keep
+overlapping rule order and theme resources intact, and check detached popups at
+their own root before moving their styles.
+
 The shared mobile UI and desktop simulator build with the ordinary desktop
 solution. A simulator development run should use its own settings and pairing
 directory as well as an isolated desktop profile.
@@ -850,7 +859,7 @@ The Android and browser hosts are intentionally outside `Lumi.slnx`:
 | Host | Additional tooling |
 |---|---|
 | Android (`net11.0-android`) | .NET 11, the `android` workload, JDK 17 and Android SDK dependencies. Uses the SDK's default CoreCLR runtime and Release ReadyToRun compilation. |
-| PWA (`net10.0-browser`) | .NET 10 SDK in addition to .NET 11, and `wasm-tools-net10`. Release publishes use WebAssembly AOT; that is not the desktop build mode. |
+| PWA (`net11.0-browser`) | .NET 11 and `wasm-tools`. Release publishes use WebAssembly AOT; that is not the desktop build mode. |
 
 Install extra workloads only when working on those hosts. The
 [PR workflow](../.github/workflows/pr-validation.yml) has the exact current
@@ -870,6 +879,11 @@ Keep the Android host on the default CoreCLR runtime rather than opting into Mon
 settings. Physical Fold7 profiles traced long UI and render-thread pauses to Mono's stop-the-world
 .NET/Java GC bridge (`sgen_bridge_processing_stw_step`), not a 60 Hz render cap. Changing the runtime
 does not change the glass, shadows, scroll gestures or keyboard animation.
+
+The browser SDK still defaults to Mono/WebAssembly, without Android's .NET/Java bridge.
+Keep its AOT, renderer and threading choices independent of the Android runtime configuration.
+The browser head pins matching SkiaSharp 4 managed/WebAssembly packages for .NET 11's Emscripten 6
+toolchain; the other heads retain Avalonia's default Skia dependencies.
 
 Add `-p:LumiPreview=true` to build **Lumi Preview** (`com.lumi.mobile.preview`):
 the same app under its own package, label, data and pairing, so a build under

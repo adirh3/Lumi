@@ -17,6 +17,53 @@ namespace Lumi.Mobile.Tests;
 public sealed class MobileSmoothnessSurfaceTests(ITestOutputHelper output)
 {
     [Fact]
+    public async Task PreparationWaitsForItsRenderedTouchTargetWithoutReplayingInput()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            await using var shell = MobileSmoothnessFixture.CreateShell();
+            var view = new MobileShellView { DataContext = shell };
+            var cover = new Border { Background = Avalonia.Media.Brushes.Black };
+            var stage = new Panel { Children = { view, cover } };
+            var window = new Window { Width = 390, Height = 844, Content = stage };
+            try
+            {
+                window.Show();
+                await shell.StartAsync();
+                using var benchmark = new MobileSmoothnessSession(view);
+                var preparation = benchmark.CommandAsync("""{"operation":"prepare","scenario":"composer-empty"}""");
+                var deadline = DateTime.UtcNow.AddSeconds(5);
+                while ((!shell.IsConnected || shell.IsDrawerMoving || shell.IsDrawerPresented)
+                       && DateTime.UtcNow < deadline)
+                    await Pump();
+                var elapsed = System.Diagnostics.Stopwatch.StartNew();
+                while (elapsed.ElapsedMilliseconds < 700)
+                    await Pump();
+                Assert.False(preparation.IsCompleted, "Setup must wait while another visual covers its target.");
+
+                cover.IsVisible = false;
+                while (!preparation.IsCompleted && DateTime.UtcNow < deadline)
+                    await Pump();
+                Assert.True(preparation.IsCompleted);
+                using var prepared = JsonDocument.Parse(await preparation);
+                Assert.Equal(JsonValueKind.Null, prepared.RootElement.GetProperty("error").ValueKind);
+                Assert.Equal(JsonValueKind.Object, prepared.RootElement.GetProperty("target").ValueKind);
+                Assert.Equal(JsonValueKind.Null, prepared.RootElement.GetProperty("measurement").ValueKind);
+
+                async Task Pump()
+                {
+                    window.UpdateLayout();
+                    Dispatcher.UIThread.RunJobs();
+                    Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    await Task.Delay(16);
+                }
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task DockedSidebarDoesNotBlockComposerSetupOrChatReadiness()
     {
         using var session = HeadlessMobileSession.Start();
@@ -167,10 +214,19 @@ public sealed class MobileSmoothnessSurfaceTests(ITestOutputHelper output)
                 window.Show();
                 await shell.StartAsync();
                 using var benchmark = new MobileSmoothnessSession(view);
-                var preparation = benchmark.CommandAsync("""{"operation":"prepare","scenario":"scroll-reveal-cold"}""");
+                var preparation = benchmark.CommandAsync("""{"operation":"prepare-layout-costs","scenario":"scroll-reveal-cold"}""");
                 await PumpUntil(() => preparation.IsCompleted);
                 using var result = JsonDocument.Parse(await preparation);
                 Assert.Equal(JsonValueKind.Null, result.RootElement.GetProperty("error").ValueKind);
+                var measuredSetup = result.RootElement.GetProperty("preparationPresentations").EnumerateArray().ToArray();
+                Assert.NotEmpty(measuredSetup);
+                Assert.All(measuredSetup, measured =>
+                {
+                    Assert.Equal("measure", measured.GetProperty("phase").GetString());
+                    Assert.True(measured.GetProperty("visualCount").GetInt32() > 0);
+                    Assert.Contains(shell.Chat.Turns, turn =>
+                        turn.Id == measured.GetProperty("turnId").GetString());
+                });
                 var transcript = view.FindControl<ChatDetailView>("ChatSurface")!.FindControl<ItemsControl>("Transcript")!;
                 events.Clear();
                 var retained = new Dictionary<string, Control>();
@@ -298,6 +354,7 @@ public sealed class MobileSmoothnessSurfaceTests(ITestOutputHelper output)
                         $"{scenario}: {result.RootElement.GetProperty("error")}");
                     Assert.Equal(JsonValueKind.Object, result.RootElement.GetProperty("target").ValueKind);
                     Assert.True(result.RootElement.GetProperty("target").GetProperty("width").GetDouble() > 0);
+                    Assert.Empty(result.RootElement.GetProperty("preparationPresentations").EnumerateArray());
                 }
             }
             catch (Exception error)

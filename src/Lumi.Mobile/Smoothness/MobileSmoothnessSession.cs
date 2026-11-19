@@ -18,7 +18,7 @@ internal sealed record SmoothnessRequest(string Operation, string? Scenario = nu
 internal sealed record SmoothnessTarget(double X, double Y, double Width, double Height, double Scale);
 internal sealed record SmoothnessFrame(double TimeMs, double Offset, double BlankFraction, double KeyboardInset = 0);
 internal sealed record SmoothnessPresentation(double TimeMs, string TurnId, string[] Kinds, string Phase,
-    double DurationMs, double ViewportDistance);
+    double DurationMs, double ViewportDistance, int VisualCount = 0);
 
 internal sealed class SmoothnessMeasurement
 {
@@ -56,6 +56,7 @@ internal sealed class SmoothnessState
     public string[] Scenarios { get; set; } = MobileSmoothnessSession.Scenarios;
     public SmoothnessTarget? Target { get; set; }
     public SmoothnessMeasurement? Measurement { get; set; }
+    public List<SmoothnessPresentation> PreparationPresentations { get; set; } = [];
     public int ChatCount { get; set; } = MobileSmoothnessFixture.ChatCount;
     public int TotalMessageCount { get; set; } = MobileSmoothnessFixture.TurnCount * 2;
     public int LoadedTurns { get; set; }
@@ -108,6 +109,8 @@ internal sealed class MobileSmoothnessSession : IDisposable
     private int _stallMs;
     private int _version;
     private bool _disposed;
+    private bool _capturePreparation;
+    private readonly List<SmoothnessPresentation> _preparationPresentations = [];
 
     public MobileSmoothnessSession(
         MobileShellView view, Func<double>? nativeClock = null, bool softKeyboardExpected = false,
@@ -140,7 +143,11 @@ internal sealed class MobileSmoothnessSession : IDisposable
             switch (request.Operation)
             {
                 case "prepare":
-                    await PrepareAsync(request.Scenario ?? "");
+                case "prepare-layout-costs":
+                    _preparationPresentations.Clear();
+                    _capturePreparation = request.Operation == "prepare-layout-costs";
+                    try { await PrepareAsync(request.Scenario ?? ""); }
+                    finally { _capturePreparation = false; }
                     break;
                 case "arm":
                     if (_target is null || _ready is null || _measurement?.StartMs > 0 && !_measurement.Complete)
@@ -333,20 +340,35 @@ internal sealed class MobileSmoothnessSession : IDisposable
                 _ => throw new InvalidDataException(scenario)
             };
         }
-        var point = target.TranslatePoint(new Point(target.Bounds.Width / 2, target.Bounds.Height * 0.5), _root)
-            ?? throw new InvalidOperationException("The target has no rendered position.");
-        var hit = _root.InputHitTest(point) as Visual;
-        var nativeHit = target is NativeComposerEditorHost native
-            && _nativeEditorHitTest?.Invoke(native, point) == true;
-        if (!nativeHit && (hit is null || !ReferenceEquals(hit, target) && !target.IsVisualAncestorOf(hit)))
-            throw new InvalidOperationException($"The rendered target is covered or not touch-reachable: {scenario}, " +
-                $"{target.Name} at {point}; hit {hit?.GetType().Name} {(hit as Control)?.Name}.");
+        var point = default(Point);
+        await WaitAsync(() =>
+        {
+            if (!target.IsEffectivelyVisible || !target.IsEnabled
+                || target.Bounds.Width <= 0 || target.Bounds.Height <= 0
+                || target.TranslatePoint(new Point(target.Bounds.Width / 2, target.Bounds.Height * 0.5), _root)
+                    is not { } position)
+                return false;
+            point = position;
+            var hit = _root.InputHitTest(point) as Visual;
+            var nativeHit = target is NativeComposerEditorHost native
+                && _nativeEditorHitTest?.Invoke(native, point) == true;
+            return nativeHit || hit is not null && (ReferenceEquals(hit, target) || target.IsVisualAncestorOf(hit));
+        }, $"The rendered target did not become touch-reachable: {scenario}, {target.Name}.");
         _target = new(point.X, point.Y, target.Bounds.Width, target.Bounds.Height, _root.RenderScaling);
         _turns = chatView.GetVisualDescendants().OfType<TranscriptTurnView>().ToArray();
     }
 
     private void OnPresentationMeasured(TranscriptTurnView view, string phase, double duration)
     {
+        if (_capturePreparation && phase == "measure" && _view.IsVisualAncestorOf(view)
+            && view.DataContext is TranscriptTurnViewModel preparedTurn)
+        {
+            if (_preparationPresentations.Count >= 2000)
+                throw new InvalidOperationException("The bounded preparation observer exceeded its event budget.");
+            _preparationPresentations.Add(new(Now, preparedTurn.Id,
+                preparedTurn.DisplayItems.Select(item => item.Kind).ToArray(), phase, duration,
+                view.ViewportDistance, view.GetVisualDescendants().Count()));
+        }
         if (_measurement is not { Complete: false, StartMs: > 0 } measurement
             || !_turns.Contains(view) || view.DataContext is not TranscriptTurnViewModel turn)
             return;
@@ -563,6 +585,7 @@ internal sealed class MobileSmoothnessSession : IDisposable
                 InputToReadyMs = _measurement.InputToReadyMs, InputToScrollMs = _measurement.InputToScrollMs
             },
         LoadedTurns = _shell.Chat.Turns.Count,
+        PreparationPresentations = _preparationPresentations,
         ViewWidth = _view.Bounds.Width, ViewHeight = _view.Bounds.Height,
         Scale = _root.RenderScaling, ClockMs = Now, NativeClockMs = _nativeClock()
     }, SmoothnessJsonContext.Default.SmoothnessState);
