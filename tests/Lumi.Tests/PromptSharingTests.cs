@@ -1,5 +1,5 @@
 using System.Text.Json;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Sharing;
@@ -255,13 +255,13 @@ public sealed class PromptSharingTests
             Provider = provider,
             SystemPrompt = PromptDraftBuilder.SystemPrompt
         });
-        Assert.Same(provider, config.Provider);
-        Assert.Equal("fixture-model", config.Model);
+        Assert.Equal("fixture-key", Assert.Single(config.Inference.Providers!).ApiKey);
+        Assert.Equal("lumi-byok/fixture-model", config.Model);
         Assert.False(config.EnableConfigDiscovery);
-        Assert.False(config.EnableSessionStore);
-        Assert.Empty(config.AvailableTools!);
-        Assert.Null(config.CustomAgents);
-        Assert.Null(config.SkillDirectories);
+        Assert.False(config.State.EnableCrossSessionStore);
+        Assert.Empty(config.Tools.AvailableTools!);
+        Assert.Null(config.Agents.Definitions);
+        Assert.Null(config.Skills.Directories);
     }
 
     [Fact]

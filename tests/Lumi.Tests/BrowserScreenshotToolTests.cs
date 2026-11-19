@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -131,7 +131,7 @@ public sealed class BrowserScreenshotToolTests
     {
         var screenshot = ChatViewModel.BuildBrowserScreenshotTool(
             _ => throw new InvalidOperationException("Session setup must not capture."));
-        SessionConfigBase config = sessionKind switch
+        SessionOptionsBase config = sessionKind switch
         {
             "create" => SessionConfigBuilder.Build(
                 "prompt", null, null, null, [], [], [screenshot], null, null, null, null),
@@ -144,7 +144,7 @@ public sealed class BrowserScreenshotToolTests
             }),
             _ => throw new ArgumentOutOfRangeException(nameof(sessionKind))
         };
-        var tool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(config.Tools!));
+        var tool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(config.Tools.Definitions!));
 
         // The app disables reflection. Its binary SDK envelope needs no JSON return schema,
         // even though the input schema must remain available during every session setup.

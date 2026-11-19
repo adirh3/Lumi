@@ -313,7 +313,7 @@ public sealed class SettingsViewModelCredentialStoreTests
         using var vm = CreateVm(data: data);
 
         vm.UpdateModelCapabilities(
-            [new GitHub.Copilot.ModelInfo
+            [new ModelInfo
             {
                 Id = "native:model",
                 SupportedReasoningEfforts = ["low", "medium", "high"],
@@ -321,7 +321,7 @@ public sealed class SettingsViewModelCredentialStoreTests
             }],
             new HashSet<string> { "native:model" });
         vm.UpdateModelCapabilities(
-            [new GitHub.Copilot.ModelInfo
+            [new ModelInfo
             {
                 Id = "byok:model-1",
                 SupportedReasoningEfforts = ["low", "high"],

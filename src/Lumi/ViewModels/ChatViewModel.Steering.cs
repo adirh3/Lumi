@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -177,7 +177,7 @@ public partial class ChatViewModel
             {
                 Prompt = skillDirectives + ComposeModelPrompt(prompt, userMsg) + referencedChats
                     + BuildSendPromptAdditions(targetChat: activeChat) + interactionContext,
-                Mode = GitHub.Copilot.Rpc.SendMode.Immediate.Value
+                Mode = Microsoft.Copilot.Rpc.SendMode.Immediate.Value
             };
             ApplyMessageAttachments(sendOptions, attachments);
 

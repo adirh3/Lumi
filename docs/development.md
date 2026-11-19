@@ -41,8 +41,8 @@ git submodule update --init --recursive
 
 ### Build & Run
 
-The Copilot SDK is an official NuGet dependency: `GitHub.Copilot.SDK`
-`1.0.33`, restored from NuGet.org. Its native skill-provider API is experimental.
+The Copilot SDK is an official NuGet dependency: `Microsoft.Copilot.SDK`
+`2.0.1`, restored from NuGet.org. Its native skill-provider API is experimental.
 Avalonia is also restored from NuGet.org;
 no vendored package feed is needed. No SDK submodule, source build, patch step,
 feed credentials, or Node.js installation
@@ -79,8 +79,8 @@ they remain in context; fresh research still uses fresh searches. A new task
 does not by itself require loading the same skill again. New skills, explicit
 reloads, edits and instructions lost to compaction still use the native loader.
 
-Installed plugin directories are supplied on both create and resume because chat
-sessions use Lumi's own Copilot configuration folder. The matching CLI `1.0.111`
+installed plugin directories are supplied on both create and resume because chat
+sessions use Lumi's own Copilot configuration folder. The matching CLI `1.0.114`
 fixes plugin activation snapshot failures when an already-live session resumes
 with those directories. Lumi uses the normal SDK resume call without stripping
 plugin configuration, resetting native history, or adding a custom recovery retry.
@@ -98,20 +98,24 @@ If a locally built package occupies the same version in the shared NuGet cache,
 restore with a separate `NUGET_PACKAGES` directory first; rebuilding alone will
 reuse the cached package.
 
-**GitHub sign-in:** [Lumi's CLI acquisition target](../build/Copilot/CopilotCli.targets)
-supplies one checksum-pinned, matching official full Copilot CLI through the SDK's
-supported `CopilotCliBinaryPath` override. The SDK's default headless bundle cannot
-replace the full CLI used for sign-in. The official SDK handles copying the binary
-to build, referencing-project and publish outputs. The SDK uses it over stdio,
-and GitHub's `copilot login` handles browser/device authorization.
+**GitHub sign-in and runtime:** [Lumi's CLI acquisition target](../build/Copilot/CopilotCli.targets)
+supplies one checksum-pinned full Copilot CLI through the SDK's
+`CopilotCliBinaryPath` override. The CLI handles both protocol-4 sessions over
+stdio and browser-based authorization via `copilot login --device-code` in the
+sign-in panel; Lumi does not ship
+the SDK's separate runtime bundle. Explicit stdio retains the child-process
+boundary instead of using v2's default in-process runtime. The full CLI pins
+cover all supported RIDs and verify both release archives and extracted
+executables. When switching an already-built worktree from a dual-runtime
+layout, use a fresh `--artifacts-path` for validation.
 The current full CLI does not expose `logout`, so Lumi uses the SDK account API
 to remove only the selected stored user. Existing credential selection and
 storage are unchanged; AI Models refreshes the shared sign-in display.
-No additional CLI, OAuth app, token store, or Node.js installation is required.
-The [reviewed CLI pins](../build/Copilot/CopilotCliPins.props) must be updated when an
-SDK upgrade changes `CopilotCliVersion`; both downloaded archives and extracted
-executables are verified. `CopilotSkipCliDownload` and `CopilotCliBinaryPath`
-overrides remain available.
+No separately installed CLI, OAuth app, token store, or Node.js installation is
+required. Keep the package's runtime version, protocol and reviewed full-CLI
+pins in lockstep; updating only the package reference breaks the build.
+`CopilotSkipCliDownload` and `CopilotCliBinaryPath` remain available for
+controlled builds; the supplied binary must support both protocol 4 and login.
 
 Model discovery reads the native `models.list` RPC rather than the SDK's
 connection-lifetime-cached flat helper, so the existing on-demand refresh can
@@ -941,12 +945,12 @@ The local MCP proxy is organized by responsibility:
 
 ### Discover plugin versions
 
-SDK 1.0.33 exposes only plugin names, descriptions and assignment through `plugins.marketplaces.browse`.
-Its catalog search/install-plan APIs describe Agent Finder resources, not the user's registered
-marketplaces. The runtime has internal `browsePluginCatalog` / `checkPluginUpdate` operations, but
-the SDK does not expose them for these sources. The upstream fix should expose a typed available
-version/update status (including unknown/error) resolved with the runtime's Git credentials and
-effective source/ref. Lumi deliberately does not duplicate native cache layouts or Git authentication.
+SDK 2.0.1 exposes typed marketplace list, add, remove, browse and refresh APIs. Marketplace
+browse returns plugin names, descriptions and managed assignment, but not available-version or
+update status; its catalog search/install-plan APIs target Agent Finder rather than registered
+marketplaces. Lumi does not duplicate native cache layouts or Git authentication. A future
+version/update view should use a typed runtime API that preserves the effective marketplace
+source/ref and distinguishes unknown or failed checks; do not infer versions from cache paths.
 
 Existing GitHub catalog metadata remains optional. `GitHubRepoRef` accepts HTTPS userinfo and runtime
 `GitHub:`, `URL:` and `Git:` descriptions while retaining only the repository coordinates, never URL

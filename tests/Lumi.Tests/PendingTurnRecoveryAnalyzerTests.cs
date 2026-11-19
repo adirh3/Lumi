@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.ViewModels;
 using Xunit;
 
@@ -104,6 +104,24 @@ public sealed class PendingTurnRecoveryAnalyzerTests
         Assert.Equal(PendingTurnTerminalState.Shutdown, analysis.TerminalState);
         Assert.Equal(0, analysis.ActiveToolCount);
         Assert.Contains("tool-1", analysis.FailedToolCallIds);
+    }
+
+    [Fact]
+    public void AnalyzePersistedLog_OnlyRecoversMainAssistantTextAcrossProtocolVersions()
+    {
+        string[] lines =
+        [
+            """{"type":"user.message","data":{"content":"continue"}}""",
+            """{"type":"assistant.message","agentId":"subagent-v4","data":{"content":"v4 sub-agent answer"}}""",
+            """{"type":"assistant.message","data":{"parentToolCallId":"subagent-v3","content":"v3 sub-agent answer"}}""",
+            """{"type":"assistant.message","data":{"content":"Main answer"}}""",
+            """{"type":"assistant.turn_end","data":{"turnId":"0"}}"""
+        ];
+
+        var analysis = PendingTurnRecoveryAnalyzer.AnalyzePersistedLog(lines, expectedSessionUserMessageCount: 1);
+
+        Assert.True(analysis.AssistantTurnEnded);
+        Assert.Equal("Main answer", Assert.Single(analysis.AssistantMessages).Content);
     }
 
     [Fact]

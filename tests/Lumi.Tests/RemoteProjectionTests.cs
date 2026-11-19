@@ -5,7 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
@@ -1490,7 +1490,7 @@ public sealed class RemoteProjectionTests
                 Id = "claude-opus-5",
                 Capabilities = new ModelCapabilities { Limits = new ModelLimits { MaxContextWindowTokens = 200_000 } },
                 Billing = new ModelBilling { Multiplier = 3 },
-                Policy = new ModelPolicy { State = "unconfigured" }
+                Policy = new ModelPolicy { State = ModelPolicyState.Unconfigured }
             },
             new ModelInfo { Id = "auto", Billing = new ModelBilling { Multiplier = 0 } }
         ]);

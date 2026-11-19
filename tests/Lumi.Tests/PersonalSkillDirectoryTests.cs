@@ -1,7 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Threading;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -18,12 +18,13 @@ public sealed class PersonalSkillDirectoryTests
     [Fact]
     public async Task SkillDiscovery_CancellationDoesNotWaitForAnUnresponsiveFolderProbe()
     {
+        var runtime = RuntimeConnection.ForSpawnedStdio(TestCopilot.BundledRuntimePath);
+        runtime.BaseDirectory = Path.Combine(TestProfile.Root, "cancelled-skill-discovery");
         await using var client = new CopilotClient(new CopilotClientOptions
         {
             Mode = CopilotClientMode.Empty,
-            BaseDirectory = Path.Combine(TestProfile.Root, "cancelled-skill-discovery"),
-            UseLoggedInUser = false,
-            Connection = RuntimeConnection.ForStdio(),
+            Runtime = runtime,
+            GitHub = new ClientGitHubOptions { UseLoggedInUser = false },
         });
         var provider = new CopilotSdkCapabilityProvider(() => client);
         var folders = new TaskCompletionSource<IReadOnlyList<string>>(

@@ -3,7 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 
 namespace Lumi.ViewModels;
 

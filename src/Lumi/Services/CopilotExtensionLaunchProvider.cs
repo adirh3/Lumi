@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Text;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot.Rpc;
 
 namespace Lumi.Services;
 

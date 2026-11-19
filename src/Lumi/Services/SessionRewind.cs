@@ -4,8 +4,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot;
+using Microsoft.Copilot.Rpc;
 using Lumi.Models;
 
 namespace Lumi.Services;
@@ -28,7 +28,7 @@ internal readonly record struct SessionRewindResult(bool HistoryRewound, RewindF
 
 /// <summary>
 /// Going back to before one of a Copilot session's user turns, through the runtime's history API.
-/// The session captures every file its agent changes (<see cref="SessionConfigBase.EnableFileChangeTracking"/>,
+/// The session captures every file its agent changes (<see cref="SessionOptionsBase.EnableFileChangeTracking"/>,
 /// from its first turn): going back can put those files back as they were, skipping any the person
 /// changed since. The runtime owns the captures and the restore; this maps its answers onto Lumi's.
 /// </summary>

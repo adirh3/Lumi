@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 
 namespace Lumi.Services;
@@ -79,7 +79,11 @@ internal static class CopilotModelCatalog
         => provider is null && IsAutoTierSelection(selection) ? "auto" : selection;
 
     internal static string? GetSessionModelSelection(string? model, AutoTier? autoTier)
-        => IsAutoSelection(model) && autoTier is { } tier ? AutoTierPrefix + tier.Value : model;
+        => IsAutoSelection(model) && autoTier is { } tier
+            ? AutoTierPrefix + tier.Value
+            : model?.StartsWith(ByokConfigHelper.SessionProviderName + "/", StringComparison.Ordinal) == true
+                ? ByokConfigHelper.TokenPrefix + model[(ByokConfigHelper.SessionProviderName.Length + 1)..]
+                : model;
 
     internal static CapiSessionOptions? CreateCapiOptions(string? selection, ProviderConfig? provider = null)
         => provider is null && GetAutoTier(selection) is { } tier
@@ -87,7 +91,7 @@ internal static class CopilotModelCatalog
             : null;
 
 #pragma warning disable GHCP001 // Read the native account-bound catalog, including its advertised Auto tiers.
-    internal static ModelCatalogSnapshot BuildSnapshot(GitHub.Copilot.Rpc.ModelList catalog)
+    internal static ModelCatalogSnapshot BuildSnapshot(Microsoft.Copilot.Rpc.ModelList catalog)
     {
         var longContextModelIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var limits = new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase);
@@ -97,8 +101,10 @@ internal static class CopilotModelCatalog
                 continue;
 
             var tokenPrices = model.Billing?.TokenPrices;
-            var defaultContextMax = NormalizeContextMax(tokenPrices?.ContextMax);
-            var longContextMax = NormalizeContextMax(tokenPrices?.LongContext?.ContextMax);
+            var defaultContextMax = NormalizeContextMax(model.Capabilities?.Limits?.MaxContextWindowTokens);
+            var longPromptMax = NormalizeContextMax(tokenPrices?.LongContext?.MaxPromptTokens);
+            var maxOutputTokens = NormalizeContextMax(model.Capabilities?.Limits?.MaxOutputTokens);
+            var longContextMax = longPromptMax > 0 ? longPromptMax + maxOutputTokens : 0;
             if (longContextMax > 0)
                 longContextModelIds.Add(model.Id);
             if (defaultContextMax > 0 || longContextMax > 0)
@@ -109,15 +115,15 @@ internal static class CopilotModelCatalog
     }
 
     /// <summary>The image model Copilot's native tool uses: the account's default available one, if any.</summary>
-    internal static CopilotImageModel? BuildImageModel(GitHub.Copilot.Rpc.ModelList catalog)
+    internal static CopilotImageModel? BuildImageModel(Microsoft.Copilot.Rpc.ModelList catalog)
         => catalog.ImageModels?
-            .Where(static model => model.Availability == GitHub.Copilot.Rpc.ImageToolModelAvailability.Available
+            .Where(static model => model.Availability == Microsoft.Copilot.Rpc.ImageToolModelAvailability.Available
                 && !string.IsNullOrWhiteSpace(model.Id))
             .OrderByDescending(static model => model.IsDefault == true)
             .Select(static model => new CopilotImageModel(model.Id, string.IsNullOrWhiteSpace(model.Name) ? model.Id : model.Name))
             .FirstOrDefault();
 
-    internal static List<ModelInfo> BuildModels(GitHub.Copilot.Rpc.ModelList catalog)
+    internal static List<ModelInfo> BuildModels(Microsoft.Copilot.Rpc.ModelList catalog)
     {
         // The SDK's flat and native model types share the wire schema. Preserve all flat metadata
         // without calling ListModelsAsync, whose internal cache survives a picker refresh.
@@ -133,7 +139,11 @@ internal static class CopilotModelCatalog
                 Id = AutoTierPrefix + tier.Id,
                 Name = tier.FusionTier is not null
                     ? $"Copilot Fusion {tier.DisplayName}"
-                    : $"Auto {tier.DisplayName}"
+                    : $"Auto {tier.DisplayName}",
+                Capabilities = new ModelCapabilities
+                {
+                    Limits = new Microsoft.Copilot.Rpc.ModelCapabilitiesLimits { MaxContextWindowTokens = 0 }
+                }
             })
             .ToList();
         if (tiers is { Count: > 0 })
@@ -167,7 +177,7 @@ internal static class CopilotModelCatalog
 }
 
 #pragma warning disable GHCP001
-[JsonSerializable(typeof(IList<GitHub.Copilot.Rpc.Model>), TypeInfoPropertyName = "NativeModels")]
+[JsonSerializable(typeof(IList<Microsoft.Copilot.Rpc.Model>), TypeInfoPropertyName = "NativeModels")]
 internal partial class CopilotCatalogJsonContext : JsonSerializerContext;
 #pragma warning restore GHCP001
 

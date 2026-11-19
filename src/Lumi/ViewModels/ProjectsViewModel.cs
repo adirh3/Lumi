@@ -97,7 +97,7 @@ public partial class ProjectsViewModel : ObservableObject
     public ProjectsViewModel(
         DataStore dataStore,
         ProjectGitSyncService? projectGitSyncService = null,
-        Func<CancellationToken, Task<GitHub.Copilot.Rpc.SandboxHostSupport?>>? sandboxSupport = null)
+        Func<CancellationToken, Task<Microsoft.Copilot.Rpc.SandboxHostSupport?>>? sandboxSupport = null)
     {
         _dataStore = dataStore;
         _projectGitSyncService = projectGitSyncService;

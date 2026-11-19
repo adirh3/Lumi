@@ -1066,7 +1066,7 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         var hidden = await Assert.ThrowsAsync<InvalidOperationException>(() => browser.CaptureScreenshotAsync(first));
         Assert.Contains("hidden", hidden.Message, StringComparison.OrdinalIgnoreCase);
         var captureTool = Lumi.ViewModels.ChatViewModel.BuildBrowserScreenshotTool(browser.CaptureScreenshotAsync);
-        var failure = Assert.IsType<GitHub.Copilot.ToolResultAIContent>(await captureTool.InvokeAsync(
+        var failure = Assert.IsType<Microsoft.Copilot.ToolResultAIContent>(await captureTool.InvokeAsync(
             new Microsoft.Extensions.AI.AIFunctionArguments { ["tabId"] = first }));
         Assert.Equal("failure", failure.Result.ResultType);
         Assert.Contains("Switch to this tab and show the browser panel", failure.Result.TextResultForLlm);

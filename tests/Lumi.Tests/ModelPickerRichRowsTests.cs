@@ -12,7 +12,7 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -88,7 +88,7 @@ public class ModelOptionCatalogTests
                 Supports = new ModelSupports { Vision = true, ReasoningEffort = true }
             },
             Billing = new ModelBilling { Multiplier = 1 },
-            Policy = new ModelPolicy { State = "enabled" }
+            Policy = new ModelPolicy { State = ModelPolicyState.Enabled }
         });
 
         Assert.Equal(200_000, metadata.ContextTokens);
@@ -118,7 +118,7 @@ public class ModelOptionCatalogTests
         var metadata = ModelOptionCatalog.Describe(new ModelInfo
         {
             Id = "gated-model",
-            Policy = new ModelPolicy { State = "unconfigured" }
+            Policy = new ModelPolicy { State = ModelPolicyState.Unconfigured }
         });
 
         Assert.True(metadata.RequiresOptIn);

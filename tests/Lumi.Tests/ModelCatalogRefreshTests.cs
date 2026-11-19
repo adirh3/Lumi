@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Xunit;

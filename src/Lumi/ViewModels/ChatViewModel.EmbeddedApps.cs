@@ -5,8 +5,8 @@ using System.Text.Json.Nodes;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot;
+using Microsoft.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -230,7 +230,8 @@ public partial class ChatViewModel
                     : null;
                 var session = await GetAppSessionAsync(chat, message, cancellationToken, reuseLive: true);
                 // The app cannot choose which connector it speaks for, including for its app-only tools.
-                var result = await session.Rpc.Mcp.Apps.CallToolAsync(serverName, name, serverName, arguments, cancellationToken);
+                var result = await session.Rpc.Mcp.Apps.CallToolAsync(
+                    serverName, name, serverName, arguments, null, cancellationToken);
                 return EmbeddedAppData.ToJsonObject(result);
             }
             case "resources/read":

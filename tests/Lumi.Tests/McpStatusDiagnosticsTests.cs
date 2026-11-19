@@ -1,7 +1,7 @@
 using System;
 using System.Net;
 using System.Text;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Xunit;

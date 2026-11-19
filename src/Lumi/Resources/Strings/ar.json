@@ -2137,7 +2137,7 @@
   "Setting_StatsAgents": "الوكلاء",
   "Setting_StatsProjects": "المشاريع",
   "Setting_BuiltWith": "بُني باستخدام",
-  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, GitHub Copilot SDK, CommunityToolkit.Mvvm",
+  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, Microsoft Copilot SDK, CommunityToolkit.Mvvm",
   "Setting_Language": "لغة العرض",
   "SettingDesc_Language": "تغيير لغة الواجهة (يتطلب إعادة التشغيل)",
   "Button_ClearChats": "مسح المحادثات",

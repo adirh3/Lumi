@@ -10,7 +10,7 @@ using Avalonia.Media.Immutable;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -1480,8 +1480,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
                             SystemPrompt = "Call lumi_connection_check once, then respond with its exact returned word. No other action.",
                             Tools = [tool],
                             ModelCapabilities = starter.Model.ContextTokens is { } tokens
-                                ? new GitHub.Copilot.Rpc.ModelCapabilitiesOverride
-                                { Limits = new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideLimits { MaxContextWindowTokens = tokens } } : null
+                                ? new Microsoft.Copilot.Rpc.ModelCapabilitiesOverride
+                                { Limits = new Microsoft.Copilot.Rpc.ModelCapabilitiesOverrideLimits { MaxContextWindowTokens = tokens } } : null
                         },
                         async (session, innerCt) =>
                         {

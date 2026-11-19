@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -376,7 +376,7 @@ public partial class ChatViewModel
     /// tier from new sessions.
     /// </param>
     public void UpdateModelCapabilities(
-        List<GitHub.Copilot.ModelInfo> models,
+        List<ModelInfo> models,
         IReadOnlySet<string>? longContextModelIds = null,
         IReadOnlyDictionary<string, ModelContextWindowLimits>? contextWindowLimits = null,
         bool merge = false,

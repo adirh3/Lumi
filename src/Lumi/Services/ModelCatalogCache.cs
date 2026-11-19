@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 
 namespace Lumi.Services;
 

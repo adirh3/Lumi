@@ -1,4 +1,4 @@
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -27,7 +27,7 @@ public sealed class CopilotAuthenticationTests
             Login = "current-user"
         };
         var selected = hasStoredSelection
-            ? new GitHub.Copilot.Rpc.AuthInfoUser { Host = "https://github.com", Login = "stored-user" }
+            ? new Microsoft.Copilot.Rpc.AuthInfoUser { Host = "https://github.com", Login = "stored-user" }
             : null;
 
         var target = CopilotService.GetSignOutIdentity(status, selected);

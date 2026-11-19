@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 
@@ -356,20 +356,17 @@ public static partial class ToolDisplayHelper
     }
 
     /// <summary>Extracts terminal/text output from SDK tool result fields.</summary>
-    public static string? ExtractTerminalOutput(ToolExecutionCompleteResult? result)
+    public static string? ExtractTerminalOutput(ToolExecutionCompleteResult? result, string? liveOutput = null)
     {
-        if (result is null)
-            return null;
-
-        var detailed = CleanTerminalOutput(result.DetailedContent);
-        if (!string.IsNullOrWhiteSpace(detailed))
-            return detailed;
-
-        var contentsText = ExtractTerminalOutputFromContents(result.Contents);
-        if (!string.IsNullOrWhiteSpace(contentsText))
-            return CleanTerminalOutput(contentsText);
-
-        return CleanTerminalOutput(result.Content);
+        var completed = CleanTerminalOutput(result?.DetailedContent);
+        if (string.IsNullOrWhiteSpace(completed))
+            completed = CleanTerminalOutput(ExtractTerminalOutputFromContents(result?.Contents));
+        if (string.IsNullOrWhiteSpace(completed))
+            completed = CleanTerminalOutput(result?.Content);
+        var streamed = CleanTerminalOutput(liveOutput);
+        // A shell completion can contain only a preview, even after the full text streamed live.
+        return streamed is not null && streamed.Length > (completed?.Length ?? 0)
+            ? streamed : completed;
     }
 
     private static string? ExtractToolCompletionOutput(ToolExecutionCompleteResult? result)
@@ -551,10 +548,10 @@ public static partial class ToolDisplayHelper
         var chunks = new List<string>();
         foreach (var item in contents)
         {
-            if (item is ToolExecutionCompleteContentTerminal terminal)
+            if (item is ToolExecutionCompleteContentShellExit shellExit)
             {
-                if (!string.IsNullOrWhiteSpace(terminal.Text))
-                    chunks.Add(terminal.Text);
+                if (!string.IsNullOrWhiteSpace(shellExit.OutputPreview))
+                    chunks.Add(shellExit.OutputPreview);
                 continue;
             }
 

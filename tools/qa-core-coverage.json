@@ -235,7 +235,7 @@
     "Lumi.Tests.SessionConfigBuilderTests.BuildForResume_UsesPersistentMcpOAuthTokenStorage",
     "Lumi.Tests.SessionConfigBuilderTests.BuildForResume_WithUnresolvedCapabilities_DisablesRuntimeDiscovery",
     "Lumi.Tests.SessionConfigBuilderTests.BuildLightweight_HonorsExplicitConfigDir",
-    "Lumi.Tests.SessionConfigBuilderTests.BuildLightweight_UsesLumiCopilotConfigDirByDefault",
+    "Lumi.Tests.SessionConfigBuilderTests.BuildLightweight_UsesLumiCopilotConfigDirAndDoesNotRequestReasoningByDefault",
     "Lumi.Tests.SessionConfigBuilderTests.Build_AppliesContextTier",
     "Lumi.Tests.SessionConfigBuilderTests.Build_RequestsReasoningSummary_SoReasoningStaysVisible",
     "Lumi.Tests.SessionConfigBuilderTests.Build_UsesLumiCopilotConfigDir",

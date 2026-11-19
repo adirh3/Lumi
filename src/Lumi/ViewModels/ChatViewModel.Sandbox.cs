@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -141,8 +141,11 @@ public partial class ChatViewModel
         try
         {
             var result = await session.Rpc.Options.UpdateAsync(
-                sandboxConfig: config ?? new SandboxConfig { Enabled = false },
-                sandboxConfigSource: SandboxPolicy.SourceOf(_dataStore.Data.Settings, project, chat.SandboxDisabled));
+                permissions: new Microsoft.Copilot.Rpc.SessionUpdatePermissionOptions
+                {
+                    Sandbox = config ?? new SandboxConfig { Enabled = false },
+                    SandboxSource = SandboxPolicy.SourceOf(_dataStore.Data.Settings, project, chat.SandboxDisabled)
+                });
             if (!result.Success)
                 throw new InvalidOperationException(Loc.Get("Sandbox_NotApplied"));
             return true;

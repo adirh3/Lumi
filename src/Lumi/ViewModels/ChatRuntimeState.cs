@@ -10,13 +10,13 @@ internal enum ContextTokenLimitSource
 }
 
 /// <summary>A model pick waiting for the running turn to end.</summary>
-/// <param name="WireModelId">The model id the runtime reports when the switch applies.</param>
+/// <param name="SessionModelId">The selected session model id the runtime reports when the switch applies.</param>
 /// <param name="QueueIds">The runtime's queue items holding the switch.</param>
 /// <param name="NeedsNewSession">
 /// No switch is queued: the running session can't take the pick (it routes to another endpoint, or the
 /// session rejected it), so the next message's session does.
 /// </param>
-internal sealed record PendingModelSwitch(string WireModelId, IReadOnlyList<string> QueueIds, bool NeedsNewSession = false);
+internal sealed record PendingModelSwitch(string SessionModelId, IReadOnlyList<string> QueueIds, bool NeedsNewSession = false);
 
 internal sealed class ChatRuntimeState
 {

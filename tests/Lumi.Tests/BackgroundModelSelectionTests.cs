@@ -1,5 +1,5 @@
 using System.Globalization;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Converters;
 using Lumi.Localization;
 using Lumi.Models;
@@ -14,7 +14,7 @@ public class BackgroundModelSelectionTests
     {
         Id = id,
         Billing = multiplier is { } cost ? new ModelBilling { Multiplier = cost } : null,
-        Policy = policy is not null ? new ModelPolicy { State = policy } : null
+        Policy = policy is not null ? new ModelPolicy { State = new ModelPolicyState(policy) } : null
     };
 
     private static ModelInfo T(string id, long? batchSize, double? input, double? output, double? multiplier = null)
@@ -234,19 +234,20 @@ public class BackgroundModelSelectionTests
     [Fact]
     public void ReusableHelperSignatureChangesWithModelProviderAndCapabilities()
     {
-        var config = new SessionConfig { Model = "gpt-6-luna" };
+        var config = new CreateSessionOptions { Model = "gpt-6-luna" };
         var original = CopilotService.GetLightweightSessionModelSignature(config);
         config.Model = "gpt-6-sol";
         Assert.NotEqual(original, CopilotService.GetLightweightSessionModelSignature(config));
         config.Model = "gpt-6-luna";
         Assert.Equal(original, CopilotService.GetLightweightSessionModelSignature(config));
-        config.Provider = new ProviderConfig { BaseUrl = "https://example.com/v1" };
+        var provider = new ProviderConfig { BaseUrl = "https://example.com/v1" };
+        SessionConfigBuilder.ApplyProviderRouting(config, "gpt-6-luna", provider, null, null);
         var withProvider = CopilotService.GetLightweightSessionModelSignature(config);
         Assert.NotEqual(original, withProvider);
-        config.ModelCapabilities = new()
+        SessionConfigBuilder.ApplyProviderRouting(config, "gpt-6-luna", provider, null, new()
         {
             Limits = new() { MaxContextWindowTokens = 128_000 }
-        };
+        });
         Assert.NotEqual(withProvider, CopilotService.GetLightweightSessionModelSignature(config));
     }
 }

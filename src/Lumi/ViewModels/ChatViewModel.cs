@@ -17,7 +17,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -27,7 +27,7 @@ using Lumi.Services.ImageGeneration;
 using StrataTheme.Controls;
 
 using ChatMessage = Lumi.Models.ChatMessage;
-using RpcMcpServer = GitHub.Copilot.Rpc.McpServer;
+using RpcMcpServer = Microsoft.Copilot.Rpc.McpServer;
 
 namespace Lumi.ViewModels;
 
@@ -417,7 +417,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex) when (string.Equals(
                                       ex.GetType().FullName,
-                                      "GitHub.Copilot.RemoteRpcException",
+                                      "Microsoft.Copilot.RemoteRpcException",
                                       StringComparison.Ordinal))
         {
             Debug.WriteLine($"[MCP] Startup status RPC failed for chat {chatId}: {ex.Message}");
@@ -941,7 +941,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>The CopilotSession for the currently displayed chat. Events for this session update the UI.</summary>
     private CopilotSession? _activeSession;
     /// <summary>
-    /// Routing signature of the <see cref="GitHub.Copilot.ProviderConfig"/> that <see cref="_activeSession"/>
+    /// Routing signature of the <see cref="Microsoft.Copilot.ProviderConfig"/> that <see cref="_activeSession"/>
     /// was created with (see <see cref="ByokConfigHelper.BuildProviderSignature"/>). Compared against the
     /// newly selected model's resolved signature in <see cref="SwitchModelMidSessionAsync"/> so a mid-session
     /// model change to a DIFFERENT endpoint (e.g. switching from OpenAI to Anthropic BYOK, or from a BYOK
@@ -1295,13 +1295,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             persistedModel = chat.LastModelUsed;
         }
         else if (ByokConfigHelper.IsByokModel(chat.LastModelUsed)
-            && ByokConfigHelper.TryResolveModel(
+            && ByokConfigHelper.MatchesWireModelId(
                 _dataStore.Data.Settings,
                 chat.LastModelUsed,
-                out _,
-                out _,
-                out var currentWireModelId)
-            && string.Equals(currentWireModelId, effectiveModel, StringComparison.Ordinal))
+                effectiveModel))
         {
             persistedModel = chat.LastModelUsed;
         }
@@ -2501,7 +2498,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var answer = await tcs.Task;
                 await Dispatcher.UIThread.InvokeAsync(() =>
                     PersistQuestionAnswer(inputHandlerChatId, questionId, answer));
-                return new GitHub.Copilot.UserInputResponse { Answer = answer, WasFreeform = true };
+                return new Microsoft.Copilot.UserInputResponse { Answer = answer, WasFreeform = true };
             }
             finally
             {
@@ -2521,8 +2518,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var sessionCt = sessionCts?.Token ?? ct;
 
         // Resolve the BYOK provider for the selected model (if any). When the user has a BYOK
-        // token selected, route the wire model id through SessionConfig.Model and pass the
-        // provider config (URL, API key, etc.) through SessionConfig.Provider. If the token is
+        // token selected, route the wire model id through CreateSessionOptions.Model and pass the
+        // provider config (URL, API key, etc.) through CreateSessionOptions.Provider. If the token is
         // stale (deleted model/endpoint, validation failure), surface a clear error instead of
         // silently routing through Copilot.
         var modelRoute = ResolveModelRouteForChat(selectedModel, chat, allowLegacyByWireId: true);
@@ -2555,7 +2552,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // was created on a DIFFERENT provider than what the user has selected now (e.g. the chat
         // started on GitHub's default backend with claude-haiku-4.5, then the user switched to a
         // BYOK GLM endpoint), resuming the old session would silently keep routing requests to
-        // the original backend — the BYOK provider config passed to ResumeSessionConfig does NOT
+        // the original backend — the BYOK provider config passed to ResumeSessionOptions does NOT
         // re-route an already-established server-side session. Drop the stale session ID so a
         // fresh session is created against the correct endpoint. This check is critical after an
         // app restart, when in-memory signature caches (_sessionProviderSignatures) are empty and
@@ -2591,35 +2588,37 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // The runtime keeps no sandbox across a resume, so every create and resume sends it.
         var sandbox = await PrepareSessionSandboxAsync(chat, project, workDir, SandboxReadOnlyRoots(capabilities, project), ct);
 
-        SessionConfig buildSessionConfig()
+        CreateSessionOptions buildSessionConfig()
         {
             var config = SessionConfigBuilder.Build(
                 systemPrompt, byokProvider is null ? modelRoute.SelectionToken : selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
                 effort, userInputHandler, permissionHandler, hooks, agentName, contextTier,
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
-                modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
-            config.ManagedSettings = askLayer;
+                modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots,
+                providerModelId: modelRoute.ByokModel?.Id);
+            config.Policy.ManagedSettings = askLayer;
 #pragma warning disable GHCP001 // Image generation and the sandbox are experimental Copilot SDK options.
-            config.ImageGeneration = imageGeneration;
-            config.SandboxConfig = sandbox;
+            config.Tools.ImageGeneration = imageGeneration;
+            config.Permissions.Sandbox = sandbox;
 #pragma warning restore GHCP001
             return config;
         }
 
-        ResumeSessionConfig buildResumeConfig()
+        ResumeSessionOptions buildResumeConfig()
         {
             // The Ask layer is startup-only: a resume must supply it again or it is dropped.
             var config = SessionConfigBuilder.BuildForResume(
                 systemPrompt, byokProvider is null ? modelRoute.SelectionToken : selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
                 effort, userInputHandler, permissionHandler, hooks, agentName, contextTier,
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
-                modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
-            config.ManagedSettings = askLayer;
+                modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots,
+                providerModelId: modelRoute.ByokModel?.Id);
+            config.Policy.ManagedSettings = askLayer;
 #pragma warning disable GHCP001 // Image generation and the sandbox are experimental Copilot SDK options.
-            config.ImageGeneration = imageGeneration;
-            config.SandboxConfig = sandbox;
+            config.Tools.ImageGeneration = imageGeneration;
+            config.Permissions.Sandbox = sandbox;
 #pragma warning restore GHCP001
-            config.OpenCanvases = EmbeddedAppData.SavedOpenCanvases(chat, _dataStore.GetAppMessages(chat));
+            config.Canvases.Open = EmbeddedAppData.SavedOpenCanvases(chat, _dataStore.GetAppMessages(chat));
             return config;
         }
 
@@ -2702,7 +2701,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     return false;
                 await RestorePendingPermissionsAsync(session, chat, sessionCt);
                 // The SDK does not automatically change the session model on resume —
-                // ResumeSessionConfig.Model only sets a preference for the CLI process,
+                // ResumeSessionOptions.Model only sets a preference for the CLI process,
                 // but the session's internal model stays at whatever it was created with.
                 // Explicitly call SetModelAsync so context-window limits match the
                 // user's current selection (e.g. switching from gpt-5.4 to opus-4.6-1m).
@@ -2713,7 +2712,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     try
                     {
                         await session.SetModelAsync(
-                            selectedModel,
+                            modelRoute.SessionModelId!,
                             SessionConfigBuilder.CreateSetModelOptions(
                                 modelRoute.SelectionToken, effort, contextTier, byokModelCapabilities),
                             sessionCt);
@@ -2806,7 +2805,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         try
         {
             var verbosity = SessionConfigBuilder.CreateResponseVerbosity(_dataStore.Data.Settings.ResponseDetail);
-            var result = await session.Rpc.Options.UpdateAsync(verbosity: verbosity, cancellationToken: ct);
+            var result = await session.Rpc.Options.UpdateAsync(
+                inference: new Microsoft.Copilot.Rpc.SessionUpdateInferenceOptions { Verbosity = verbosity },
+                cancellationToken: ct);
             if (!result.Success)
                 throw new InvalidOperationException(Loc.Get("ResponseDetail_ApplyFailed"));
         }
@@ -3998,9 +3999,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 && (hasEffortOverride || (hasModelOverride && !needsSessionSetup)))
             {
                 var overrideRoute = ResolveModelRouteForChat(targetChat.LastModelUsed, targetChat);
-                if (overrideRoute.IsInvalidByok || string.IsNullOrWhiteSpace(overrideRoute.WireModelId))
+                if (overrideRoute.IsInvalidByok || string.IsNullOrWhiteSpace(overrideRoute.SessionModelId))
                     throw new InvalidOperationException(Loc.Byok_Error_StaleModel);
-                var overrideModel = overrideRoute.WireModelId;
+                var overrideModel = overrideRoute.SessionModelId;
                 var overrideEffort = ResolveReasoningEffortForModel(
                     targetChat.LastReasoningEffortUsed,
                     targetChat.LastModelUsed);
@@ -4011,13 +4012,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var overrideContextTier = ResolveContextWindowTierForModel(
                     targetChat.LastContextWindowTierUsed,
                     targetChat.LastModelUsed);
+                var overrideCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+                    overrideRoute.ByokModel, overrideContextTier);
                 try
                 {
+                    await SessionConfigBuilder.EnsureProviderModelRegisteredAsync(
+                        sendSession, overrideRoute, overrideCapabilities, cts.Token);
                     await sendSession.SetModelAsync(
                         overrideModel,
                         SessionConfigBuilder.CreateSetModelOptions(
                             overrideRoute.SelectionToken, overrideEffort, overrideContextTier,
-                            ByokConfigHelper.BuildModelCapabilitiesOverride(overrideRoute.ByokModel, overrideContextTier)));
+                            overrideCapabilities));
                 }
                 catch (Exception ex) when (!CopilotModelCatalog.IsAutoTierSelection(overrideRoute.SelectionToken))
                 {
@@ -5225,7 +5230,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     targetChat.CopilotSessionId,
                     StringComparison.Ordinal);
 
-                // Agent is pre-selected via SessionConfig.Agent in EnsureSessionAsync.
+                // Agent is pre-selected via CreateSessionOptions.Agent in EnsureSessionAsync.
                 // File-based Copilot agents are handled via system prompt injection.
 
                 // Refresh quota in background
@@ -6013,7 +6018,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     commandId,
                     string.Empty,
                     cancellationToken: ct);
-                if (result is GitHub.Copilot.Rpc.SlashCommandInvocationResultAgentPrompt { Prompt: { Length: > 0 } directive })
+                if (result is Microsoft.Copilot.Rpc.SlashCommandInvocationResultAgentPrompt { Prompt: { Length: > 0 } directive })
                     builder.Append(directive).Append('\n');
             }
             catch (OperationCanceledException)

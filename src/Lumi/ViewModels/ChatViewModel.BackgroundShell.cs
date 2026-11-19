@@ -5,8 +5,8 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
-using GitHub.Copilot;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot;
+using Microsoft.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -114,7 +114,7 @@ public partial class ChatViewModel
         return tasks.Select(task => task switch
         {
             TaskInfoShell shell when IsRunningBackgroundShell(shell) => CreateCommandActivity(shell, now),
-            TaskInfoAgent agent when agent.Status == GitHub.Copilot.Rpc.TaskStatus.Running => CreateAgentActivity(agent, now),
+            TaskInfoAgent agent when agent.Status == Microsoft.Copilot.Rpc.TaskStatus.Running => CreateAgentActivity(agent, now),
             TaskInfoClient client when client.Status == TaskClientStatus.Running => CreateClientActivity(client, now),
             _ => null
         }).OfType<SessionActivityItem>().ToArray();
@@ -194,8 +194,8 @@ public partial class ChatViewModel
 
         static string? GetRunningTaskId(TaskInfo task) => task switch
         {
-            TaskInfoShell shell when shell.Status == GitHub.Copilot.Rpc.TaskStatus.Running => shell.Id,
-            TaskInfoAgent agent when agent.Status == GitHub.Copilot.Rpc.TaskStatus.Running => agent.Id,
+            TaskInfoShell shell when shell.Status == Microsoft.Copilot.Rpc.TaskStatus.Running => shell.Id,
+            TaskInfoAgent agent when agent.Status == Microsoft.Copilot.Rpc.TaskStatus.Running => agent.Id,
             TaskInfoClient client when client.Status == TaskClientStatus.Running => client.Id,
             _ => null
         };
@@ -502,7 +502,7 @@ public partial class ChatViewModel
     }
 
     private static bool IsRunningBackgroundShell(TaskInfoShell shell)
-        => shell.Status == GitHub.Copilot.Rpc.TaskStatus.Running
+        => shell.Status == Microsoft.Copilot.Rpc.TaskStatus.Running
            && shell.ExecutionMode is { } mode
            && mode == TaskExecutionMode.Background;
 

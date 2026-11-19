@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Byok;
@@ -407,6 +407,7 @@ public sealed class ByokConfigHelperTests
         var selectedToken = ByokConfigHelper.BuildModelToken(model);
 
         Assert.True(ByokConfigHelper.MatchesWireModelId(settings, selectedToken, "gpt-6-luna"));
+        Assert.True(ByokConfigHelper.MatchesWireModelId(settings, selectedToken, "lumi-byok/m1"));
         Assert.False(ByokConfigHelper.MatchesWireModelId(settings, selectedToken, "gpt-5"));
         Assert.False(ByokConfigHelper.MatchesWireModelId(settings, "byok:missing", "gpt-6-luna"));
     }
@@ -609,7 +610,7 @@ public sealed class ByokConfigHelperTests
         //
         // This test pins the contract at the resolver level (the actual data source for
         // SwitchModelMidSessionAsync's SetModelAsync argument), since CopilotSession is an
-        // external GitHub.Copilot SDK type that cannot be substituted in a unit test without a
+        // external Microsoft.Copilot SDK type that cannot be substituted in a unit test without a
         // mocking library.
         var settings = new UserSettings();
         var endpoint = MakeValidEndpoint("e1");

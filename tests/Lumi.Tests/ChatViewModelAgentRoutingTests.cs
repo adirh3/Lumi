@@ -1,4 +1,4 @@
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Capabilities;
@@ -796,11 +796,11 @@ public sealed class ChatViewModelAgentRoutingTests
         if (!NativeBrowserLogic.IsEmbeddedBrowserAvailable)
         {
             Assert.Empty(tools);
-            Assert.Null(config.Tools);
+            Assert.Null(config.Tools.Definitions);
             return;
         }
 
-        var tool = Assert.Single(config.Tools!);
+        var tool = Assert.Single(config.Tools.Definitions!);
         Assert.Equal(ToolDisplayHelper.BrowserOpenToolName, tool.Name);
         Assert.Equal(CopilotToolDefer.Never,
             Assert.IsType<CopilotToolDefer>(tool.AdditionalProperties["defer"]));
@@ -813,21 +813,21 @@ public sealed class ChatViewModelAgentRoutingTests
     {
         using var harness = CreateHarness(new AppData());
         var tools = InvokeBuildCustomTools(harness.ViewModel);
-        SessionConfigBase config = resume
+        SessionOptionsBase config = resume
             ? SessionConfigBuilder.BuildForResume(
                 "prompt", null, null, null, [], [], tools, null, null, null, null)
             : SessionConfigBuilder.Build(
                 "prompt", null, null, null, [], [], tools, null, null, null, null);
 
         Assert.NotNull(config.Tools);
-        Assert.NotEmpty(config.Tools);
-        Assert.Equal(tools.Select(tool => tool.Name), config.Tools.Select(tool => tool.Name));
-        Assert.All(config.Tools, tool =>
+        Assert.NotEmpty(config.Tools.Definitions!);
+        Assert.Equal(tools.Select(tool => tool.Name), config.Tools.Definitions.Select(tool => tool.Name));
+        Assert.All(config.Tools.Definitions, tool =>
         {
             Assert.True(tool.AdditionalProperties.TryGetValue("defer", out var defer));
             Assert.Equal(CopilotToolDefer.Never, Assert.IsType<CopilotToolDefer>(defer));
         });
-        Assert.Null(config.ToolSearch);
+        Assert.Null(config.Tools.Search);
     }
 
     [Fact]
@@ -1144,14 +1144,14 @@ public sealed class ChatViewModelAgentRoutingTests
             activeSkills: [skill], memories: []);
         var agentName = ChatViewModel.ResolveSessionAgentName(agent, routedAgentName: null);
 
-        SessionConfigBase config = resume
+        SessionOptionsBase config = resume
             ? SessionConfigBuilder.BuildForResume(
                 prompt, "gpt-5.4", null, null, [], agents, [], null, null, null, null, agentName: agentName)
             : SessionConfigBuilder.Build(
                 prompt, "gpt-5.4", null, null, [], agents, [], null, null, null, null, agentName: agentName);
 
-        var persona = Assert.Single(config.CustomAgents!);
-        Assert.Equal(agent.Name, config.Agent);
+        var persona = Assert.Single(config.Agents.Definitions!);
+        Assert.Equal(agent.Name, config.Agents.Selected);
         Assert.Equal(agent.SystemPrompt, persona.Prompt);
         Assert.Null(persona.Tools);
         Assert.Null(persona.Model);
@@ -1219,7 +1219,7 @@ public sealed class ChatViewModelAgentRoutingTests
         var tools = InvokeBuildCustomTools(harness.ViewModel, agent);
         var config = SessionConfigBuilder.Build(
             "prompt", null, null, null, [], [], tools, null, null, null, null);
-        var tool = Assert.Single(config.Tools!);
+        var tool = Assert.Single(config.Tools.Definitions!);
 
         Assert.Equal("lumi_fetch", tool.Name);
         Assert.Equal(CopilotToolDefer.Never,
@@ -1324,7 +1324,7 @@ public sealed class ChatViewModelAgentRoutingTests
         return session;
     }
 
-    private static GitHub.Copilot.ModelInfo CreateModel(string id, params string[] efforts)
+    private static ModelInfo CreateModel(string id, params string[] efforts)
         => new()
         {
             Id = id,

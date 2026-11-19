@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -438,6 +438,8 @@ public partial class ChatViewModel
         var streamingToolCalls = new Dictionary<string, StreamingToolCall>(StringComparer.Ordinal);
         // Live shell output so far, by tool call (tool.shell_output arrives in chunks).
         var shellOutputByToolCallId = new Dictionary<string, LiveShellOutput>(StringComparer.Ordinal);
+        var shellOutputSequencesByCallId =
+            new Dictionary<string, Dictionary<ToolShellOutputStream, long>>(StringComparer.Ordinal);
 
         async Task ReadSqlPlanAsync(string toolCallId, int readSequence)
         {
@@ -672,7 +674,7 @@ public partial class ChatViewModel
         _copilotService.CliProcessExited += OnCliProcessExited;
 
 
-        string? GetSubagentOutputToolCallId(SessionEvent evt, string? parentToolCallId = null)
+        string? GetSubagentOutputToolCallId(SessionEvent evt)
         {
             if (IsRootAgentEvent(evt))
                 return null;
@@ -682,9 +684,6 @@ public partial class ChatViewModel
                 if (subagentToolCallIdsByAgentId.TryGetValue(evt.AgentId!, out var toolCallId))
                     return toolCallId;
             }
-
-            if (!string.IsNullOrWhiteSpace(parentToolCallId))
-                return parentToolCallId;
 
             System.Diagnostics.Trace.TraceWarning(
                 $"[Chat] Cannot route {evt.Type} from unknown subagent {evt.AgentId} in chat {chat.Id}.");
@@ -1134,7 +1133,7 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                         if (IsAuthoritativeSession())
-                            OnCanvasOpened(chat, session.SessionId, new GitHub.Copilot.Rpc.OpenCanvasInstance
+                            OnCanvasOpened(chat, session.SessionId, new Microsoft.Copilot.Rpc.OpenCanvasInstance
                             {
                                 InstanceId = canvasOpened.Data.InstanceId,
                                 CanvasId = canvasOpened.Data.CanvasId,
@@ -1207,10 +1206,8 @@ public partial class ChatViewModel
                     break;
 
                 case AssistantMessageDeltaEvent delta:
-#pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; still required for sub-agent stream routing.
                     var activeSubagentToolCallIdForAssistantDelta =
-                        GetSubagentOutputToolCallId(delta, delta.Data.ParentToolCallId);
-#pragma warning restore CS0618
+                        GetSubagentOutputToolCallId(delta);
                     if (!string.IsNullOrWhiteSpace(activeSubagentToolCallIdForAssistantDelta))
                     {
                         GetOrCreateSubagentStream(
@@ -1227,10 +1224,8 @@ public partial class ChatViewModel
                     break;
 
                 case AssistantMessageEvent msg:
-#pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; still required for sub-agent stream routing.
                     var activeSubagentToolCallIdForAssistantMessage =
-                        GetSubagentOutputToolCallId(msg, msg.Data.ParentToolCallId);
-#pragma warning restore CS0618
+                        GetSubagentOutputToolCallId(msg);
                     if (!string.IsNullOrWhiteSpace(activeSubagentToolCallIdForAssistantMessage))
                     {
                         var subagentAssistantStream = GetSubagentStream(
@@ -1460,22 +1455,22 @@ public partial class ChatViewModel
                     // (which can be large while the UI thread is busy rendering a stream) must not
                     // be counted as command time.
                     var toolStartedAt = DateTimeOffset.UtcNow;
+                    var parentToolCallId = GetSubagentOutputToolCallId(toolStart);
                     Dispatcher.UIThread.Post(() =>
                     {
                     var startToolCallId = toolStart.Data.ToolCallId;
                     if (endsStreamingToolCall && IsDisplayedSession())
                         _transcriptBuilder.EndToolDraft(startToolCallId);
-#pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; still required for sub-agent tool grouping.
-                    toolParentById[startToolCallId] = toolStart.Data.ParentToolCallId;
+                    toolParentById[startToolCallId] = parentToolCallId;
                     if (ToolDisplayHelper.IsShellCommandTool(toolStart.Data.ToolName))
                     {
                         terminalRootByToolCallId[startToolCallId] = startToolCallId;
                     }
                     else if (ToolDisplayHelper.IsTerminalStreamingTool(toolStart.Data.ToolName)
-                             && !string.IsNullOrWhiteSpace(toolStart.Data.ParentToolCallId))
+                             && !string.IsNullOrWhiteSpace(parentToolCallId))
                     {
                         terminalRootByToolCallId[startToolCallId] = ToolDisplayHelper.ResolveRootTerminalToolCallId(
-                            toolStart.Data.ParentToolCallId!, toolParentById, terminalRootByToolCallId);
+                            parentToolCallId!, toolParentById, terminalRootByToolCallId);
                     }
 
                     var toolArguments = toolStart.Data.Arguments?.ToString();
@@ -1505,7 +1500,7 @@ public partial class ChatViewModel
                         {
                             Role = "tool",
                             ToolCallId = startToolCallId,
-                            ParentToolCallId = toolStart.Data.ParentToolCallId,
+                            ParentToolCallId = parentToolCallId,
                             ToolName = toolStart.Data.ToolName,
                             ToolSkillName = displaySkillName,
                             ToolStatus = toolStatus,
@@ -1517,8 +1512,7 @@ public partial class ChatViewModel
                     }
                     else
                     {
-                        toolMsg.ParentToolCallId = toolStart.Data.ParentToolCallId;
-#pragma warning restore CS0618
+                        toolMsg.ParentToolCallId = parentToolCallId;
                         toolMsg.ToolName = toolStart.Data.ToolName;
                         toolMsg.ToolSkillName = displaySkillName ?? toolMsg.ToolSkillName;
                         toolMsg.ToolStatus = toolStatus;
@@ -1557,21 +1551,19 @@ public partial class ChatViewModel
                 case ToolShellOutputEvent shellOutput:
                     // Live output arrives in chunks; the row shows it as it grows, or its latest part once long.
                     var shellToolCallId = shellOutput.Data.ToolCallId;
+                    if (!shellOutputSequencesByCallId.TryGetValue(shellToolCallId, out var sequencesByStream))
+                        shellOutputSequencesByCallId[shellToolCallId] =
+                            sequencesByStream = new Dictionary<ToolShellOutputStream, long>();
+                    var stream = shellOutput.Data.Stream ?? ToolShellOutputStream.Stdout;
+                    if (sequencesByStream.TryGetValue(stream, out var lastSequence)
+                        && shellOutput.Data.Sequence <= lastSequence)
+                        break;
+                    sequencesByStream[stream] = shellOutput.Data.Sequence;
                     if (!shellOutputByToolCallId.TryGetValue(shellToolCallId, out var shellText))
                         shellOutputByToolCallId[shellToolCallId] = shellText = new LiveShellOutput();
                     var shellSnapshot = shellText.Append(shellOutput.Data.Text);
                     var shellSnapshotIsTail = shellText.IsTail;
                     Dispatcher.UIThread.Post(() => ApplyLiveTerminalOutput(shellToolCallId, shellSnapshot, shellSnapshotIsTail));
-                    break;
-
-                case ToolExecutionPartialResultEvent partial:
-                    // The deprecated merged form of the same output, for a CLI that does not send it in chunks.
-                    if (shellOutputByToolCallId.ContainsKey(partial.Data.ToolCallId))
-                        break;
-
-                    var partialToolCallId = partial.Data.ToolCallId;
-                    var partialOutput = partial.Data.PartialOutput;
-                    Dispatcher.UIThread.Post(() => ApplyLiveTerminalOutput(partialToolCallId, partialOutput));
                     break;
 
                 case SessionTodosChangedEvent when IsRootAgentEvent(evt):
@@ -1618,7 +1610,8 @@ public partial class ChatViewModel
                     appServersByToolCallId.Remove(toolEnd.Data.ToolCallId, out var completedAppServer);
                     if (toolEnd.Data.ToolCallId == runningRootSqlToolCallId)
                         runningRootSqlToolCallId = null;
-                    shellOutputByToolCallId.Remove(toolEnd.Data.ToolCallId);
+                    shellOutputByToolCallId.Remove(toolEnd.Data.ToolCallId, out var finishedShell);
+                    shellOutputSequencesByCallId.Remove(toolEnd.Data.ToolCallId);
                     _ = RestartNativeMcpServerAfterSessionLossAsync(
                         toolEnd.Data,
                         nativeMcpServersByToolCallId,
@@ -1635,15 +1628,14 @@ public partial class ChatViewModel
                     var completedToolOutput = toolEnd.Data.Success == true
                         ? null
                         : ToolDisplayHelper.ExtractFailedToolOutput(toolEnd.Data.Error, toolEnd.Data.Result);
+                    var completedParentToolCallId = GetSubagentOutputToolCallId(toolEnd);
                     if (!string.IsNullOrWhiteSpace(completedToolOutput))
                         completedToolOutputsByCallId[toolEnd.Data.ToolCallId] = completedToolOutput;
                     else
                         completedToolOutputsByCallId.Remove(toolEnd.Data.ToolCallId);
                     Dispatcher.UIThread.Post(() =>
                     {
-#pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; still required for sub-agent tool grouping.
-                    toolParentById[toolEnd.Data.ToolCallId] = toolEnd.Data.ParentToolCallId;
-#pragma warning restore CS0618
+                    toolParentById[toolEnd.Data.ToolCallId] = completedParentToolCallId;
 
                     var success = toolEnd.Data.Success == true;
                     var toolMsg = chat.Messages.LastOrDefault(m => m.ToolCallId == toolEnd.Data.ToolCallId);
@@ -1720,7 +1712,7 @@ public partial class ChatViewModel
                         {
                             var rootToolCallId = ToolDisplayHelper.ResolveRootTerminalToolCallId(
                                 toolEnd.Data.ToolCallId, toolParentById, terminalRootByToolCallId);
-                            var output = ToolDisplayHelper.ExtractTerminalOutput(toolEnd.Data.Result);
+                            var output = ToolDisplayHelper.ExtractTerminalOutput(toolEnd.Data.Result, finishedShell?.Snapshot());
                             if (!string.IsNullOrWhiteSpace(output))
                             {
                                 ToolDisplayHelper.ApplyTerminalOutput(chat, rootToolCallId, output, replaceExistingOutput: true);
@@ -2739,32 +2731,31 @@ public partial class ChatViewModel
                 case SessionModelChangeEvent modelChange when IsRootAgentEvent(evt):
                     Dispatcher.UIThread.Post(() =>
                     {
-                    if (!string.IsNullOrWhiteSpace(modelChange.Data.NewModel))
+                    var newModel = modelChange.Data.NewModel;
+                    if (!string.IsNullOrWhiteSpace(newModel))
                     {
-                        // Session events report the provider's wire id, while the chat stores a stable byok:<id> token.
+                        // Keep runtime ids out of the picker; use the wire id only for matching and switch confirmation.
                         var chatModelChange = ResolveSelectedModelForChat(chat);
-                        if (!string.IsNullOrWhiteSpace(chatModelChange)
-                            && ByokConfigHelper.IsByokModel(chatModelChange)
-                            && !ByokConfigHelper.MatchesWireModelId(
-                                _dataStore.Data.Settings,
-                                chatModelChange,
-                                modelChange.Data.NewModel))
+                        var selection = CopilotModelCatalog.GetSessionModelSelection(newModel, modelChange.Data.AutoTier);
+                        if (ByokConfigHelper.IsByokModel(chatModelChange))
                         {
-                            return;
+                            if (!ByokConfigHelper.MatchesWireModelId(_dataStore.Data.Settings, chatModelChange, newModel))
+                                return;
+                            selection = chatModelChange;
                         }
                         var canExposeModel = !_dataStore.Data.Settings.UseBYOKOnly
-                            || ByokConfigHelper.IsByokModel(modelChange.Data.NewModel);
-                        if (IsDisplayedSession() && canExposeModel && !AvailableModels.Contains(modelChange.Data.NewModel))
-                            AvailableModels.Add(modelChange.Data.NewModel);
+                            || ByokConfigHelper.IsByokModel(selection);
+                        var pickerModel = ByokConfigHelper.IsByokModel(selection) ? selection! : newModel;
+                        if (IsDisplayedSession() && canExposeModel && !AvailableModels.Contains(pickerModel))
+                            AvailableModels.Add(pickerModel);
                         ApplySessionModelState(
                             chat,
                             runtime,
-                            CopilotModelCatalog.GetSessionModelSelection(
-                                modelChange.Data.NewModel, modelChange.Data.AutoTier),
+                            selection,
                             modelChange.Data.ReasoningEffort,
                             modelChange.Data.ContextTier,
                             IsDisplayedSession());
-                        ConfirmModelSwitch(chat, runtime, modelChange.Data.NewModel);
+                        ConfirmModelSwitch(chat, runtime, newModel);
                         // Update in-flight streaming message with the actual model used
                         if (streamingMsg is not null)
                             streamingMsg.Model = runtime.ActiveModelId;

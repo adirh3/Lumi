@@ -2,7 +2,7 @@ using System.Diagnostics;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -66,7 +66,7 @@ public partial class ChatViewModel
     private async Task SwitchSessionModelAsync(
         Chat chat,
         CopilotSession session,
-        string wireModelId,
+        SessionModelRoute route,
         SetModelOptions options,
         CancellationToken selectionToken)
     {
@@ -77,9 +77,13 @@ public partial class ChatViewModel
             if (runtime.PendingModelSwitch is { } waiting)
                 await SessionModelSwitch.RemoveQueuedAsync(session, waiting.QueueIds);
             runtime.PendingModelSwitch = null;
-            var result = await SessionModelSwitch.SwitchAsync(session, wireModelId, options);
+            await SessionConfigBuilder.EnsureProviderModelRegisteredAsync(
+                session, route, options.ModelCapabilities, selectionToken);
+            var sessionModelId = route.SessionModelId
+                ?? throw new InvalidOperationException(Loc.Byok_Error_StaleModel);
+            var result = await SessionModelSwitch.SwitchAsync(session, sessionModelId, options, selectionToken);
             if (result.Deferred)
-                runtime.PendingModelSwitch = new PendingModelSwitch(wireModelId, result.QueueIds);
+                runtime.PendingModelSwitch = new PendingModelSwitch(sessionModelId, result.QueueIds);
             else if (runtime.IsBusy && !chat.IsPaused)
                 ShowModelSwitchApplied(chat);
         }
@@ -96,7 +100,7 @@ public partial class ChatViewModel
     /// message starts a session on the pick's (a session can't move to another endpoint, so the running
     /// work can't continue there).
     /// </summary>
-    private async Task WaitForSessionRebuildAsync(Chat chat, string wireModelId, CancellationToken selectionToken)
+    private async Task WaitForSessionRebuildAsync(Chat chat, string sessionModelId, CancellationToken selectionToken)
     {
         var runtime = GetOrCreateRuntimeState(chat.Id);
         await _modelSwitchGate.WaitAsync(selectionToken);
@@ -105,7 +109,7 @@ public partial class ChatViewModel
             if (runtime.PendingModelSwitch is { } waiting && _sessionCache.TryGetValue(chat.Id, out var session))
                 await SessionModelSwitch.RemoveQueuedAsync(session, waiting.QueueIds);
             runtime.PendingModelSwitch = runtime.IsBusy
-                ? new PendingModelSwitch(wireModelId, [], NeedsNewSession: true)
+                ? new PendingModelSwitch(sessionModelId, [], NeedsNewSession: true)
                 : null;
         }
         finally
@@ -140,28 +144,35 @@ public partial class ChatViewModel
 
             var selection = ResolveSelectedModelForChat(chat);
             var route = ResolveModelRouteForChat(selection, chat);
-            if (route.IsInvalidByok || string.IsNullOrWhiteSpace(route.WireModelId))
+            if (route.IsInvalidByok || string.IsNullOrWhiteSpace(route.SessionModelId))
                 return;
 
             var effort = ResolvePersistedReasoningEffortForChat(chat, selection);
             var tier = ResolveSelectedContextWindowTierForChat(chat, selection);
             try
             {
+                await SessionConfigBuilder.EnsureProviderModelRegisteredAsync(
+                    session,
+                    route,
+                    ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, tier),
+                    CancellationToken.None);
+                var sessionModelId = route.SessionModelId
+                    ?? throw new InvalidOperationException(Loc.Byok_Error_StaleModel);
                 var result = await SessionModelSwitch.SwitchAsync(
                     session,
-                    route.WireModelId,
+                    sessionModelId,
                     SessionConfigBuilder.CreateSetModelOptions(
                         route.SelectionToken, effort, tier,
                         ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, tier)));
                 if (result.Deferred)
-                    runtime.PendingModelSwitch = new PendingModelSwitch(route.WireModelId, result.QueueIds);
+                    runtime.PendingModelSwitch = new PendingModelSwitch(sessionModelId, result.QueueIds);
             }
             catch (Exception ex)
             {
                 Trace.TraceWarning("[Chat] Could not apply the model picked during the last reply: {0}", ex);
                 // The session can't take the pick, so the next message rebuilds it; until then the pick waits.
                 _pendingSessionInvalidations.Add(chat.Id);
-                runtime.PendingModelSwitch = new PendingModelSwitch(route.WireModelId, [], NeedsNewSession: true);
+                runtime.PendingModelSwitch = new PendingModelSwitch(route.SessionModelId!, [], NeedsNewSession: true);
             }
         }
         finally
@@ -176,7 +187,7 @@ public partial class ChatViewModel
     private void ConfirmModelSwitch(Chat chat, ChatRuntimeState runtime, string? newModel)
     {
         if (runtime.PendingModelSwitch is not { NeedsNewSession: false } pending
-            || !string.Equals(pending.WireModelId, newModel, StringComparison.OrdinalIgnoreCase))
+            || !string.Equals(pending.SessionModelId, newModel, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }

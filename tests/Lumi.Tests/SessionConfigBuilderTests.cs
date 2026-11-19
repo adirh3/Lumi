@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Microsoft.Extensions.AI;
@@ -19,9 +19,9 @@ public sealed class SessionConfigBuilderTests
     {
         var config = BuildWithTools(sessionKind, []);
 
-        Assert.False(config.EnableSessionTelemetry);
-        Assert.Equal(sessionKind != "lightweight", config.EnableSessionStore);
-        Assert.Equal(sessionKind != "lightweight", config.InfiniteSessions!.Enabled);
+        Assert.False(config.GitHub.TelemetryEnabled);
+        Assert.Equal(sessionKind != "lightweight", config.State.EnableCrossSessionStore);
+        Assert.Equal(sessionKind != "lightweight", config.State.InfiniteSessions!.Enabled);
     }
 
     [Theory]
@@ -34,7 +34,7 @@ public sealed class SessionConfigBuilderTests
 
         // A chat's session captures the files its agent changes, so an edit can put them back; a
         // helper session changes no files.
-        Assert.Equal(sessionKind != "lightweight", config.EnableFileChangeTracking == true);
+        Assert.Equal(sessionKind != "lightweight", config.Filesystem.TrackFileChanges == true);
     }
 
     [Fact]
@@ -45,12 +45,14 @@ public sealed class SessionConfigBuilderTests
         var config = SessionConfigBuilder.BuildForReadOnlyResume(provider);
 
         // A profile that uses only its own accounts refuses a resume without the chat's account.
-        Assert.Same(provider, config.Provider);
+        var sessionProvider = Assert.Single(config.Inference.Providers!);
+        Assert.Equal(provider.Type, sessionProvider.Type);
+        Assert.Equal(provider.BaseUrl, sessionProvider.BaseUrl);
         Assert.Null(config.SystemMessage);
-        Assert.True(config.Tools is null or { Count: 0 });
-        Assert.True(config.McpServers is null or { Count: 0 });
+        Assert.True(config.Tools.Definitions is null or { Count: 0 });
+        Assert.True(config.Mcp.Servers is null or { Count: 0 });
         Assert.False(config.EnableConfigDiscovery);
-        Assert.True(config.EnableFileChangeTracking);
+        Assert.True(config.Filesystem.TrackFileChanges);
     }
 
     [Theory]
@@ -82,7 +84,7 @@ public sealed class SessionConfigBuilderTests
             });
 
         var config = BuildWithTools(sessionKind, [original]);
-        var tool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(config.Tools!));
+        var tool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(config.Tools.Definitions!));
 
         Assert.Equal(original.Name, tool.Name);
         Assert.Equal(original.Description, tool.Description);
@@ -96,7 +98,7 @@ public sealed class SessionConfigBuilderTests
         Assert.Same(metadata, tool.AdditionalProperties["test_metadata"]);
         Assert.Equal(CopilotToolDefer.Auto,
             Assert.IsType<CopilotToolDefer>(original.AdditionalProperties["defer"]));
-        Assert.Null(config.ToolSearch);
+        Assert.Null(config.Tools.Search);
 
         var result = await tool.InvokeAsync(arguments, cts.Token);
         Assert.Equal("receiptreceipt", Assert.IsType<JsonElement>(result).GetString());
@@ -114,7 +116,7 @@ public sealed class SessionConfigBuilderTests
 
         var original = AIFunctionFactory.Create(Invoke, "failing_tool", "Diagnostic failure.");
         var config = BuildWithTools("create", [original]);
-        var tool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(config.Tools!));
+        var tool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(config.Tools.Definitions!));
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => tool.InvokeAsync().AsTask());
         Assert.Same(failure, error);
@@ -126,7 +128,7 @@ public sealed class SessionConfigBuilderTests
         Assert.Equal(cts.Token, cancelled.CancellationToken);
     }
 
-    private static SessionConfigBase BuildWithTools(string sessionKind, List<AIFunction> tools) =>
+    private static SessionOptionsBase BuildWithTools(string sessionKind, List<AIFunction> tools) =>
         sessionKind switch
         {
             "create" => SessionConfigBuilder.Build(
@@ -147,7 +149,7 @@ public sealed class SessionConfigBuilderTests
     public void InstalledPlugins_ReachSessionsOnlyOnceDiscoveryIsResolved(bool resume)
     {
         List<string> plugins = [@"C:\copilot-home\installed-plugins\awesome-copilot\azure"];
-        SessionConfigBase Build(bool discovery) => resume
+        SessionOptionsBase Build(bool discovery) => resume
             ? SessionConfigBuilder.BuildForResume(
                 "prompt", null, null, null, [], [], [], null, null, null, null,
                 enableCapabilityDiscovery: discovery, pluginDirectories: plugins)
@@ -157,9 +159,9 @@ public sealed class SessionConfigBuilderTests
 
         // Lumi's sessions use their own config folder, so the runtime only loads what plugins
         // install when it is told where they are.
-        Assert.Equal(plugins, Build(discovery: true).PluginDirectories);
+        Assert.Equal(plugins, Build(discovery: true).Plugins.Directories);
         // Plugin MCP servers start on load; until discovery is resolved they must stay out.
-        Assert.Null(Build(discovery: false).PluginDirectories);
+        Assert.Null(Build(discovery: false).Plugins.Directories);
     }
 
     [Theory]
@@ -169,7 +171,7 @@ public sealed class SessionConfigBuilderTests
     {
         var provider = new LumiSkillProvider(_ =>
             System.Threading.Tasks.Task.FromResult<IReadOnlyList<Skill>>([]));
-        SessionConfigBase config = resume
+        SessionOptionsBase config = resume
             ? SessionConfigBuilder.BuildForResume(
                 "prompt", null, null, null, [@"C:\external-skills"], [], [], null, null, null, null,
                 enableCapabilityDiscovery: false, skillProvider: provider)
@@ -177,10 +179,10 @@ public sealed class SessionConfigBuilderTests
                 "prompt", null, null, null, [@"C:\external-skills"], [], [], null, null, null, null,
                 enableCapabilityDiscovery: false, skillProvider: provider);
 
-        Assert.True(config.EnableSkills);
+        Assert.True(config.Skills.Enabled);
         Assert.False(config.EnableConfigDiscovery);
-        Assert.Null(config.SkillDirectories);
-        Assert.Empty(config.IncludedBuiltinSkills!);
+        Assert.Null(config.Skills.Directories);
+        Assert.Empty(config.Skills.IncludedBuiltinSkills!);
     }
 
     [Fact]
@@ -198,13 +200,13 @@ public sealed class SessionConfigBuilderTests
 
 #pragma warning disable GHCP001 // The trial intentionally exercises the SDK's experimental provider binding.
         Assert.IsAssignableFrom<ISkillProvider>(provider);
-        Assert.Same(provider, created.SkillProvider);
-        Assert.Same(provider, resumed.SkillProvider);
+        Assert.Same(provider, created.Skills.Provider);
+        Assert.Same(provider, resumed.Skills.Provider);
 #pragma warning restore GHCP001
-        Assert.Equal(roots, created.SkillDirectories);
-        Assert.Equal(roots, resumed.SkillDirectories);
-        Assert.DoesNotContain("builtin:skill", created.ExcludedTools!);
-        Assert.DoesNotContain("builtin:skill", resumed.ExcludedTools!);
+        Assert.Equal(roots, created.Skills.Directories);
+        Assert.Equal(roots, resumed.Skills.Directories);
+        Assert.DoesNotContain("builtin:skill", created.Tools.ExcludedTools!);
+        Assert.DoesNotContain("builtin:skill", resumed.Tools.ExcludedTools!);
     }
 
     [Fact]
@@ -227,12 +229,12 @@ public sealed class SessionConfigBuilderTests
             skillDirectories: null, customAgents: [], tools: [], reasoningEffort: null,
             userInputHandler: null, onPermission: null, hooks: null);
 
-        Assert.Equal(600_000, created.McpServers!["local"].Timeout);
-        Assert.Equal(600_000, resumed.McpServers!["local"].Timeout);
-        Assert.Same(plan.Servers, created.McpServers);
-        Assert.Same(plan.Servers, resumed.McpServers);
-        Assert.Null(created.ToolSearch);
-        Assert.Null(resumed.ToolSearch);
+        Assert.Equal(600_000, created.Mcp.Servers!["local"].Timeout);
+        Assert.Equal(600_000, resumed.Mcp.Servers!["local"].Timeout);
+        Assert.Same(plan.Servers, created.Mcp.Servers);
+        Assert.Same(plan.Servers, resumed.Mcp.Servers);
+        Assert.Null(created.Tools.Search);
+        Assert.Null(resumed.Tools.Search);
     }
 
     [Fact]
@@ -258,20 +260,20 @@ public sealed class SessionConfigBuilderTests
         Assert.NotEqual(workDir, config.ConfigDirectory);
         // Capability discovery is delegated to the Copilot runtime.
         Assert.True(config.EnableConfigDiscovery);
-        Assert.True(config.EnableSkills);
+        Assert.True(config.Skills.Enabled);
 #pragma warning disable GHCP001
         Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable
-            && CopilotExtensionLaunchProvider.NodePath is not null, config.RequestExtensions);
-        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable, config.EnableMcpApps);
-        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable, config.RequestCanvasRenderer);
+            && CopilotExtensionLaunchProvider.NodePath is not null, config.Extensions.Enabled);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable, config.Mcp.EnableApps);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable, config.Canvases.RequestRenderer);
 #pragma warning restore GHCP001
-        Assert.Null(config.SkillDirectories);
-        Assert.NotNull(config.McpServers);
-        Assert.Empty(config.McpServers!);
-        Assert.Contains("builtin:web_fetch", config.ExcludedTools!);
-        Assert.Contains("builtin:browser", config.ExcludedTools!);
-        Assert.Contains("builtin:ask_user", config.ExcludedTools!);
-        Assert.DoesNotContain("builtin:web_search", config.ExcludedTools!);
+        Assert.Null(config.Skills.Directories);
+        Assert.NotNull(config.Mcp.Servers);
+        Assert.Empty(config.Mcp.Servers!);
+        Assert.Contains("builtin:web_fetch", config.Tools.ExcludedTools!);
+        Assert.Contains("builtin:browser", config.Tools.ExcludedTools!);
+        Assert.Contains("builtin:ask_user", config.Tools.ExcludedTools!);
+        Assert.DoesNotContain("builtin:web_search", config.Tools.ExcludedTools!);
     }
 
     [Fact]
@@ -295,8 +297,8 @@ public sealed class SessionConfigBuilderTests
             enableCapabilityDiscovery: false);
 
         Assert.False(config.EnableConfigDiscovery);
-        Assert.False(config.EnableSkills);
-        Assert.Null(config.SkillDirectories);
+        Assert.False(config.Skills.Enabled);
+        Assert.Null(config.Skills.Directories);
     }
 
     [Fact]
@@ -317,8 +319,8 @@ public sealed class SessionConfigBuilderTests
             enableCapabilityDiscovery: false);
 
         Assert.False(config.EnableConfigDiscovery);
-        Assert.False(config.EnableSkills);
-        Assert.Null(config.SkillDirectories);
+        Assert.False(config.Skills.Enabled);
+        Assert.Null(config.Skills.Directories);
     }
 
     [Fact]
@@ -344,20 +346,20 @@ public sealed class SessionConfigBuilderTests
         Assert.NotEqual(workDir, config.ConfigDirectory);
         // Capability discovery is delegated to the Copilot runtime.
         Assert.True(config.EnableConfigDiscovery);
-        Assert.True(config.EnableSkills);
+        Assert.True(config.Skills.Enabled);
 #pragma warning disable GHCP001
         Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable
-            && CopilotExtensionLaunchProvider.NodePath is not null, config.RequestExtensions);
-        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable, config.EnableMcpApps);
-        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable, config.RequestCanvasRenderer);
+            && CopilotExtensionLaunchProvider.NodePath is not null, config.Extensions.Enabled);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable, config.Mcp.EnableApps);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable, config.Canvases.RequestRenderer);
 #pragma warning restore GHCP001
-        Assert.Null(config.SkillDirectories);
-        Assert.NotNull(config.McpServers);
-        Assert.Empty(config.McpServers!);
-        Assert.Contains("builtin:web_fetch", config.ExcludedTools!);
-        Assert.Contains("builtin:browser", config.ExcludedTools!);
-        Assert.Contains("builtin:ask_user", config.ExcludedTools!);
-        Assert.DoesNotContain("builtin:web_search", config.ExcludedTools!);
+        Assert.Null(config.Skills.Directories);
+        Assert.NotNull(config.Mcp.Servers);
+        Assert.Empty(config.Mcp.Servers!);
+        Assert.Contains("builtin:web_fetch", config.Tools.ExcludedTools!);
+        Assert.Contains("builtin:browser", config.Tools.ExcludedTools!);
+        Assert.Contains("builtin:ask_user", config.Tools.ExcludedTools!);
+        Assert.DoesNotContain("builtin:web_search", config.Tools.ExcludedTools!);
     }
 
     [Fact]
@@ -380,7 +382,7 @@ public sealed class SessionConfigBuilderTests
         // multitenant hosts. Lumi is a single-user desktop client, so MCP OAuth tokens must be
         // stored in the OS keychain and reused across sessions — otherwise OAuth MCP servers
         // re-prompt / drop every time a session is created or resumed.
-        Assert.Equal(McpOAuthTokenStorageMode.Persistent, config.McpOAuthTokenStorage);
+        Assert.Equal(McpOAuthTokenStorageMode.Persistent, config.Mcp.OauthTokenStorage);
     }
 
     [Fact]
@@ -399,7 +401,7 @@ public sealed class SessionConfigBuilderTests
             onPermission: null,
             hooks: null);
 
-        Assert.Equal(McpOAuthTokenStorageMode.Persistent, config.McpOAuthTokenStorage);
+        Assert.Equal(McpOAuthTokenStorageMode.Persistent, config.Mcp.OauthTokenStorage);
     }
 
     [Fact]
@@ -418,7 +420,7 @@ public sealed class SessionConfigBuilderTests
             onPermission: null,
             hooks: null);
 
-        Assert.Equal(ReasoningSummary.Detailed, config.ReasoningSummary);
+        Assert.Equal(ReasoningSummary.Detailed, config.Inference.ReasoningSummary);
     }
 
     [Theory]
@@ -430,7 +432,7 @@ public sealed class SessionConfigBuilderTests
     public void MainSessions_AppendSharedPromptWithoutModelSpecificOverrides(string? model)
     {
         const string prompt = "Lumi's shared writing and visualization guidance.";
-        SessionConfigBase[] configs =
+        SessionOptionsBase[] configs =
         [
             SessionConfigBuilder.Build(
                 prompt, model, null, null, null, null, null, "high", null, null, null),
@@ -479,7 +481,7 @@ public sealed class SessionConfigBuilderTests
             hooks: null,
             contextTier: ModelContextWindowTiers.LongContext);
 
-        Assert.Equal(ModelContextWindowTiers.LongContext, config.ContextTier?.Value);
+        Assert.Equal(ModelContextWindowTiers.LongContext, config.Inference.ContextTier?.Value);
     }
 
     [Fact]
@@ -498,7 +500,7 @@ public sealed class SessionConfigBuilderTests
             onPermission: null,
             hooks: null);
 
-        Assert.Equal(ReasoningSummary.Detailed, config.ReasoningSummary);
+        Assert.Equal(ReasoningSummary.Detailed, config.Inference.ReasoningSummary);
     }
 
     [Fact]
@@ -518,7 +520,7 @@ public sealed class SessionConfigBuilderTests
             hooks: null,
             contextTier: ModelContextWindowTiers.Default);
 
-        Assert.Equal(ModelContextWindowTiers.Default, config.ContextTier?.Value);
+        Assert.Equal(ModelContextWindowTiers.Default, config.Inference.ContextTier?.Value);
     }
 
 #pragma warning disable GHCP001
@@ -536,7 +538,7 @@ public sealed class SessionConfigBuilderTests
             DefaultContextWindowTokens = 256_000,
             LongContextWindowTokens = 640_000
         }, contextTier);
-        SessionConfigBase config = resume
+        SessionOptionsBase config = resume
             ? SessionConfigBuilder.BuildForResume(
                 systemPrompt: "prompt",
                 model: "gpt-6-luna",
@@ -566,17 +568,17 @@ public sealed class SessionConfigBuilderTests
                 contextTier: contextTier,
                 modelCapabilities: modelCapabilities);
 
-        Assert.Same(modelCapabilities, config.ModelCapabilities);
+        Assert.Same(modelCapabilities, config.Inference.Capabilities);
             Assert.Equal("gpt-6-luna", config.Model);
-            Assert.Equal("max", config.ReasoningEffort);
-            Assert.Equal(contextTier, config.ContextTier?.Value);
-            Assert.True(config.ModelCapabilities?.Supports?.ReasoningEffort);
-            Assert.Equal(expectedLimit, config.ModelCapabilities?.Limits?.MaxContextWindowTokens);
+            Assert.Equal("max", config.Inference.ReasoningEffort);
+            Assert.Equal(contextTier, config.Inference.ContextTier?.Value);
+            Assert.True(config.Inference.Capabilities?.Supports?.ReasoningEffort);
+            Assert.Equal(expectedLimit, config.Inference.Capabilities?.Limits?.MaxContextWindowTokens);
     }
 #pragma warning restore GHCP001
 
     [Fact]
-    public void BuildLightweight_UsesLumiCopilotConfigDirByDefault()
+    public void BuildLightweight_UsesLumiCopilotConfigDirAndDoesNotRequestReasoningByDefault()
     {
         var config = SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
         {
@@ -586,6 +588,7 @@ public sealed class SessionConfigBuilderTests
         Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDirectory);
         // Helper sessions stay isolated: no capability discovery at all.
         Assert.False(config.EnableConfigDiscovery);
+        Assert.Null(config.Inference.ReasoningSummary);
         Assert.Equal(SystemMessageMode.Replace, config.SystemMessage!.Mode);
         Assert.Equal("prompt", config.SystemMessage.Content);
         Assert.Null(config.SystemMessage.Sections);

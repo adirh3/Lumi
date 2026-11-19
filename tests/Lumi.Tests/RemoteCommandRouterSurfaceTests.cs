@@ -2,7 +2,7 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Diagnostics;
 using Avalonia.Threading;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;

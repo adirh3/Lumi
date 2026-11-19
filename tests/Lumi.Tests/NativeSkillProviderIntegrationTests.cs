@@ -10,7 +10,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Capabilities;
@@ -44,14 +44,16 @@ public sealed class NativeSkillProviderIntegrationTests
             $$"""{"name":"{{pluginName}}","version":"1.0.0","description":"Isolated session resume control."}""", ct);
         await File.WriteAllTextAsync(Path.Combine(skillRoot, "SKILL.md"),
             "---\nname: resume-control\ndescription: Isolated resume control.\n---\n\nRESUME_CONTROL_BODY", ct);
+        var runtime = RuntimeConnection.ForSpawnedStdio(TestCopilot.BundledRuntimePath);
+        runtime.BaseDirectory = runtimeHome;
+        runtime.WorkingDirectory = root;
         await using var client = new CopilotClient(new CopilotClientOptions
         {
-            BaseDirectory = runtimeHome,
-            WorkingDirectory = root,
-            UseLoggedInUser = false,
-            Connection = RuntimeConnection.ForStdio(),
-            RequestHandler = new PluginResumeInference(receipt),
-            LogLevel = CopilotLogLevel.Error,
+            Mode = CopilotClientMode.CodingAgent,
+            Runtime = runtime,
+            GitHub = new ClientGitHubOptions { UseLoggedInUser = false },
+            Models = new ClientModelOptions { RequestHandler = new PluginResumeInference(receipt) },
+            Observability = new ClientObservabilityOptions { LogLevel = CopilotLogLevel.Error },
         });
         await client.StartAsync(ct);
         await client.Rpc.Plugins.InstallAsync(pluginRoot, null, ct);
@@ -61,7 +63,7 @@ public sealed class NativeSkillProviderIntegrationTests
         Assert.NotEmpty(capabilities.SessionPluginRoots!);
         var installed = Assert.Single((await client.Rpc.Plugins.ListAsync(ct)).Plugins,
             plugin => plugin.Name == pluginName);
-        var provider = new GitHub.Copilot.ProviderConfig
+        var provider = new Microsoft.Copilot.ProviderConfig
         {
             Type = "openai",
             WireApi = "completions",
@@ -71,9 +73,9 @@ public sealed class NativeSkillProviderIntegrationTests
         var created = SessionConfigBuilder.Build(
             "Isolated plugin resume control.", "gpt-4o-mini", root, null, [], [], [], null,
             null, null, null, provider: provider, pluginDirectories: capabilities.SessionPluginRoots);
-        created.EnableFileHooks = false;
-        created.RequestExtensions = false;
-        created.AvailableTools = [];
+        created.Hooks.EnableRepositoryHooks = false;
+        created.Extensions.Enabled = false;
+        created.Tools.AvailableTools = [];
         var session = await client.CreateSessionAsync(created, ct);
         var sessionId = session.SessionId;
         try
@@ -98,14 +100,14 @@ public sealed class NativeSkillProviderIntegrationTests
                     """{"name":"lumi-resume-replacement","version":"1.0.0"}""", ct);
                 await File.WriteAllTextAsync(Path.Combine(replacementSkillRoot, "SKILL.md"),
                     "---\nname: replacement-control\ndescription: Replacement resume control.\n---\n\nREPLACEMENT_BODY", ct);
-                resumed.PluginDirectories = [replacementRoot];
+                resumed.Plugins.Directories = [replacementRoot];
             }
             else if (pluginChange == "clear")
-                resumed.PluginDirectories = [];
-            resumed.EnableFileHooks = false;
-            resumed.RequestExtensions = false;
-            resumed.AvailableTools = [];
-            var requestedPlugins = resumed.PluginDirectories!.ToArray();
+                resumed.Plugins.Directories = [];
+            resumed.Hooks.EnableRepositoryHooks = false;
+            resumed.Extensions.Enabled = false;
+            resumed.Tools.AvailableTools = [];
+            var requestedPlugins = resumed.Plugins.Directories!.ToArray();
             if (releaseSession)
                 await TestCopilot.Shared.ReleaseSessionAsync(session);
             else
@@ -117,7 +119,7 @@ public sealed class NativeSkillProviderIntegrationTests
             var resumedEvents = await session.GetEventsAsync(ct);
             Assert.All(originalEvents, original =>
                 Assert.Contains(resumedEvents, item => item.Id == original.Id));
-            Assert.Equal(requestedPlugins, resumed.PluginDirectories);
+            Assert.Equal(requestedPlugins, resumed.Plugins.Directories);
             var skills = (await session.Rpc.Skills.ListAsync(ct)).Skills;
             Assert.Equal(pluginChange == "keep",
                 skills.Any(skill => skill.Name.Contains("resume-control", StringComparison.Ordinal)));
@@ -171,23 +173,25 @@ public sealed class NativeSkillProviderIntegrationTests
         var ct = timeout.Token;
         try
         {
+            var runtime = RuntimeConnection.ForSpawnedStdio(TestCopilot.BundledRuntimePath);
+            runtime.BaseDirectory = runtimeHome;
+            runtime.WorkingDirectory = root;
+            runtime.Environment = environment;
             await using var client = new CopilotClient(new CopilotClientOptions
             {
                 Mode = CopilotClientMode.Empty,
-                BaseDirectory = runtimeHome,
-                WorkingDirectory = root,
-                Environment = environment,
-                UseLoggedInUser = false,
-                Connection = RuntimeConnection.ForStdio(),
-                RequestHandler = handler,
-                LogLevel = CopilotLogLevel.Error,
+                Runtime = runtime,
+                GitHub = new ClientGitHubOptions { UseLoggedInUser = false },
+                Models = new ClientModelOptions { RequestHandler = handler },
+                Observability = new ClientObservabilityOptions { LogLevel = CopilotLogLevel.Error },
             });
             await client.StartAsync(ct);
             var provider = new CopilotSdkCapabilityProvider(
                 () => client, () => runtimeHome, () => configured);
             var discovered = await provider.LoadAsync(new CapabilityQuery([root]), ct);
             Assert.True(discovered.IsAvailable);
-            var skill = Assert.Single(discovered.Capabilities, item => item.Name == "personal-control");
+            var skill = Assert.Single(discovered.Capabilities,
+                item => item.Kind == CapabilityKind.Skill && item.Name == "personal-control");
             Assert.Equal("Canonical personal folder control.", skill.Description);
             Assert.Equal(skillFile, skill.SourcePath);
             var sessionRoots = discovered.SessionSkillRoots;
@@ -196,13 +200,12 @@ public sealed class NativeSkillProviderIntegrationTests
             Assert.Equal(1, sessionRoots.Count(path => path == nativeRoot));
             Assert.Contains(discovered.Capabilities, item => item.Name == "native-personal-control");
 
-            void Configure(SessionConfigBase config)
+            void Configure(SessionOptionsBase config)
             {
                 config.WorkingDirectory = root;
                 config.ConfigDirectory = Path.Combine(root, "session-config");
-                config.Model = "gpt-4o-mini";
-                config.Streaming = true;
-                config.Provider = new GitHub.Copilot.ProviderConfig
+                config.Events.Streaming = true;
+                SessionConfigBuilder.ApplyProviderRouting(config, "gpt-4o-mini", new Microsoft.Copilot.ProviderConfig
                 {
                     Type = "openai",
                     WireApi = "completions",
@@ -210,20 +213,20 @@ public sealed class NativeSkillProviderIntegrationTests
                     ApiKey = "synthetic-test-key",
                     ModelId = "gpt-4o-mini",
                     WireModel = "gpt-4o-mini",
-                };
+                }, "gpt-4o-mini", null);
                 config.EnableConfigDiscovery = false;
-                config.EnableSessionStore = false;
-                config.EnableSessionTelemetry = false;
-                config.EnableFileHooks = false;
-                config.EnableSkills = true;
-                config.IncludedBuiltinSkills = [];
-                config.RequestExtensions = false;
-                config.SkillDirectories = sessionRoots.ToList();
-                config.AvailableTools = ["skill"];
-                config.OnPermissionRequest = PermissionHandler.ApproveAll;
+                config.State.EnableCrossSessionStore = false;
+                config.GitHub.TelemetryEnabled = false;
+                config.Hooks.EnableRepositoryHooks = false;
+                config.Skills.Enabled = true;
+                config.Skills.IncludedBuiltinSkills = [];
+                config.Extensions.Enabled = false;
+                config.Skills.Directories = sessionRoots.ToList();
+                config.Tools.AvailableTools = ["skill"];
+                config.Permissions.OnRequest = PermissionHandler.ApproveAll;
             }
 
-            var created = new SessionConfig();
+            var created = new CreateSessionOptions();
             Configure(created);
             var session = await client.CreateSessionAsync(created, ct);
             var sessionId = session.SessionId;
@@ -234,7 +237,7 @@ public sealed class NativeSkillProviderIntegrationTests
                 Assert.Contains(listed.Skills, item => item.Name == "native-personal-control");
 
                 await session.DisposeAsync();
-                var resumed = new ResumeSessionConfig();
+                var resumed = new ResumeSessionOptions();
                 Configure(resumed);
                 session = await client.ResumeSessionAsync(sessionId, resumed, ct);
                 await InvokeSkillAsync(session, handler, "personal-control", body, ct);
@@ -247,8 +250,10 @@ public sealed class NativeSkillProviderIntegrationTests
             Assert.Contains(body, await File.ReadAllTextAsync(skillFile, ct));
             configured.Clear();
             var cleared = await provider.LoadAsync(new CapabilityQuery([root]), ct);
-            Assert.DoesNotContain(cleared.Capabilities, item => item.Name == "personal-control");
-            Assert.Contains(cleared.Capabilities, item => item.Name == "native-personal-control");
+            Assert.DoesNotContain(cleared.Capabilities,
+                item => item.Kind == CapabilityKind.Skill && item.Name == "personal-control");
+            Assert.Contains(cleared.Capabilities,
+                item => item.Kind == CapabilityKind.Skill && item.Name == "native-personal-control");
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -282,15 +287,16 @@ public sealed class NativeSkillProviderIntegrationTests
         var ct = timeout.Token;
         try
         {
+            var runtime = RuntimeConnection.ForSpawnedStdio(TestCopilot.BundledRuntimePath);
+            runtime.BaseDirectory = Path.Combine(root, "copilot");
+            runtime.WorkingDirectory = root;
             await using var client = new CopilotClient(new CopilotClientOptions
             {
                 Mode = CopilotClientMode.Empty,
-                BaseDirectory = Path.Combine(root, "copilot"),
-                WorkingDirectory = root,
-                UseLoggedInUser = false,
-                Connection = RuntimeConnection.ForStdio(),
-                RequestHandler = handler,
-                LogLevel = CopilotLogLevel.Error,
+                Runtime = runtime,
+                GitHub = new ClientGitHubOptions { UseLoggedInUser = false },
+                Models = new ClientModelOptions { RequestHandler = handler },
+                Observability = new ClientObservabilityOptions { LogLevel = CopilotLogLevel.Error },
             });
             await client.StartAsync(ct);
             using var capabilityCatalog = new CapabilityCatalog(
@@ -298,7 +304,7 @@ public sealed class NativeSkillProviderIntegrationTests
                 new NativeFixtureProvider(collidingNativeSkill));
             await capabilityCatalog.LoadAsync(CapabilityQuery.Empty, cancellationToken: ct);
             var capabilities = capabilityCatalog.GetSnapshot(CapabilityQuery.Empty);
-            var config = new SessionConfig();
+            var config = new CreateSessionOptions();
             var runtimeSkillName = Configure(config, root, skillRoot, skills, capabilities);
             var session = await client.CreateSessionAsync(config, ct);
             var sessionId = session.SessionId;
@@ -313,7 +319,7 @@ public sealed class NativeSkillProviderIntegrationTests
                 if (collidingNativeSkill)
                 {
                     await InvokeSkillAsync(session, handler, "code-helper", "NATIVE_COLLIDING_BODY", ct);
-                    var selected = Assert.IsType<GitHub.Copilot.Rpc.SlashCommandInvocationResultAgentPrompt>(
+                    var selected = Assert.IsType<Microsoft.Copilot.Rpc.SlashCommandInvocationResultAgentPrompt>(
                         await session.Rpc.Commands.InvokeAsync("code-helper", "", cancellationToken: ct));
                     Assert.Contains("NATIVE_COLLIDING_BODY", selected.Prompt);
                     Assert.DoesNotContain("LUMI_FIRST_BODY", selected.Prompt);
@@ -325,7 +331,7 @@ public sealed class NativeSkillProviderIntegrationTests
                 await InvokeSkillAsync(session, handler, runtimeSkillName, "LUMI_UPDATED_BODY", ct);
 
                 await session.DisposeAsync();
-                var resume = new ResumeSessionConfig();
+                var resume = new ResumeSessionOptions();
                 Assert.Equal(runtimeSkillName, Configure(resume, root, skillRoot, skills, capabilities));
                 session = await client.ResumeSessionAsync(sessionId, resume, ct);
                 await InvokeSkillAsync(session, handler, runtimeSkillName, "LUMI_UPDATED_BODY", ct);
@@ -361,7 +367,7 @@ public sealed class NativeSkillProviderIntegrationTests
     }
 
     private static string Configure(
-        SessionConfigBase config,
+        SessionOptionsBase config,
         string root,
         string skillRoot,
         IReadOnlyList<Skill> skills,
@@ -369,8 +375,7 @@ public sealed class NativeSkillProviderIntegrationTests
     {
         var runtimeSkillName = LumiSkillProvider.GetRuntimeNames(skills, capabilities)[skills[0].Id];
         config.WorkingDirectory = root;
-        config.Model = "gpt-4o-mini";
-        config.Provider = new GitHub.Copilot.ProviderConfig
+        SessionConfigBuilder.ApplyProviderRouting(config, "gpt-4o-mini", new Microsoft.Copilot.ProviderConfig
         {
             Type = "openai",
             WireApi = "completions",
@@ -378,21 +383,21 @@ public sealed class NativeSkillProviderIntegrationTests
             ApiKey = "synthetic-test-key",
             ModelId = "gpt-4o-mini",
             WireModel = "gpt-4o-mini",
-        };
-        config.Streaming = true;
+        }, "gpt-4o-mini", null);
+        config.Events.Streaming = true;
         config.EnableConfigDiscovery = false;
-        config.EnableSessionStore = false;
-        config.EnableSessionTelemetry = false;
-        config.EnableFileHooks = false;
-        config.EnableSkills = true;
-        config.IncludedBuiltinSkills = [];
-        config.RequestExtensions = false;
-        config.SkillDirectories = [skillRoot];
-        config.SkillProvider = new LumiSkillProvider(_ => Task.FromResult(skills), capabilities);
-        config.AvailableTools = ["skill", "task"];
-        config.OnPermissionRequest = PermissionHandler.ApproveAll;
-        config.IncludeSubAgentStreamingEvents = true;
-        config.CustomAgents =
+        config.State.EnableCrossSessionStore = false;
+        config.GitHub.TelemetryEnabled = false;
+        config.Hooks.EnableRepositoryHooks = false;
+        config.Skills.Enabled = true;
+        config.Skills.IncludedBuiltinSkills = [];
+        config.Extensions.Enabled = false;
+        config.Skills.Directories = [skillRoot];
+        config.Skills.Provider = new LumiSkillProvider(_ => Task.FromResult(skills), capabilities);
+        config.Tools.AvailableTools = ["skill", "task"];
+        config.Permissions.OnRequest = PermissionHandler.ApproveAll;
+        config.Events.IncludeSubAgentStreamingEvents = true;
+        config.Agents.Definitions =
         [
             new CustomAgentConfig
             {

@@ -1,4 +1,4 @@
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -26,7 +26,7 @@ public sealed class SessionActivityItemsTests
                 Id = "reviewer", AgentType = "code-review", DisplayName = "Code reviewer",
                 Description = "Review session cleanup", Prompt = "", ToolCallId = "review-tool",
                 StartedAt = now.AddHours(-1), ActiveStartedAt = now.AddSeconds(-90),
-                Status = GitHub.Copilot.Rpc.TaskStatus.Running
+                Status = Microsoft.Copilot.Rpc.TaskStatus.Running
             },
             new TaskInfoClient
             {
@@ -246,14 +246,14 @@ public sealed class SessionActivityItemsTests
     private static TaskInfoShell Shell(string id, DateTimeOffset startedAt, string status = "running", string mode = "background") => new()
     {
         Id = id, Description = "Local app preview", Command = "dotnet run",
-        Status = new GitHub.Copilot.Rpc.TaskStatus(status), ExecutionMode = new TaskExecutionMode(mode),
+        Status = new Microsoft.Copilot.Rpc.TaskStatus(status), ExecutionMode = new TaskExecutionMode(mode),
         AttachmentMode = TaskShellInfoAttachmentMode.Attached, StartedAt = startedAt
     };
 
     private static TaskInfoAgent Agent(string id, string toolCallId, DateTimeOffset startedAt) => new()
     {
         Id = id, AgentType = "code-review", DisplayName = "Code reviewer", Description = "Review session cleanup",
-        Prompt = "", ToolCallId = toolCallId, StartedAt = startedAt, Status = GitHub.Copilot.Rpc.TaskStatus.Running
+        Prompt = "", ToolCallId = toolCallId, StartedAt = startedAt, Status = Microsoft.Copilot.Rpc.TaskStatus.Running
     };
 
     private static TaskProgressLine Line(string message) => new() { Message = message, Timestamp = DateTimeOffset.UtcNow };

@@ -9,7 +9,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Capabilities;
@@ -246,7 +246,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var process = Assert.IsType<Process>(connection.GetType()
             .GetProperty("CliProcess", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
             .GetValue(connection));
-        Assert.Equal(Path.GetFullPath(CopilotService.BundledCliPath!), process.MainModule!.FileName,
+        Assert.Equal(Path.GetFullPath(CopilotService.BundledRuntimePath!), process.MainModule!.FileName,
             OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         var generation = _service.ConnectionGeneration;
         var exited = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -439,7 +439,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             [], [], [tool], null, null,
             SessionConfigBuilder.BuildPermissionHandler(() => ApprovalPolicy.ResolveMode(alwaysAsk, null, data.Settings).Mode),
             ChatViewModel.BuildSessionHooks(), enableCapabilityDiscovery: false);
-        askConfig.ManagedSettings = askLayer;
+        askConfig.Policy.ManagedSettings = askLayer;
         await using var asking = await _service.CreateSessionAsync(askConfig, ct);
         await vm.PrepareSessionPermissionsAsync(asking, alwaysAsk, askLayer, ct);
         Assert.Equal(PermissionMode.AllowAll, (await asking.Rpc.Permissions.GetModeAsync(ct)).Mode);
@@ -447,21 +447,21 @@ public class CopilotIntegrationTests : IAsyncLifetime
         Assert.True(managed?.PermissionRequest?.ManagedApprovalRequired);
         Assert.Equal(6, executions);
 
-        static GitHub.Copilot.Rpc.PermissionDecision ApproveOnce()
-            => new GitHub.Copilot.Rpc.PermissionDecisionApproveOnce { ApprovedInteractively = true };
+        static Microsoft.Copilot.Rpc.PermissionDecision ApproveOnce()
+            => new Microsoft.Copilot.Rpc.PermissionDecisionApproveOnce { ApprovedInteractively = true };
 
-        static GitHub.Copilot.Rpc.PermissionDecision ApproveForSession()
-            => new GitHub.Copilot.Rpc.PermissionDecisionApproveForSession
+        static Microsoft.Copilot.Rpc.PermissionDecision ApproveForSession()
+            => new Microsoft.Copilot.Rpc.PermissionDecisionApproveForSession
             {
-                Approval = new GitHub.Copilot.Rpc.PermissionDecisionApproveForSessionApprovalCustomTool { ToolName = "permission_probe" }
+                Approval = new Microsoft.Copilot.Rpc.PermissionDecisionApproveForSessionApprovalCustomTool { ToolName = "permission_probe" }
             };
 
-        static GitHub.Copilot.Rpc.PermissionDecision Deny()
-            => GitHub.Copilot.Rpc.PermissionDecision.Reject("Denied by the isolated test user.");
+        static Microsoft.Copilot.Rpc.PermissionDecision Deny()
+            => Microsoft.Copilot.Rpc.PermissionDecision.Reject("Denied by the isolated test user.");
 
         // Runs the probe; answers the request it raises, or returns null when none needed a person.
         async Task<PermissionRequestedData?> RunAsync(
-            CopilotSession session, Chat owner, string toolCallId, GitHub.Copilot.Rpc.PermissionDecision? answer)
+            CopilotSession session, Chat owner, string toolCallId, Microsoft.Copilot.Rpc.PermissionDecision? answer)
         {
             var requested = new TaskCompletionSource<PermissionRequestedData>(TaskCreationOptions.RunContinuationsAsynchronously);
             using var subscription = session.On<PermissionRequestedEvent>(evt =>
@@ -523,11 +523,11 @@ public class CopilotIntegrationTests : IAsyncLifetime
             var handler = SessionConfigBuilder.BuildPermissionHandler(() => ApprovalMode.FullAccess);
             // A session is saved, and so resumable, once it has a turn.
             var model = await _service.GetBackgroundModelIdAsync(ct);
-            GitHub.Copilot.Rpc.SandboxConfig? Policy() => SandboxPolicy.Build(data.Settings, project, chat, projectDir, [], host);
+            Microsoft.Copilot.Rpc.SandboxConfig? Policy() => SandboxPolicy.Build(data.Settings, project, chat, projectDir, [], host);
 
             var config = SessionConfigBuilder.Build("Sandbox integration fixture. Answer in one word.", null, projectDir, null,
                 [], [], [], null, null, handler, ChatViewModel.BuildSessionHooks(), enableCapabilityDiscovery: false);
-            config.SandboxConfig = Policy();
+            config.Permissions.Sandbox = Policy();
             var created = await _service.CreateSessionAsync(config, ct);
             var sessionId = created.SessionId;
             try
@@ -577,7 +577,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             // The runtime keeps no sandbox across a resume; Lumi sends it again.
             var resume = SessionConfigBuilder.BuildForResume("Sandbox integration fixture. Answer in one word.", model, projectDir, null,
                 [], [], [], null, null, handler, ChatViewModel.BuildSessionHooks(), enableCapabilityDiscovery: false);
-            resume.SandboxConfig = Policy();
+            resume.Permissions.Sandbox = Policy();
             await using var resumed = await _service.ResumeSessionAsync(sessionId, resume, ct);
             await vm.PrepareSessionPermissionsAsync(resumed, chat, null, ct);
             Assert.False(await WritesAsync(resumed, Path.Combine(outside, "after-resume.txt")));
@@ -585,8 +585,11 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
             async Task UpdateAsync(CopilotSession session)
                 => Assert.True((await session.Rpc.Options.UpdateAsync(
-                    sandboxConfig: Policy() ?? new GitHub.Copilot.Rpc.SandboxConfig { Enabled = false },
-                    sandboxConfigSource: SandboxPolicy.SourceOf(data.Settings, project, chat.SandboxDisabled),
+                    permissions: new Microsoft.Copilot.Rpc.SessionUpdatePermissionOptions
+                    {
+                        Sandbox = Policy() ?? new Microsoft.Copilot.Rpc.SandboxConfig { Enabled = false },
+                        SandboxSource = SandboxPolicy.SourceOf(data.Settings, project, chat.SandboxDisabled)
+                    },
                     cancellationToken: ct)).Success);
         }
         finally
@@ -612,7 +615,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
                 if (SandboxEscape.Of(evt.Data.PermissionRequest, evt.Data.PromptRequest) is not null)
                 {
                     _ = session.Rpc.Permissions.HandlePendingPermissionRequestAsync(
-                        evt.Data.RequestId, GitHub.Copilot.Rpc.PermissionDecision.Reject("The user denied this permission request."));
+                        evt.Data.RequestId, Microsoft.Copilot.Rpc.PermissionDecision.Reject("The user denied this permission request."));
                 }
             });
             await session.Rpc.Tools.ExecuteAsync(OperatingSystem.IsWindows() ? "powershell" : "bash",
@@ -697,13 +700,14 @@ public class CopilotIntegrationTests : IAsyncLifetime
             var binary = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
             var cli = Path.Combine(AppContext.BaseDirectory, "runtimes",
                 System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier, "native", binary);
+            var runtime = RuntimeConnection.ForSpawnedStdio(cli);
+            runtime.BaseDirectory = profile.FullName;
+            runtime.Environment = environment;
             await using var client = new CopilotClient(new CopilotClientOptions
             {
                 Mode = CopilotClientMode.Empty,
-                Connection = RuntimeConnection.ForStdio(cli),
-                BaseDirectory = profile.FullName,
-                Environment = environment,
-                UseLoggedInUser = false
+                Runtime = runtime,
+                GitHub = new ClientGitHubOptions { UseLoggedInUser = false }
             });
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             await client.StartAsync(timeout.Token);
@@ -711,7 +715,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             Assert.Empty((await client.Rpc.Account.GetAllUsersAsync(timeout.Token))!);
 
             var result = await client.Rpc.Account.LogoutAsync(
-                authInfo: new GitHub.Copilot.Rpc.AuthInfoUser
+                authInfo: new Microsoft.Copilot.Rpc.AuthInfoUser
                 {
                     Host = "https://github.com",
                     Login = $"lumi-fixture-{Guid.NewGuid():N}"
@@ -772,7 +776,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
     }
 
     /// <summary>Creates a bare session config with the given system prompt.</summary>
-    private static SessionConfig SimpleConfig(string? systemPrompt = null) =>
+    private static CreateSessionOptions SimpleConfig(string? systemPrompt = null) =>
         SessionConfigBuilder.Build(
             systemPrompt: systemPrompt,
             model: null, workingDirectory: null, mcpPlan: null,
@@ -1088,7 +1092,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             else
             {
                 // An unexpected native close must remain resumable too.
-                await _service.Client!.Rpc.Sessions.CloseAsync(sessionId!, deadline.Token);
+                await _service.Client!.Rpc.Sessions.CloseAsync(sessionId!, cancellationToken: deadline.Token);
                 Assert.True(viewModel.HasLiveCopilotRuntimeForCurrentChat());
             }
             if (!savedHistoryExists)
@@ -1208,7 +1212,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             var chat = Assert.IsType<Chat>(vm.CurrentChat);
             var originalId = chat.CopilotSessionId;
             Assert.False(string.IsNullOrWhiteSpace(originalId));
-            await _service.Client.Rpc.Sessions.CloseAsync(originalId!, deadline.Token);
+            await _service.Client.Rpc.Sessions.CloseAsync(originalId!, cancellationToken: deadline.Token);
             provider.Pause();
             try
             {
@@ -1317,7 +1321,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             }
             else
             {
-                await _service.Client!.Rpc.Sessions.CloseAsync(sessionId!, deadline.Token);
+                await _service.Client!.Rpc.Sessions.CloseAsync(sessionId!, cancellationToken: deadline.Token);
                 Assert.True(viewModel.HasLiveCopilotRuntimeForCurrentChat());
             }
             viewModel.RegisterSkillIdByName(skillName);
@@ -1973,18 +1977,18 @@ public class CopilotIntegrationTests : IAsyncLifetime
         const string serverName = "native-session-loss";
         var configDirectory = Directory.CreateDirectory(Path.Combine(failedServer.Root, "cli-config")).FullName;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
-        var session = await _service.CreateSessionAsync(new SessionConfig
+        var session = await _service.CreateSessionAsync(new CreateSessionOptions
         {
             WorkingDirectory = failedServer.Root,
             ConfigDirectory = configDirectory,
             EnableConfigDiscovery = false,
-            EnableSessionStore = false,
-            OnPermissionRequest = PermissionHandler.ApproveAll,
-            McpServers = new Dictionary<string, McpServerConfig>
+            State = new SessionStateOptions { EnableCrossSessionStore = false },
+            Permissions = new SessionPermissionOptions { OnRequest = PermissionHandler.ApproveAll },
+            Mcp = new SessionMcpOptions { Servers = new Dictionary<string, McpServerConfig>
             {
                 [serverName] = failedServer.Definition(lazy: false).Config,
                 ["unaffected-server"] = unaffectedServer.Definition(lazy: false).Config
-            }
+            } }
         }, timeout.Token);
         var sessionId = session.SessionId;
         var nativeCalls = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
@@ -2027,7 +2031,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
                 {
                     Assert.Equal(serverName, name);
                     Interlocked.Increment(ref restartCount);
-                    await session.Rpc.Mcp.RestartServerAsync(name, null, timeout.Token);
+                    await session.Rpc.Mcp.RestartServerAsync(name, null, null, timeout.Token);
                 });
 
             Assert.Equal(1, restartCount);
@@ -2073,15 +2077,15 @@ public class CopilotIntegrationTests : IAsyncLifetime
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
             // No config discovery, existing chats, prompts, or model inference. The test class
             // owns/disposes its CopilotService; each iteration owns a new synthetic session.
-            var session = await _service.CreateSessionAsync(new SessionConfig
+            var session = await _service.CreateSessionAsync(new CreateSessionOptions
             {
                 ClientName = "lumi",
                 WorkingDirectory = fake.Root,
                 ConfigDirectory = configDirectory,
                 EnableConfigDiscovery = false,
-                EnableSessionStore = false,
-                OnPermissionRequest = PermissionHandler.ApproveAll,
-                McpServers = new Dictionary<string, McpServerConfig> { [serverName] = remote }
+                State = new SessionStateOptions { EnableCrossSessionStore = false },
+                Permissions = new SessionPermissionOptions { OnRequest = PermissionHandler.ApproveAll },
+                Mcp = new SessionMcpOptions { Servers = new Dictionary<string, McpServerConfig> { [serverName] = remote } }
             }, timeout.Token);
             try
             {
@@ -2235,7 +2239,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
-        Assert.Equal(agents, config.CustomAgents);
+        Assert.Equal(agents, config.Agents.Definitions);
 
         var session = await _service.CreateSessionAsync(config);
         Assert.NotEmpty(session.SessionId);
@@ -2260,8 +2264,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         // Lumi hands the runtime no skill roots: config discovery finds project, personal, plugin
         // and built-in skills on its own.
-        Assert.Null(config.SkillDirectories);
-        Assert.True(config.EnableSkills);
+        Assert.Null(config.Skills.Directories);
+        Assert.True(config.Skills.Enabled);
         Assert.True(config.EnableConfigDiscovery);
 
         var session = await _service.CreateSessionAsync(config);
@@ -2279,7 +2283,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         SkipIfDisabled();
 
         var config = SimpleConfig("You are a helpful assistant.");
-        Assert.True(config.InfiniteSessions!.Enabled);
+        Assert.True(config.State.InfiniteSessions!.Enabled);
 
         var session = await _service.CreateSessionAsync(config);
 
@@ -2316,7 +2320,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             reasoningEffort: null, userInputHandler: handler,
             onPermission: null, hooks: null);
 
-        Assert.NotNull(config.OnUserInputRequest);
+        Assert.NotNull(config.Interaction.OnUserInputRequest);
 
         var session = await _service.CreateSessionAsync(config);
         Assert.NotEmpty(session.SessionId);
@@ -2415,8 +2419,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         Assert.Equal("explicit-fixture-model", config.Model);
         Assert.False(config.EnableConfigDiscovery);
-        Assert.False(config.EnableSessionStore);
-        Assert.Empty(config.AvailableTools!);
+        Assert.False(config.State.EnableCrossSessionStore);
+        Assert.Empty(config.Tools.AvailableTools!);
         Assert.Equal("Isolated fixture helper.", config.SystemMessage?.Content);
     }
 
@@ -2458,14 +2462,14 @@ public class CopilotIntegrationTests : IAsyncLifetime
             new DataStore(data), service, browser, new UpdateService(), keyStore);
         var options = new LightweightSessionOptions { SystemPrompt = "Credential fixture helper." };
         Assert.Equal("fixture-credential",
-            (await service.BuildLightweightSessionConfigAsync(options)).Provider?.ApiKey);
+            (await service.BuildLightweightSessionConfigAsync(options)).Inference.Providers?.FirstOrDefault()?.ApiKey);
 
         settingsVm.UseBYOKOnly = true;
         Assert.Equal("fixture-credential",
-            (await service.BuildLightweightSessionConfigAsync(options)).Provider?.ApiKey);
+            (await service.BuildLightweightSessionConfigAsync(options)).Inference.Providers?.FirstOrDefault()?.ApiKey);
         settingsVm.UseBYOKOnly = false;
         Assert.Equal("fixture-credential",
-            (await service.BuildLightweightSessionConfigAsync(options)).Provider?.ApiKey);
+            (await service.BuildLightweightSessionConfigAsync(options)).Inference.Providers?.FirstOrDefault()?.ApiKey);
     }
 
     [SkippableFact]
@@ -2566,9 +2570,10 @@ public class CopilotIntegrationTests : IAsyncLifetime
         settings.BackgroundModel = ByokConfigHelper.BuildModelToken(byokModel);
         var config = await _service.BuildLightweightSessionConfigAsync(
             new LightweightSessionOptions { SystemPrompt = "BYOK helper." });
-        Assert.Equal(byokModel.ModelId, config.Model);
-        Assert.Equal(endpoint.BaseUrl, config.Provider?.BaseUrl);
-        Assert.Equal(128_000, config.ModelCapabilities?.Limits?.MaxContextWindowTokens);
+        Assert.Equal($"lumi-byok/{byokModel.Id}", config.Model);
+        Assert.Equal(endpoint.BaseUrl, config.Inference.Providers?.FirstOrDefault()?.BaseUrl);
+        Assert.Equal(byokModel.ModelId, config.Inference.Models?.FirstOrDefault()?.WireModel);
+        Assert.Equal(128_000, config.Inference.Models?.FirstOrDefault()?.Capabilities?.Limits?.MaxContextWindowTokens);
         Assert.True(_service.ByokRateLimiter.IsRateLimited(byokModel.Id));
         settings.BackgroundModel = "byok:missing";
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -2988,7 +2993,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             reasoningEffort: "high",
             userInputHandler: null, onPermission: null, hooks: null);
 
-        Assert.Equal("high", config.ReasoningEffort);
+        Assert.Equal("high", config.Inference.ReasoningEffort);
 
         var session = await _service.CreateSessionAsync(config);
         var (resp, sub) = await SendAndWait(session, "What is 1+1? Just the number.");
@@ -3036,8 +3041,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
             Streaming = true,
             Tools = [tool]
         });
-        Assert.NotNull(config.InfiniteSessions);
-        Assert.False(config.InfiniteSessions!.Enabled);
+        Assert.NotNull(config.State.InfiniteSessions);
+        Assert.False(config.State.InfiniteSessions!.Enabled);
 
         var session = await _service.CreateSessionAsync(config);
         Assert.NotEmpty(session.SessionId);
@@ -3225,10 +3230,10 @@ public class CopilotIntegrationTests : IAsyncLifetime
     public void SessionConfig_ExcludesDuplicatedSdkBuiltInsButKeepsSdkWebSearch()
     {
         var config = SimpleConfig();
-        Assert.Contains("builtin:web_fetch", config.ExcludedTools!);
-        Assert.Contains("builtin:browser", config.ExcludedTools!);
-        Assert.Contains("builtin:ask_user", config.ExcludedTools!);
-        Assert.DoesNotContain("builtin:web_search", config.ExcludedTools!);
+        Assert.Contains("builtin:web_fetch", config.Tools.ExcludedTools!);
+        Assert.Contains("builtin:browser", config.Tools.ExcludedTools!);
+        Assert.Contains("builtin:ask_user", config.Tools.ExcludedTools!);
+        Assert.DoesNotContain("builtin:web_search", config.Tools.ExcludedTools!);
     }
 
     // ───────────────────────────────────────────────────────────────────────
@@ -3256,20 +3261,20 @@ public class CopilotIntegrationTests : IAsyncLifetime
             "medium", handler, null, hooks);
 
         Assert.Equal(build.Model, resume.Model);
-        Assert.Equal(build.Streaming, resume.Streaming);
+        Assert.Equal(build.Events.Streaming, resume.Events.Streaming);
         Assert.Equal(build.WorkingDirectory, resume.WorkingDirectory);
         Assert.Equal(build.ConfigDirectory, resume.ConfigDirectory);
-        Assert.Equal(build.ReasoningEffort, resume.ReasoningEffort);
+        Assert.Equal(build.Inference.ReasoningEffort, resume.Inference.ReasoningEffort);
         Assert.Equal(build.SystemMessage!.Content, resume.SystemMessage!.Content);
         Assert.Equal(build.SystemMessage.Mode, resume.SystemMessage.Mode);
-        Assert.Equal(build.InfiniteSessions!.Enabled, resume.InfiniteSessions!.Enabled);
-        Assert.Equal(build.ExcludedTools, resume.ExcludedTools);
-        Assert.Equal(build.CustomAgents, resume.CustomAgents);
-        Assert.Equal(build.SkillDirectories, resume.SkillDirectories);
-        Assert.Equal(build.EnableSkills, resume.EnableSkills);
+        Assert.Equal(build.State.InfiniteSessions!.Enabled, resume.State.InfiniteSessions!.Enabled);
+        Assert.Equal(build.Tools.ExcludedTools, resume.Tools.ExcludedTools);
+        Assert.Equal(build.Agents.Definitions, resume.Agents.Definitions);
+        Assert.Equal(build.Skills.Directories, resume.Skills.Directories);
+        Assert.Equal(build.Skills.Enabled, resume.Skills.Enabled);
         Assert.Equal(build.EnableConfigDiscovery, resume.EnableConfigDiscovery);
-        Assert.NotNull(resume.OnUserInputRequest);
-        Assert.NotNull(resume.Hooks);
+        Assert.NotNull(resume.Interaction.OnUserInputRequest);
+        Assert.NotNull(resume.Hooks.Handlers);
     }
 
     // ───────────────────────────────────────────────────────────────────────
@@ -3291,8 +3296,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
              reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: hooks);
 
-        Assert.NotNull(config.Hooks);
-        Assert.NotNull(config.Hooks.OnErrorOccurred);
+        Assert.NotNull(config.Hooks.Handlers);
+        Assert.NotNull(config.Hooks.Handlers.OnErrorOccurred);
     }
 
     // ───────────────────────────────────────────────────────────────────────
@@ -3309,21 +3314,21 @@ public class CopilotIntegrationTests : IAsyncLifetime
             onPermission: null, hooks: null);
 
         Assert.Equal("lumi", config.ClientName);
-        Assert.True(config.Streaming);
+        Assert.True(config.Events.Streaming);
         Assert.Null(config.SystemMessage);
         Assert.Null(config.Model);
         Assert.Null(config.WorkingDirectory);
-        Assert.Null(config.SkillDirectories);
-        Assert.Null(config.CustomAgents);
-        Assert.Null(config.Tools);
-        Assert.Null(config.McpServers);
-        Assert.Null(config.ReasoningEffort);
-        Assert.Null(config.OnUserInputRequest);
-        Assert.Null(config.Hooks);
-        Assert.NotNull(config.OnPermissionRequest); // Always defaults to ApproveAll
-        Assert.NotNull(config.InfiniteSessions);
-        Assert.True(config.InfiniteSessions!.Enabled);
-        Assert.NotNull(config.ExcludedTools);
+        Assert.Null(config.Skills.Directories);
+        Assert.Null(config.Agents.Definitions);
+        Assert.Null(config.Tools.Definitions);
+        Assert.Null(config.Mcp.Servers);
+        Assert.Null(config.Inference.ReasoningEffort);
+        Assert.Null(config.Interaction.OnUserInputRequest);
+        Assert.Null(config.Hooks.Handlers);
+        Assert.NotNull(config.Permissions.OnRequest); // Always defaults to ApproveAll
+        Assert.NotNull(config.State.InfiniteSessions);
+        Assert.True(config.State.InfiniteSessions!.Enabled);
+        Assert.NotNull(config.Tools.ExcludedTools);
     }
 
     [Fact]
@@ -3338,12 +3343,12 @@ public class CopilotIntegrationTests : IAsyncLifetime
             reasoningEffort: "", userInputHandler: null,
             onPermission: null, hooks: null);
 
-        Assert.Null(config.SkillDirectories);
-        Assert.Null(config.CustomAgents);
-        Assert.Null(config.Tools);
-        Assert.NotNull(config.McpServers);
-        Assert.Empty(config.McpServers!);
-        Assert.Null(config.ReasoningEffort);
+        Assert.Null(config.Skills.Directories);
+        Assert.Null(config.Agents.Definitions);
+        Assert.Null(config.Tools.Definitions);
+        Assert.NotNull(config.Mcp.Servers);
+        Assert.Empty(config.Mcp.Servers!);
+        Assert.Null(config.Inference.ReasoningEffort);
     }
 
     // ───────────────────────────────────────────────────────────────────────
@@ -3379,13 +3384,13 @@ public class CopilotIntegrationTests : IAsyncLifetime
     public void InfiniteSession_AlwaysEnabled()
     {
         var config = SimpleConfig();
-        Assert.NotNull(config.InfiniteSessions);
-        Assert.True(config.InfiniteSessions!.Enabled);
+        Assert.NotNull(config.State.InfiniteSessions);
+        Assert.True(config.State.InfiniteSessions!.Enabled);
 
         var resumeConfig = SessionConfigBuilder.BuildForResume(
             null, null, null, null, null, null, null, null, null, null, null);
-        Assert.NotNull(resumeConfig.InfiniteSessions);
-        Assert.True(resumeConfig.InfiniteSessions!.Enabled);
+        Assert.NotNull(resumeConfig.State.InfiniteSessions);
+        Assert.True(resumeConfig.State.InfiniteSessions!.Enabled);
     }
 
     [Fact]
@@ -3397,18 +3402,18 @@ public class CopilotIntegrationTests : IAsyncLifetime
         });
 
         Assert.Equal("lumi", config.ClientName);
-        Assert.False(config.Streaming);
+        Assert.False(config.Events.Streaming);
         Assert.NotNull(config.SystemMessage);
         Assert.Equal("Answer succinctly.", config.SystemMessage!.Content);
         Assert.Equal(SystemMessageMode.Replace, config.SystemMessage.Mode);
-        Assert.NotNull(config.InfiniteSessions);
-        Assert.False(config.InfiniteSessions!.Enabled);
-        Assert.NotNull(config.AvailableTools);
-        Assert.Empty(config.AvailableTools!);
-        Assert.NotNull(config.ExcludedTools);
-        Assert.Contains("builtin:*", config.ExcludedTools!);
-        Assert.Contains("mcp:*", config.ExcludedTools!);
-        Assert.Contains("custom:*", config.ExcludedTools!);
+        Assert.NotNull(config.State.InfiniteSessions);
+        Assert.False(config.State.InfiniteSessions!.Enabled);
+        Assert.NotNull(config.Tools.AvailableTools);
+        Assert.Empty(config.Tools.AvailableTools!);
+        Assert.NotNull(config.Tools.ExcludedTools);
+        Assert.Contains("builtin:*", config.Tools.ExcludedTools!);
+        Assert.Contains("mcp:*", config.Tools.ExcludedTools!);
+        Assert.Contains("custom:*", config.Tools.ExcludedTools!);
     }
 
     [Fact]
@@ -3423,16 +3428,16 @@ public class CopilotIntegrationTests : IAsyncLifetime
             Tools = [tool]
         });
 
-        Assert.True(config.Streaming);
-        Assert.NotNull(config.Tools);
-        var exposedTool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(config.Tools!));
+        Assert.True(config.Events.Streaming);
+        Assert.NotNull(config.Tools.Definitions);
+        var exposedTool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(config.Tools.Definitions!));
         Assert.Same(tool.UnderlyingMethod, exposedTool.UnderlyingMethod);
         Assert.Equal(tool.JsonSchema.GetRawText(), exposedTool.JsonSchema.GetRawText());
         Assert.Equal(CopilotToolDefer.Never,
             Assert.IsType<CopilotToolDefer>(exposedTool.AdditionalProperties["defer"]));
-        Assert.NotNull(config.AvailableTools);
-        Assert.Equal("my_tool", Assert.Single(config.AvailableTools!));
-        Assert.Null(config.ExcludedTools);
+        Assert.NotNull(config.Tools.AvailableTools);
+        Assert.Equal("my_tool", Assert.Single(config.Tools.AvailableTools!));
+        Assert.Null(config.Tools.ExcludedTools);
     }
 
     // ───────────────────────────────────────────────────────────────────────
@@ -3474,8 +3479,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
-        Assert.NotNull(config.McpServers);
-        Assert.Equal(2, config.McpServers!.Count);
+        Assert.NotNull(config.Mcp.Servers);
+        Assert.Equal(2, config.Mcp.Servers!.Count);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -3675,7 +3680,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         Assert.Null(await _service.ForkSessionAsync("   "));
     }
 
-    private static ResumeSessionConfig ResumeConfigFor(string systemPrompt) =>
+    private static ResumeSessionOptions ResumeConfigFor(string systemPrompt) =>
         SessionConfigBuilder.BuildForResume(
             systemPrompt: systemPrompt,
             model: null, workingDirectory: null, mcpPlan: null,

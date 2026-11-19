@@ -217,7 +217,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private string? _defaultAutoTier;
     public ObservableCollection<string> AvailableModels { get; } = [];
     public ObservableCollection<string> AvailableBackgroundModels { get; } = [];
-    private GitHub.Copilot.ModelInfo? _automaticBackgroundModel;
+    private ModelInfo? _automaticBackgroundModel;
 
     public string? BackgroundModelStatus
         => BackgroundModel != UserSettings.AutomaticBackgroundModel
@@ -1519,7 +1519,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     }
 
     public void UpdateModelCapabilities(
-        List<GitHub.Copilot.ModelInfo> models,
+        List<ModelInfo> models,
         IReadOnlySet<string>? longContextModelIds = null,
         bool merge = false,
         string? defaultAutoTier = null)

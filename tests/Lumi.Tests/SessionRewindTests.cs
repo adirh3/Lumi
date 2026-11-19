@@ -1,7 +1,7 @@
 #pragma warning disable GHCP001 // The runtime's rewind answers are built as the SDK's experimental history types.
 using System;
 using System.Linq;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;

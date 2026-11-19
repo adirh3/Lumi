@@ -3,8 +3,8 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Avalonia.Controls;
-using GitHub.Copilot;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot;
+using Microsoft.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -912,7 +912,7 @@ public sealed class SandboxTests
             _runtime.AddLocalRpcTarget(this);
             _runtime.StartListening();
 
-            var rpcType = typeof(CopilotSession).Assembly.GetType("GitHub.Copilot.JsonRpc", throwOnError: true)!;
+            var rpcType = typeof(CopilotSession).Assembly.GetType("Microsoft.Copilot.JsonRpc", throwOnError: true)!;
             _sdkRpc = (IDisposable)Activator.CreateInstance(rpcType, requests.Writer.AsStream(), responses.Reader.AsStream(),
                 new JsonSerializerOptions(JsonSerializerDefaults.Web) { TypeInfoResolver = new DefaultJsonTypeInfoResolver() },
                 NullLogger.Instance)!;
@@ -932,7 +932,7 @@ public sealed class SandboxTests
         [JsonRpcMethod("session.options.update", UseSingleObjectParameterDeserialization = true)]
         public object UpdateOptions(JObject request)
         {
-            SandboxUpdates.Add(request.SelectToken("..sandboxConfig.enabled")?.Value<bool>() == true);
+            SandboxUpdates.Add(request.SelectToken("..sandbox.enabled")?.Value<bool>() == true);
             SandboxUpdated.TrySetResult();
             return new { success = true };
         }

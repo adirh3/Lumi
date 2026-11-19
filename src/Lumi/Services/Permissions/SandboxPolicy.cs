@@ -1,4 +1,4 @@
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot.Rpc;
 using Lumi.Models;
 
 namespace Lumi.Services.Permissions;

@@ -1,4 +1,4 @@
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Services;
 using Xunit;
 
@@ -363,6 +363,21 @@ public class ToolDisplayHelperTests
     {
         Assert.Null(ToolDisplayHelper.ExtractFetchSource("{}"));
         Assert.Null(ToolDisplayHelper.ExtractFetchSource("{\"url\":\"file:///C:/temp/page.html\"}"));
+    }
+
+    [Fact]
+    public void ExtractTerminalOutput_PreservesLongerLiveOutputOverCompletionPreview()
+    {
+        var result = new ToolExecutionCompleteResult
+        {
+            Content = "",
+            Contents = [new ToolExecutionCompleteContentShellExit { ShellId = "shell-1", ExitCode = 0, OutputPreview = "First line" }]
+        };
+        var liveOutput = "First line\nMore output\nFinal line";
+
+        Assert.Equal(liveOutput, ToolDisplayHelper.ExtractTerminalOutput(result, liveOutput));
+        Assert.Equal("First line", ToolDisplayHelper.ExtractTerminalOutput(result));
+        Assert.Equal("First line", ToolDisplayHelper.ExtractTerminalOutput(result, "First"));
     }
 
     [Fact]

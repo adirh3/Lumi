@@ -3,7 +3,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Services;
 using Xunit;
 

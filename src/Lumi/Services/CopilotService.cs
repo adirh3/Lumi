@@ -12,7 +12,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Microsoft.Extensions.AI;
 
@@ -66,8 +66,6 @@ public class ByokOnlyRequestBlockedException : InvalidOperationException
 
 public class CopilotService : IAsyncDisposable
 {
-    internal const string DisableClientTelemetryArgument = "--disable-client-telemetry";
-
     private static readonly MethodInfo? RemoveSessionFromClientMethod = typeof(CopilotSession).GetMethod(
         "RemoveFromClient",
         BindingFlags.Instance | BindingFlags.NonPublic,
@@ -76,7 +74,7 @@ public class CopilotService : IAsyncDisposable
         modifiers: null);
 
     private CopilotClient? _client;
-    private (CopilotClient Client, GitHub.Copilot.Rpc.AuthInfoUser User)? _selectedStoredUser;
+    private (CopilotClient Client, Microsoft.Copilot.Rpc.AuthInfoUser User)? _selectedStoredUser;
     /// <summary>Exposes the underlying CopilotClient for advanced usage (e.g. test harness).</summary>
     public CopilotClient? Client => _client;
     private readonly ModelCatalogCache _modelCatalog;
@@ -114,13 +112,18 @@ public class CopilotService : IAsyncDisposable
         _modelCatalog.Changed += snapshot => ModelCatalogChanged?.Invoke(snapshot);
     }
 
-    internal static CopilotClientOptions BuildClientOptions(string? cliPath) => new()
+    internal static CopilotClientOptions BuildClientOptions(string? cliPath)
     {
-        Connection = RuntimeConnection.ForStdio(cliPath ?? "copilot", [DisableClientTelemetryArgument]),
-        LogLevel = CopilotLogLevel.Error,
-        ExtensionLaunchProvider = new CopilotExtensionLaunchProvider(),
-        SessionIdleTimeoutSeconds = 0,
-    };
+        var runtime = RuntimeConnection.ForSpawnedStdio(path: cliPath ?? "copilot");
+        runtime.SessionIdleTimeoutSeconds = 0;
+        return new CopilotClientOptions
+        {
+            Mode = CopilotClientMode.CodingAgent,
+            Runtime = runtime,
+            Observability = new ClientObservabilityOptions { LogLevel = CopilotLogLevel.Error },
+            Extensions = new ClientExtensionOptions { LaunchProvider = new CopilotExtensionLaunchProvider() },
+        };
+    }
 
     private CopilotClient RequireClient()
         => _client ?? throw new InvalidOperationException("Not connected");
@@ -348,12 +351,12 @@ public class CopilotService : IAsyncDisposable
                 return;
 
             oldClient = _client;
-            var cliPath = FindCliPath();
-            var clientOptions = BuildClientOptions(cliPath);
+            var runtimePath = BundledRuntimePath;
+            var clientOptions = BuildClientOptions(runtimePath);
             if (IsolatedRuntimeHome is { } isolatedHome)
             {
                 Directory.CreateDirectory(isolatedHome);
-                clientOptions.BaseDirectory = isolatedHome;
+                ((OwnedRuntimeConnection)clientOptions.Runtime!).BaseDirectory = isolatedHome;
             }
 
             var storedUser = ConfigureAuthentication(clientOptions);
@@ -690,7 +693,7 @@ public class CopilotService : IAsyncDisposable
     }
 
     internal static bool IsModelEnabled(ModelInfo model)
-        => (model.Policy?.State?.Trim().ToLowerInvariant() ?? "") is "" or "enabled" or "ready" or "unset";
+        => (model.Policy?.State.Value.Trim().ToLowerInvariant() ?? "") is "" or "enabled" or "ready" or "unset";
 
     internal static double? GetModelCostMultiplier(ModelInfo model)
         => NormalizeModelCost(model.Billing?.Multiplier);
@@ -753,10 +756,10 @@ public class CopilotService : IAsyncDisposable
             || modelId.Contains("fast", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Creates a new Copilot session with the given configuration.</summary>
-    public async Task<CopilotSession> CreateSessionAsync(SessionConfig config, CancellationToken ct = default)
+    public async Task<CopilotSession> CreateSessionAsync(CreateSessionOptions config, CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
-        ThrowIfByokOnlyWithoutProvider(ByokConfigHelper.HasValidByokUrl(config.Provider));
+        ThrowIfByokOnlyWithoutProvider(HasByokProvider(config));
         return await _client.CreateSessionAsync(config, ct);
     }
 
@@ -844,7 +847,7 @@ public class CopilotService : IAsyncDisposable
     /// <summary>
     /// Applies the shared background-model policy, BYOK routing, privacy guard, and rate limit.
     /// </summary>
-    internal async Task<SessionConfig> BuildLightweightSessionConfigAsync(
+    internal async Task<CreateSessionOptions> BuildLightweightSessionConfigAsync(
         LightweightSessionOptions options,
         CancellationToken ct = default)
     {
@@ -863,26 +866,44 @@ public class CopilotService : IAsyncDisposable
                 keyStore: _secureKeyStore);
             if (route.IsInvalidByok)
                 throw new InvalidOperationException("The model chosen for this AI feature is missing, disabled, or invalid. Update it in Settings → AI Features.");
-            config.Model = route.WireModelId;
-            config.Capi = CopilotModelCatalog.CreateCapiOptions(route.SelectionToken, route.Provider);
-            config.Provider = route.Provider;
-            config.ModelCapabilities ??= ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, null);
+            if (route.Provider is { } provider)
+            {
+                SessionConfigBuilder.ApplyProviderRouting(
+                    config,
+                    route.WireModelId,
+                    provider,
+                    route.ByokModel?.Id,
+                    ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, null));
+            }
+            else
+            {
+                config.Model = route.WireModelId;
+                config.GitHub.Capi = CopilotModelCatalog.CreateCapiOptions(route.SelectionToken);
+            }
             byokModel = route.ByokModel;
         }
 
-        ThrowIfByokOnlyWithoutProvider(ByokConfigHelper.HasValidByokUrl(config.Provider));
+        ThrowIfByokOnlyWithoutProvider(HasByokProvider(config));
         await ByokRateLimiter.AcquireSendSlotAsync(
             byokModel?.Id, byokModel?.MaxRequestsPerMinute, ct).ConfigureAwait(false);
         return config;
     }
 
-    internal static string GetLightweightSessionModelSignature(SessionConfig config)
+    internal static string GetLightweightSessionModelSignature(CreateSessionOptions config)
         => string.Join("|",
             config.Model,
-            config.Capi?.AutoTier?.Value,
-            ByokConfigHelper.BuildProviderSignature(config.Provider),
-            config.ModelCapabilities?.Limits?.MaxContextWindowTokens,
-            config.ModelCapabilities?.Supports?.ReasoningEffort);
+            config.GitHub.Capi?.AutoTier?.Value,
+            ByokConfigHelper.BuildSessionProviderSignature(
+                config.Inference.Providers?.FirstOrDefault(),
+                config.Inference.Models?.FirstOrDefault()),
+            config.Inference.Capabilities?.Limits?.MaxContextWindowTokens,
+            config.Inference.Capabilities?.Supports?.ReasoningEffort);
+
+    private static bool HasByokProvider(CreateSessionOptions config)
+        => config.Inference.Providers?.Any(static provider => !string.IsNullOrWhiteSpace(provider.BaseUrl)) == true;
+
+    private static bool HasByokProvider(ResumeSessionOptions config)
+        => config.Inference.Providers?.Any(static provider => !string.IsNullOrWhiteSpace(provider.BaseUrl)) == true;
 
     /// <summary>Runs a one-shot helper and deletes its transient session even when the operation fails.</summary>
     public async Task<TResult> UseLightweightSessionAsync<TResult>(
@@ -945,7 +966,10 @@ public class CopilotService : IAsyncDisposable
         string sessionId,
         Func<CopilotSession, CancellationToken, Task<TResult?>> operation,
         CancellationToken ct = default,
-        ProviderConfig? provider = null)
+        ProviderConfig? provider = null,
+        string? providerModelId = null,
+        string? wireModelId = null,
+        Microsoft.Copilot.Rpc.ModelCapabilitiesOverride? modelCapabilities = null)
     {
         ArgumentNullException.ThrowIfNull(operation);
         if (_client is null || string.IsNullOrWhiteSpace(sessionId) || !SessionStateExists(sessionId))
@@ -953,7 +977,8 @@ public class CopilotService : IAsyncDisposable
 
         // A bare read-only resume must stay cheap (it runs under a short budget), so it carries no
         // prompt, tools or connectors and skips capability discovery.
-        var config = SessionConfigBuilder.BuildForReadOnlyResume(provider);
+        var config = SessionConfigBuilder.BuildForReadOnlyResume(
+            provider, providerModelId, wireModelId, modelCapabilities);
 
         // Deliberately NOT ConfigureAwait(false): the release in the finally must run on the same
         // (UI) thread as the resume, or it publishes into the pending-release registry off-thread
@@ -1007,14 +1032,14 @@ public class CopilotService : IAsyncDisposable
     /// serialization (e.g. a keyed SemaphoreSlim spanning both release and resume) at that point.
     /// </remarks>
     public async Task<CopilotSession> ResumeSessionAsync(
-        string sessionId, ResumeSessionConfig config, CancellationToken ct = default)
+        string sessionId, ResumeSessionOptions config, CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
         // Sequence destroy-before-resume across surfaces: if any surface is still releasing this
         // exact server session, wait for that destroy to complete before resuming, otherwise the
         // late destroy could reap the session we are about to hand back live.
         await AwaitPendingReleaseAsync(sessionId, ct).ConfigureAwait(false);
-        ThrowIfByokOnlyWithoutProvider(ByokConfigHelper.HasValidByokUrl(config.Provider));
+        ThrowIfByokOnlyWithoutProvider(HasByokProvider(config));
         return await _client.ResumeSessionAsync(sessionId, config, ct);
     }
 
@@ -1163,7 +1188,7 @@ public class CopilotService : IAsyncDisposable
 
     /// <summary>Lists all known sessions, optionally filtered.</summary>
     public async Task<List<SessionMetadata>> ListSessionsAsync(
-        SessionListFilter? filter = null, CancellationToken ct = default)
+        Microsoft.Copilot.Rpc.SessionListFilter? filter = null, CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
         return (await _client.ListSessionsAsync(filter, ct)).ToList();
@@ -1221,7 +1246,7 @@ public class CopilotService : IAsyncDisposable
     // ── Account API ──
 
     /// <summary>Gets the current account quota information.</summary>
-    public async Task<GitHub.Copilot.Rpc.AccountGetQuotaResult?> GetAccountQuotaAsync(CancellationToken ct = default)
+    public async Task<Microsoft.Copilot.Rpc.AccountGetQuotaResult?> GetAccountQuotaAsync(CancellationToken ct = default)
     {
         if (_client is null) return null;
         return await _client.Rpc.Account.GetQuotaAsync(cancellationToken: ct);
@@ -1230,18 +1255,18 @@ public class CopilotService : IAsyncDisposable
     // ── Sandbox API ──
 
     private readonly Lock _sandboxSupportGate = new();
-    private (CopilotClient Client, Task<GitHub.Copilot.Rpc.SandboxHostSupport?> Query)? _sandboxSupport;
+    private (CopilotClient Client, Task<Microsoft.Copilot.Rpc.SandboxHostSupport?> Query)? _sandboxSupport;
 
     /// <summary>
     /// Whether this computer can run Copilot's command sandbox, and which of its features. Asked once
     /// per runtime, which checks once per process too; null while not connected or unknown.
     /// </summary>
-    public async Task<GitHub.Copilot.Rpc.SandboxHostSupport?> GetSandboxHostSupportAsync(CancellationToken ct = default)
+    public async Task<Microsoft.Copilot.Rpc.SandboxHostSupport?> GetSandboxHostSupportAsync(CancellationToken ct = default)
     {
         if (_client is not { } client)
             return null;
 
-        Task<GitHub.Copilot.Rpc.SandboxHostSupport?> query;
+        Task<Microsoft.Copilot.Rpc.SandboxHostSupport?> query;
         lock (_sandboxSupportGate)
         {
             if (_sandboxSupport is not { } cached || !ReferenceEquals(cached.Client, client))
@@ -1263,7 +1288,7 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>The answer <see cref="GetSandboxHostSupportAsync"/> already has, without waiting for one.</summary>
-    public GitHub.Copilot.Rpc.SandboxHostSupport? KnownSandboxHostSupport
+    public Microsoft.Copilot.Rpc.SandboxHostSupport? KnownSandboxHostSupport
     {
         get
         {
@@ -1274,7 +1299,7 @@ public class CopilotService : IAsyncDisposable
         }
     }
 
-    private static async Task<GitHub.Copilot.Rpc.SandboxHostSupport?> QuerySandboxHostSupportAsync(CopilotClient client)
+    private static async Task<Microsoft.Copilot.Rpc.SandboxHostSupport?> QuerySandboxHostSupportAsync(CopilotClient client)
     {
         try
         {
@@ -1290,7 +1315,7 @@ public class CopilotService : IAsyncDisposable
     // ── Tools API ──
 
     /// <summary>Lists all available tools for the current model.</summary>
-    public async Task<List<GitHub.Copilot.Rpc.Tool>> ListToolsAsync(string? model = null, CancellationToken ct = default)
+    public async Task<List<Microsoft.Copilot.Rpc.Tool>> ListToolsAsync(string? model = null, CancellationToken ct = default)
     {
         if (_client is null) return [];
         var result = await _client.Rpc.Tools.ListAsync(model, ct);
@@ -1308,7 +1333,7 @@ public class CopilotService : IAsyncDisposable
         Action<string, string>? onDeviceCode = null,
         CancellationToken ct = default)
     {
-        var cliPath = FindCliPath();
+        var cliPath = BundledRuntimePath;
         if (cliPath is null) return CopilotSignInResult.CliNotFound;
 
         if (onDeviceCode is null)
@@ -1317,7 +1342,7 @@ public class CopilotService : IAsyncDisposable
             var legacyPsi = new ProcessStartInfo
             {
                 FileName = cliPath,
-                Arguments = $"--no-auto-update {DisableClientTelemetryArgument} login",
+                Arguments = "--no-auto-update --disable-client-telemetry login",
                 UseShellExecute = true,
             };
             using var legacyProcess = Process.Start(legacyPsi);
@@ -1329,17 +1354,18 @@ public class CopilotService : IAsyncDisposable
             return CopilotSignInResult.Success;
         }
 
-        // Capture stdout/stderr to extract device code
+        // The panel expects a device code; the CLI otherwise defaults to a browser callback on desktops.
         var psi = new ProcessStartInfo
         {
             FileName = cliPath,
-            Arguments = $"--no-auto-update {DisableClientTelemetryArgument} login",
+            Arguments = "--no-auto-update login --device-code",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             RedirectStandardInput = true,
             CreateNoWindow = true,
         };
+        psi.Environment["COPILOT_TELEMETRY_DISABLED"] = "true";
 
         using var process = Process.Start(psi);
         if (process is null) return CopilotSignInResult.Failed;
@@ -1518,8 +1544,8 @@ public class CopilotService : IAsyncDisposable
         return true;
     }
 
-    internal static GitHub.Copilot.Rpc.AuthInfoUser? GetSignOutIdentity(
-        GetAuthStatusResponse status, GitHub.Copilot.Rpc.AuthInfoUser? selectedStoredUser)
+    internal static Microsoft.Copilot.Rpc.AuthInfoUser? GetSignOutIdentity(
+        GetAuthStatusResponse status, Microsoft.Copilot.Rpc.AuthInfoUser? selectedStoredUser)
     {
         if (status.IsAuthenticated != true)
             return null;
@@ -1530,14 +1556,14 @@ public class CopilotService : IAsyncDisposable
             || string.IsNullOrWhiteSpace(status.Host))
             return null;
 
-        return new GitHub.Copilot.Rpc.AuthInfoUser { Host = status.Host, Login = status.Login };
+        return new Microsoft.Copilot.Rpc.AuthInfoUser { Host = status.Host, Login = status.Login };
     }
 
-    internal static string? BundledCliPath => FindCliPath();
+    internal static string? BundledRuntimePath => FindBundledCliPath();
 
-    private static string? FindCliPath()
+    private static string? FindBundledCliPath()
     {
-        var binary = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "copilot.exe" : "copilot";
+        var binary = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
         var appDir = AppContext.BaseDirectory;
 
         // Check runtimes/{rid}/native/ (standard SDK output location)
@@ -1560,8 +1586,8 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
-    /// Ensures the bundled Copilot CLI carries the Unix executable bit before the SDK spawns it.
-    /// With <c>PublishSingleFile</c> + <c>IncludeNativeLibrariesForSelfExtract</c>, the CLI is
+    /// Ensures a bundled Copilot executable carries the Unix executable bit before Lumi launches it.
+    /// With <c>PublishSingleFile</c> + <c>IncludeNativeLibrariesForSelfExtract</c>, the executable is
     /// unpacked at runtime into the self-extraction directory, and .NET does not set +x on extracted
     /// native *executables*; packaging archives (Velopack nupkg/zip) and cross-OS publishes can drop
     /// the bit too. Without it, the SDK's <c>Process.Start</c> fails with "Permission denied" on
@@ -1590,31 +1616,35 @@ public class CopilotService : IAsyncDisposable
         return path;
     }
 
-    private static GitHub.Copilot.Rpc.AuthInfoUser? ConfigureAuthentication(CopilotClientOptions options)
+    private static Microsoft.Copilot.Rpc.AuthInfoUser? ConfigureAuthentication(CopilotClientOptions options)
     {
         var explicitToken = TryGetGitHubTokenFromEnvironment();
         return ConfigureAuthenticationSelection(options, explicitToken,
             explicitToken is null ? TryReadStoredGitHubCredential() : null);
     }
 
-    internal static GitHub.Copilot.Rpc.AuthInfoUser? ConfigureAuthenticationSelection(
+    internal static Microsoft.Copilot.Rpc.AuthInfoUser? ConfigureAuthenticationSelection(
         CopilotClientOptions options,
         string? explicitToken,
         (string Token, string Host, string Login)? storedCredential)
     {
         var selectedStoredCredential = string.IsNullOrWhiteSpace(explicitToken) ? storedCredential : null;
         var token = selectedStoredCredential?.Token ?? explicitToken;
-        options.Environment = BuildCliEnvironment(token);
+        options.GitHub = new ClientGitHubOptions
+        {
+            Token = token,
+            UseLoggedInUser = string.IsNullOrWhiteSpace(token),
+        };
+        if (options.Runtime is ChildProcessRuntimeConnection runtime)
+            runtime.Environment = BuildCliEnvironment(token);
+
         if (!string.IsNullOrWhiteSpace(token))
         {
-            options.GitHubToken = token;
-            options.UseLoggedInUser = false;
             return selectedStoredCredential is { } stored
-                ? new GitHub.Copilot.Rpc.AuthInfoUser { Host = stored.Host, Login = stored.Login }
+                ? new Microsoft.Copilot.Rpc.AuthInfoUser { Host = stored.Host, Login = stored.Login }
                 : null;
         }
 
-        options.UseLoggedInUser = true;
         return null;
     }
 
@@ -1934,6 +1964,7 @@ public class CopilotService : IAsyncDisposable
         ApplySkillListingBudget(env);
         ApplyAutoReviewFeature(env);
         ApplyDynamicAutoTiersFeature(env);
+        env["COPILOT_TELEMETRY_DISABLED"] = "true";
         if (NativeBrowserLogic.IsEmbeddedBrowserAvailable)
             ApplyMcpAppsFeature(env);
         return env;
@@ -2220,7 +2251,7 @@ public class CopilotService : IAsyncDisposable
         return text[..end];
     }
 
-    private async Task<CopilotSession> GetOrCreateSuggestionSessionAsync(SessionConfig config, CancellationToken ct)
+    private async Task<CopilotSession> GetOrCreateSuggestionSessionAsync(CreateSessionOptions config, CancellationToken ct)
     {
         var signature = GetLightweightSessionModelSignature(config);
         if (_suggestionSession is not null && _suggestionSessionModelSignature == signature)
@@ -2351,9 +2382,10 @@ public class CopilotService : IAsyncDisposable
             {
                 await _client.DeleteSessionAsync(sessionId, ct).ConfigureAwait(false);
             }
-            catch (InvalidOperationException ex) when (IsAlreadyDeletedSessionError(ex))
+            catch (Exception ex) when (ex is RemoteRpcException or InvalidOperationException
+                && ex.Message.Contains("Session file not found", StringComparison.OrdinalIgnoreCase))
             {
-                // SDK 1.0 non-persistent helper sessions can have no server-side session file.
+                // A transient session can already be gone after its handle is disposed.
             }
             catch (OperationCanceledException)
             {
@@ -2368,9 +2400,6 @@ public class CopilotService : IAsyncDisposable
         DeleteLocalSessionStateDirectory(sessionId);
         remoteDeleteError?.Throw();
     }
-
-    private static bool IsAlreadyDeletedSessionError(InvalidOperationException ex)
-        => ex.Message.Contains("Session file not found", StringComparison.OrdinalIgnoreCase);
 
     private static void DeleteLocalSessionStateDirectory(string sessionId)
     {

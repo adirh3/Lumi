@@ -2175,7 +2175,7 @@
   "Setting_StatsAgents": "Agents",
   "Setting_StatsProjects": "Projects",
   "Setting_BuiltWith": "Built With",
-  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, GitHub Copilot SDK, CommunityToolkit.Mvvm",
+  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, Microsoft Copilot SDK, CommunityToolkit.Mvvm",
   "Setting_Language": "Display Language",
   "SettingDesc_Language": "Changes the interface language (requires restart)",
 

@@ -373,7 +373,7 @@ public sealed class ChatGptPlanBridgeTests
 
         public sealed record Sent(string Url, string? Authorization, string Body, bool LiteHeader);
 
-        public GitHub.Copilot.ProviderConfig Connect(string id, bool seed, bool stored = false)
+        public Microsoft.Copilot.ProviderConfig Connect(string id, bool seed, bool stored = false)
         {
             var endpoint = new ByokEndpoint
             {
@@ -389,7 +389,7 @@ public sealed class ChatGptPlanBridgeTests
             return Bridge.CreateProviderConfig(endpoint, Keys);
         }
 
-        public async Task<HttpResponseMessage> PostAsync(GitHub.Copilot.ProviderConfig config, string body,
+        public async Task<HttpResponseMessage> PostAsync(Microsoft.Copilot.ProviderConfig config, string body,
             string? key = null, string path = "/responses")
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, config.BaseUrl + path)

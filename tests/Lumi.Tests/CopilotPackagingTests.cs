@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Services;
 using Xunit;
 
@@ -75,18 +75,34 @@ public sealed class CopilotPackagingTests
     }
 
     [Fact]
-    public async Task PackageProvidesOneFullCliForSdkAndLogin()
+    public async Task TheSameBundledCliSupportsProtocolFourAndLogin()
     {
         var native = Path.Combine(AppContext.BaseDirectory, "runtimes",
             RuntimeInformation.RuntimeIdentifier, "native");
-        var cli = Path.Combine(native, OperatingSystem.IsWindows() ? "copilot.exe" : "copilot");
-        Assert.True(File.Exists(cli), cli);
-        Assert.Equal("explicit", File.ReadAllText(Path.Combine(native, ".copilot-explicit-cli")).Trim());
-        foreach (var name in new[] { "copilot-runtime", "copilot-runtime.exe", "runtime.node",
-                     "copilot_runtime.dll", "libcopilot_runtime.so", "libcopilot_runtime.dylib" })
-            Assert.False(File.Exists(Path.Combine(native, name)), $"Unexpected second runtime: {name}");
+        var binaryExtension = OperatingSystem.IsWindows() ? ".exe" : "";
+        var cli = Path.Combine(native, "copilot" + binaryExtension);
+        Assert.Equal(cli, TestCopilot.BundledRuntimePath);
+        Assert.True(File.Exists(Path.Combine(native, ".copilot-explicit-cli")));
+        Assert.False(File.Exists(Path.Combine(native, "copilot-runtime" + binaryExtension)));
+        Assert.False(File.Exists(Path.Combine(native, "copilot-full" + binaryExtension)));
+        Assert.False(File.Exists(Path.Combine(native, "runtime.node")));
+        var runtimeLibrary = OperatingSystem.IsWindows() ? "copilot_runtime.dll"
+            : OperatingSystem.IsMacOS() ? "libcopilot_runtime.dylib" : "libcopilot_runtime.so";
+        Assert.False(File.Exists(Path.Combine(native, runtimeLibrary)));
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        var runtime = RuntimeConnection.ForSpawnedStdio(cli, ["--no-auto-update"]);
+        runtime.BaseDirectory = Path.Combine(TestProfile.Root, "packaging-copilot-home");
+        Directory.CreateDirectory(runtime.BaseDirectory);
+        await using var client = new CopilotClient(new CopilotClientOptions
+        {
+            Mode = CopilotClientMode.CodingAgent,
+            Runtime = runtime,
+            GitHub = new() { UseLoggedInUser = false }
+        });
+        await client.StartAsync(timeout.Token);
+        Assert.Equal(4, (await client.GetStatusAsync(timeout.Token)).ProtocolVersion);
+
         var info = new ProcessStartInfo(cli)
         {
             UseShellExecute = false,

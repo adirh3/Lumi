@@ -2137,7 +2137,7 @@
   "Setting_StatsAgents": "Agentes",
   "Setting_StatsProjects": "Projetos",
   "Setting_BuiltWith": "Feito com",
-  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, GitHub Copilot SDK, CommunityToolkit.Mvvm",
+  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, Microsoft Copilot SDK, CommunityToolkit.Mvvm",
   "Setting_Language": "Idioma da interface",
   "SettingDesc_Language": "Altera o idioma da interface (exige reiniciar)",
   "Button_ClearChats": "Limpar conversas",

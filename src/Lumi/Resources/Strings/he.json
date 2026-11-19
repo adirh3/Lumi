@@ -2164,7 +2164,7 @@
   "Setting_StatsAgents": "סוכנים",
   "Setting_StatsProjects": "פרויקטים",
   "Setting_BuiltWith": "נבנה עם",
-  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, GitHub Copilot SDK, CommunityToolkit.Mvvm",
+  "SettingDesc_BuiltWith": "Avalonia UI, Strata Design System, Microsoft Copilot SDK, CommunityToolkit.Mvvm",
   "Setting_Language": "שפת תצוגה",
   "SettingDesc_Language": "שינוי שפת הממשק (דורש הפעלה מחדש)",
 

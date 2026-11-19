@@ -2,7 +2,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -38,14 +38,16 @@ public sealed class SessionRewindIntegrationTests(ITestOutputHelper output)
         try
         {
             // The default mode, unlike the empty one, offers the runtime's own file tools.
+            var runtime = RuntimeConnection.ForSpawnedStdio(TestCopilot.BundledRuntimePath);
+            runtime.BaseDirectory = Path.Combine(root, "copilot");
+            runtime.WorkingDirectory = workspace;
             await using var client = new CopilotClient(new CopilotClientOptions
             {
-                BaseDirectory = Path.Combine(root, "copilot"),
-                WorkingDirectory = workspace,
-                UseLoggedInUser = false,
-                Connection = RuntimeConnection.ForStdio(),
-                RequestHandler = handler,
-                LogLevel = CopilotLogLevel.Error
+                Mode = CopilotClientMode.CodingAgent,
+                Runtime = runtime,
+                GitHub = new ClientGitHubOptions { UseLoggedInUser = false },
+                Models = new ClientModelOptions { RequestHandler = handler },
+                Observability = new ClientObservabilityOptions { LogLevel = CopilotLogLevel.Error }
             });
             await client.StartAsync(ct);
             var session = await client.CreateSessionAsync(Configure(root, workspace), ct);
@@ -136,32 +138,29 @@ public sealed class SessionRewindIntegrationTests(ITestOutputHelper output)
     // The runtime's tools write the platform's line endings.
     private static string Read(string path) => File.ReadAllText(path).ReplaceLineEndings("\n");
 
-    private static SessionConfig Configure(string root, string workspace)
+    private static CreateSessionOptions Configure(string root, string workspace)
     {
+        var provider = Provider();
         var config = SessionConfigBuilder.Build(
-            "Synthetic rewind check.", null, workspace, null, [], [], [], null, null, null, null,
-            enableCapabilityDiscovery: false);
-        Assert.True(config.EnableFileChangeTracking);
+            "Synthetic rewind check.", "lumi-rewind-model", workspace, null, [], [], [], null, null, null, null,
+            provider: provider, enableCapabilityDiscovery: false);
+        Assert.True(config.Filesystem.TrackFileChanges);
         config.ConfigDirectory = Path.Combine(root, "config");
-        // A neutral model id: the runtime gives GPT-family models apply_patch instead of create and edit.
-        config.Model = "lumi-rewind-model";
-        config.Provider = Provider();
-        config.InfiniteSessions = new InfiniteSessionConfig { Enabled = false };
-        config.EnableSessionTelemetry = false;
-        config.EnableFileHooks = false;
-        config.EnableSkills = false;
-        config.RequestExtensions = false;
-        config.AvailableTools = new ToolSet().AddBuiltIn("create").AddBuiltIn("edit");
+        config.State.InfiniteSessions = new InfiniteSessionConfig { Enabled = false };
+        config.GitHub.TelemetryEnabled = false;
+        config.Hooks.EnableRepositoryHooks = false;
+        config.Skills.Enabled = false;
+        config.Extensions.Enabled = false;
+        config.Tools.AvailableTools = new ToolSet().AddBuiltIn("create").AddBuiltIn("edit");
         return config;
     }
 
-    private static ResumeSessionConfig Resume(string root, string workspace)
+    private static ResumeSessionOptions Resume(string root, string workspace)
     {
         var config = SessionConfigBuilder.BuildForResume(
-            "Synthetic rewind check.", null, workspace, null, [], [], [], null, null, null, null,
+            "Synthetic rewind check.", "lumi-rewind-model", workspace, null, [], [], [], null, null, null, null,
             provider: Provider(), enableCapabilityDiscovery: false);
         config.ConfigDirectory = Path.Combine(root, "config");
-        config.Model = "lumi-rewind-model";
         return config;
     }
 

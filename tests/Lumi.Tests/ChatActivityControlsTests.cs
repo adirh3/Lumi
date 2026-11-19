@@ -5,7 +5,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -83,7 +83,7 @@ public sealed class ChatActivityControlsTests
                             Id = "preview",
                             Description = "Local app preview",
                             Command = "dotnet run",
-                            Status = GitHub.Copilot.Rpc.TaskStatus.Running,
+                            Status = Microsoft.Copilot.Rpc.TaskStatus.Running,
                             ExecutionMode = TaskExecutionMode.Background,
                             AttachmentMode = TaskShellInfoAttachmentMode.Attached,
                             StartedAt = DateTimeOffset.UtcNow
@@ -175,14 +175,14 @@ public sealed class ChatActivityControlsTests
                         new TaskInfoShell
                         {
                             Id = "preview", Description = "Local app preview", Command = "dotnet run",
-                            Status = GitHub.Copilot.Rpc.TaskStatus.Running, ExecutionMode = TaskExecutionMode.Background,
+                            Status = Microsoft.Copilot.Rpc.TaskStatus.Running, ExecutionMode = TaskExecutionMode.Background,
                             AttachmentMode = TaskShellInfoAttachmentMode.Attached, StartedAt = now
                         },
                         new TaskInfoAgent
                         {
                             Id = "reviewer", AgentType = "code-review", DisplayName = "Code reviewer",
                             Description = "Review session cleanup", Prompt = "", ToolCallId = "review-tool",
-                            StartedAt = now, Status = GitHub.Copilot.Rpc.TaskStatus.Running
+                            StartedAt = now, Status = Microsoft.Copilot.Rpc.TaskStatus.Running
                         }
                     ], now);
                     vm.RunningSessionActivities[0].ApplyProgress(

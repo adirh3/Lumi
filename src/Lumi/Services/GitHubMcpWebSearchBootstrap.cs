@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 
 namespace Lumi.Services;
 
