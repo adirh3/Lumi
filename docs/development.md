@@ -883,7 +883,9 @@ does not change the glass, shadows, scroll gestures or keyboard animation.
 The browser SDK still defaults to Mono/WebAssembly, without Android's .NET/Java bridge.
 Keep its AOT, renderer and threading choices independent of the Android runtime configuration.
 The browser head pins matching SkiaSharp 4 managed/WebAssembly packages for .NET 11's Emscripten 6
-toolchain; the other heads retain Avalonia's default Skia dependencies.
+toolchain; the other heads retain Avalonia's default Skia dependencies. The linked .NET 11 module
+uses WebAssembly exception references (`exnref`), unlike the previous .NET 10 build. See the
+[mobile browser requirements](user-guide.md#mobile-conversations) before changing this deployment baseline.
 
 Add `-p:LumiPreview=true` to build **Lumi Preview** (`com.lumi.mobile.preview`):
 the same app under its own package, label, data and pairing, so a build under

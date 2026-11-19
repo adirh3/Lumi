@@ -1137,7 +1137,13 @@ available space, keeping the keyboard open and the caret in place.
 Native browser editors use at least 16 CSS pixels to avoid Safari's automatic focus zoom
 and horizontal panning.
 Browser chrome and startup backgrounds follow the selected Light, Dark, or System theme.
-Release PWA publishes ahead-of-time compiled WebAssembly. The mobile transcript realizes
+The .NET 11 PWA needs a browser with
+[WebAssembly exception references](https://caniuse.com/mdn-webassembly_exceptionsfinal):
+Chrome or Edge 137+, Samsung Internet 30+, Firefox 131+, or Safari/iOS 18.4+.
+If Lumi won't open on an older browser, update the browser (or iOS for Safari).
+On Android, the native app does not have this browser requirement.
+
+The Release PWA uses ahead-of-time compiled WebAssembly. The mobile transcript realizes
 only turns near the viewport while retaining the full loaded page and offscreen streaming
 updates, avoiding eager layout of every markdown answer when opening a conversation. Turns
 about to be seen are built at once; turns up to a viewport further out are prepared ahead of
