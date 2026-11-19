@@ -2994,7 +2994,7 @@
     <Style Selector="#SearchBar Button.search-nav:pressed">
       <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
     </Style>
-    <Style Selector="Button.search-nav /template/ Border#PART_Aurora">
+    <Style Selector="#SearchBar Button.search-nav /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
 

@@ -571,7 +571,11 @@ public sealed partial class ActivityStepViewModel : ObservableObject
     [ObservableProperty] private string _status = "Completed";
     [ObservableProperty] private string? _input;
     [ObservableProperty] private string? _output;
-    [ObservableProperty] private bool _showTechnicalDetails;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisibleTechnicalDetails))]
+    private bool _showTechnicalDetails;
+
+    public ActivityStepViewModel? VisibleTechnicalDetails => ShowTechnicalDetails ? this : null;
 
     public string Id { get; private set; } = "";
     public string Category { get; private set; } = "other";

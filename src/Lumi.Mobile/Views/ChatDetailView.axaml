@@ -2576,16 +2576,23 @@
                                            Classes.stopped="{Binding IsStopped}" />
                               </DockPanel>
                             </Border>
-                            <Border Classes="transcript-well" IsVisible="{Binding ShowTechnicalDetails}">
-                              <StackPanel Spacing="8">
-                                <TextBlock Classes="console-text" Text="{Binding Input, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
-                                           IsVisible="{Binding Input, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                <TextBlock Classes="console-text" Text="{Binding Output, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" MaxLines="12"
-                                           TextTrimming="CharacterEllipsis"
-                                           Foreground="{DynamicResource Brush.TextTertiary}"
-                                           IsVisible="{Binding Output, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                              </StackPanel>
-                            </Border>
+                            <ContentControl Content="{Binding VisibleTechnicalDetails}"
+                                            HorizontalContentAlignment="Stretch">
+                              <ContentControl.DataTemplates>
+                                <DataTemplate DataType="vm:ActivityStepViewModel">
+                                  <Border Classes="transcript-well">
+                                    <StackPanel Spacing="8">
+                                      <TextBlock Classes="console-text" Text="{Binding Input, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
+                                                 IsVisible="{Binding Input, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                      <TextBlock Classes="console-text" Text="{Binding Output, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" MaxLines="12"
+                                                 TextTrimming="CharacterEllipsis"
+                                                 Foreground="{DynamicResource Brush.TextTertiary}"
+                                                 IsVisible="{Binding Output, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    </StackPanel>
+                                  </Border>
+                                </DataTemplate>
+                              </ContentControl.DataTemplates>
+                            </ContentControl>
                           </StackPanel>
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>

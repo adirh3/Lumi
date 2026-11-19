@@ -24,6 +24,37 @@ namespace Lumi.Tests;
 public sealed class ChatStyleScopeTests
 {
     [Fact]
+    public Task OnlyTranscriptSearchButtonsSuppressTheirAurora() => WithWindow((window, chat) =>
+    {
+        var foreign = new Button { Content = "Other action", Classes = { "search-nav" } };
+        chat.FindControl<Panel>("ChatPanel")!.Children.Add(foreign);
+        var shortcut = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.F,
+            KeyModifiers = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control
+        };
+        chat.RaiseEvent(shortcut);
+        Pump(window);
+
+        Assert.True(shortcut.Handled);
+        foreach (var name in new[] { "SearchPrevBtn", "SearchNextBtn", "SearchCloseBtn" })
+        {
+            var button = chat.FindControl<Button>(name)!;
+            Assert.True(button.IsEffectivelyVisible);
+            Assert.False(Aurora(button).IsVisible);
+        }
+        Assert.True(Aurora(foreign).IsVisible);
+
+        chat.FindControl<Button>("SearchCloseBtn")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Pump(window);
+        Assert.False(chat.FindControl<Border>("SearchBar")!.IsEffectivelyVisible);
+
+        static Border Aurora(Button button) => button.GetVisualDescendants().OfType<Border>()
+            .Single(border => border.Name == "PART_Aurora");
+    });
+
+    [Fact]
     public Task TranscriptDetailsStayWithTheirPartsAndKeepTheirPresentation() => WithWindow((window, chat) =>
     {
         var foreignText = new TextBlock { Text = "Unrelated output", Classes = { "console-text" } };

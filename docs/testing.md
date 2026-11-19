@@ -192,6 +192,14 @@ allocate in proportion to catalog size, while catalog and pin changes still upda
 they return to the viewport. These are CPU-work and correctness checks, not proof of device FPS:
 scrolling and sheet-open smoothness still need the Android benchmark on the target device.
 
+For style ownership changes, render both the intended control and an unrelated control
+with the same class. The former should keep its styling, including focus or pressed states;
+the latter should keep its default styling. `ChatStyleScopeTests`, `PopulatedTemplateRenderTests`,
+and Strata's `TextBoxFocusVisualTests` cover examples on desktop, mobile, and shared templates.
+For deferred content, check that its controls are absent before use, as the mobile
+activity sheet test does. Keep documented Strata parts in their control's template
+namescope so host `/template/` overrides and `TemplateApplied` handlers still work.
+
 Navigation regression tests also check that the pill resizes within a steady layout footprint,
 its labels keep their shaped text during the glide, and only a fully covering, resting phone
 drawer suppresses painting the mounted chat. Drawer movement and unfolded layouts restore it.

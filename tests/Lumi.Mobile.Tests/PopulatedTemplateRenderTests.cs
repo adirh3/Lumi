@@ -275,6 +275,116 @@ public sealed class PopulatedTemplateRenderTests
             {
                 var row = Assert.Single(Rows(window, "HostList"));
                 Assert.Same(shell.Connect.ChooseHostCommand, row.Command);
+                Assert.Equal(new Thickness(12, 10), row.Padding);
+            });
+    }
+
+    [Fact]
+    public Task PairingCodeChromeStaysWithThePairingField() =>
+        Run(
+            shell => shell.Connect.Step = ConnectStep.EnterCode,
+            shell => new StackPanel
+            {
+                Children =
+                {
+                    new ConnectView { DataContext = shell.Connect },
+                    new TextBox { Name = "OtherCode", Classes = { "mobile", "pairing-code" } }
+                }
+            },
+            (window, _) =>
+            {
+                var fields = window.GetVisualDescendants().OfType<TextBox>().ToArray();
+                var pairing = fields.Single(field => field.Name == "PairingCodeBox");
+                Assert.True(pairing.IsEffectivelyVisible);
+                Assert.Equal(64, pairing.MinHeight);
+                Assert.Equal(48, fields.Single(field => field.Name == "OtherCode").MinHeight);
+            });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task FloatingSearchChromeStaysWithTheSearchField(bool dark) =>
+        Run(
+            _ => { },
+            shell => new StackPanel
+            {
+                Children =
+                {
+                    new MobileSearchView { DataContext = shell },
+                    new TextBox { Name = "OtherFilter", Classes = { "mobile", "list-filter", "floating-field" } }
+                }
+            },
+            (window, _) =>
+            {
+                var fields = window.GetVisualDescendants().OfType<TextBox>().ToArray();
+                var search = fields.Single(field => field.Name == "SearchField");
+                var other = fields.Single(field => field.Name == "OtherFilter");
+                var rim = Rim(search);
+                rim.Transitions = null;
+                window.RequestedThemeVariant = dark
+                    ? Avalonia.Styling.ThemeVariant.Dark : Avalonia.Styling.ThemeVariant.Light;
+                search.Classes.Add("native-input-focused");
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal(new CornerRadius(22), search.CornerRadius);
+                Assert.Equal(new Thickness(0, 2), rim.Margin);
+                Assert.True(search.TryFindResource("Brush.FloatingGlassRimStrong", search.ActualThemeVariant, out var focused));
+                Assert.Same(focused, rim.BorderBrush);
+                Assert.Equal(new CornerRadius(12), other.CornerRadius);
+                Assert.Equal(default, Rim(other).Margin);
+            });
+
+    private static Border Rim(TextBox field) => field.GetVisualDescendants()
+        .OfType<Border>().Single(border => border.Name == "PART_Border");
+
+    [Fact]
+    public Task ActivitySheetBuildsTechnicalDetailsOnlyWhenShown()
+    {
+        const string input = "The search query";
+        const string output = "The search result";
+        return Run(
+            shell =>
+            {
+                var activity = new ActivitySummaryItemViewModel(new RemoteTranscriptItem
+                {
+                    Id = "work", Kind = RemoteProtocol.ItemKinds.Activity, ActionCount = 1
+                });
+                activity.ApplyDetails(new RemoteActivityDetails
+                {
+                    Tools = [new RemoteToolCall
+                    {
+                        Id = "search", Name = "search", DisplayName = "Searched", Input = input, Output = output
+                    }]
+                });
+                shell.Chat.SelectedActivity = activity;
+                shell.Chat.IsActivitySheetOpen = true;
+            },
+            shell => new ChatDetailView { DataContext = shell },
+            (window, shell) =>
+            {
+                var sheet = window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataBottomSheet>()
+                    .Single(control => control.Name == "ActivitySheet");
+                var activity = shell.Chat.SelectedActivity!;
+                var button = sheet.GetVisualDescendants().OfType<Button>()
+                    .Single(control => ReferenceEquals(control.Command, activity.ToggleTechnicalDetailsCommand));
+                Assert.Contains("Searched", Texts());
+                Assert.DoesNotContain(input, Texts());
+                Assert.DoesNotContain(output, Texts());
+
+                ClickToggle();
+                Assert.True(activity.IsTechnicalDetailsVisible);
+                Assert.Contains(input, Texts());
+                Assert.Contains(output, Texts());
+                ClickToggle();
+                Assert.False(activity.IsTechnicalDetailsVisible);
+                Assert.DoesNotContain(output, Texts());
+
+                IEnumerable<string?> Texts() => sheet.GetVisualDescendants().OfType<TextBlock>().Select(text => text.Text);
+                void ClickToggle()
+                {
+                    new Avalonia.Automation.Peers.ButtonAutomationPeer(button).Invoke();
+                    Dispatcher.UIThread.RunJobs();
+                    window.UpdateLayout();
+                }
             });
     }
 

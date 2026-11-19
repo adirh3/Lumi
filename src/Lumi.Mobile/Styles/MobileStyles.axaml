@@ -140,7 +140,7 @@
     <Setter Property="BoxShadow" Value="none" />
   </Style>
 
-  <Style Selector="Button.setup-host-row">
+  <Style Selector="#HostList Button.setup-host-row">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
     <Setter Property="CornerRadius" Value="14" />
@@ -151,10 +151,10 @@
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
   </Style>
 
-  <Style Selector="Button.setup-host-row:pressed">
+  <Style Selector="#HostList Button.setup-host-row:pressed">
     <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
   </Style>
-  <Style Selector="Button.setup-host-row:pressed /template/ Border#PART_Surface">
+  <Style Selector="#HostList Button.setup-host-row:pressed /template/ Border#PART_Surface">
     <Setter Property="RenderTransform" Value="scale(0.99)" />
   </Style>
 
@@ -221,48 +221,48 @@
     the browser's native editor spans the whole field and places its text by the field's padding. Focus
     brightens its rim, as it does the composer's.
   -->
-  <Style Selector="TextBox.mobile.list-filter.floating-field">
+  <Style Selector="TextBox#SearchField.mobile.list-filter.floating-field">
     <Setter Property="CornerRadius" Value="22" />
     <Setter Property="Padding" Value="10,10,16,10" />
     <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
     <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
   </Style>
-  <Style Selector="TextBox.floating-field /template/ Panel">
+  <Style Selector="TextBox#SearchField.floating-field /template/ Panel">
     <Setter Property="Background" Value="Transparent" />
   </Style>
-  <Style Selector="TextBox.floating-field /template/ Border#PART_Border">
+  <Style Selector="TextBox#SearchField.floating-field /template/ Border#PART_Border">
     <Setter Property="Margin" Value="0,2" />
     <Setter Property="MinHeight" Value="44" />
     <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
     <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
   </Style>
-  <Style Selector="TextBox.floating-field:focus-within /template/ Border#PART_Border,
-                   TextBox.floating-field.native-input-focused /template/ Border#PART_Border">
+  <Style Selector="TextBox#SearchField.floating-field:focus-within /template/ Border#PART_Border,
+                   TextBox#SearchField.floating-field.native-input-focused /template/ Border#PART_Border">
     <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRimStrong}" />
     <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
   </Style>
 
-  <Style Selector="TextBox.pairing-code">
+  <Style Selector="TextBox#PairingCodeBox.pairing-code">
     <Setter Property="MinHeight" Value="64" />
     <Setter Property="CornerRadius" Value="16" />
     <Setter Property="Padding" Value="14,10" />
   </Style>
 
-  <Style Selector="Border.setup-pairing-panel">
+  <Style Selector="#PairingStep Border.setup-pairing-panel">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
     <Setter Property="Padding" Value="0" />
   </Style>
 
-  <Style Selector="Border.setup-step">
+  <Style Selector="#SetupProgress Border.setup-step">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="Padding" Value="0,8" />
   </Style>
 
-  <Style Selector="Border.setup-step TextBlock">
+  <Style Selector="#SetupProgress Border.setup-step TextBlock">
     <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
   </Style>
-  <Style Selector="Border.setup-step.current TextBlock">
+  <Style Selector="#SetupProgress Border.setup-step.current TextBlock">
     <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
@@ -621,11 +621,11 @@
     <Setter Property="IsVisible" Value="False" />
   </Style>
 
-  <Style Selector="ScrollViewer.composer-context">
+  <Style Selector="ScrollViewer#ComposerContextScroll.composer-context">
     <Setter Property="Margin" Value="2,0,0,0" />
   </Style>
 
-  <Style Selector="Button.context-chip">
+  <Style Selector="#ComposerContext Button.context-chip">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="Padding" Value="0" />
     <Setter Property="Margin" Value="0,0,6,0" />
@@ -634,14 +634,14 @@
     <Setter Property="MinWidth" Value="0" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
-  <Style Selector="Button.context-chip /template/ Border#PART_Surface,
-                   Button.context-chip:pointerover /template/ Border#PART_Surface,
-                   Button.context-chip:pressed /template/ Border#PART_Surface">
+  <Style Selector="#ComposerContext Button.context-chip /template/ Border#PART_Surface,
+                   #ComposerContext Button.context-chip:pointerover /template/ Border#PART_Surface,
+                   #ComposerContext Button.context-chip:pressed /template/ Border#PART_Surface">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BoxShadow" Value="none" />
     <Setter Property="RenderTransform" Value="none" />
   </Style>
-  <Style Selector="Border.context-chip-surface">
+  <Style Selector="#ComposerContext Border.context-chip-surface">
     <Setter Property="Height" Value="32" />
     <Setter Property="CornerRadius" Value="11" />
     <Setter Property="Padding" Value="4,0,11,0" />
@@ -656,45 +656,45 @@
       </Transitions>
     </Setter>
   </Style>
-  <Style Selector="Button.context-chip:pressed Border.context-chip-surface">
+  <Style Selector="#ComposerContext Button.context-chip:pressed Border.context-chip-surface">
     <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
     <Setter Property="RenderTransform" Value="scale(0.96)" />
   </Style>
-  <Style Selector="Border.context-chip-tile">
+  <Style Selector="#ComposerContext Border.context-chip-tile">
     <Setter Property="Width" Value="24" />
     <Setter Property="Height" Value="24" />
     <Setter Property="CornerRadius" Value="8" />
     <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
-  <Style Selector="Border.context-chip-tile sc|StrataLineIcon">
+  <Style Selector="#ComposerContext Border.context-chip-tile sc|StrataLineIcon">
     <Setter Property="Width" Value="13" />
     <Setter Property="Height" Value="13" />
     <Setter Property="StrokeThickness" Value="2.1" />
     <Setter Property="HorizontalAlignment" Value="Center" />
     <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
-  <Style Selector="Border.context-chip-tile TextBlock">
+  <Style Selector="#ComposerContext Border.context-chip-tile TextBlock">
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
     <Setter Property="HorizontalAlignment" Value="Center" />
     <Setter Property="VerticalAlignment" Value="Center" />
     <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Agent}" />
   </Style>
-  <Style Selector="Button.context-chip.project Border.context-chip-tile">
+  <Style Selector="#ComposerContext Button.context-chip.project Border.context-chip-tile">
     <Setter Property="Background" Value="{DynamicResource Brush.ComposerProjectTile}" />
   </Style>
-  <Style Selector="Button.context-chip.project sc|StrataLineIcon">
+  <Style Selector="#ComposerContext Button.context-chip.project sc|StrataLineIcon">
     <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Project}" />
   </Style>
-  <Style Selector="Button.context-chip.agent Border.context-chip-tile">
+  <Style Selector="#ComposerContext Button.context-chip.agent Border.context-chip-tile">
     <Setter Property="Background" Value="{DynamicResource Brush.ComposerAgentTile}" />
   </Style>
-  <Style Selector="Button.context-chip.skill Border.context-chip-tile">
+  <Style Selector="#ComposerContext Button.context-chip.skill Border.context-chip-tile">
     <Setter Property="Background" Value="{DynamicResource Brush.ComposerSkillTile}" />
   </Style>
-  <Style Selector="Button.context-chip.skill sc|StrataLineIcon">
+  <Style Selector="#ComposerContext Button.context-chip.skill sc|StrataLineIcon">
     <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Skill}" />
   </Style>
-  <Style Selector="TextBlock.context-chip-name">
+  <Style Selector="#ComposerContext TextBlock.context-chip-name">
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
     <Setter Property="FontWeight" Value="Medium" />
     <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
