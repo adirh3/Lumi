@@ -151,8 +151,34 @@ public sealed partial class DiscoverViewModel : ObservableObject
     /// <summary>The Sources page's add boxes.</summary>
     [ObservableProperty] private string _newMarketplace = "";
     [ObservableProperty] private string _newRegistry = "";
-    [ObservableProperty] private bool _isAddingSource;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsAddingRegistry))]
+    private bool _isAddingSource;
     [ObservableProperty] private string? _sourceError;
+
+    /// <summary>The marketplace being added. Its download can take long, so it shows its progress.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsAddingMarketplace), nameof(IsAddingRegistry), nameof(AddingMarketplaceTitle))]
+    [NotifyCanExecuteChangedFor(nameof(CancelAddMarketplaceCommand))]
+    private string? _addingMarketplace;
+
+    /// <summary>How the marketplace's download is going: "Downloading · 547 MB · 6:32".</summary>
+    [ObservableProperty] private string _addMarketplaceStatus = "";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CancelAddMarketplaceCommand))]
+    private bool _isStoppingMarketplaceAdd;
+
+    private CancellationTokenSource? _addMarketplaceCancellation;
+
+    public bool IsAddingMarketplace => AddingMarketplace is not null;
+
+    /// <summary>A registry is being added; marketplaces show their own progress.</summary>
+    public bool IsAddingRegistry => IsAddingSource && !IsAddingMarketplace;
+
+    public string AddingMarketplaceTitle => AddingMarketplace is { } source
+        ? string.Format(CultureInfo.CurrentCulture, Loc.Discover_AddingMarketplace, source)
+        : "";
 
     /// <summary>The "All" page's plugin cards.</summary>
     public ObservableCollection<DiscoverCard> PluginPreview { get; } = [];
@@ -254,7 +280,12 @@ public sealed partial class DiscoverViewModel : ObservableObject
     private DiscoverSourceRow? SelectedSourceRow => SourceRows.FirstOrDefault(row => row.Key == SourceKey);
 
     /// <summary>Loads marketplaces, installed plugins and the first page of each registry once.</summary>
-    public Task EnsureLoadedAsync() => _loading ??= LoadAllAsync();
+    public Task EnsureLoadedAsync()
+    {
+        if (_loading is null)
+            _ = _plugins.RemoveAbandonedDownloadsAsync();
+        return _loading ??= LoadAllAsync();
+    }
 
     [RelayCommand]
     private async Task RefreshAsync()
@@ -1038,7 +1069,7 @@ public sealed partial class DiscoverViewModel : ObservableObject
         return Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) ? uri.Host : trimmed;
     }
 
-    private async Task LoadSourcesAsync()
+    private async Task LoadSourcesAsync(bool background = false)
     {
         if (_plugins.IsAvailable)
         {
@@ -1048,7 +1079,9 @@ public sealed partial class DiscoverViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                SourceError = Describe(ex);
+                // A reload no one asked for reports its failure only while no other status shows.
+                if (!background || SourceError is null)
+                    SourceError = Describe(ex);
             }
         }
 
@@ -1079,13 +1112,33 @@ public sealed partial class DiscoverViewModel : ObservableObject
 
         IsAddingSource = true;
         SourceError = null;
+        source = source.Trim();
+        AddingMarketplace = source;
+        using var cancellation = _addMarketplaceCancellation = new CancellationTokenSource();
+        var elapsed = Stopwatch.StartNew();
+        AddMarketplaceStatus = DescribeDownload(null, TimeSpan.Zero);
+        var progress = new Progress<MarketplaceDownloadProgress?>(download =>
+        {
+            if (ReferenceEquals(_addMarketplaceCancellation, cancellation) && !cancellation.IsCancellationRequested)
+                AddMarketplaceStatus = DescribeDownload(download, elapsed.Elapsed);
+        });
         try
         {
-            var name = await _plugins.AddMarketplaceAsync(source, CancellationToken.None);
+            var name = await _plugins.AddMarketplaceAsync(source, cancellation.Token, progress);
             NewMarketplace = "";
             Toast = string.Format(CultureInfo.CurrentCulture, Loc.Discover_SourceAdded, name);
             await LoadPluginsAsync();
             await LoadSourcesAsync();
+        }
+        catch (MarketplaceAddStoppedException stopped) when (!stopped.Stalled && !stopped.StillRunning)
+        {
+            Toast = stopped.Message;
+        }
+        catch (MarketplaceAddStoppedException stopped)
+        {
+            SourceError = stopped.Message;
+            if (stopped.Completion is { } completion)
+                _ = ShowLateOutcomeAsync(completion, stopped.Message);
         }
         catch (Exception ex)
         {
@@ -1093,8 +1146,66 @@ public sealed partial class DiscoverViewModel : ObservableObject
         }
         finally
         {
+            _addMarketplaceCancellation = null;
+            IsStoppingMarketplaceAdd = false;
+            AddingMarketplace = null;
+            AddMarketplaceStatus = "";
             IsAddingSource = false;
         }
+    }
+
+    private bool CanCancelAddMarketplace() => IsAddingMarketplace && !IsStoppingMarketplaceAdd;
+
+    /// <summary>
+    /// How an add Lumi stopped waiting for ended, once the runtime finishes it: the sources and plugins
+    /// it brings, or its failure in place of its warning. A newer operation's status stays, even when the
+    /// reload then fails.
+    /// </summary>
+    private async Task ShowLateOutcomeAsync(Task<string> completion, string warning)
+    {
+        string? failure = null;
+        try
+        {
+            await completion;
+        }
+        catch (Exception ex)
+        {
+            failure = string.Format(CultureInfo.CurrentCulture, Loc.Discover_SourceAddFailed, Describe(ex));
+        }
+
+        // Only this add's own warning gives way: a newer status is another string, even with the same words.
+        if (ReferenceEquals(SourceError, warning))
+            SourceError = failure;
+
+        if (failure is null)
+        {
+            await LoadPluginsAsync();
+            await LoadSourcesAsync(background: true);
+        }
+    }
+
+    /// <summary>Stops the marketplace's download; the runtime would otherwise carry on with it.</summary>
+    [RelayCommand(CanExecute = nameof(CanCancelAddMarketplace))]
+    private void CancelAddMarketplace()
+    {
+        if (_addMarketplaceCancellation is not { } cancellation)
+            return;
+
+        IsStoppingMarketplaceAdd = true;
+        AddMarketplaceStatus = Loc.Discover_AddStopping;
+        cancellation.Cancel();
+    }
+
+    /// <summary>"Downloading · 547 MB · 6:32": what has reached disk, and for how long it has run.</summary>
+    internal static string DescribeDownload(MarketplaceDownloadProgress? download, TimeSpan elapsed)
+    {
+        var time = elapsed.ToString(elapsed.TotalHours >= 1 ? @"h\:mm\:ss" : @"m\:ss", CultureInfo.InvariantCulture);
+        return download switch
+        {
+            { Phase: MarketplaceDownloadPhase.Unpacking } => string.Format(CultureInfo.CurrentCulture, Loc.Discover_AddUnpacking, ToolDisplayHelper.FormatFileSize(download.Bytes), time),
+            { Bytes: > 0 } => string.Format(CultureInfo.CurrentCulture, Loc.Discover_AddDownloading, ToolDisplayHelper.FormatFileSize(download.Bytes), time),
+            _ => string.Format(CultureInfo.CurrentCulture, Loc.Discover_AddPreparing, time),
+        };
     }
 
     private async Task RemoveMarketplaceAsync(MarketplaceRow row)

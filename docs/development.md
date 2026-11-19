@@ -983,6 +983,51 @@ Runtime experiments must isolate both `COPILOT_HOME` and `COPILOT_CACHE_HOME`; t
 independent of the configuration home. Never infer the cause of an access-denied error from an
 unrelated directory-in-use reproduction.
 
+### Discover marketplace downloads
+
+`plugins.marketplaces.add` clones a Git marketplace's whole repository (`git clone --depth 1`, then a
+full checkout) into a `.copilot-clone-*` staging folder of `<COPILOT_CACHE_HOME>/marketplaces` (of
+`marketplaces/_pinned` for an add at a ref) before moving it into place. A catalog of thousands of
+plugins means hundreds of MB downloaded and over a GB checked out to read one `marketplace.json`.
+Runtime 1.0.111 reports no progress, ignores JSON-RPC
+cancellation for this request (the SDK sends `$/cancelRequest`, but git keeps running and a retry
+waits on the marketplace's lock), leaves git running when the runtime exits, and never removes a
+staging folder an interrupted clone left. 1.0.114, which Lumi pins since the SDK v2 migration, still
+clones the whole repository, ignores cancellation and leaves git running when it exits. The upstream
+fix should fetch only the manifest (a sparse or partial clone, or the GitHub contents API, with plugin
+folders fetched on install), honor cancellation, report progress, stop its git children on exit and
+sweep stale staging folders.
+
+Until then `MarketplaceDownloads` works from the git command line, which names the staging folder, the
+repository and the ref. An add counts only clones of its own source by git processes descended from
+Lumi's runtime: the repository argument and the ref must match. The runtime passes a source's address
+to git as written, so addresses compare in full (`github.com/owner/repo` for GitHub, without case): the
+scheme, user, path case, a `.git` suffix and a trailing slash all count, since a Git host may serve such
+paths as different repositories and another scheme can reach another server, and only a URL's scheme
+and host case and a default port are ignored. The runtime clones a ref with `--branch` (without
+`refs/heads/` or `refs/tags/`), except a 40-character commit, which it clones without one and fetches
+afterwards. So another add, a refresh or a Copilot CLI add in a terminal is never stopped, and is
+measured only when it is an add of the same repository at a pin that clones alike. Progress is the size
+of `.git/objects/pack` (`tmp_pack_*` while receiving, then `pack-*.pack` while the files are written),
+read with a fresh `FileInfo` because a Windows directory listing reports the size a file had when git
+opened it. Cancelling, or five minutes without a change while a visible download receives data
+(writing files, or a clone Lumi can't see, never counts as stalled), stops that git process tree; the
+runtime then fails the add and removes the staging folder. An add at a ref is never stopped this way:
+every commit clones without `--branch`, and `name`, `refs/heads/name` and `refs/tags/name` all as
+`--branch name`, so its clone can be another add's at a different pin of the same repository (two
+windows share the runtime). Cancel and a stall then only stop waiting for it, as for a clone Lumi can't
+see; the stopped exception's `Completion` is the add as the runtime goes on with it, and Sources
+reloads once it is added, or shows its failure in place of its warning (a newer status stays, even when
+the reload then fails). Lumi never removes a lock file: the runtime locks it natively, so deleting one
+lets another add take a lock a running add still holds.
+Shutdown stops the clone before stopping the runtime. Discover's first load removes staging folders
+that no git process names and nothing has written to for ten minutes (between git commands, and while
+the runtime moves a finished clone into place, no git process names it). Isolated Debug runtimes get
+their own `COPILOT_CACHE_HOME` (`copilot-cache` beside `copilot-home`) with `COPILOT_PKG_CACHE_HOME`
+left on the shared cache, so test profiles keep their marketplace clones without unpacking the CLI
+again. A relative `COPILOT_CACHE_HOME` is resolved against Lumi's working directory and passed to the
+runtime as that full path, so both use the same cache.
+
 Updates remain runtime-owned. Lumi publishes `PluginsChanged` only after a successful update RPC;
 `ChatSessionStore` then reconfigures idle sessions and defers live-session changes. Do not preemptively
 stop connectors or active/background work to make an update succeed. Discover uses the SDK's

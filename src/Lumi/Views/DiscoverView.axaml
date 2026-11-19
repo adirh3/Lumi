@@ -482,6 +482,18 @@
                   <TextBox x:Name="DiscoverMarketplaceInput" Classes="mg-field mono" Text="{Binding NewMarketplace}"
                            PlaceholderText="{loc:Str Discover_AddMarketplaceWatermark}" />
                 </DockPanel>
+                <Border x:Name="DiscoverMarketplaceProgress" Classes="dc-source-row" IsVisible="{Binding IsAddingMarketplace}">
+                  <DockPanel>
+                    <Button DockPanel.Dock="Right" x:Name="DiscoverCancelMarketplaceButton" Classes="subtle mg-button" VerticalAlignment="Center"
+                            Margin="12,0,0,0" Content="{loc:Str Discover_CancelAdd}" Command="{Binding CancelAddMarketplaceCommand}" />
+                    <StackPanel Spacing="6" VerticalAlignment="Center">
+                      <TextBlock Classes="mg-card-title" Text="{Binding AddingMarketplaceTitle}" TextTrimming="CharacterEllipsis" />
+                      <ProgressBar IsIndeterminate="True" />
+                      <TextBlock x:Name="DiscoverMarketplaceProgressStatus" Classes="mg-meta" Text="{Binding AddMarketplaceStatus}" />
+                      <TextBlock Classes="mg-meta" Text="{loc:Str Discover_AddMarketplaceNote}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DockPanel>
+                </Border>
               </StackPanel>
             </Border>
 
@@ -539,7 +551,7 @@
               </StackPanel>
             </Border>
 
-            <ProgressBar IsIndeterminate="True" Width="160" HorizontalAlignment="Center" IsVisible="{Binding IsAddingSource}" />
+            <ProgressBar IsIndeterminate="True" Width="160" HorizontalAlignment="Center" IsVisible="{Binding IsAddingRegistry}" />
 
             <!-- Suggestions -->
             <StackPanel Spacing="10" IsVisible="{Binding HasSourceSuggestions}">
