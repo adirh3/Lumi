@@ -8,6 +8,9 @@ namespace Lumi.Services;
 /// <param name="QueueIds">The runtime's queue items holding a queued switch; empty when it applied.</param>
 internal readonly record struct SessionModelSwitchResult(bool Deferred, IReadOnlyList<string> QueueIds);
 
+internal sealed class SessionModelSwitchNotAppliedException(string requested, string? active, string? status)
+    : InvalidOperationException($"Runtime did not apply model '{requested}' (active: '{active}', status: '{status}').");
+
 /// <summary>
 /// Switches a live session's model and reports what the runtime did with the switch. The runtime changes
 /// models only between turns: one picked while a turn runs waits in its queue, as a cancellable item, until
@@ -62,9 +65,16 @@ internal static class SessionModelSwitch
             // A person's pick: it drains after (and so wins over) a switch already waiting.
             deferIfModelChangeQueued: true,
             cancellationToken: cancellationToken);
-        return result.Deferred == true
-            ? new SessionModelSwitchResult(true, result.QueueId is { Length: > 0 } id ? [id] : [])
-            : new SessionModelSwitchResult(false, []);
+        if (result.Deferred == true)
+            return new SessionModelSwitchResult(true, result.QueueId is { Length: > 0 } id ? [id] : []);
+
+        // Account-model results can report the provider's wire ID rather than our registration ID.
+        if (!modelId.StartsWith(ByokConfigHelper.SessionProviderName + "/", StringComparison.Ordinal)
+            && !string.Equals(modelId, "auto", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(modelId, result.ModelId, StringComparison.OrdinalIgnoreCase))
+            throw new SessionModelSwitchNotAppliedException(modelId, result.ModelId, result.Status);
+
+        return new SessionModelSwitchResult(false, []);
 #pragma warning restore GHCP001
     }
 

@@ -463,10 +463,10 @@ public partial class ChatViewModel
 
     /// <summary>
     /// Replaces this surface's model list with <paramref name="modelIds"/> using a minimal diff, so a
-    /// live catalog refresh never disturbs an open picker. The current selection is kept when it is
-    /// still offered; otherwise <paramref name="fallbackModel"/> takes over.
+    /// live catalog refresh never disturbs an open picker. A saved chat selection survives even if
+    /// the catalog no longer offers the model. Only unconfigured chats and drafts can take the fallback.
     /// </summary>
-    public void ApplyAvailableModels(IReadOnlyList<string> modelIds, string? fallbackModel)
+    public void ApplyAvailableModels(IReadOnlyList<string> modelIds, string? fallbackModel, bool resetSelection = false)
     {
         var selected = SelectedModel;
         var keepsSelection = !string.IsNullOrWhiteSpace(selected)
@@ -474,7 +474,12 @@ public partial class ChatViewModel
 
         ModelSelectionHelper.SyncAvailableModels(AvailableModels, modelIds, keepsSelection ? selected : null);
 
-        if (!keepsSelection && !string.IsNullOrWhiteSpace(fallbackModel))
+        if (CurrentChat is { LastModelUsed: { Length: > 0 } saved } chat)
+        {
+            if (!IsEditingMessage && !string.Equals(SelectedModel, saved, StringComparison.OrdinalIgnoreCase))
+                ApplyModelSelection(saved, chat.LastReasoningEffortUsed, chat.LastContextWindowTierUsed);
+        }
+        else if ((!keepsSelection || resetSelection) && !string.IsNullOrWhiteSpace(fallbackModel))
             SetSelectedModelValue(fallbackModel);
     }
 

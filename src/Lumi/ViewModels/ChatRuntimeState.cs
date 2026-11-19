@@ -78,6 +78,8 @@ internal sealed class ChatRuntimeState
     public bool TurnInProgress { get; set; }
     public bool IsContinuationTurn { get; set; }
 
+    public bool IsPreparingModelForTurn { get; set; }
+
     public string StatusText { get; set; } = string.Empty;
 
     public long TotalInputTokens { get; set; }

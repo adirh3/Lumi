@@ -1754,6 +1754,7 @@
   "ModelSwitch_SwitchNow": "Switch now",
   "ModelSwitch_SwitchNowToolTip": "Stops the current step and continues this work with {0}",
   "ModelSwitch_NextMessage": "{0} takes over with your next message",
+  "ModelSwitch_CannotUse": "Couldn't start this turn with {0}. Try again or choose another model. Lumi didn't switch to a different model.",
 
   "FieldLabel_URL": "URL",
   "FieldLabel_File": "File",

@@ -22,10 +22,37 @@ public partial class ChatViewModel
     };
 
     private async Task SendPauseAwareAsync(
-        Chat chat, CopilotSession session, MessageOptions options, CancellationToken cancellationToken)
+        Chat chat, CopilotSession session, MessageOptions options, CancellationToken cancellationToken,
+        bool useStoredModelOptions = false, Action? validateBeforeSubmit = null)
     {
-        await GetOrCreateRuntimeState(chat.Id).PauseGate.WaitAsync(cancellationToken);
-        await ApplyPendingModelSwitchAsync(chat, session);
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+        runtime.IsPreparingModelForTurn = true;
+        try
+        {
+            while (true)
+            {
+                await runtime.PauseGate.WaitAsync(cancellationToken);
+                var selection = ReadTurnModelSelection(chat, useStoredModelOptions);
+                if (!await PrepareSessionModelForTurnAsync(chat, session, selection, cancellationToken))
+                {
+                    // Only poll while Copilot has a queued model switch; leave background work and prompts alone.
+                    await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+                    continue;
+                }
+                if (chat.IsPaused || selection != ReadTurnModelSelection(chat, useStoredModelOptions))
+                    continue;
+
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!IsCachedSessionProviderConsistentWithSelection(chat.Id, session))
+                    throw new InvalidOperationException(Loc.Get("ModelSwitch_CannotUse", DescribeModelSelection(chat)));
+                validateBeforeSubmit?.Invoke();
+                break;
+            }
+        }
+        finally
+        {
+            runtime.IsPreparingModelForTurn = false;
+        }
         await session.SendAsync(options, cancellationToken);
     }
 
@@ -144,9 +171,19 @@ public partial class ChatViewModel
                 ApplyDisplayedRuntimeState(runtime);
             await AcquireByokRateSlotAsync(chat, cancellation.Token);
             // The interruption dropped a switch queued for the end of the turn: the work goes on with the pick.
-            await ApplyPendingModelSwitchAsync(chat, resumedSession);
 #pragma warning disable GHCP001
+            var selection = ReadTurnModelSelection(chat);
+            await PrepareSessionModelForTurnAsync(
+                chat, resumedSession, selection, cancellation.Token, waitForDeferred: false);
             await resumedSession.Rpc.Queue.SetDrainPausedAsync(false, cancellation.Token);
+            while (selection != ReadTurnModelSelection(chat))
+            {
+                selection = ReadTurnModelSelection(chat);
+                await PrepareSessionModelForTurnAsync(
+                    chat, resumedSession, selection, cancellation.Token, waitForDeferred: false);
+            }
+            if (!IsCachedSessionProviderConsistentWithSelection(chat.Id, resumedSession))
+                throw new InvalidOperationException(Loc.Get("ModelSwitch_CannotUse", DescribeModelSelection(chat)));
             await resumedSession.Rpc.SendMessagesAsync([], cancellationToken: cancellation.Token);
 #pragma warning restore GHCP001
             QueueSaveChatIndex(chat);

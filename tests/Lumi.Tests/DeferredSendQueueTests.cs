@@ -2292,7 +2292,7 @@ public sealed partial class DeferredSendQueueTests
     [InlineData("resume", false)]
     [InlineData("resume", true)]
     [InlineData("change", false)]
-    public async Task SessionModelEvents_OnlyTheRootUpdatesTheChatSelection(string eventType, bool child)
+    public async Task SessionModelEvents_UpdateTheLiveModelWithoutReplacingTheChatSelection(string eventType, bool child)
     {
         using var ui = HeadlessTestSession.Start();
         await ui.Dispatch(() =>
@@ -2344,11 +2344,10 @@ public sealed partial class DeferredSendQueueTests
             rpc.Emit(modelEvent);
             Dispatcher.UIThread.RunJobs();
 
-            var expectedModel = child ? "claude-opus-5.5" : "gpt-6.1-sol";
-            Assert.Equal(expectedModel, host.ViewModel.SelectedModel);
-            Assert.Equal(expectedModel, host.Chat.LastModelUsed);
-            Assert.Equal(expectedModel, host.Runtime.ActiveModelId);
-            Assert.Equal(child ? "max" : "low", host.Chat.LastReasoningEffortUsed);
+            Assert.Equal("claude-opus-5.5", host.ViewModel.SelectedModel);
+            Assert.Equal("claude-opus-5.5", host.Chat.LastModelUsed);
+            Assert.Equal(child ? "claude-opus-5.5" : "gpt-6.1-sol", host.Runtime.ActiveModelId);
+            Assert.Equal("max", host.Chat.LastReasoningEffortUsed);
             Assert.Equal(!child, host.ViewModel.AvailableModels.Contains("gpt-6.1-sol"));
         }, CancellationToken.None);
     }
@@ -3591,6 +3590,7 @@ public sealed partial class DeferredSendQueueTests
         {
             Operations.Add("send");
             SendCount++;
+            ModelAtSend = LiveModel;
             SentMessages.Add(JsonSerializer.Deserialize<JsonElement>(
                 Newtonsoft.Json.JsonConvert.SerializeObject(request)));
             LastSendMode = request.GetValueOrDefault("mode") is { } mode ? Assert.IsType<string>(mode) : null;

@@ -586,7 +586,7 @@ public partial class ChatViewModel
     {
         CancelPendingMidSessionModelSync();
 
-        if (_activeSession is null || CurrentChat is not { } chat || string.IsNullOrWhiteSpace(SelectedModel))
+        if (CurrentChat is not { } chat || !_sessionCache.ContainsKey(chat.Id) || string.IsNullOrWhiteSpace(SelectedModel))
             return;
 
         GetOrCreateRuntimeState(chat.Id).LastSessionActivityUtc = DateTimeOffset.UtcNow;
@@ -608,7 +608,7 @@ public partial class ChatViewModel
     private async Task<bool> SwitchModelMidSessionAsync(
         string? modelId, string? reasoningEffort, string? contextTier, CancellationToken selectionToken = default)
     {
-        if (selectionToken.IsCancellationRequested || _activeSession is null || CurrentChat is not { } chat)
+        if (selectionToken.IsCancellationRequested || CurrentChat is not { } chat || !_sessionCache.ContainsKey(chat.Id))
             return false;
 
         // No specific model to switch to — treat the session as already consistent.
@@ -621,7 +621,7 @@ public partial class ChatViewModel
         // model's id through the OLD endpoint and fail (or worse, leak the previous endpoint's
         // auth header to the new provider). Detect this mismatch here and force a session
         // recreation on the next SendMessage instead.
-        var modelRoute = ResolveModelRouteForChat(modelId);
+        var modelRoute = ResolveModelRouteForChat(modelId, chat);
         if (modelRoute.IsInvalidByok || string.IsNullOrWhiteSpace(modelRoute.SessionModelId))
         {
             InvalidateCurrentSessionForModelSwitch();
@@ -629,7 +629,7 @@ public partial class ChatViewModel
         }
 
         var newSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider, modelRoute.ByokModel);
-        if (!string.Equals(newSignature, _activeSessionProviderSignature, StringComparison.Ordinal))
+        if (!string.Equals(newSignature, _sessionProviderSignatures.GetValueOrDefault(chat.Id), StringComparison.Ordinal))
         {
             InvalidateCurrentSessionForModelSwitch();
             try
@@ -681,9 +681,17 @@ public partial class ChatViewModel
                 // A newer pick took over before this one reached the session.
                 return false;
             }
-            catch
+            catch (SessionModelSwitchNotAppliedException ex)
+            {
+                System.Diagnostics.Trace.TraceWarning("[Chat] {0}", ex.Message);
+                // Rebuilding cannot resolve a switch that the runtime declined. The next send
+                // checks the saved choice again and won't submit against a different model.
+                return false;
+            }
+            catch (Exception ex)
             {
                 // The live session cannot apply this selection. Keep the existing recreation fallback.
+                System.Diagnostics.Trace.TraceWarning("[Chat] Model switch failed: {0}", ex.Message);
                 InvalidateCurrentSessionForModelSwitch();
                 return false;
             }

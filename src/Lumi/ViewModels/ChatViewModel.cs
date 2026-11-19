@@ -1290,7 +1290,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Auto commits can arrive after a newer choice was staged for the next message.
         // Keep that preference separate from the tier the session actually committed.
         if (CopilotModelCatalog.IsAutoSelection(effectiveModel)
-            && !string.IsNullOrWhiteSpace(chat.LastModelUsed))
+            && CopilotModelCatalog.IsAutoSelection(chat.LastModelUsed))
         {
             persistedModel = chat.LastModelUsed;
         }
@@ -1308,13 +1308,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (route.IsByok)
                 persistedModel = route.SelectionToken;
         }
+        // The runtime reports what it is using, not what the user asked to use.
+        // A stale event or a fallback must not become the next turn's selection.
+        var matchesSelection = string.IsNullOrWhiteSpace(chat.LastModelUsed)
+            || string.Equals(chat.LastModelUsed, persistedModel, StringComparison.OrdinalIgnoreCase);
         if (!CopilotModelCatalog.IsAutoSelection(effectiveModel)
             || (effectiveModel == "auto" && CopilotModelCatalog.IsAutoSelection(persistedModel)))
             effectiveModel = persistedModel;
         var effectiveContextTier = ResolveSessionContextWindowTier(
             effectiveModel,
             sessionContextTier,
-            chat.LastContextWindowTierUsed);
+            matchesSelection ? chat.LastContextWindowTierUsed : null);
         var modelStateChanged = !string.Equals(runtime.ActiveModelId, effectiveModel, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(runtime.ActiveContextWindowTier, effectiveContextTier, StringComparison.OrdinalIgnoreCase);
 
@@ -1352,6 +1356,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ActiveSessionModelId));
         OnPropertyChanged(nameof(ActiveSessionContextWindowTier));
         OnPropertyChanged(nameof(ContextTokenLimitSourceDisplay));
+
+        if (!matchesSelection)
+        {
+            ApplyKnownContextTokenLimit(chat, runtime, effectiveModel, updateDisplayed);
+            return;
+        }
 
         if (!string.IsNullOrWhiteSpace(persistedModel))
             chat.LastModelUsed = persistedModel;
@@ -2719,7 +2729,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     }
                     catch (Exception ex) when (!CopilotModelCatalog.IsAutoTierSelection(modelRoute.SelectionToken))
                     {
-                        Debug.WriteLine($"[Lumi] Could not restore the resumed session's model: {ex.Message}");
+                        // Keep the resumed session and its history; a send verifies the model again.
+                        Trace.TraceWarning("[Chat] Could not restore the resumed session's model: {0}", ex.Message);
                     }
                 }
 
@@ -3984,51 +3995,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 throw new InvalidOperationException(Loc.Status_OriginalSessionUnavailable);
             RestoreDisplayedSessionFromCache();
 
-            // EnsureSessionAsync re-resolves the effort via ResolvePersistedReasoningEffortForChat, which for a
-            // currently-displayed target chat returns the live UI selection and overwrites an explicit per-send
-            // effort override (the model is preserved through LastModelUsed, but the effort is not). Restore the
-            // override so it is applied to the session below and persisted for subsequent sends.
+            // Setup may have normalized the saved effort against an older composer selection.
             if (hasEffortOverride)
                 targetChat.LastReasoningEffortUsed = reasoningEffortOverride!.Trim();
-
-            // Push an explicit per-send model/effort override onto the resolved session:
-            //  - cached session: EnsureSessionAsync never ran, so nothing has applied the override yet;
-            //  - fresh/resumed session: the model was already applied inside EnsureSessionAsync, but an effort
-            //    override can be dropped (see above), so re-apply whenever the effort was overridden.
-            if (!string.IsNullOrWhiteSpace(targetChat.LastModelUsed)
-                && (hasEffortOverride || (hasModelOverride && !needsSessionSetup)))
-            {
-                var overrideRoute = ResolveModelRouteForChat(targetChat.LastModelUsed, targetChat);
-                if (overrideRoute.IsInvalidByok || string.IsNullOrWhiteSpace(overrideRoute.SessionModelId))
-                    throw new InvalidOperationException(Loc.Byok_Error_StaleModel);
-                var overrideModel = overrideRoute.SessionModelId;
-                var overrideEffort = ResolveReasoningEffortForModel(
-                    targetChat.LastReasoningEffortUsed,
-                    targetChat.LastModelUsed);
-                // The persisted tier is a preference and may name a tier this model does not offer, so
-                // normalize it against the override model exactly like the effort above. Resolving via the
-                // composer would normalize against the still-displayed pre-override model and downgrade
-                // an explicit long-context selection to Default.
-                var overrideContextTier = ResolveContextWindowTierForModel(
-                    targetChat.LastContextWindowTierUsed,
-                    targetChat.LastModelUsed);
-                var overrideCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
-                    overrideRoute.ByokModel, overrideContextTier);
-                try
-                {
-                    await SessionConfigBuilder.EnsureProviderModelRegisteredAsync(
-                        sendSession, overrideRoute, overrideCapabilities, cts.Token);
-                    await sendSession.SetModelAsync(
-                        overrideModel,
-                        SessionConfigBuilder.CreateSetModelOptions(
-                            overrideRoute.SelectionToken, overrideEffort, overrideContextTier,
-                            overrideCapabilities));
-                }
-                catch (Exception ex) when (!CopilotModelCatalog.IsAutoTierSelection(overrideRoute.SelectionToken))
-                {
-                    Debug.WriteLine($"[Lumi] Could not apply the external model selection: {ex.Message}");
-                }
-            }
 
             var basePrompt = needsReplayPrompt
                 ? BuildSessionRecoveryReplayPrompt(await WithStoredHistoryAsync(targetChat, retainedContext, cts.Token), prompt)
@@ -4055,9 +4024,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // consumes a network slot. No-op for non-BYOK models or models without a limit, so
             // existing chats are unaffected. Retries below reuse this turn's slot.
             await AcquireByokRateSlotAsync(targetChat, cts.Token);
-            validateBeforeSend?.Invoke();
             PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
-            await SendPauseAwareAsync(targetChat, sendSession, sendOptions, cts.Token);
+            await SendPauseAwareAsync(targetChat, sendSession, sendOptions, cts.Token,
+                useStoredModelOptions: hasModelOverride || hasEffortOverride, validateBeforeSubmit: validateBeforeSend);
         }
         catch (Exception ex) when (IsSessionNotFoundError(ex) && cts is not null && sendOptions is not null)
         {
@@ -4090,9 +4059,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     localUserMessageCount,
                     cts.Token,
                     verifyWithLiveEvents: true);
-                validateBeforeSend?.Invoke();
+                if (hasEffortOverride)
+                    targetChat.LastReasoningEffortUsed = reasoningEffortOverride!.Trim();
                 PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
-                await SendPauseAwareAsync(targetChat, sendSession, sendOptions, cts.Token);
+                await SendPauseAwareAsync(targetChat, sendSession, sendOptions, cts.Token,
+                    useStoredModelOptions: hasModelOverride || hasEffortOverride, validateBeforeSubmit: validateBeforeSend);
             }
             catch (BackgroundJobDeliveryInvalidatedException)
             {
@@ -4113,7 +4084,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex) when (sendOptions is not null && IsCopilotTransportError(ex))
         {
-            var recovery = await TryRecoverTransportSendAsync(targetChat, sendOptions);
+            var recovery = await TryRecoverTransportSendAsync(
+                targetChat, sendOptions, useStoredModelOptions: hasModelOverride || hasEffortOverride,
+                validateBeforeSubmit: validateBeforeSend);
             RestoreDisplayedSessionFromCache();
             if (recovery.Recovered)
                 return;
@@ -5484,7 +5457,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private async Task<(bool Recovered, string? FailureMessage)> TryRecoverTransportSendAsync(
         Chat chat,
-        MessageOptions sendOptions)
+        MessageOptions sendOptions,
+        bool useStoredModelOptions = false,
+        Action? validateBeforeSubmit = null)
     {
         var pendingRuntime = GetOrCreateRuntimeState(chat.Id);
         int pendingSessionUserMessageCount;
@@ -5517,7 +5492,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 recoveredTurnCts.Token,
                 verifyWithLiveEvents: true);
             SetPendingSessionUserMessageCount(chat.Id, expectedSessionUserMessageCount);
-            await SendPauseAwareAsync(chat, recoveredSession, sendOptions.Clone(), recoveredTurnCts.Token);
+            await SendPauseAwareAsync(chat, recoveredSession, sendOptions.Clone(), recoveredTurnCts.Token,
+                useStoredModelOptions: useStoredModelOptions, validateBeforeSubmit: validateBeforeSubmit);
             return (true, null);
         }
 

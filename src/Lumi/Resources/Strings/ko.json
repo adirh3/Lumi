@@ -1725,6 +1725,7 @@
   "ModelSwitch_SwitchNow": "지금 전환",
   "ModelSwitch_SwitchNowToolTip": "현재 단계를 멈추고 {0}(으)로 이 작업을 계속해요",
   "ModelSwitch_NextMessage": "다음 메시지부터 {0}(으)로 전환돼요",
+  "ModelSwitch_CannotUse": "{0} 모델로 이번 대화를 시작할 수 없어요. 다시 시도하거나 다른 모델을 선택해 주세요. Lumi는 다른 모델로 전환하지 않았어요.",
   "FieldLabel_URL": "URL",
   "FieldLabel_File": "파일",
   "FieldLabel_Path": "경로",

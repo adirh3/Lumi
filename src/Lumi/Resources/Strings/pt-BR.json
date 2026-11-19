@@ -1725,6 +1725,7 @@
   "ModelSwitch_SwitchNow": "Trocar agora",
   "ModelSwitch_SwitchNowToolTip": "Interrompe a etapa atual e continua este trabalho com {0}",
   "ModelSwitch_NextMessage": "{0} assume a partir da sua próxima mensagem",
+  "ModelSwitch_CannotUse": "Não foi possível iniciar este turno com {0}. Tente novamente ou escolha outro modelo. O Lumi não trocou de modelo.",
   "FieldLabel_URL": "URL",
   "FieldLabel_File": "Arquivo",
   "FieldLabel_Path": "Caminho",

@@ -1725,6 +1725,7 @@
   "ModelSwitch_SwitchNow": "立即切换",
   "ModelSwitch_SwitchNowToolTip": "停止当前步骤，并使用 {0} 继续这项工作",
   "ModelSwitch_NextMessage": "{0} 将从你的下一条消息开始接手",
+  "ModelSwitch_CannotUse": "无法使用 {0} 开始本轮对话。请重试或选择其他模型。Lumi 没有切换到其他模型。",
   "FieldLabel_URL": "URL",
   "FieldLabel_File": "文件",
   "FieldLabel_Path": "路径",

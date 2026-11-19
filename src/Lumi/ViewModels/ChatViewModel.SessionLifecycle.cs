@@ -124,6 +124,13 @@ public partial class ChatViewModel
     internal static string? CaptureTurnModelId(string? currentTurnModelId, string? selectedModelId)
         => currentTurnModelId ?? selectedModelId;
 
+    private string? ResolveReportedReplyModel(string? turnModelId, string? reportedModel)
+        => string.IsNullOrWhiteSpace(reportedModel)
+            || (ByokConfigHelper.IsByokModel(turnModelId)
+                && ByokConfigHelper.MatchesWireModelId(_dataStore.Data.Settings, turnModelId, reportedModel))
+            ? turnModelId
+            : reportedModel;
+
     internal static string? ResetTurnModelIdForTurnStartEcho(bool isTurnStartEcho, string? currentTurnModelId)
         => isTurnStartEcho ? null : currentTurnModelId;
 
@@ -970,7 +977,7 @@ public partial class ChatViewModel
                     Author = agentName,
                     Content = currentContent,
                     IsStreaming = true,
-                    Model = turnModelId
+                    Model = turnModelId ?? runtime.ActiveModelId ?? ResolveSelectedModelForChat(chat)
                 };
                 _inProgressMessages[chat.Id] = streamingMsg;
                 if (IsDisplayedSession())
@@ -1279,6 +1286,7 @@ public partial class ChatViewModel
                     var capturedPhase = msg.Data.Phase;
                     var capturedRequestedTools = msg.Data.ToolRequests is { Length: > 0 };
                     var capturedApiCallId = msg.Data.ApiCallId;
+                    var reportedModel = msg.Data.Model;
                     var capturedIsProgress = AssistantProgress.IsProgress(capturedPhase, capturedRequestedTools);
                     // A reply split around reasoning carries its tool requests on the last piece, which may
                     // have no text of its own; the earlier pieces it continues were progress too.
@@ -1297,6 +1305,7 @@ public partial class ChatViewModel
                         // completion can cancel the throttled flush before it ever
                         // creates the streaming message, causing the entire response
                         // to appear at once instead of streaming.
+                        turnModelId = ResolveReportedReplyModel(turnModelId ?? streamingMsg?.Model, reportedModel);
                         FlushAssistantDelta();
 
                         var finalContent = ResolveFinalAssistantContent(
@@ -1339,6 +1348,7 @@ public partial class ChatViewModel
                             streamingMsg.IsStreaming = false;
                             streamingMsg.IsProgress = capturedIsProgress;
                             streamingMsg.ApiCallId = capturedApiCallId;
+                            streamingMsg.Model = turnModelId;
                             if (pendingFetchedSkillRefs.Count > 0)
                             {
                                 streamingMsg.ActiveSkills.AddRange(pendingFetchedSkillRefs);
@@ -2653,6 +2663,8 @@ public partial class ChatViewModel
                 case SessionStartEvent start when IsRootAgentEvent(evt):
                     Dispatcher.UIThread.Post(() =>
                     {
+                    if (!IsAuthoritativeSession())
+                        return;
                     var effectiveModel = !string.IsNullOrWhiteSpace(start.Data.SelectedModel)
                         ? start.Data.SelectedModel
                         : ResolveSelectedModelForChat(chat);
@@ -2696,6 +2708,8 @@ public partial class ChatViewModel
                 case SessionResumeEvent resume when IsRootAgentEvent(evt):
                     Dispatcher.UIThread.Post(() =>
                     {
+                    if (!IsAuthoritativeSession())
+                        return;
                     var effectiveModel = !string.IsNullOrWhiteSpace(resume.Data.SelectedModel)
                         ? resume.Data.SelectedModel
                         : ResolveSelectedModelForChat(chat);
@@ -2731,6 +2745,8 @@ public partial class ChatViewModel
                 case SessionModelChangeEvent modelChange when IsRootAgentEvent(evt):
                     Dispatcher.UIThread.Post(() =>
                     {
+                    if (!IsAuthoritativeSession())
+                        return;
                     var newModel = modelChange.Data.NewModel;
                     if (!string.IsNullOrWhiteSpace(newModel))
                     {
@@ -2756,9 +2772,6 @@ public partial class ChatViewModel
                             modelChange.Data.ContextTier,
                             IsDisplayedSession());
                         ConfirmModelSwitch(chat, runtime, newModel);
-                        // Update in-flight streaming message with the actual model used
-                        if (streamingMsg is not null)
-                            streamingMsg.Model = runtime.ActiveModelId;
                     }
 
                     QueueModelSelectionSave(chat);

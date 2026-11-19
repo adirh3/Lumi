@@ -120,59 +120,102 @@ public partial class ChatViewModel
         }
     }
 
-    /// <summary>
-    /// Before a turn starts on the session, applies the chat's pick if a switch still waits for it. An abort
-    /// (Stop, Pause, Send now, Switch now) drops a queued switch with its turn; one still queued gives way, so
-    /// the queue never holds two.
-    /// </summary>
-    private async Task ApplyPendingModelSwitchAsync(Chat chat, CopilotSession session)
-    {
-        if (!_runtimeStates.TryGetValue(chat.Id, out var runtime) || runtime.PendingModelSwitch is null)
-            return;
+    private readonly record struct TurnModelSelection(string? Model, string? Effort, string? Tier);
 
-        await _modelSwitchGate.WaitAsync();
+    private TurnModelSelection ReadTurnModelSelection(Chat chat, bool useStoredModelOptions = false)
+    {
+        var model = ResolveSelectedModelForChat(chat);
+        return new(
+            model,
+            useStoredModelOptions
+                ? ResolveReasoningEffortForModel(chat.LastReasoningEffortUsed, model)
+                : ResolvePersistedReasoningEffortForChat(chat, model),
+            useStoredModelOptions
+                ? ResolveContextWindowTierForModel(chat.LastContextWindowTierUsed, model)
+                : ResolveSelectedContextWindowTierForChat(chat, model));
+    }
+
+    // False means Copilot queued the switch behind existing work. No prompt has reached it yet.
+    private async Task<bool> PrepareSessionModelForTurnAsync(
+        Chat chat, CopilotSession session, TurnModelSelection selection, CancellationToken cancellationToken,
+        bool waitForDeferred = true)
+    {
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+        await _modelSwitchGate.WaitAsync(cancellationToken);
         try
         {
-            if (runtime.PendingModelSwitch is not { } pending)
-                return;
+            var pending = runtime.PendingModelSwitch;
+            var route = ResolveModelRouteForChat(selection.Model, chat);
+            if (route.IsInvalidByok)
+                throw new InvalidOperationException(Loc.Byok_Error_StaleModel);
+            if (string.IsNullOrWhiteSpace(route.SessionModelId))
+                return true;
 
-            await SessionModelSwitch.RemoveQueuedAsync(session, pending.QueueIds);
-            runtime.PendingModelSwitch = null;
-            // A session rebuilt for the pick's endpoint already runs it.
-            if (pending.NeedsNewSession || !IsCachedSessionProviderConsistentWithSelection(chat.Id, session))
-                return;
-
-            var selection = ResolveSelectedModelForChat(chat);
-            var route = ResolveModelRouteForChat(selection, chat);
-            if (route.IsInvalidByok || string.IsNullOrWhiteSpace(route.SessionModelId))
-                return;
-
-            var effort = ResolvePersistedReasoningEffortForChat(chat, selection);
-            var tier = ResolveSelectedContextWindowTierForChat(chat, selection);
             try
             {
+                if (!IsCachedSessionProviderConsistentWithSelection(chat.Id, session))
+                    throw new InvalidOperationException("The selected model requires a different session.");
+
+                var capabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, selection.Tier);
+                var options = SessionConfigBuilder.CreateSetModelOptions(
+                    route.SelectionToken, selection.Effort, selection.Tier, capabilities);
+#pragma warning disable GHCP001
+                async Task<bool> IsSelectedModelLiveAsync(bool defaultAutoRequested = false)
+                {
+                    var live = await session.Rpc.Model.GetCurrentAsync(cancellationToken);
+                    var autoTier = live.PendingAutoTier ?? live.ActivatingAutoTier ?? live.AutoTier;
+                    return (string.Equals(live.ModelId, route.SessionModelId, StringComparison.OrdinalIgnoreCase)
+                            || (route.IsByok && ByokConfigHelper.MatchesWireModelId(_dataStore.Data.Settings, selection.Model, live.ModelId)))
+                        && (options.ReasoningEffort is null
+                            || string.Equals(options.ReasoningEffort, live.ReasoningEffort, StringComparison.OrdinalIgnoreCase))
+                        && (options.ContextTier is null || options.ContextTier == (live.ContextTier ?? ContextTier.Default))
+                        // Auto preferences can legitimately be staged for activation by this very send.
+                        && (options.AutoTier is null || options.AutoTier == autoTier)
+                        // The SDK projects a staged reset and an absent pending value both as null.
+                        // If there is a committed tier, explicitly request the reset before submitting.
+                        && (!options.ResetAutoTier || defaultAutoRequested || autoTier is null);
+                }
+
+                if (pending is { NeedsNewSession: false, QueueIds.Count: > 0 }
+                    && waitForDeferred
+                    && string.Equals(pending.SessionModelId, route.SessionModelId, StringComparison.OrdinalIgnoreCase))
+                {
+                    var queue = await session.Rpc.Queue.PendingItemsAsync(cancellationToken);
+                    if (queue.Items.Any(item => pending.QueueIds.Contains(item.Id)))
+                        return false;
+                }
+#pragma warning restore GHCP001
+
+                if (pending is not null)
+                {
+                    await SessionModelSwitch.RemoveQueuedAsync(session, pending.QueueIds);
+                    runtime.PendingModelSwitch = null;
+                }
+
+                if (await IsSelectedModelLiveAsync())
+                    return true;
+
                 await SessionConfigBuilder.EnsureProviderModelRegisteredAsync(
-                    session,
-                    route,
-                    ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, tier),
-                    CancellationToken.None);
-                var sessionModelId = route.SessionModelId
-                    ?? throw new InvalidOperationException(Loc.Byok_Error_StaleModel);
+                    session, route, capabilities, cancellationToken);
                 var result = await SessionModelSwitch.SwitchAsync(
-                    session,
-                    sessionModelId,
-                    SessionConfigBuilder.CreateSetModelOptions(
-                        route.SelectionToken, effort, tier,
-                        ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, tier)));
+                    session, route.SessionModelId, options, cancellationToken);
                 if (result.Deferred)
-                    runtime.PendingModelSwitch = new PendingModelSwitch(sessionModelId, result.QueueIds);
+                {
+                    runtime.PendingModelSwitch = new PendingModelSwitch(route.SessionModelId, result.QueueIds);
+                    if (waitForDeferred && result.QueueIds.Count > 0)
+                        return false;
+                }
+
+                if (result.Deferred || !await IsSelectedModelLiveAsync(defaultAutoRequested: options.ResetAutoTier))
+                    throw new InvalidOperationException("The runtime did not apply the requested model.");
+                return true;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException && !IsCopilotTransportError(ex)
+                && !IsSessionNotFoundError(ex))
             {
-                Trace.TraceWarning("[Chat] Could not apply the model picked during the last reply: {0}", ex);
-                // The session can't take the pick, so the next message rebuilds it; until then the pick waits.
-                _pendingSessionInvalidations.Add(chat.Id);
-                runtime.PendingModelSwitch = new PendingModelSwitch(route.SessionModelId!, [], NeedsNewSession: true);
+                Trace.TraceWarning("[Chat] Could not use the requested model {0}: {1}", route.SessionModelId, ex.Message);
+                throw new InvalidOperationException(
+                    Loc.Get("ModelSwitch_CannotUse", FormatModelDisplay(selection.Model) ?? route.SessionModelId), ex);
             }
         }
         finally
@@ -208,7 +251,7 @@ public partial class ChatViewModel
         if (CurrentChat is not { } chat
             || chat.IsPaused
             || !_runtimeStates.TryGetValue(chat.Id, out var runtime)
-            || runtime is not { PendingModelSwitch.NeedsNewSession: false, IsSwitchingModel: false })
+            || runtime is not { PendingModelSwitch.NeedsNewSession: false, IsSwitchingModel: false, IsPreparingModelForTurn: false })
         {
             return;
         }
@@ -297,7 +340,7 @@ public partial class ChatViewModel
             {
                 var selection = DescribeModelSelection(chat);
                 notice = ModelSwitchNotice.Pending;
-                canSwitchNow = !pending.NeedsNewSession;
+                canSwitchNow = !pending.NeedsNewSession && !runtime.IsPreparingModelForTurn;
                 text = canSwitchNow
                     ? Loc.Get(nameof(Loc.ModelSwitch_Pending), selection)
                     : Loc.Get(nameof(Loc.ModelSwitch_NextMessage), selection);

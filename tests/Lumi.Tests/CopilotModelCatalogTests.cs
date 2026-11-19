@@ -276,6 +276,39 @@ public sealed class CopilotModelCatalogUiTests
         }, CancellationToken.None);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ReconnectPreservesTheSavedChatModel(bool offered)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            const string opus = "claude-opus-5.5";
+            var data = new AppData { Settings = new UserSettings { PreferredModel = "gpt-6-luna", AutoSaveChats = false } };
+            using var main = new MainViewModel(new DataStore(data), TestCopilot.Shared, new UpdateService(),
+                startBackgroundJobs: false, initializeCopilotOnStartup: false);
+            var chat = new Chat { LastModelUsed = opus };
+            chat.Messages.Add(new ChatMessage { Role = "user", Content = "Previous turn" });
+            data.Chats.Add(chat);
+            main.ChatVM.CurrentChat = chat;
+            main.ChatVM.ApplyModelSelection("gpt-6-luna", null);
+
+            var native = CopilotModelCatalogTests.NativeCatalog();
+#pragma warning disable GHCP001
+            if (offered)
+                native.Models.Add(new Microsoft.Copilot.Rpc.Model { Id = opus, Name = "Claude Opus 5.5" });
+#pragma warning restore GHCP001
+            typeof(MainViewModel).GetMethod("ApplyModelCatalog",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .Invoke(main, [CopilotModelCatalog.BuildSnapshot(native), true]);
+
+            Assert.Equal(opus, main.ChatVM.SelectedModel);
+            Assert.Equal(opus, chat.LastModelUsed);
+            Assert.Equal("gpt-6-luna", data.Settings.PreferredModel);
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task DesktopAndPhoneShowLocalizedTiersWithoutChangingCanonicalCatalogOrSelection()
     {

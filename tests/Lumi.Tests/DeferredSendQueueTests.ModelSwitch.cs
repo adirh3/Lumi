@@ -100,7 +100,7 @@ public sealed partial class DeferredSendQueueTests
     }
 
     [Fact]
-    public async Task SwitchNow_WhenTheSessionRejectsThePick_LeavesItForTheNextMessage()
+    public async Task SwitchNow_WhenTheSessionRejectsThePick_DoesNotResumeOnThePreviousModel()
     {
         await TestCopilot.Shared.ConnectAsync();
         using var host = DeferredSendHost.Create();
@@ -110,18 +110,15 @@ public sealed partial class DeferredSendQueueTests
 
         await host.ViewModel.SwitchModelNowCommand.ExecuteAsync(null);
 
-        // The work went on with the model it had, and says so instead of claiming the switch.
-        Assert.Equal(1, rpc.EmptyBatchCount);
+        Assert.Equal(0, rpc.EmptyBatchCount);
         Assert.Equal(RunningModel, rpc.LiveModel);
-        Assert.True(host.Runtime.PendingModelSwitch!.NeedsNewSession);
-        Assert.Equal(ModelSwitchNotice.Pending, host.ViewModel.ModelSwitchNotice);
-        Assert.EndsWith(Loc.Get(nameof(Loc.ModelSwitch_NextMessage), string.Empty), host.ViewModel.ModelSwitchNoticeText);
-        Assert.False(host.ViewModel.CanSwitchModelNow);
-        Assert.True(host.ConsumeSessionRefresh());
+        Assert.Equal(PickedModel, host.Chat.LastModelUsed);
+        Assert.True(host.Chat.IsPaused);
+        Assert.Contains("Claude Haiku 5.5", host.ViewModel.PauseError);
     }
 
     [Fact]
-    public async Task SwitchStillWaitingWhenTheNextMessageStarts_IsReplacedNotDuplicated()
+    public async Task DeferredSwitch_HoldsTheNextSendWithoutStoppingBackgroundWorkOrLosingTheQueue()
     {
         using var ui = HeadlessTestSession.Start();
         await ui.Dispatch(async () =>
@@ -135,12 +132,23 @@ public sealed partial class DeferredSendQueueTests
             rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
             Dispatcher.UIThread.RunJobs();
 
-            await host.SendCoreAsync("next step");
-            await rpc.SendReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var sending = host.SendCoreAsync("next step");
+            await rpc.ModelQueueRead.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            host.QueuePrompt("after that");
 
             Assert.Equal(0, rpc.AbortCount);
+            Assert.Equal(0, rpc.SendCount);
             Assert.Equal([PickedModel], rpc.QueuedModelSwitches);
-            Assert.Equal(["2"], host.Runtime.PendingModelSwitch!.QueueIds);
+            Assert.True(host.Runtime.HasPendingBackgroundWork);
+            Assert.Equal(["after that"], host.QueuedPrompts());
+
+            rpc.FinishTurnAndApplySwitch();
+            await sending.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(0, rpc.AbortCount);
+            Assert.Equal(1, rpc.SendCount);
+            Assert.Equal(PickedModel, rpc.LiveModel);
+            Assert.Equal(["after that"], host.QueuedPrompts());
         }, CancellationToken.None);
     }
 
@@ -165,6 +173,184 @@ public sealed partial class DeferredSendQueueTests
         Assert.Equal(PickedModel, rpc.LiveModel);
         Assert.Equal([$"queue:{PickedModel}", $"model:{PickedModel}", "send"], rpc.Operations);
         Assert.Null(host.Runtime.PendingModelSwitch);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task SavedOpusWithLiveSol_OnlySendsIfTheRuntimeAppliesOpus(bool reject, bool ignore)
+    {
+        await TestCopilot.Shared.ConnectAsync();
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc
+        {
+            LiveModel = "gpt-6.2-sol",
+            RejectImmediateModelSwitches = reject,
+            IgnoreImmediateModelSwitches = ignore
+        };
+        host.Chat.LastModelUsed = "claude-opus-5.5";
+        host.ViewModel.ApplyModelSelection(host.Chat.LastModelUsed, reasoningEffort: null);
+        host.AttachSession(rpc);
+
+        await host.SendCoreAsync("next step");
+
+        Assert.Equal("claude-opus-5.5", host.Chat.LastModelUsed);
+        if (reject || ignore)
+        {
+            Assert.Equal(0, rpc.SendCount);
+            Assert.Contains(host.Chat.Messages, message =>
+                message.Role == "error" && message.Content.Contains("Claude Opus 5.5"));
+        }
+        else
+        {
+            Assert.Equal(["model:claude-opus-5.5", "send"], rpc.Operations);
+            Assert.Equal("claude-opus-5.5", rpc.LiveModel);
+        }
+    }
+
+    [Fact]
+    public async Task Picker_UpdatesTheCachedSessionEvenWithoutADisplayHandle()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc { LiveModel = "gpt-6.2-sol" };
+            host.ViewModel.ApplyModelSelection("gpt-6.2-sol", null);
+            host.Chat.LastModelUsed = "gpt-6.2-sol";
+            host.AttachSession(rpc);
+            host.ClearDisplayedSession();
+
+            host.ViewModel.SelectedModel = "claude-opus-5.5";
+
+            Assert.Equal("claude-opus-5.5", await rpc.ModelApplied.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal("claude-opus-5.5", host.Chat.LastModelUsed);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task UnappliedPickerSwitch_BlocksRepeatedSendsUntilTheRuntimeAcceptsIt()
+    {
+        await TestCopilot.Shared.ConnectAsync();
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc { LiveModel = "gpt-6.2-sol", IgnoreImmediateModelSwitches = true };
+        host.ViewModel.ApplyModelSelection("gpt-6.2-sol", null);
+        host.Chat.LastModelUsed = "gpt-6.2-sol";
+        host.AttachSession(rpc);
+
+        Assert.False(await host.PickModelAsync("claude-opus-5.5"));
+        await host.SendCoreAsync("first follow-up");
+        await host.SendCoreAsync("second follow-up");
+
+        Assert.Equal(0, rpc.SendCount);
+        Assert.Equal("gpt-6.2-sol", rpc.LiveModel);
+        Assert.Equal("claude-opus-5.5", host.ViewModel.SelectedModel);
+        Assert.Equal("claude-opus-5.5", host.Chat.LastModelUsed);
+
+        rpc.IgnoreImmediateModelSwitches = false;
+        await host.SendCoreAsync("try again");
+        Assert.Equal(1, rpc.SendCount);
+        Assert.Equal("claude-opus-5.5", rpc.LiveModel);
+    }
+
+    [Theory]
+    [InlineData("claude-opus-5.5")]
+    [InlineData("auto")]
+    public async Task PickDuringTheModelCheck_UsesTheNewSelectionBeforeSending(string model)
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var rpc = new AbortRpc { LiveModel = "gpt-6.2-sol", HoldNextModelRead = release };
+            host.Chat.LastModelUsed = rpc.LiveModel;
+            host.ViewModel.ApplyModelSelection(rpc.LiveModel, null);
+            host.AttachSession(rpc);
+
+            var sending = host.SendCoreAsync("follow-up");
+            await rpc.ModelReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            host.ViewModel.SelectedModel = model;
+            release.TrySetResult();
+            await sending.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(1, rpc.SendCount);
+            Assert.Equal(model, rpc.ModelAtSend);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PauseDuringTheModelCheck_ResumesTheUnsentPromptWithoutAnEmptyContinuation()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var rpc = new AbortRpc { LiveModel = "gpt-6.2-sol", HoldNextModelRead = release };
+            host.Chat.LastModelUsed = rpc.LiveModel;
+            host.ViewModel.ApplyModelSelection(rpc.LiveModel, null);
+            host.AttachSession(rpc);
+
+            var sending = host.SendCoreAsync("keep this prompt");
+            await rpc.ModelReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Null(await host.ViewModel.TrySetChatPausedAsync(host.Chat, paused: true));
+            Assert.False(host.Chat.PauseNeedsContinuation);
+            Assert.Equal(0, rpc.AbortCount);
+
+            release.TrySetResult();
+            Assert.Null(await host.ViewModel.TrySetChatPausedAsync(host.Chat, paused: false));
+            await sending.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(1, rpc.SendCount);
+            Assert.Equal(0, rpc.EmptyBatchCount);
+            Assert.Contains("keep this prompt", Assert.Single(rpc.SentMessages).GetProperty("prompt").GetString());
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PlainAutoBeforeSend_ClearsThePreviouslyAppliedAutoTier()
+    {
+        await TestCopilot.Shared.ConnectAsync();
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc { LiveModel = "auto", LiveAutoTier = "hydrafusion-max" };
+        host.Chat.LastModelUsed = "auto";
+        host.ViewModel.ApplyModelSelection("auto", null);
+        host.AttachSession(rpc);
+
+        await host.SendCoreAsync("use the default Auto route");
+
+        Assert.Equal(["model:auto", "send"], rpc.Operations);
+        Assert.Null(rpc.LiveAutoTier);
+    }
+
+    [Fact]
+    public async Task AssistantReply_UsesTheReportedModelInsteadOfThePicker()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = StartWorkingTurn(host, subscribe: true);
+            rpc.Emit(new AssistantTurnStartEvent { Data = new AssistantTurnStartData { TurnId = "0" } });
+            rpc.Emit(new AssistantMessageDeltaEvent
+            {
+                Data = new AssistantMessageDeltaData { MessageId = "answer", DeltaContent = "Output." }
+            });
+            Dispatcher.UIThread.RunJobs();
+            rpc.Emit(new AssistantMessageEvent
+            {
+                Data = new AssistantMessageData { MessageId = "answer", Content = "Output.", Model = "gpt-6.2-sol" }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal("gpt-6.2-sol", Assert.Single(host.Chat.Messages, m => m.Role == "assistant").Model);
+            Assert.Equal(RunningModel, host.Chat.LastModelUsed);
+        }, CancellationToken.None);
     }
 
     [Fact]
@@ -372,6 +558,8 @@ public sealed partial class DeferredSendQueueTests
 
     private sealed partial class DeferredSendHost
     {
+        public void ClearDisplayedSession() => SetField("_activeSession", null);
+
         /// <summary>What the composer's picker does: the chat keeps the pick, then the live session gets it.</summary>
         public Task<bool> PickModelAsync(string model, string? effort = null)
         {
@@ -393,15 +581,30 @@ public sealed partial class DeferredSendQueueTests
         /// <summary>The model the runtime runs now.</summary>
         public string? LiveModel { get; set; }
         public string? LiveEffort { get; private set; }
+        public string? LiveContextTier { get; private set; }
+        public string? LiveAutoTier { get; set; }
+        public string? ModelAtSend { get; private set; }
+        public TaskCompletionSource? HoldNextModelRead { get; set; }
+        public TaskCompletionSource ModelReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ModelQueueRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>The session refuses to switch models between turns, as for a model it can't serve.</summary>
         public bool RejectImmediateModelSwitches { get; set; }
+        public bool IgnoreImmediateModelSwitches { get; set; }
+        public TaskCompletionSource<string> ModelApplied { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>Model switches applied before the next continuation of an interrupted turn.</summary>
         public int ModelAppliedBeforeContinuations { get; private set; }
 
         /// <summary>Starts a turn: until an abort ends it, a new model waits in the queue.</summary>
         public void StartTurn() => _turnAborts = AbortCount;
+
+        public void FinishTurnAndApplySwitch()
+        {
+            _turnAborts = null;
+            LiveModel = Assert.Single(_queuedModelSwitches).Model;
+            _queuedModelSwitches.Clear();
+        }
 
         /// <summary>The models still waiting in the queue.</summary>
         public IReadOnlyList<string> QueuedModelSwitches
@@ -435,22 +638,38 @@ public sealed partial class DeferredSendQueueTests
 
             if (RejectImmediateModelSwitches)
                 throw new LocalRpcException($"Model '{model}' is not available.");
+            if (IgnoreImmediateModelSwitches)
+                return new { modelId = LiveModel, status = "applied", deferred = false };
 
             LiveModel = model;
             LiveEffort = effort;
+            LiveContextTier = request.GetValueOrDefault("contextTier") as string;
+            if (request.TryGetValue("autoTier", out var tier))
+                LiveAutoTier = tier as string;
             if (AbortCount > EmptyBatchCount)
                 ModelAppliedBeforeContinuations++;
             Operations.Add($"model:{model}");
+            ModelApplied.TrySetResult(model);
             return new { modelId = model, status = "applied", deferred = false };
         }
 
         [JsonRpcMethod("session.model.getCurrent", UseSingleObjectParameterDeserialization = true)]
-        public object GetCurrentModel(object request) => new { modelId = LiveModel, reasoningEffort = LiveEffort };
+        public async Task<object> GetCurrentModel(object request)
+        {
+            if (HoldNextModelRead is { } hold)
+            {
+                HoldNextModelRead = null;
+                ModelReadStarted.TrySetResult();
+                await hold.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+            return new { modelId = LiveModel, reasoningEffort = LiveEffort, contextTier = LiveContextTier, autoTier = LiveAutoTier };
+        }
 
         [JsonRpcMethod("session.queue.pendingItems", UseSingleObjectParameterDeserialization = true)]
         public object PendingQueueItems(object request)
         {
             DropAbortedModelSwitches();
+            ModelQueueRead.TrySetResult();
             return new
             {
                 items = _queuedModelSwitches

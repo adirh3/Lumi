@@ -1725,6 +1725,7 @@
   "ModelSwitch_SwitchNow": "Jetzt wechseln",
   "ModelSwitch_SwitchNowToolTip": "Stoppt den aktuellen Schritt und setzt diese Arbeit mit {0} fort",
   "ModelSwitch_NextMessage": "{0} übernimmt mit deiner nächsten Nachricht",
+  "ModelSwitch_CannotUse": "Diese Runde konnte nicht mit {0} gestartet werden. Versuche es erneut oder wähle ein anderes Modell. Lumi hat nicht zu einem anderen Modell gewechselt.",
   "FieldLabel_URL": "URL",
   "FieldLabel_File": "Datei",
   "FieldLabel_Path": "Pfad",

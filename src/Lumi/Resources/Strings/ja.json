@@ -1725,6 +1725,7 @@
   "ModelSwitch_SwitchNow": "今すぐ切り替え",
   "ModelSwitch_SwitchNowToolTip": "現在のステップを止めて、{0} でこの作業を続けます",
   "ModelSwitch_NextMessage": "次のメッセージから {0} に切り替わります",
+  "ModelSwitch_CannotUse": "{0} でこのターンを開始できませんでした。もう一度試すか、別のモデルを選んでください。Lumi は別のモデルに切り替えていません。",
   "FieldLabel_URL": "URL",
   "FieldLabel_File": "ファイル",
   "FieldLabel_Path": "パス",

@@ -175,6 +175,11 @@ button. The pin beside search shows only pinned models. One highlight follows bo
 the pointer and Up/Down, Enter chooses the highlighted model, Ctrl+P (⌘P on macOS)
 pins or unpins it, and Escape closes the picker. Reasoning effort and context
 window choices sit in a compact footer under the list; hover either for its name.
+An existing chat keeps its selected model when Lumi reconnects. Lumi checks the
+active named Copilot model before each new turn, including on an already-open chat.
+If the runtime hasn't applied the selection, Lumi tries to apply it and shows an error
+instead of sending on the previous model. The reply footer uses the model reported for
+that reply when available.
 The list only renders nearby rows and reuses unchanged contents on reopening.
 Its frosted backdrop samples the pixels beneath the picker rather than redrawing
 the whole window. In-window picker blur, selection behavior and the normal

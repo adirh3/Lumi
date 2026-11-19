@@ -454,12 +454,13 @@ public partial class ChatViewModel
            && HasSubmittedCopilotTurn(runtime);
 
     private static bool HasSubmittedCopilotTurn(ChatRuntimeState runtime)
-        => runtime.IsContinuationTurn
-           || Volatile.Read(ref runtime.AssistantTurnStarted)
-           || runtime.PendingSessionUserMessageCount > 0
-           || runtime.ActiveToolCount > 0
-           || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0
-           || runtime.HasPendingBackgroundWork;
+        => !runtime.IsPreparingModelForTurn
+           && (runtime.IsContinuationTurn
+               || Volatile.Read(ref runtime.AssistantTurnStarted)
+               || runtime.PendingSessionUserMessageCount > 0
+               || runtime.ActiveToolCount > 0
+               || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0
+               || runtime.HasPendingBackgroundWork);
 
     private bool CanInterruptQueuedSendNowImmediately(Guid chatId)
         => _runtimeStates.TryGetValue(chatId, out var runtime)

@@ -1291,9 +1291,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// Pushes a model catalog into every chat surface and Settings.
     /// </summary>
     /// <param name="resetSurfaceSelections">
-    /// True on (re)connect, where every surface adopts the resolved default model. False for a live
-    /// catalog refresh, where each surface keeps the model the user already chose and only falls
-    /// back when that model is no longer offered.
+    /// True on (re)connect to apply the default to surfaces without a saved chat selection.
     /// </param>
     private void ApplyModelCatalog(
         ModelCatalogSnapshot catalog,
@@ -1319,9 +1317,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             surface.UpdateModelCapabilities(models, longContextModelIds, contextWindowCatalog.Limits,
                 defaultAutoTier: catalog.DefaultAutoTier);
-            surface.ApplyAvailableModels(modelIds, selected);
-            if (resetSurfaceSelections)
-                surface.SelectedModel = selected;
+            surface.ApplyAvailableModels(modelIds, selected, resetSurfaceSelections);
         });
 
         SettingsVM.UpdateModelCapabilities(models, longContextModelIds, defaultAutoTier: catalog.DefaultAutoTier);
