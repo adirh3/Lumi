@@ -804,6 +804,10 @@ An Android composer tap requests the IME as soon as its native editor has focus,
 before queued composer layout, with a guarded posted fallback if Android has not
 established the input connection yet. Focus versions still invalidate requests
 after dismissal or navigation.
+The Android composer's placeholder and draft use the same body font size as the
+shared mobile UI, including the system and Lumi text-size settings. The native
+editor converts that size to pixels using the host window's display scale so
+the composer stays in proportion on external displays such as Samsung DeX.
 Unwrapped, left-to-right code retains its complete measured text layout when
 arranged, rather than laying out every line again. Wrapped, trimmed, bounded
 or differently aligned text still uses the framework's arranged constraint;

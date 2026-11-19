@@ -13,6 +13,7 @@ using Avalonia.Platform;
 using Avalonia.Styling;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.Views;
+using TopLevel = Avalonia.Controls.TopLevel;
 
 namespace Lumi.Mobile.Android;
 
@@ -33,9 +34,9 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
             || !state.Editor.Enabled || !state.Editor.Clickable || state.Editor.Alpha <= 0)
             return false;
         using var visible = new global::Android.Graphics.Rect();
-        var density = state.Editor.Resources?.DisplayMetrics?.Density ?? 1f;
+        var scale = host.RenderScaling;
         return state.Editor.GetGlobalVisibleRect(visible)
-            && visible.Contains((int)Math.Round(point.X * density), (int)Math.Round(point.Y * density));
+            && visible.Contains((int)Math.Round(point.X * scale), (int)Math.Round(point.Y * scale));
     }
 #endif
 
@@ -62,8 +63,6 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
             FocusableInTouchMode = true,
             DefaultFocusHighlightEnabled = false,
             Alpha = host.IsVisible ? 1f : 0f,
-            // Android's sp, so the field follows the phone's font size; 16 is the shared body rung.
-            TextSize = 16f,
             VerticalScrollBarEnabled = true,
             Hint = host.Placeholder,
             Text = host.Text
@@ -74,11 +73,11 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         editor.SetHorizontallyScrolling(false);
         editor.SetMinLines(1);
         editor.SetMaxLines(8);
-        editor.SetPadding(Dp(context, 12), Dp(context, 10), Dp(context, 12), Dp(context, 10));
         editor.SetSelection(editor.Text?.Length ?? 0);
 
         var state = new EditorState(
             editor,
+            TopLevel.GetTopLevel(host),
             FindAvaloniaView((parent as AndroidViewControlHandle)?.View)
             ?? FindAvaloniaViewDescendant(_activity.Window?.DecorView));
         state.TextChangedHandler = (_, _) =>
@@ -150,10 +149,17 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
             if (!state.IsDestroyed)
                 ApplyTheme(host, editor);
         };
-        state.VisibilityChangedHandler = (_, args) =>
+        state.ScalingChangedHandler = (_, _) => ApplyEditorSize(host, state);
+        state.HostPropertyChangedHandler = (_, args) =>
         {
-            if (state.IsDestroyed
-                || args.Property != NativeComposerEditorHost.IsVisibleProperty)
+            if (state.IsDestroyed)
+                return;
+            if (args.Property == NativeComposerEditorHost.FontSizeProperty)
+            {
+                ApplyEditorSize(host, state);
+                return;
+            }
+            if (args.Property != NativeComposerEditorHost.IsVisibleProperty)
                 return;
             // The platform host applies visibility during layout; hide its old surface immediately.
             editor.Alpha = host.IsVisible ? 1f : 0f;
@@ -165,10 +171,12 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         editor.Touch += state.TouchHandler;
         editor.FocusChange += state.FocusChangedHandler;
         host.ActualThemeVariantChanged += state.ThemeChangedHandler;
-        host.PropertyChanged += state.VisibilityChangedHandler;
+        host.PropertyChanged += state.HostPropertyChangedHandler;
+        if (state.TopLevel is { } topLevel)
+            topLevel.ScalingChanged += state.ScalingChangedHandler;
         _states.Add(host, state);
         ApplyTheme(host, editor);
-        QueueHeightUpdate(host, state);
+        ApplyEditorSize(host, state);
         return new AndroidViewControlHandle(editor);
     }
 
@@ -203,10 +211,8 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
             if (state.IsDestroyed || state.Editor.Layout is not { } layout || state.Editor.Width <= 0)
                 return;
 
-            var density = state.Editor.Resources?.DisplayMetrics?.Density ?? 1f;
             var height = layout.Height + state.Editor.CompoundPaddingTop + state.Editor.CompoundPaddingBottom;
-            host.SetContentHeightFromNative(height / density);
-
+            host.SetContentHeightFromNative(height / host.RenderScaling);
         });
     }
 
@@ -228,8 +234,10 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         }
         if (state.ThemeChangedHandler is not null)
             host.ActualThemeVariantChanged -= state.ThemeChangedHandler;
-        if (state.VisibilityChangedHandler is not null)
-            host.PropertyChanged -= state.VisibilityChangedHandler;
+        if (state.TopLevel is { } topLevel)
+            topLevel.ScalingChanged -= state.ScalingChangedHandler;
+        if (state.HostPropertyChangedHandler is not null)
+            host.PropertyChanged -= state.HostPropertyChangedHandler;
         if (ReferenceEquals(_focusedEditor, state.Editor))
             _focusedEditor = null;
         state.ReleaseAvaloniaFocus();
@@ -362,9 +370,20 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
             : Color.Rgb(126, 126, 142));
     }
 
-    private static int Dp(Context context, int value) =>
-        (int)Math.Round(
-            value * (context.Resources?.DisplayMetrics?.Density ?? 1f));
+    private static void ApplyEditorSize(NativeComposerEditorHost host, EditorState state)
+    {
+        if (state.IsDestroyed)
+            return;
+
+        // The shared body size already includes Android's font scaling. Use the host
+        // display's scale, not EditText's context metrics, which can differ on DeX.
+        var scale = host.RenderScaling;
+        state.Editor.SetTextSize(global::Android.Util.ComplexUnitType.Px, host.FontSizeInPixels);
+        var horizontal = (int)Math.Round(12 * scale);
+        var vertical = (int)Math.Round(10 * scale);
+        state.Editor.SetPadding(horizontal, vertical, horizontal, vertical);
+        QueueHeightUpdate(host, state);
+    }
 
     private static AvaloniaView? FindAvaloniaView(View? view)
     {
@@ -396,6 +415,7 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
 
     private sealed class EditorState(
         EditText editor,
+        TopLevel? topLevel,
         AvaloniaView? avaloniaView)
     {
         private bool _holdingAvaloniaFocus;
@@ -404,6 +424,7 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         private bool _isDestroyed;
 
         public EditText Editor { get; } = editor;
+        public TopLevel? TopLevel { get; } = topLevel;
         public bool IsDestroyed
         {
             get => _isDestroyed || !Editor.PeerReference.IsValid;
@@ -417,7 +438,8 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         public EventHandler<View.LayoutChangeEventArgs>? LayoutChangedHandler { get; set; }
         public EventHandler<View.TouchEventArgs>? TouchHandler { get; set; }
         public EventHandler<View.FocusChangeEventArgs>? FocusChangedHandler { get; set; }
-        public EventHandler<AvaloniaPropertyChangedEventArgs>? VisibilityChangedHandler { get; set; }
+        public EventHandler<AvaloniaPropertyChangedEventArgs>? HostPropertyChangedHandler { get; set; }
+        public EventHandler? ScalingChangedHandler { get; set; }
         public EventHandler? ThemeChangedHandler { get; set; }
 
         public void HoldAvaloniaFocus()

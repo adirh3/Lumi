@@ -628,6 +628,10 @@
     <Setter Property="behaviors:NativeTextInputOverlay.IsEnabled" Value="False" />
   </Style>
 
+  <Style Selector="views|NativeComposerEditorHost">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+  </Style>
+
   <!-- The model sits beside send, as on the desktop; the row's other desktop tools are sheets here. -->
   <Style Selector="sc|StrataChatComposer.mobile /template/ WrapPanel#PART_SecondaryActions">
     <Setter Property="HorizontalAlignment" Value="Right" />

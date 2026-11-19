@@ -13,6 +13,7 @@ using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.Behaviors;
+using Lumi.Mobile.Layout;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Views;
@@ -1185,6 +1186,43 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 $"the loading overlay paints {overlay.Background} over the canvas.");
             Assert.Equal(0, Required<Border>(view, "ChatTranscriptSideInset").Opacity);
         });
+
+    [Fact]
+    public Task NativeComposerTextUsesTheSharedBodySizeAndWindowScale() =>
+        RunUiAsync(1100, (shell, view, window) =>
+        {
+            var application = Application.Current!;
+            var composer = Required<StrataChatComposer>(view, "Composer");
+            var editor = Assert.IsType<NativeComposerEditorHost>(composer.EditorContent);
+            var fallback = Required<TextBox>(composer, "PART_Input");
+
+            try
+            {
+                Assert.Equal(fallback.PlaceholderText, editor.Placeholder);
+                Assert.Equal(16f, editor.FontSizeInPixels);
+
+                const string draft = "A draft that stays in the composer";
+                editor.SetTextFromNative(draft);
+                window.SetRenderScaling(1.25);
+                Pump(window);
+                Assert.Equal(draft, shell.Chat.PromptText);
+                Assert.Equal(draft, editor.Text);
+                Assert.Equal(20f, editor.FontSizeInPixels);
+
+                MobileTypeScale.Apply(application, size => size * 1.3);
+                MobileTypeScale.ApplyTextScale(application, 1.15);
+                Pump(window);
+                Assert.Equal(fallback.FontSize, editor.FontSize);
+                Assert.Equal(29.9f, editor.FontSizeInPixels, precision: 2);
+            }
+            finally
+            {
+                MobileTypeScale.ApplyTextScale(application, 1);
+                MobileTypeScale.Apply(application, size => size);
+            }
+
+            return Task.CompletedTask;
+        }, nativeFactory: new FocusEditorFactory());
 
     [Fact]
     public Task TabletProjectPickerKeepsTheDraftVisibleWithoutRaisingNativeTextOverThePopup() =>

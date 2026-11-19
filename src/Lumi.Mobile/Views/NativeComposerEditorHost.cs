@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Data;
 using Avalonia.Platform;
 using Lumi.Mobile.Services;
@@ -25,6 +26,9 @@ public sealed class NativeComposerEditorHost
         AvaloniaProperty.Register<NativeComposerEditorHost, string>(
             nameof(Placeholder),
             "");
+
+    public static readonly StyledProperty<double> FontSizeProperty =
+        TextElement.FontSizeProperty.AddOwner<NativeComposerEditorHost>();
 
     private INativeComposerEditorFactory? _factory;
     private double _contentHeight = MinimumEditorHeight;
@@ -68,6 +72,15 @@ public sealed class NativeComposerEditorHost
         get => GetValue(PlaceholderProperty);
         set => SetValue(PlaceholderProperty, value);
     }
+
+    public double FontSize
+    {
+        get => GetValue(FontSizeProperty);
+        set => SetValue(FontSizeProperty, value);
+    }
+
+    internal double RenderScaling => TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
+    internal float FontSizeInPixels => (float)(FontSize * RenderScaling);
 
     internal bool IsInputFocused { get; private set; }
     internal event Action<bool>? InputFocusChanged;
