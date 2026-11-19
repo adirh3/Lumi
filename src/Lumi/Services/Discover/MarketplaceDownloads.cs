@@ -218,10 +218,11 @@ internal sealed partial class MarketplaceDownloads
     }
 
     /// <summary>
-    /// The repository a marketplace source or a clone's repository argument names, as one host and path:
-    /// <c>github.com/owner/repo</c> for GitHub, else the URL's host and path without its scheme, user,
-    /// ref or <c>.git</c>. Hosts, and GitHub's owners and repositories, are lowercased; other paths keep
-    /// their case, since a Git host may serve paths that differ only in case as different repositories.
+    /// The repository a marketplace source or a clone's repository argument names: <c>github.com/owner/repo</c>
+    /// for GitHub, lowercased; else the whole address, which the runtime passes to git as written. Only what
+    /// can't change where it leads is normalized (a URL's scheme and host case, a default port); the scheme,
+    /// user, path case, a <c>.git</c> suffix and a trailing slash all count, since a Git host may serve such
+    /// paths as different repositories, and another scheme can reach another server.
     /// Null for a local folder, which the runtime doesn't clone.
     /// </summary>
     internal static string? CloneAddress(string source)
@@ -233,24 +234,12 @@ internal sealed partial class MarketplaceDownloads
         if (GitHubRepoRef.TryParse(source) is { } github)
             return $"github.com/{github.Owner}/{github.Repo}".ToLowerInvariant();
 
-        string address;
         if (source.Contains("://", StringComparison.Ordinal))
-        {
-            if (!Uri.TryCreate(source, UriKind.Absolute, out var uri) || uri.IsFile || uri.Host.Length == 0)
-                return null;
-            address = uri.Authority.ToLowerInvariant() + uri.AbsolutePath;
-        }
-        else if (ScpAddress().Match(source) is { Success: true } scp)
-        {
-            address = scp.Groups["host"].Value.ToLowerInvariant() + "/" + scp.Groups["path"].Value;
-        }
-        else
-        {
-            return null;
-        }
+            return Uri.TryCreate(source, UriKind.Absolute, out var uri) && !uri.IsFile && uri.Host.Length > 0 ? uri.AbsoluteUri : null;
 
-        address = address.TrimEnd('/');
-        return address.EndsWith(".git", StringComparison.Ordinal) ? address[..^".git".Length] : address;
+        return ScpAddress().Match(source) is { Success: true } scp
+            ? $"{scp.Groups["user"].Value}@{scp.Groups["host"].Value.ToLowerInvariant()}:{scp.Groups["path"].Value}"
+            : null;
     }
 
     /// <summary>
@@ -276,7 +265,7 @@ internal sealed partial class MarketplaceDownloads
     private static string? ReferenceOf(string source)
         => source.IndexOf('#') is var hash and >= 0 && source[(hash + 1)..].Trim() is { Length: > 0 } reference ? reference : null;
 
-    [GeneratedRegex(@"^[^@/\s]+@(?<host>[^:/\s]+):(?<path>\S+)$")]
+    [GeneratedRegex(@"^(?<user>[^@/\s]+)@(?<host>[^:/\s]+):(?<path>\S+)$")]
     private static partial Regex ScpAddress();
 
     [GeneratedRegex("^[0-9a-fA-F]{40}$")]

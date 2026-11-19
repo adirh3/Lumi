@@ -1069,7 +1069,7 @@ public sealed partial class DiscoverViewModel : ObservableObject
         return Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) ? uri.Host : trimmed;
     }
 
-    private async Task LoadSourcesAsync()
+    private async Task LoadSourcesAsync(bool background = false)
     {
         if (_plugins.IsAvailable)
         {
@@ -1079,7 +1079,9 @@ public sealed partial class DiscoverViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                SourceError = Describe(ex);
+                // A reload no one asked for reports its failure only while no other status shows.
+                if (!background || SourceError is null)
+                    SourceError = Describe(ex);
             }
         }
 
@@ -1156,7 +1158,8 @@ public sealed partial class DiscoverViewModel : ObservableObject
 
     /// <summary>
     /// How an add Lumi stopped waiting for ended, once the runtime finishes it: the sources and plugins
-    /// it brings, or its failure in place of its warning. A newer operation's status stays.
+    /// it brings, or its failure in place of its warning. A newer operation's status stays, even when the
+    /// reload then fails.
     /// </summary>
     private async Task ShowLateOutcomeAsync(Task<string> completion, string warning)
     {
@@ -1177,7 +1180,7 @@ public sealed partial class DiscoverViewModel : ObservableObject
         if (failure is null)
         {
             await LoadPluginsAsync();
-            await LoadSourcesAsync();
+            await LoadSourcesAsync(background: true);
         }
     }
 

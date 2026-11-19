@@ -517,6 +517,50 @@ public sealed class DiscoverGridUiTests
         }, CancellationToken.None);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnAddThatEndsInTheBackground_ReportsAFailedReload_UnlessANewerStatusShows(bool newerStatus)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            using var fixture = new PluginCatalogFixture();
+            using var rpc = new PluginCatalogRpc();
+            var download = new FakeMarketplaceDownload(fixture.Root, rpc);
+            var vm = PluginGallery(fixture, download.Service(rpc));
+            vm.ShowSourcesCommand.Execute(null);
+            vm.NewMarketplace = "contoso/plugin-catalog#main";
+            var adding = vm.AddMarketplaceCommand.ExecuteAsync(null);
+            await WaitFor(() => vm.CancelAddMarketplaceCommand.CanExecute(null));
+            vm.CancelAddMarketplaceCommand.Execute(null);
+            await adding;
+
+            // The runtime adds it later; Discover's reload waits for the list...
+            var list = rpc.MarketplaceList = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            rpc.MarketplaceAdd.SetResult("plugin-catalog");
+            await WaitFor(() => vm.SourceError is null);
+            if (newerStatus)
+            {
+                vm.NewRegistry = "not a registry";
+                await vm.AddRegistryCommand.ExecuteAsync(null);
+            }
+
+            var status = vm.SourceError;
+
+            // ...which then fails. Only the reload of Sources rebuilds its rows after a failed list.
+            var reloaded = false;
+            vm.MarketplaceRows.CollectionChanged += (_, _) => reloaded = true;
+            list.SetException(new InvalidOperationException("The marketplace list is unavailable."));
+            await WaitFor(() => reloaded);
+            if (newerStatus)
+                Assert.Same(status, vm.SourceError);
+            else
+                Assert.Contains("The marketplace list is unavailable.", vm.SourceError);
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public void DownloadStatus_SaysWhatHasArrivedAndForHowLong()
     {

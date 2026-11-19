@@ -337,6 +337,14 @@ public sealed class PluginCatalogTests
     [InlineData("http://127.0.0.1:4711/case/Catalog.git", "http://127.0.0.1:4711/case/catalog.git {staging}", false)]
     [InlineData("http://127.0.0.1:4711/case/Catalog.GIT", "http://127.0.0.1:4711/case/Catalog.git {staging}", false)]
     [InlineData("git@example.com:case/Catalog.git", "git@example.com:case/catalog.git {staging}", false)]
+    // The rest of the address counts too: a .git suffix, a trailing slash, the scheme and the user.
+    [InlineData("http://127.0.0.1:4711/mirrors/catalog", "http://127.0.0.1:4711/mirrors/catalog {staging}", true)]
+    [InlineData("http://127.0.0.1:4711/mirrors/catalog.git", "http://127.0.0.1:4711/mirrors/catalog {staging}", false)]
+    [InlineData("git@example.com:mirrors/catalog.git", "git@example.com:mirrors/catalog {staging}", false)]
+    [InlineData("http://127.0.0.1:4711/mirrors/catalog/", "http://127.0.0.1:4711/mirrors/catalog {staging}", false)]
+    [InlineData("https://127.0.0.1:4711/mirrors/catalog.git", "http://127.0.0.1:4711/mirrors/catalog.git {staging}", false)]
+    [InlineData("git@example.com:mirrors/catalog.git", "ssh://git@example.com/mirrors/catalog.git {staging}", false)]
+    [InlineData("http://alice@127.0.0.1:4711/mirrors/catalog.git", "http://bob@127.0.0.1:4711/mirrors/catalog.git {staging}", false)]
     // An add at a ref: a branch or tag is cloned by name, a commit without one, both into _pinned.
     [InlineData("Contoso/Plugin-Catalog#main", "--branch main https://github.com/contoso/plugin-catalog.git {pinned}", true)]
     [InlineData("contoso/plugin-catalog#refs/tags/v1.2", "--branch v1.2 https://github.com/contoso/plugin-catalog.git {pinned}", true)]
@@ -666,6 +674,9 @@ internal sealed class PluginCatalogRpc : IDisposable
     /// <summary>The runtime's answer to adding a marketplace: its name, or the error it fails with.</summary>
     public TaskCompletionSource<string> MarketplaceAdd { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    /// <summary>While set, listing marketplaces waits for it, and fails with it.</summary>
+    public TaskCompletionSource? MarketplaceList { get; set; }
+
     public PluginCatalogRpc()
     {
         var requests = new Pipe();
@@ -688,8 +699,11 @@ internal sealed class PluginCatalogRpc : IDisposable
     }
 
     [JsonRpcMethod("plugins.marketplaces.list")]
-    public object Marketplaces()
+    public async Task<object> Marketplaces()
     {
+        if (MarketplaceList is { } list)
+            await list.Task;
+
         var marketplaces = new List<object> { new { name = "private-plugin", source = PluginCatalogTests.Source } };
         if (MarketplaceAdd.Task.IsCompletedSuccessfully)
             marketplaces.Add(new { name = MarketplaceAdd.Task.Result, source = "contoso/plugin-catalog" });

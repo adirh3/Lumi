@@ -982,10 +982,11 @@ cancellation, report progress, stop its git children on exit and sweep stale sta
 
 Until then `MarketplaceDownloads` works from the git command line, which names the staging folder, the
 repository and the ref. An add counts only clones of its own source by git processes descended from
-Lumi's runtime: the repository argument, normalized like the source (`github.com/owner/repo` for
-GitHub, else the URL's host and path), and the ref must match. Hosts, and GitHub's owners and
-repositories, compare without case; other paths compare exactly, since a Git host may serve paths that
-differ only in case as different repositories. The runtime clones a ref with `--branch` (without
+Lumi's runtime: the repository argument and the ref must match. The runtime passes a source's address
+to git as written, so addresses compare in full (`github.com/owner/repo` for GitHub, without case): the
+scheme, user, path case, a `.git` suffix and a trailing slash all count, since a Git host may serve such
+paths as different repositories and another scheme can reach another server, and only a URL's scheme
+and host case and a default port are ignored. The runtime clones a ref with `--branch` (without
 `refs/heads/` or `refs/tags/`), except a 40-character commit, which it clones without one and fetches
 afterwards. So another add, a refresh or a Copilot CLI add in a terminal is never stopped, and is
 measured only when it is an add of the same repository at a pin that clones alike. Progress is the size
@@ -998,9 +999,9 @@ every commit clones without `--branch`, and `name`, `refs/heads/name` and `refs/
 `--branch name`, so its clone can be another add's at a different pin of the same repository (two
 windows share the runtime). Cancel and a stall then only stop waiting for it, as for a clone Lumi can't
 see; the stopped exception's `Completion` is the add as the runtime goes on with it, and Sources
-reloads once it is added, or shows its failure in place of its warning (a newer status stays). Lumi
-never removes a lock file: the runtime locks it natively, so deleting one lets another add take a lock
-a running add still holds.
+reloads once it is added, or shows its failure in place of its warning (a newer status stays, even when
+the reload then fails). Lumi never removes a lock file: the runtime locks it natively, so deleting one
+lets another add take a lock a running add still holds.
 Shutdown stops the clone before stopping the runtime. Discover's first load removes staging folders
 that no git process names and nothing has written to for ten minutes (between git commands, and while
 the runtime moves a finished clone into place, no git process names it). Isolated Debug runtimes get
