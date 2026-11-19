@@ -34,7 +34,7 @@
     </LumiCopilotCliPin>
     <LumiCopilotCliPin Include="1.0.114/osx-x64">
       <AssetName>copilot-darwin-x64.tar.gz</AssetName>
-      <ArchiveSha256>9ac9f8785ad036c8d6a976a386fd05d721b510b57f083f1aac9cac9e378051bb</ArchiveSha256>
+      <ArchiveSha256>9ac9f8785ad036c8d6a976a386fd05d721b510b57f083f1aac0cac9e378051bb</ArchiveSha256>
       <ExecutableSha256>25ffb0ee507b6fccf40efaac3b0b5d0ad9039bfb3a5dfd9f43f43af06a54f34b</ExecutableSha256>
     </LumiCopilotCliPin>
     <LumiCopilotCliPin Include="1.0.114/osx-arm64">
