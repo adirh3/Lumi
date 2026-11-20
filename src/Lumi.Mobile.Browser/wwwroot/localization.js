@@ -49,7 +49,7 @@
                 element.textContent = text(element.dataset.lumiString, element.textContent);
             const manifest = document.querySelector('link[rel="manifest"]');
             if (manifest && language !== 'en')
-                manifest.setAttribute('href', `./manifest.${language}.webmanifest`);
+                manifest.setAttribute('href', `/app/manifest.${language}.webmanifest`);
         } catch {
             // The HTML and call sites retain English fallbacks if the first network load fails.
         } finally {

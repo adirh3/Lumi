@@ -10,12 +10,25 @@
     <RootNamespace>Lumi.Mobile.Browser</RootNamespace>
     <AssemblyName>Lumi.Mobile.Browser</AssemblyName>
     <PublishTrimmed>true</PublishTrimmed>
-    <WasmEnableThreads>false</WasmEnableThreads>
+    <WasmEnableThreads Condition="'$(LumiPwaRenderWorker)' != 'true'">false</WasmEnableThreads>
+    <WasmEnableThreads Condition="'$(LumiPwaRenderWorker)' == 'true'">true</WasmEnableThreads>
+    <RuntimeFrameworkVersion Condition="'$(LumiPwaRenderWorker)' == 'true'">11.0.0</RuntimeFrameworkVersion>
+    <DefineConstants Condition="'$(LumiPwaRenderWorker)' == 'true'">$(DefineConstants);LUMI_PWA_RENDER_WORKER</DefineConstants>
     <WasmBuildNative>true</WasmBuildNative>
     <RunAOTCompilation Condition="'$(Configuration)' == 'Release'">true</RunAOTCompilation>
     <EnableDefaultCompressionFormats Condition="'$(Configuration)' == 'Release'">false</EnableDefaultCompressionFormats>
     <PublishCompressionFormats Condition="'$(Configuration)' == 'Release'">brotli</PublishCompressionFormats>
   </PropertyGroup>
+
+  <ItemGroup Condition="'$(LumiPwaRenderWorker)' != 'true'">
+    <Content Remove="wwwroot\renderWorkerPlatform.js;wwwroot\renderWorkerRuntime.js" />
+  </ItemGroup>
+
+  <Target Name="ValidateRenderWorker" BeforeTargets="PrepareForBuild"
+          Condition="'$(LumiPwaRenderWorker)' == 'true'">
+    <Error Condition="'$(AvaloniaVersion)' != '12.1.6' Or '$(WasmEnableThreads)' != 'true'"
+           Text="Requalify the render worker against a new Avalonia version or WebAssembly runtime." />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Browser" Version="$(AvaloniaVersion)" />
@@ -71,6 +84,34 @@
                       Lines="$(_LocalizedPwaManifest)" Overwrite="true" Encoding="UTF-8" />
   </Target>
 
+  <Target Name="BundleRenderWorker" BeforeTargets="GeneratePwaAssetManifest"
+          Condition="'$(LumiPwaWorkerRoot)' != ''">
+    <PropertyGroup>
+      <_WorkerRoot>$([System.IO.Path]::GetFullPath('$(LumiPwaWorkerRoot)'))</_WorkerRoot>
+      <_WorkerInventory>$(_WorkerRoot)\service-worker-assets.js</_WorkerInventory>
+      <_WorkerWebRoot>$(PublishDir)wwwroot</_WorkerWebRoot>
+    </PropertyGroup>
+    <Error Condition="'$(WasmEnableThreads)' == 'true' Or
+                      !Exists('$(_WorkerInventory)') Or !Exists('$(_WorkerRoot)\renderWorkerPlatform.js') Or
+                      !Exists('$(_WorkerRoot)\index.html') Or !Exists('$(_WorkerRoot)\_framework\dotnet.js')"
+           Text="Bundle a separate threaded PWA publish into the non-threaded release shell." />
+    <GetFileHash Files="$(_WorkerInventory)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_WorkerFingerprint" />
+    </GetFileHash>
+    <PropertyGroup>
+      <_WorkerPrefix>render-worker/$(_WorkerFingerprint.ToLowerInvariant())</_WorkerPrefix>
+    </PropertyGroup>
+    <ItemGroup>
+      <_WorkerFile Include="$(_WorkerRoot)\**\*"
+                   Exclude="$(_WorkerRoot)\service-worker*;$(_WorkerRoot)\cache-recovery*;$(_WorkerRoot)\android*;$(_WorkerRoot)\manifest.*;$(_WorkerRoot)\workerFrame*;$(_WorkerRoot)\html-preview*;$(_WorkerRoot)\startup.js*;$(_WorkerRoot)\render-worker-entry.json;$(_WorkerRoot)\**\*.map;$(_WorkerRoot)\**\*.map.br;$(_WorkerRoot)\**\*.gz" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_WorkerFile)"
+          DestinationFiles="@(_WorkerFile->'$(_WorkerWebRoot)\$(_WorkerPrefix)\%(RecursiveDir)%(Filename)%(Extension)')" />
+    <WriteLinesToFile File="$(_WorkerWebRoot)\render-worker-entry.json"
+                      Lines="{ &quot;entry&quot;: &quot;$(_WorkerPrefix)/index.html&quot; }"
+                      Encoding="UTF-8" Overwrite="true" />
+  </Target>
+
   <Target Name="GeneratePwaAssetManifest" AfterTargets="Publish">
     <PropertyGroup>
       <_PwaWebRoot>$([System.IO.Path]::Combine('$(PublishDir)', 'wwwroot'))</_PwaWebRoot>
@@ -106,7 +147,7 @@
 
   <!-- Mobile browsers support Brotli; gzip duplicates and source maps only inflate desktop installers. -->
   <Target Name="RemoveRedundantReleaseAssets"
-          AfterTargets="Publish"
+          BeforeTargets="BundleRenderWorker;GeneratePwaAssetManifest"
           Condition="'$(Configuration)' == 'Release'">
     <ItemGroup>
       <RedundantReleaseAsset Include="$(PublishDir)wwwroot\**\*.gz" />

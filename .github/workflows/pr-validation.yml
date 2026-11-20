@@ -236,7 +236,7 @@ jobs:
   validate-browser:
     name: Validate Avalonia PWA
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -251,11 +251,20 @@ jobs:
       - name: Install WebAssembly workload
         run: dotnet workload install wasm-tools
 
-      - name: Publish browser PWA
+      - name: Publish threaded browser runtime
         run: >
-          dotnet publish src/Lumi.Mobile.Browser/Lumi.Mobile.Browser.csproj
+          dotnet publish src\Lumi.Mobile.Browser\Lumi.Mobile.Browser.csproj
+          --configuration Release
+          --artifacts-path BrowserWorkerArtifacts
+          --output BrowserWorkerPublish
+          -p:LumiPwaRenderWorker=true
+
+      - name: Publish browser PWA with both renderers
+        run: >
+          dotnet publish src\Lumi.Mobile.Browser\Lumi.Mobile.Browser.csproj
           --configuration Release
           --output BrowserPublish
+          "-p:LumiPwaWorkerRoot=${{ github.workspace }}\BrowserWorkerPublish\wwwroot"
 
       - name: Verify browser PWA output
         shell: pwsh

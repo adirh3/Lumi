@@ -21,7 +21,14 @@ beforeEach(async t => {
             classList: { add() {}, remove() {}, toggle() {} },
             addEventListener: t.mock.fn((name, callback) => listeners.set(name, callback)),
             dispatch(name, event = {}) { listeners.get(name)?.(event); },
-            append() {}, setAttribute() {}, setSelectionRange() {}, select() {},
+            append() {}, setAttribute() {}, select() {},
+            setSelectionRange(start, end) {
+                this.selectionStart = start;
+                this.selectionEnd = end;
+            },
+            setRangeText(value, start, end) {
+                this.value = this.value.slice(0, start) + value + this.value.slice(end);
+            },
             focus() {
                 if (this.disabled)
                     return;
@@ -128,11 +135,46 @@ test('only the explicit recovery button reloads the current page', () => {
     assert.equal(reload.mock.callCount(), 1);
 });
 
-function showEditor(id = 1) {
+function showEditor(id = 1, revision = 0) {
     browserHost.showNativeTextInput(id, 0, 0, 200, 40, 0, 0, 200, 40,
         '123456', 'Pairing code', false, 6, 'numeric', 'go', false, false, false,
-        true, 'Inter', 16, 400, 'normal', 24, 0, 4, 4, 4, 4, 'start', 'ltr', false);
+        true, 'Inter', 16, 400, 'normal', 24, 0, 4, 4, 4, 4, 'start', 'ltr', false, revision);
 }
+
+test('multiline fields that do not forward Enter leave rapid typing and newlines to the browser', t => {
+    const keyed = t.mock.fn(async () => false);
+    browserHost.configureNativeTextInputs(t.mock.fn(async () => {}), keyed, t.mock.fn());
+    browserHost.showNativeTextInput(1, 0, 0, 200, 80, 0, 0, 200, 80,
+        'Initial', 'Skill content', true, 0, 'text', 'enter', false, false, false,
+        true, 'Inter', 16, 400, 'normal', 24, 0, 4, 4, 4, 4, 'start', 'ltr', false, 0, false);
+    const prevented = t.mock.fn();
+    const input = bodyChildren.find(item => item.tagName === 'TEXTAREA');
+    input.dispatch('keydown', { key: 'Enter', preventDefault: prevented });
+    assert.equal(keyed.mock.callCount(), 0);
+    assert.equal(prevented.mock.callCount(), 0);
+});
+
+test('a forwarded but unhandled Enter keeps text typed before the managed answer', async t => {
+    let decide;
+    const changed = t.mock.fn(async () => {});
+    browserHost.configureNativeTextInputs(changed, () => new Promise(resolve => { decide = resolve; }), t.mock.fn());
+    browserHost.showNativeTextInput(1, 0, 0, 200, 80, 0, 0, 200, 80,
+        'first', 'Message Lumi', true, 0, 'text', 'enter', false, false, false,
+        true, 'Inter', 16, 400, 'normal', 24, 0, 4, 4, 4, 4, 'start', 'ltr', false, 0, true);
+    const input = bodyChildren.find(item => item.tagName === 'TEXTAREA');
+    input.focus();
+    input.setSelectionRange(5, 5);
+    const prevented = t.mock.fn();
+    input.dispatch('keydown', { key: 'Enter', preventDefault: prevented });
+    assert.equal(prevented.mock.callCount(), 1);
+    input.value = 'firstsecond';
+    input.setSelectionRange(11, 11);
+    input.dispatch('input');
+    decide(false);
+    await Promise.resolve();
+    assert.equal(input.value, 'first\nsecond');
+    assert.equal(changed.mock.calls.at(-1).arguments[1], 'first\nsecond');
+});
 
 test('recovery owns focus and blocks native input callbacks and later refocusing', t => {
     const changed = t.mock.fn();
@@ -183,6 +225,32 @@ test('a starter blank is selected in the native editor, and a range past the tex
 
     browserHost.focusNativeTextInput(1, 3);
     assert.deepEqual(input.setSelectionRange.mock.calls.at(-1).arguments, [3, 3]);
+});
+
+test('a late layout or blur cannot overwrite text still crossing to the managed editor', async t => {
+    const pending = [];
+    const changed = t.mock.fn(() => new Promise(resolve => pending.push(resolve)));
+    browserHost.configureNativeTextInputs(changed, undefined, undefined);
+    showEditor();
+    const input = bodyChildren.find(item => item.tagName === 'INPUT');
+    input.focus();
+    input.value = '654321';
+    input.dispatch('input');
+    showEditor();
+    assert.equal(input.value, '654321');
+
+    input.blur();
+    assert.equal(changed.mock.calls.at(-1).arguments[1], '654321');
+    assert.equal(changed.mock.callCount(), 1, 'A blur must not resend text that Send could have cleared.');
+
+    assert.equal(browserHost.hasPendingNativeInput(), true);
+    // Managed code can clear or replace the text after it sees the newest edit, even before
+    // the browser receives the acknowledgement for that edit.
+    showEditor(1, changed.mock.calls.at(-1).arguments[3]);
+    assert.equal(input.value, '123456');
+    pending[0]();
+    await Promise.resolve();
+    assert.equal(browserHost.hasPendingNativeInput(), false);
 });
 
 test('recovery dismisses the selection modal and prevents it reopening over Reload', () => {

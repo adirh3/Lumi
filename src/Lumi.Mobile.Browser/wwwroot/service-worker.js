@@ -5,16 +5,28 @@ const cacheName = cachePrefix + self.lumiAssetVersion;
 const appUrl = new URL(self.registration.scope);
 const shellUrl = new URL('index.html', appUrl).href;
 const assetUrls = new Set(self.lumiAssets.map(asset => new URL(asset.url, appUrl).href));
+const workerPrefix = new URL('render-worker/', appUrl).href;
+const userAgent = self.navigator?.userAgent ?? '';
+const useWorkerByDefault = assetUrls.has(new URL('render-worker-entry.json', appUrl).href)
+    && /Android/.test(userAgent) && /Chrome\//.test(userAgent);
+const lazyAssets = new Map(self.lumiAssets.filter(asset => asset.url.startsWith('render-worker/') ||
+    (useWorkerByDefault && asset.url.startsWith('_framework/')))
+    .map(asset => [new URL(asset.url, appUrl).href, asset.hash]));
 
 self.addEventListener('install', event => {
     // Integrity also rejects a tunnel sign-in page returned in place of an app asset.
-    const requests = self.lumiAssets.map(asset => new Request(new URL(asset.url, appUrl), {
-        integrity: asset.hash,
-        credentials: 'same-origin',
-        mode: 'same-origin',
-        redirect: 'error',
-        cache: 'reload'
-    }));
+    // Unlike a first install, an update is about to replace a working offline app. Verify
+    // the complete fallback runtime before it can activate, even if Android will use the worker.
+    const updating = self.registration.active != null;
+    const requests = self.lumiAssets.filter(asset => !asset.url.startsWith('render-worker/') &&
+        (updating || !lazyAssets.has(new URL(asset.url, appUrl).href)))
+        .map(asset => new Request(new URL(asset.url, appUrl), {
+            integrity: asset.hash,
+            credentials: 'same-origin',
+            mode: 'same-origin',
+            redirect: 'error',
+            cache: 'reload'
+        }));
     event.waitUntil((async () => {
         const cache = await caches.open(cacheName);
         // Safari can reject a multi-asset addAll even when each verified asset caches successfully.
@@ -67,6 +79,8 @@ self.addEventListener('fetch', event => {
 
     const isAppNavigation = request.mode === 'navigate'
         && (url.pathname === appUrl.pathname || url.href.split('?')[0] === shellUrl);
+    const isWorkerNavigation = request.mode === 'navigate' && url.href.startsWith(workerPrefix)
+        && url.pathname.endsWith('/index.html');
     // Let the browser handle gateway redirects without rebuilding the cache for sign-in.
     if (isAppNavigation
         && (url.searchParams.has('lumi-refresh') || url.searchParams.has('lumi-signin')))
@@ -101,6 +115,49 @@ self.addEventListener('fetch', event => {
     }
 
     url.search = '';
+    if (url.href.startsWith(workerPrefix) || lazyAssets.has(url.href)) {
+        event.respondWith((async () => {
+            const cache = await caches.open(cacheName);
+            const cached = await cache.match(url.href);
+            if (cached)
+                return cached;
+
+            const integrity = lazyAssets.get(url.href);
+            if (!integrity) {
+                // An older document can still ask for its own immutable worker assets after activation.
+                for (const name of await caches.keys()) {
+                    if (name.startsWith(cachePrefix) && name !== cacheName) {
+                        const previous = await (await caches.open(name)).match(url.href);
+                        if (previous)
+                            return previous;
+                    }
+                }
+                return fetch(request);
+            }
+
+            try {
+                const response = await fetch(new Request(url.href, {
+                    integrity, mode: 'same-origin', redirect: 'error'
+                }));
+                if (!response.ok)
+                    throw new Error(`Could not load a PWA runtime asset (HTTP ${response.status}).`);
+                // Cache only what this browser actually uses, without delaying its first render.
+                event.waitUntil(cache.put(url.href, response.clone()).catch(error =>
+                    console.warn('[Lumi PWA] Could not cache a PWA runtime asset.', error)));
+                return response;
+            } catch (error) {
+                if (!isWorkerNavigation)
+                    throw error;
+                console.warn('[Lumi PWA] The worker entry could not be loaded; opening the fallback.', error);
+                const fallback = new URL(appUrl);
+                fallback.search = new URL(request.url).search;
+                fallback.searchParams.set('renderer', 'copy-free');
+                return Response.redirect(fallback.href);
+            }
+        })());
+        return;
+    }
+
     if (!isAppNavigation && !assetUrls.has(url.href)) {
         if (url.pathname.startsWith(new URL('_framework/', appUrl).pathname)) {
             event.respondWith((async () => {

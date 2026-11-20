@@ -19,8 +19,15 @@ internal static class Program
         var smoothness = args.Any(argument => Uri.TryCreate(argument, UriKind.Absolute, out var url)
             && url.Query.Split('&', '?').Contains("smoothness=1", StringComparer.Ordinal));
 #endif
-        await JSHost.ImportAsync("./browserHost.js", "/app/browserHost.js");
-        await JSHost.ImportAsync("./pwaHost.js", "/app/pwaHost.js");
+#if LUMI_PWA_RENDER_WORKER
+        BrowserRenderWorker.ConfigureSkia();
+        var entry = new Uri(args[0], UriKind.Absolute);
+        var assets = new Uri(entry, ".").AbsolutePath;
+#else
+        const string assets = "/app/";
+#endif
+        await JSHost.ImportAsync("./browserHost.js", assets + "browserHost.js");
+        await JSHost.ImportAsync("./pwaHost.js", assets + "pwaHost.js");
         // The pre-runtime page and Strata/theme XAML must use the same startup language.
         Strings.Load(BrowserInterop.GetLanguage());
         var host = new BrowserHostEnvironment(BrowserInterop.GetOrigin());
@@ -110,6 +117,12 @@ internal static class Program
                 "out",
                 new BrowserPlatformOptions
                 {
+#if LUMI_PWA_RENDER_WORKER
+                    PreferManagedThreadDispatcher = false,
+                    FrameworkAssetPathResolver = name => name == "avalonia.js"
+                        ? assets + "renderWorkerPlatform.js"
+                        : assets + "_framework/" + name,
+#endif
                     RenderingMode =
                     [
                         BrowserRenderingMode.WebGL2,

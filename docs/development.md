@@ -868,8 +868,20 @@ Windows PowerShell commands are:
 
 ```powershell
 dotnet build src\Lumi.Mobile.Android\Lumi.Mobile.Android.csproj -c Debug -f net11.0-android -r android-arm64
-dotnet publish src\Lumi.Mobile.Browser\Lumi.Mobile.Browser.csproj --configuration Release --output .mcp-run\pwa-publish
+
+# These are distinct runtime builds. Use a fresh output directory for each package.
+$project = "src\Lumi.Mobile.Browser\Lumi.Mobile.Browser.csproj"
+dotnet publish $project -c Release --artifacts-path .mcp-run\pwa-worker-obj --output .mcp-run\pwa-worker -p:LumiPwaRenderWorker=true
+$worker = (Resolve-Path .mcp-run\pwa-worker\wwwroot).Path
+dotnet publish $project -c Release --output .mcp-run\pwa-publish "-p:LumiPwaWorkerRoot=$worker"
 ```
+
+The second publish bundles the first under a content-versioned path and emits a
+single asset inventory. Use its `wwwroot` as `LUMI_REMOTE_WEB_ROOT` in an isolated
+Debug desktop to exercise the shipped pairing, update and fallback paths. A
+publish without `LumiPwaWorkerRoot` only has the copy-free renderer. The bundled
+threaded renderer is pinned to .NET 11.0.0 and Avalonia 12.1.6: requalify the
+worker pool readiness and dispatcher ownership on Android before changing either.
 
 On macOS/Linux use `/` in those paths. Android Debug packages use development
 signing. Production signing is release-maintainer work; contributors do not need

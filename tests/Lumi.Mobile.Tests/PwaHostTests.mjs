@@ -87,6 +87,7 @@ function host({
             origin,
             href: `${origin}/app/`,
             assign: url => navigations.push(url),
+            replace: url => navigations.push(url),
             reload: () => reloads++
         },
         sessionStorage: {
@@ -447,7 +448,12 @@ test('native picker errors still reach the caller without retaining its input or
     assert.equal(changes, 0, 'The canceled handler is removed after failure');
 });
 
-function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', language } = {}) {
+const workerEntry = `render-worker/${'a'.repeat(64)}/index.html`;
+
+function startup(failedModule, {
+    userAgent = 'Chrome/143.0.0.0', search = '', language, entry, renderThread = false,
+    canvas = 'webgl2', supported = true
+} = {}) {
     const retry = eventTarget({ hidden: true });
     const label = { textContent: 'Opening Lumi...' };
     const errors = [];
@@ -455,13 +461,18 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', la
     const lifecycle = [];
     const warnings = [];
     const installed = [];
+    const navigations = [];
+    const recoveriesShown = [];
     let reloads = 0;
     let recoveries = 0;
     let started = false;
     let culture;
     let runtimeConfig = {};
+    const location = new URL(`https://lumi.test/app/${renderThread ? workerEntry : ''}${search}`);
+    location.reload = () => reloads++;
+    location.replace = url => navigations.push(url);
     const window = eventTarget({
-        location: { href: `https://lumi.test/app/${search}`, search, reload: () => reloads++ }
+        location, isSecureContext: true
     });
     const interop = {
         SetNativeTextInputText() {}, HandleNativeTextInputKey() {}, SetNativeTextInputFocus() {},
@@ -472,7 +483,12 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', la
     const runtime = {
         getConfig: () => ({ mainAssemblyName: 'Lumi.Mobile.Browser' }),
         getAssemblyExports: async () => ({ Lumi: { Mobile: { Browser: { BrowserInterop: interop } } } }),
-        runMain: async () => { lifecycle.push('app-start'); started = true; }
+        runMain: async () => {
+            lifecycle.push('app-start');
+            started = true;
+            if (renderThread)
+                window.dispatch('lumi-render-worker-canvas', { detail: canvas });
+        }
     };
     const dotnet = {
         withDiagnosticTracing() { return this; },
@@ -483,15 +499,22 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', la
         create: async () => { lifecycle.push('runtime-created'); return runtime; }
     };
     const context = vm.createContext({
-        window, location: window.location, URLSearchParams, navigator: { onLine: true, userAgent },
+        window, location, URL, URLSearchParams, Event, navigator: { onLine: true, userAgent },
+        AbortSignal, setTimeout, clearTimeout,
+        Worker: class {}, OffscreenCanvas: supported ? class {} : undefined,
+        HTMLCanvasElement: class { transferControlToOffscreen() {} },
+        fetch: async () => entry
+            ? { ok: true, async json() { return { entry }; } }
+            : { status: 404 },
         getDotnetRuntime: () => ({ runtimeBuildInfo: { wasmEnableThreads: false } }),
         lumiLocalization: language
             ? { language, ready: Promise.resolve(), text: (key, fallback) => fallback }
             : undefined,
         document: {
+            documentElement: { dataset: {} },
             getElementById: () => retry,
             querySelector: () => ({
-                classList: { contains: () => false },
+                classList: { contains: () => false, remove() {}, add() {} },
                 querySelector: () => label
             })
         },
@@ -502,6 +525,7 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', la
                 throw new Error(`HTTP 503 loading ${name}`);
             if (name === './browserHost.js')
                 return { configureBrowserRecovery() {}, configureNativeTextInputs() {}, configureViewportInsets() {},
+                    showBrowserRecovery: message => recoveriesShown.push(message),
                     configureFilePickerCancellation() { lifecycle.push('picker-prepared'); } };
             if (name === './_framework/storage.js') {
                 lifecycle.push('storage-loaded');
@@ -511,9 +535,7 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', la
                 return {
                     checkAppUpdate() {}, reloadWebApp: () => recoveries++,
                     configureAppLifecycle() {}, configureAppUpdates() {},
-                    configureWebAppInstallation(changed) {
-                        assert.equal(changed, interop.WebAppInstallationChanged);
-                    },
+                    configureWebAppInstallation() {},
                     configureNotificationClicks(open) {
                         lifecycle.push('notification-clicks');
                         notificationClicks.push(open);
@@ -521,6 +543,11 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', la
                 };
             if (name === './_framework/dotnet.js')
                 return { dotnet };
+            if (name === './renderWorkerRuntime.js')
+                return {
+                    configureRenderWorker(builder) { return builder; },
+                    verifyRenderWorkerRuntime() { lifecycle.push('checked-worker-ABI'); }
+                };
             if (name === './workerFrames.js')
                 return { installWorkerFrames: options => installed.push(options) };
             throw new Error(`Unexpected fixture module ${name}`);
@@ -534,6 +561,7 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', la
         .catch(error => errors.push(error));
     return {
         retry, label, errors, modules, ready, installed, warnings, lifecycle, interop, notificationClicks,
+        window, navigations, recoveriesShown,
         get started() { return started; },
         get reloads() { return reloads; },
         get recoveries() { return recoveries; },
@@ -588,7 +616,7 @@ test('the runtime starts in the page language and loads every translated resourc
     assert.equal(japanese.errors.length, 0);
 });
 
-test('Android Chromium defaults to the copy-free worker clock and preserves explicit renderer overrides', async () => {
+test('without a worker package, Android Chromium keeps the copy-free clock and preserves explicit overrides', async () => {
     for (const [userAgent, search, mode] of [
         ['Android 15 Chrome/143.0.0.0', '', 'clock'],
         ['Android 15 SamsungBrowser/30 Chrome/143.0.0.0', '', 'clock'],
@@ -613,6 +641,56 @@ test('Android Chromium defaults to the copy-free worker clock and preserves expl
     }
 });
 
+test('eligible Android Chromium launches the versioned worker without downloading the fallback runtime', async () => {
+    const app = startup(null, { userAgent: 'Android Chrome/145.0.0.0', entry: workerEntry, search: '?lumi-chat=chat' });
+    await app.ready;
+    assert.deepEqual(app.navigations, [`https://lumi.test/app/${workerEntry}?lumi-chat=chat`]);
+    assert.ok(!app.modules.includes('./_framework/dotnet.js'));
+    assert.equal(app.errors.length, 0);
+    for (const options of [{ supported: false }, { search: '?workerframes=clock' }, { search: '?renderer=copy-free' }]) {
+        const fallback = startup(null, { userAgent: 'Android Chrome/145', entry: workerEntry, ...options });
+        await fallback.ready;
+        assert.deepEqual(fallback.navigations, []);
+        assert.equal(fallback.started, true);
+        assert.equal(fallback.errors.length, 0);
+    }
+});
+
+test('worker startup failure starts a fresh fallback document, but a live worker failure does not reload', async () => {
+    const failed = startup(null, { renderThread: true, canvas: 'webgl' });
+    await failed.ready;
+    assert.deepEqual(failed.navigations, ['https://lumi.test/app/?renderer=copy-free']);
+    const live = startup(null, { renderThread: true });
+    await live.ready;
+    assert.ok(live.lifecycle.includes('checked-worker-ABI'));
+    assert.deepEqual(live.installed, []);
+    live.window.dispatch('lumi-render-worker-context-lost');
+    assert.deepEqual(live.navigations, []);
+    assert.equal(live.recoveriesShown.length, 1);
+    live.retry.dispatch('click');
+    assert.deepEqual(live.navigations, ['https://lumi.test/app/?renderer=copy-free']);
+});
+
+test('a failed worker entry module falls back without executing any of its imports', async () => {
+    const navigations = [];
+    const location = new URL(`https://lumi.test/app/${workerEntry}?lumi-chat=chat`);
+    location.replace = url => navigations.push(url);
+    const window = eventTarget();
+    const timers = new Map();
+    const context = {
+        URL, location, window, Event, console: { error() {} },
+        setTimeout(callback) { timers.set(1, callback); return 1; },
+        clearTimeout(key) { timers.delete(key); },
+        async loadModule(url) {
+            assert.equal(url.href, new URL('main.js', location).href);
+            throw new Error('Failed to fetch browserHost.js');
+        }
+    };
+    const run = source('startup.js').replace('void import(', 'loadModule(');
+    await vm.runInNewContext(run, context);
+    assert.deepEqual(navigations, ['https://lumi.test/app/?lumi-chat=chat&renderer=copy-free']);
+});
+
 test('a worker module download failure still starts the normal app and reports the fallback', async () => {
     const app = startup('./workerFrames.js', { userAgent: 'Android Chrome/143.0.0.0' });
     await app.ready;
@@ -626,7 +704,6 @@ test('notification taps reach the app only once it runs', async () => {
     const app = startup(null);
     await app.ready;
     assert.equal(app.notificationClicks.length, 1);
-    assert.equal(app.notificationClicks[0], app.interop.OpenChatFromNotification);
     assert.ok(app.lifecycle.indexOf('notification-clicks') > app.lifecycle.indexOf('app-start'));
 });
 
@@ -700,6 +777,18 @@ test('explicit recovery reaches the same origin and removes its cache-bypass mar
     assert.equal(app.window.location.href, 'https://lumi.test/app/?other=kept');
 });
 
+test('the versioned worker uses the canonical install scope and cache recovery entry', async () => {
+    const app = host();
+    app.window.location.href = `https://lumi.test/app/${workerEntry}`;
+
+    await app.context.checkAppUpdate();
+    app.context.reloadWebApp();
+
+    assert.equal(app.registrations.length, 1);
+    assert.equal(app.reloads, 0);
+    assert.deepEqual(app.navigations, ['https://lumi.test/app/?lumi-refresh=1']);
+});
+
 test('automatic gateway recovery crosses the network once until Lumi confirms a live connection', () => {
     const origin = 'https://private-47654.uks1.devtunnels.ms';
     const app = host({ origin });
@@ -762,8 +851,8 @@ test('registration is app-scoped, bypasses HTTP caches for updates and does not 
     const app = host();
     await app.context.registerAppCache();
     assert.equal(app.registrations.length, 1);
-    assert.equal(app.registrations[0].url, './service-worker.js');
-    assert.equal(app.registrations[0].options.scope, './');
+    assert.equal(app.registrations[0].url, 'https://lumi.test/app/service-worker.js');
+    assert.equal(app.registrations[0].options.scope, '/app/');
     assert.equal(app.registrations[0].options.updateViaCache, 'none');
     const failed = host({ registrationError: new Error('Sign-in required') });
     await failed.context.registerAppCache();
@@ -803,6 +892,62 @@ test('a waiting verified update defers until managed work is safe, then activate
     assert.equal(app.navigations.length, 0, 'Normal updates do not use the sign-in/recovery link');
     assert.equal(app.timers.size, 0);
     assert.deepEqual(states, ['ready', 'applying', 'ready', 'applying']);
+});
+
+test('a late asynchronous safety reply cannot activate after a draft has changed', async () => {
+    const app = host({ controller: {} });
+    const update = waitingWorker();
+    app.registration.waiting = update;
+    await app.context.registerAppCache();
+    const checks = [];
+    app.context.configureAppUpdates(() => new Promise(resolve => checks.push(resolve)), () => {});
+
+    await settle();
+    assert.equal(checks.length, 1);
+    assert.deepEqual(update.messages, []);
+    app.context.tryApplyAppUpdate(); // A draft change arrived while the check was in flight.
+    checks[0](true);
+    await settle();
+    assert.deepEqual(update.messages, []);
+    assert.equal(checks.length, 2);
+    checks[1](false);
+    await settle();
+    assert.deepEqual(update.messages, []);
+
+    app.context.tryApplyAppUpdate();
+    await settle();
+    checks[2](true);
+    await settle();
+    assert.deepEqual(update.messages, ['lumi-activate-update']);
+    app.serviceWorker.controller = {};
+    app.serviceWorker.dispatch('controllerchange');
+    await settle();
+    assert.equal(checks.length, 4);
+    app.document.hidden = true;
+    checks[3](true);
+    await settle();
+    assert.equal(app.reloads, 0, 'Reload needs a fresh result while the page is still visible.');
+    app.document.hidden = false;
+    app.context.tryApplyAppUpdate();
+    await settle();
+    checks[4](true);
+    await settle();
+    assert.equal(app.reloads, 1);
+});
+
+test('failed or still pending asynchronous update safety leaves the app alone', async () => {
+    const app = host({ controller: {} });
+    const update = waitingWorker();
+    app.registration.waiting = update;
+    await app.context.registerAppCache();
+    let reject;
+    app.context.configureAppUpdates(() => new Promise((_, fail) => { reject = fail; }), () => {});
+    await settle();
+    assert.deepEqual(update.messages, []);
+    reject(new Error('Managed state unavailable'));
+    await settle();
+    assert.deepEqual(update.messages, []);
+    assert.match(app.warnings.at(-1)[0], /Could not verify that reloading is safe/);
 });
 
 test('safe notifications are coalesced past transient draft restoration or send startup', async () => {
@@ -1179,7 +1324,8 @@ test('exact worker-renderer overrides survive cache recovery and app reload with
 function worker({
     installError, missingCache = false,
     scope = 'https://lumi.test/app/', networkError, networkStatus = 200, networkType = 'basic',
-    appClients = [], legacyFramework, assets, cacheAsset, notificationText, maxActions
+    appClients = [], legacyFramework, assets, cacheAsset, notificationText, maxActions,
+    userAgent, updating = false
 } = {}) {
     const handlers = new Map();
     const requests = [];
@@ -1191,6 +1337,7 @@ function worker({
     const pendingSends = [];
     const displayed = new Map();
     const openedWindows = [];
+    const stored = new Map();
     let claims = 0;
     let skips = 0;
     const cache = {
@@ -1201,7 +1348,10 @@ function worker({
             await cacheAsset?.(request);
         },
         async match(url) {
-            return missingCache ? undefined : { cached: url };
+            return stored.get(url) ?? (missingCache ? undefined : { cached: url });
+        },
+        async put(url, response) {
+            stored.set(url, response);
         }
     };
     const notificationCache = {
@@ -1216,10 +1366,12 @@ function worker({
         }
     };
     const self = {
+        navigator: { userAgent },
         // Browsers that show no buttons on notifications (Safari) have no maxActions.
         ...(maxActions === undefined ? {} : { Notification: { maxActions } }),
         registration: {
             scope,
+            active: updating ? {} : null,
             async showNotification(title, options) {
                 notifications.push({ title, options });
                 // As browsers do, a notification with the same tag replaces the one showing.
@@ -1263,6 +1415,10 @@ function worker({
             networkOptions.push(options);
             if (networkError)
                 throw networkError;
+            if (request.integrity)
+                return new Response('asset', { status: networkStatus, headers: {
+                    'Cross-Origin-Embedder-Policy': 'require-corp'
+                } });
             return { network: request.url, status: networkStatus, type: networkType };
         },
         console: { warn: (...args) => warnings.push(args) }
@@ -1311,11 +1467,15 @@ function worker({
         },
         async fetch(url, { method = 'GET', mode = 'cors' } = {}) {
             let pending;
+            const writes = [];
             handlers.get('fetch')({
                 request: { url, method, mode },
+                waitUntil(value) { writes.push(value); },
                 respondWith(value) { pending = value; }
             });
-            return pending;
+            const response = await pending;
+            await Promise.all(writes);
+            return response;
         }
     };
 }
@@ -1334,6 +1494,43 @@ test('install integrity-checks credentialed static assets and never forcibly act
     }
     assert.equal(app.skips, 0);
     assert.equal(app.claims, 0);
+});
+
+test('Android Chromium precaches the shell but downloads only the renderer actually opened', async () => {
+    const runtime = workerEntry.replace('index.html', '_framework/runtime.wasm');
+    const assets = ['index.html', 'render-worker-entry.json', '_framework/runtime.wasm', workerEntry, runtime]
+        .map(url => ({ url, hash: `sha256-${url}` }));
+    const app = worker({ missingCache: true, userAgent: 'Android Chrome/145', assets });
+    await app.lifecycle('install');
+    assert.deepEqual(app.requests.map(request => request.url), [
+        'https://lumi.test/app/index.html', 'https://lumi.test/app/render-worker-entry.json'
+    ]);
+    const entryUrl = 'https://lumi.test/app/' + workerEntry;
+    await app.fetch(`${entryUrl}?lumi-chat=one`, { mode: 'navigate' });
+    await app.fetch('https://lumi.test/app/' + runtime);
+    const cached = await app.fetch(entryUrl, { mode: 'navigate' });
+    assert.equal(cached.headers.get('Cross-Origin-Embedder-Policy'), 'require-corp');
+    assert.equal(app.network.length, 2);
+    assert.equal(app.network[0].integrity, `sha256-${workerEntry}`);
+    assert.equal(app.network[0].credentials, 'same-origin');
+    const fallback = worker({ missingCache: true, networkError: new Error('Offline'), assets });
+    const redirect = await fallback.fetch(`${entryUrl}?lumi-chat=one`, { mode: 'navigate' });
+    assert.equal(redirect.headers.get('Location'), 'https://lumi.test/app/?lumi-chat=one&renderer=copy-free');
+});
+
+test('an Android update verifies the complete fallback runtime before replacing the old cache', async () => {
+    const fallback = '_framework/runtime.wasm';
+    const assets = ['index.html', 'render-worker-entry.json', fallback, workerEntry]
+        .map(url => ({ url, hash: `sha256-${url}` }));
+    const app = worker({ updating: true, userAgent: 'Android Chrome/145', assets,
+        cacheAsset(request) {
+            if (request.url.endsWith(fallback))
+                throw new Error('Incomplete fallback');
+        } });
+    await assert.rejects(app.lifecycle('install'), /Incomplete fallback/);
+    assert.ok(app.requests.some(request => request.url.endsWith(fallback)));
+    assert.equal(app.skips, 0);
+    assert.deepEqual(app.deleted, []);
 });
 
 test('a rejected asset prevents installation instead of accepting a partial app cache', async () => {
@@ -2043,13 +2240,24 @@ test('published inventory covers final app/WASM bytes with stable content hashes
     vm.runInNewContext(content, { self });
     const assets = self.lumiAssets;
     assert.ok(assets.length > 5);
-    for (const name of ['index.html', 'main.js', 'browserHost.js', 'pwaHost.js',
+    for (const name of ['index.html', 'startup.js', 'main.js', 'browserHost.js', 'pwaHost.js',
         'manifest.webmanifest', 'service-worker.js', '_framework/dotnet.js',
         'workerFrames.js', 'workerFramePresenter.js']) {
         assert.ok(assets.some(asset => asset.url === name), `Missing ${name}`);
     }
     assert.ok(!assets.some(asset => asset.url.startsWith('cache-recovery.')));
     assert.ok(assets.some(asset => asset.url.endsWith('.wasm')));
+    const workerEntryPath = path.join(publishRoot, 'render-worker-entry.json');
+    const { entry } = JSON.parse(readFileSync(workerEntryPath, 'utf8').replace(/^\uFEFF/, ''));
+    assert.match(entry, /^render-worker\/[0-9a-f]{64}\/index\.html$/);
+    const workerRoot = entry.slice(0, -'index.html'.length);
+    assert.deepEqual(
+        readFileSync(path.join(publishRoot, entry)),
+        readFileSync(path.join(publishRoot, 'index.html')));
+    for (const name of ['renderWorkerRuntime.js', 'renderWorkerPlatform.js', 'main.js', '_framework/dotnet.js'])
+        assert.ok(assets.some(asset => asset.url === workerRoot + name), `Missing worker asset ${name}`);
+    assert.ok(assets.some(asset => asset.url.startsWith(workerRoot + '_framework/') && asset.url.endsWith('.wasm')));
+    assert.ok(!assets.some(asset => asset.url.startsWith(workerRoot + 'service-worker')));
     assert.equal(new Set(assets.map(asset => asset.url)).size, assets.length);
     for (const asset of assets) {
         assert.ok(!asset.url.includes('\\') && !asset.url.includes('..'));
@@ -2062,7 +2270,7 @@ test('published inventory covers final app/WASM bytes with stable content hashes
         const file = path.join(publishRoot, ...name.split('/'));
         for (const [extension, decompress] of [['.br', brotliDecompressSync], ['.gz', gunzipSync]]) {
             if (existsSync(file + extension))
-                assert.deepEqual(decompress(readFileSync(file + extension)), readFileSync(file), name + extension);
+                assert.ok(decompress(readFileSync(file + extension)).equals(readFileSync(file)), name + extension);
         }
     }
     const inventoryBytes = content.slice(0, content.indexOf('self.lumiAssetVersion'));

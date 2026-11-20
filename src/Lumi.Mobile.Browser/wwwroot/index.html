@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Lumi">
   <title>Lumi</title>
-  <link rel="manifest" href="./manifest.webmanifest" crossorigin="use-credentials">
+  <link rel="manifest" href="/app/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="icon" href="./icons/lumi-192.png">
   <link rel="apple-touch-icon" href="./icons/lumi-192.png">
   <link rel="stylesheet" href="./app.css">
@@ -22,6 +22,7 @@
       <strong>Lumi</strong>
       <span role="status" data-lumi-string="WebOpening">Opening Lumi...</span>
       <button id="startup-retry" type="button" data-lumi-string="TryAgain" hidden>Try again</button>
+      <a class="lumi-startup-fallback" href="/app/?renderer=copy-free" data-lumi-string="TryAgain">Try again</a>
     </div>
   </div>
   <dialog id="lumi-recovery" class="lumi-recovery" role="alertdialog"
@@ -34,6 +35,6 @@
     </div>
   </dialog>
   <script src="./localization.js"></script>
-  <script type="module" src="./main.js"></script>
+  <script type="module" src="/app/startup.js"></script>
 </body>
 </html>

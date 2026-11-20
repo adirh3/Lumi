@@ -59,9 +59,12 @@ async function recoverCachedApp() {
         // Keep cookies, pairing and verified caches; only this page gets a fresh controller.
         stage = uiText('WebOpeningStage', 'Opening Lumi');
         const destination = new URL(app.href);
-        const workerFrames = new URL(window.location.href).searchParams.get('workerframes');
+        const current = new URL(window.location.href).searchParams;
+        const workerFrames = current.get('workerframes');
         if (workerFrames === '1' || workerFrames === '0' || workerFrames === 'clock')
             destination.searchParams.set('workerframes', workerFrames);
+        if (current.get('renderer') === 'copy-free')
+            destination.searchParams.set('renderer', 'copy-free');
         window.location.replace(destination.href);
     } catch (error) {
         console.error(`[Lumi PWA] Browser recovery failed: ${stage}.`, error);

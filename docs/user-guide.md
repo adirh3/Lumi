@@ -1185,19 +1185,18 @@ intermediates be reused without repeatedly allocating textures while scrolling. 
 soft cache budgets, not upfront allocations or hard caps on total graphics memory: resources
 still in use and buffers outside the cache can exceed them. Rendering resolution and quality are unchanged.
 
-Compatible Android Chromium browsers display Avalonia's WebGL canvas directly instead of
-copying each frame to a second canvas. A worker supplies the frame clock while drawing or
-touching, with touch moves resampled to that clock. The implementation adapts the
-MIT-licensed [flutter_shim](https://github.com/aumb/flutter_shim) approach to Avalonia's
-WebGL renderer without clearing Skia's drawing buffer. Native editors, mouse/pen input,
-and trusted down/up events keep their normal path. The clock returns to native scheduling
-after drawing stops. Clock messages are bounded to one queued tick, so a busy UI thread
-does not replay a backlog of old refreshes. On other browsers, or if the worker fails,
-Lumi uses normal browser scheduling. Avalonia still draws on the main thread with
-single-threaded .NET 11 Mono AOT; no cross-origin isolation is required.
+On compatible Android Chromium browsers, Lumi uses Avalonia's WebGL 2 render
+worker to draw directly into the visible canvas. Layout and browser input no
+longer have to share that rendering thread. This needs a secure, cross-origin
+isolated connection. If the worker cannot start, Lumi opens the ordinary app
+with copy-free rendering instead; if graphics fail while you are working,
+Lumi asks you to reload rather than discarding an unsent draft automatically.
+Other browsers keep the single-threaded renderer.
 
 `/app/?workerframes=clock` explicitly selects the copy-free worker clock on compatible
-Chromium browsers. Use `workerframes=0` to disable the worker, or `workerframes=1` to
+Chromium browsers (its frame clock adapts the MIT-licensed
+[flutter_shim](https://github.com/aumb/flutter_shim) approach). Use `workerframes=0`
+to disable both worker paths, or `workerframes=1` to
 compare the old bitmap-copy path with a renderer status badge. The badge reports worker
 ticks and bitmap updates, not display FPS. All three overrides survive cache recovery
 and app reload without clearing pairing. Normal launches show no diagnostic badge and

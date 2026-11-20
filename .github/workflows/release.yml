@@ -115,7 +115,7 @@ jobs:
   build-pwa:
     needs: validate_release_inputs
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       RELEASE_VERSION: ${{ needs.validate_release_inputs.outputs.version }}
     steps:
@@ -132,17 +132,29 @@ jobs:
       - name: Install WebAssembly workload
         run: dotnet workload install wasm-tools
 
-      - name: Publish Avalonia PWA
+      - name: Publish threaded Avalonia runtime
         run: >
-          dotnet publish src/Lumi.Mobile.Browser/Lumi.Mobile.Browser.csproj
+          dotnet publish src\Lumi.Mobile.Browser\Lumi.Mobile.Browser.csproj
+          --configuration Release
+          --artifacts-path BrowserWorkerArtifacts
+          --output BrowserWorkerPublish
+          -p:LumiPwaRenderWorker=true
+          -p:Version=$env:RELEASE_VERSION
+
+      - name: Publish Avalonia PWA with both renderers
+        run: >
+          dotnet publish src\Lumi.Mobile.Browser\Lumi.Mobile.Browser.csproj
           --configuration Release
           --output BrowserPublish
-          /p:Version=$env:RELEASE_VERSION
+          "-p:LumiPwaWorkerRoot=${{ github.workspace }}\BrowserWorkerPublish\wwwroot"
+          -p:Version=$env:RELEASE_VERSION
 
       - name: Verify release PWA
         shell: pwsh
         run: |
           $root = "BrowserPublish\wwwroot"
+          $worker = Get-Content "$root\render-worker-entry.json" -Raw | ConvertFrom-Json
+          $workerRoot = Split-Path -Parent (Join-Path $root $worker.entry)
           $required = @(
             "$root\index.html",
             "$root\android.html",
@@ -152,7 +164,11 @@ jobs:
             "$root\service-worker.js",
             "$root\service-worker-assets.js",
             "$root\pwaHost.js",
-            "$root\_framework\dotnet.js"
+            "$root\_framework\dotnet.js",
+            "$workerRoot\index.html",
+            "$workerRoot\renderWorkerRuntime.js",
+            "$workerRoot\renderWorkerPlatform.js",
+            "$workerRoot\_framework\dotnet.js"
           )
           $missing = $required | Where-Object { -not (Test-Path $_) }
           if ($missing) {
@@ -174,10 +190,16 @@ jobs:
             throw "Android installer must use the package-scoped official release flow."
           }
 
-          $assembly = Get-Item "src\Lumi.Mobile.Browser\bin\Release\net11.0-browser\Lumi.Mobile.Browser.dll"
-          $publishedVersion = ($assembly.VersionInfo.ProductVersion -split "\+", 2)[0]
-          if ($publishedVersion -ne $env:RELEASE_VERSION) {
-            throw "Browser publish version is $publishedVersion; expected $env:RELEASE_VERSION."
+          $fallbackAssembly = Get-Item "src\Lumi.Mobile.Browser\bin\Release\net11.0-browser\Lumi.Mobile.Browser.dll"
+          $workerAssemblies = @(Get-ChildItem "BrowserWorkerArtifacts\bin\Lumi.Mobile.Browser" -Recurse -File -Filter Lumi.Mobile.Browser.dll)
+          if ($workerAssemblies.Count -ne 1) {
+            throw "Expected one threaded browser assembly; found $($workerAssemblies.Count)."
+          }
+          foreach ($assembly in @($fallbackAssembly, $workerAssemblies[0])) {
+            $publishedVersion = ($assembly.VersionInfo.ProductVersion -split "\+", 2)[0]
+            if ($publishedVersion -ne $env:RELEASE_VERSION) {
+              throw "Browser publish at $($assembly.FullName) is $publishedVersion; expected $env:RELEASE_VERSION."
+            }
           }
 
           $files = @(Get-ChildItem $root -Recurse -File)

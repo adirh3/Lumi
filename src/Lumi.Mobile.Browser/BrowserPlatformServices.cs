@@ -179,10 +179,13 @@ internal sealed class BrowserNativeTextInputOverlayPresenter : INativeTextInputO
         return session;
     }
 
-    internal void SetTextFromBrowser(int id, string value, int caretIndex)
+    internal void SetTextFromBrowser(int id, string value, int caretIndex, int revision)
     {
-        if (_sessions.TryGetValue(id, out var session))
+        if (_sessions.TryGetValue(id, out var session) && revision > session.BrowserRevision)
+        {
+            session.BrowserRevision = revision;
             session.TextChanged(value, caretIndex);
+        }
     }
 
     internal bool HandleKeyFromBrowser(
@@ -245,6 +248,8 @@ internal sealed class BrowserNativeTextInputOverlayPresenter : INativeTextInputO
 
         public Action<bool> FocusChanged { get; } = focusChanged;
 
+        public int BrowserRevision { get; set; }
+
         public int CaretIndex => _disposed ? 0 : BrowserInterop.GetNativeTextInputCaretIndex(id);
 
         public void Show(
@@ -288,7 +293,9 @@ internal sealed class BrowserNativeTextInputOverlayPresenter : INativeTextInputO
                 options.Padding.Left,
                 options.TextAlignment,
                 options.Direction,
-                options.IsDark);
+                options.IsDark,
+                BrowserRevision,
+                options.ForwardEnterKey);
         }
 
         public void Hide()
@@ -480,7 +487,11 @@ internal static partial class BrowserInterop
     internal static PushedNetworkMonitor NetworkMonitor { get; } = new();
 
     [JSExport]
-    internal static void SetNetworkAvailable(bool available) => NetworkMonitor.Report(available);
+    internal static Task SetNetworkAvailable(bool available)
+    {
+        NetworkMonitor.Report(available);
+        return Task.CompletedTask;
+    }
 
     [JSImport("setTheme", "./pwaHost.js")]
     internal static partial void SetTheme(string preference);
@@ -517,8 +528,11 @@ internal static partial class BrowserInterop
     internal static partial Task<string> InstallWebApp();
 
     [JSExport]
-    internal static void WebAppInstallationChanged() =>
+    internal static Task WebAppInstallationChanged()
+    {
         (Application.Current as App)?.Shell?.NotifyWebAppInstallationChanged();
+        return Task.CompletedTask;
+    }
 
     [JSImport("expectTestPush", "./pwaHost.js")]
     [return: JSMarshalAs<JSType.Promise<JSType.Boolean>>]
@@ -541,18 +555,20 @@ internal static partial class BrowserInterop
 
     /// <summary>A notification was tapped: open the chat it was about.</summary>
     [JSExport]
-    internal static void OpenChatFromNotification(string chatId, string title)
+    internal static Task OpenChatFromNotification(string chatId, string title)
     {
         if (Guid.TryParse(chatId, out var id) && (Application.Current as App)?.Shell is { } shell)
             shell.OpenChatFromNotification(id, title.Length > 0 ? title : null);
+        return Task.CompletedTask;
     }
 
     /// <summary>A suggestion was picked in a notification: send it in its chat.</summary>
     [JSExport]
-    internal static void SendFromNotification(string chatId, string text)
+    internal static Task SendFromNotification(string chatId, string text)
     {
         if (Guid.TryParse(chatId, out var id) && (Application.Current as App)?.Shell is { } shell)
             shell.SendFromNotification(id, text);
+        return Task.CompletedTask;
     }
 
     [JSImport("getOrigin", "./browserHost.js")]
@@ -641,7 +657,9 @@ internal static partial class BrowserInterop
         double paddingLeft,
         string textAlignment,
         string direction,
-        bool dark);
+        bool dark,
+        int browserRevision,
+        bool forwardEnterKey);
 
     [JSImport("hideNativeTextInput", "./browserHost.js")]
     internal static partial void HideNativeTextInput(int id);
@@ -662,38 +680,40 @@ internal static partial class BrowserInterop
     internal static partial void BlurNativeTextInput(int id);
 
     [JSExport]
-    internal static void SetApplicationActive(bool active)
+    internal static Task SetApplicationActive(bool active)
     {
         if (Avalonia.Application.Current?.ApplicationLifetime
             is not ISingleViewApplicationLifetime { MainView: MobileShellView shell })
         {
-            return;
+            return Task.CompletedTask;
         }
 
         if (active)
             shell.NotifyApplicationActivated();
         else
             shell.NotifyApplicationDeactivated();
+        return Task.CompletedTask;
     }
 
     [JSExport]
-    internal static bool CanApplyAppUpdate() =>
-        (Application.Current as App)?.Shell?.CanApplyWebAppUpdate == true;
+    internal static Task<bool> CanApplyAppUpdate() =>
+        Task.FromResult((Application.Current as App)?.Shell?.CanApplyWebAppUpdate == true);
 
     [JSExport]
-    internal static void SetAppUpdateState(string state)
+    internal static Task SetAppUpdateState(string state)
     {
         if ((Application.Current as App)?.Shell is not { } shell)
-            return;
+            return Task.CompletedTask;
 
         if (Enum.TryParse<WebAppUpdateState>(state, ignoreCase: true, out var value))
             shell.WebAppUpdateState = value;
         else
             System.Diagnostics.Trace.TraceWarning($"[Mobile] Unknown browser update state: {state}");
+        return Task.CompletedTask;
     }
 
     [JSExport]
-    internal static void SetViewportInsets(
+    internal static Task SetViewportInsets(
         double top,
         double right,
         double bottom,
@@ -709,11 +729,15 @@ internal static partial class BrowserInterop
                 keyboardInset,
                 viewportHeight);
         }
+        return Task.CompletedTask;
     }
 
     [JSExport]
-    internal static void SetNativeTextInputText(int id, string text, int caretIndex) =>
-        NativeTextInputOverlayPresenter?.SetTextFromBrowser(id, text, caretIndex);
+    internal static Task SetNativeTextInputText(int id, string text, int caretIndex, int revision)
+    {
+        NativeTextInputOverlayPresenter?.SetTextFromBrowser(id, text, caretIndex, revision);
+        return Task.CompletedTask;
+    }
 
     [JSExport]
     internal static bool HandleNativeTextInputKey(
@@ -732,6 +756,14 @@ internal static partial class BrowserInterop
             meta) == true;
 
     [JSExport]
-    internal static void SetNativeTextInputFocus(int id, bool focused) =>
+    internal static Task<bool> HandleNativeTextInputKeyAsync(
+        int id, string key, bool control, bool alt, bool shift, bool meta) =>
+        Task.FromResult(HandleNativeTextInputKey(id, key, control, alt, shift, meta));
+
+    [JSExport]
+    internal static Task SetNativeTextInputFocus(int id, bool focused)
+    {
         NativeTextInputOverlayPresenter?.SetFocusFromBrowser(id, focused);
+        return Task.CompletedTask;
+    }
 }

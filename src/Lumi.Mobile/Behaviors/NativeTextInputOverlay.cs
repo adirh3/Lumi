@@ -452,7 +452,8 @@ public sealed class NativeTextInputOverlay
                     NativePadding(_textBox),
                     _textBox.TextAlignment.ToString().ToLowerInvariant(),
                     _textBox.FlowDirection == FlowDirection.RightToLeft ? "rtl" : "ltr",
-                    _textBox.ActualThemeVariant == ThemeVariant.Dark));
+                    _textBox.ActualThemeVariant == ThemeVariant.Dark,
+                    GetForwardEnterKey(_textBox)));
 
             // Every layout pass in the app lands here; an unchanged input needs no browser work.
             if (_shown == shown)

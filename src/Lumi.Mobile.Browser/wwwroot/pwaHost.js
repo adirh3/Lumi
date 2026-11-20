@@ -1,4 +1,5 @@
 const darkPreference = window.matchMedia('(prefers-color-scheme: dark)');
+const appUrl = new URL('/app/', window.location.origin);
 let theme = 'System';
 const gatewaySignInAttemptKey = 'lumi.pwa.gateway-sign-in-attempt.v1';
 let appActive = !document.hidden;
@@ -10,6 +11,7 @@ let canApplyUpdate;
 let onUpdateStateChanged;
 let updateState = 'current';
 let applyQueued = false;
+let checkAgain = false;
 let activationPending = false;
 let activationTimeout;
 let reloadPending = false;
@@ -37,43 +39,79 @@ export function configureAppUpdates(isSafeToApply, onStateChanged) {
 }
 
 export function tryApplyAppUpdate() {
-    if (applyQueued || reloading || !reloadPending && !appRegistration?.waiting)
+    if (reloading || !reloadPending && (!appRegistration?.waiting || activationPending))
         return;
+    if (applyQueued) {
+        checkAgain = true;
+        return;
+    }
 
     // Property notifications can arrive halfway through restoring a draft or starting a send.
     applyQueued = true;
     queueMicrotask(() => {
-        applyQueued = false;
-        if (!appActive || document.hidden || !canApplyUpdate?.() || reloading)
-            return;
-
-        if (reloadPending) {
-            reloading = true;
-            publishUpdateState('applying');
-            window.location.reload();
-            return;
-        }
-
-        const worker = appRegistration?.waiting;
-        if (!worker || activationPending)
-            return;
-
-        activationPending = true;
-        publishUpdateState('applying');
-        activationTimeout = setTimeout(() => {
-            activationPending = false;
-            console.warn('[Lumi PWA] The verified update did not activate in time.');
-            publishUpdateState('failed');
-        }, 60000);
-        try {
-            worker.postMessage({ type: 'lumi-activate-update' });
-        } catch (error) {
-            clearTimeout(activationTimeout);
-            activationPending = false;
-            console.warn('[Lumi PWA] The verified update could not be activated.', error);
-            publishUpdateState('failed');
-        }
+        checkAgain = false;
+        void applyIfSafe().finally(() => {
+            applyQueued = false;
+            if (checkAgain)
+                tryApplyAppUpdate();
+        });
     });
+}
+
+async function applyIfSafe() {
+    if (!appActive || document.hidden || reloading)
+        return;
+
+    const reload = reloadPending;
+    const worker = appRegistration?.waiting;
+    const controller = runtimeController;
+    try {
+        // The managed UI worker can also be waiting on the DOM. A synchronous JS export here
+        // can deadlock the page precisely when it is checking for an update.
+        if (await canApplyUpdate?.() !== true)
+            return;
+    } catch (error) {
+        console.warn('[Lumi PWA] Could not verify that reloading is safe. The current app is kept.', error);
+        return;
+    }
+
+    if (checkAgain || !appActive || document.hidden || reloading ||
+        reloadPending !== reload || runtimeController !== controller ||
+        (!reload && appRegistration?.waiting !== worker))
+        return;
+
+    if (reload) {
+        reloading = true;
+        publishUpdateState('applying');
+        const destination = new URL(window.location.href);
+        if (destination.pathname.startsWith('/app/render-worker/')) {
+            // This revision's worker directory may no longer be on the desktop.
+            destination.pathname = appUrl.pathname;
+            window.location.replace(destination.href);
+        } else {
+            window.location.reload();
+        }
+        return;
+    }
+
+    if (!worker || activationPending)
+        return;
+
+    activationPending = true;
+    publishUpdateState('applying');
+    activationTimeout = setTimeout(() => {
+        activationPending = false;
+        console.warn('[Lumi PWA] The verified update did not activate in time.');
+        publishUpdateState('failed');
+    }, 60000);
+    try {
+        worker.postMessage({ type: 'lumi-activate-update' });
+    } catch (error) {
+        clearTimeout(activationTimeout);
+        activationPending = false;
+        console.warn('[Lumi PWA] The verified update could not be activated.', error);
+        publishUpdateState('failed');
+    }
 }
 
 function observeWorker(worker) {
@@ -140,11 +178,14 @@ darkPreference.addEventListener('change', applyTheme);
 applyTheme();
 
 function navigateToApp(marker) {
-    const url = new URL('/app/', window.location.origin);
+    const url = new URL(appUrl);
     url.searchParams.set(marker, '1');
-    const workerFrames = new URL(window.location.href).searchParams.get('workerframes');
+    const current = new URL(window.location.href).searchParams;
+    const workerFrames = current.get('workerframes');
     if (workerFrames === '1' || workerFrames === '0' || workerFrames === 'clock')
         url.searchParams.set('workerframes', workerFrames);
+    if (current.get('renderer') === 'copy-free')
+        url.searchParams.set('renderer', 'copy-free');
     window.location.assign(url.href);
 }
 
@@ -232,8 +273,8 @@ export async function registerAppCache() {
 
     registrationPromise = (async () => {
         try {
-            const registration = await navigator.serviceWorker.register('./service-worker.js', {
-                scope: './',
+            const registration = await navigator.serviceWorker.register(new URL('service-worker.js', appUrl).href, {
+                scope: appUrl.pathname,
                 updateViaCache: 'none'
             });
             appRegistration = registration;
@@ -461,14 +502,14 @@ export async function subscribeToPush(serverKey, notificationText) {
 }
 
 export async function unsubscribeFromPush() {
-    const registration = await navigator.serviceWorker?.getRegistration('./');
+    const registration = await navigator.serviceWorker?.getRegistration(appUrl.href);
     const subscription = await registration?.pushManager?.getSubscription();
     await subscription?.unsubscribe();
 }
 
 export function clearChatNotifications(tag) {
     void (async () => {
-        const registration = await navigator.serviceWorker?.getRegistration('./');
+        const registration = await navigator.serviceWorker?.getRegistration(appUrl.href);
         for (const notification of await registration?.getNotifications?.({ tag }) ?? [])
             notification.close();
     })().catch(error => console.warn('[Lumi PWA] Could not take down notifications.', error));
@@ -484,7 +525,7 @@ async function takePendingSend(chatId) {
         return null;
     try {
         const cache = await caches.open(notificationCache);
-        const url = new URL('pending-send.json', window.location.href).href;
+        const url = new URL('pending-send.json', appUrl).href;
         const saved = await cache.match(url);
         if (!saved)
             return null;

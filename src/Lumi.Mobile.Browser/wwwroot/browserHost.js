@@ -155,17 +155,44 @@ let selectionDialog;
 let nativeTextInputChanged;
 let nativeTextInputKeyPressed;
 let nativeTextInputFocusChanged;
+let nativeInputSettled;
 let activeNativeTextInputId;
 const nativeTextInputs = new Map();
+const nativeEditState = new WeakMap();
 const composingNativeTextInputs = new Set();
+const pendingNativeEdits = new Map();
+
+export function hasPendingNativeInput() {
+    return pendingNativeEdits.size > 0 || composingNativeTextInputs.size > 0;
+}
+
+function trackNativeEdit(id, delivery) {
+    if (typeof delivery?.then !== 'function')
+        return;
+    pendingNativeEdits.set(id, delivery);
+    void delivery.then(() => {
+        if (pendingNativeEdits.get(id) === delivery) {
+            pendingNativeEdits.delete(id);
+            nativeInputSettled?.();
+        }
+    }, () => {
+        // The host reports the error. An undelivered edit is not safe to reload over.
+    });
+}
 
 function publishNativeTextInput(id, input) {
-    if (browserRecoveryActive)
+    if (browserRecoveryActive || !nativeTextInputChanged)
         return;
-    nativeTextInputChanged?.(
+    const state = nativeEditState.get(input);
+    if (state.value === input.value)
+        return;
+    state.value = input.value;
+    const delivery = nativeTextInputChanged(
         id,
         input.value,
-        input.selectionStart ?? input.value.length);
+        input.selectionStart ?? input.value.length,
+        ++state.revision);
+    trackNativeEdit(id, delivery);
 }
 
 document.addEventListener('focusin', event => {
@@ -235,14 +262,17 @@ function applyInputClip(input, x, y, width, height, clipX, clipY, clipWidth, cli
     input.style.webkitClipPath = clip;
 }
 
-export function configureNativeTextInputs(onChanged, onKeyPressed, onFocusChanged) {
+export function configureNativeTextInputs(onChanged, onKeyPressed, onFocusChanged, onSettled) {
     nativeTextInputChanged = onChanged;
     nativeTextInputKeyPressed = onKeyPressed;
     nativeTextInputFocusChanged = onFocusChanged;
+    nativeInputSettled = onSettled;
 }
 
-function createNativeTextInput(id, multiline) {
+function createNativeTextInput(id, multiline, browserRevision) {
     const input = document.createElement(multiline ? 'textarea' : 'input');
+    const state = { value: '', revision: browserRevision, forwardEnterKey: false };
+    nativeEditState.set(input, state);
     input.className = 'lumi-native-text-input-overlay';
     if (!multiline)
         input.type = 'text';
@@ -269,17 +299,43 @@ function createNativeTextInput(id, multiline) {
         }
         if (event.isComposing
             || event.keyCode === 229
+            || (event.key === 'Enter' && multiline && (!state.forwardEnterKey || event.shiftKey))
             || event.key !== 'Enter' && event.key !== 'Escape')
             return;
         publishNativeTextInput(id, input);
-        if (nativeTextInputKeyPressed?.(
+        const handled = nativeTextInputKeyPressed?.(
             id,
             event.key,
             event.ctrlKey,
             event.altKey,
             event.shiftKey,
-            event.metaKey)) {
+            event.metaKey);
+        if (handled === true) {
             event.preventDefault();
+        } else if (typeof handled?.then === 'function') {
+            // The DOM must cancel the default while the .NET UI decides whether it owns Enter.
+            const { value, selectionStart, selectionEnd } = input;
+            event.preventDefault();
+            const delivery = handled.then(consumed => {
+                if (consumed || !multiline || event.key !== 'Enter' || browserRecoveryActive
+                    || document.activeElement !== input || composingNativeTextInputs.has(id))
+                    return;
+                const unchanged = input.value === value;
+                const sameCaret = input.selectionStart === selectionStart && input.selectionEnd === selectionEnd;
+                if (unchanged) {
+                    input.setRangeText('\n', selectionStart, selectionEnd, sameCaret ? 'end' : 'preserve');
+                } else if (input.value.startsWith(value.slice(0, selectionStart))
+                    && input.value.endsWith(value.slice(selectionEnd))) {
+                    // The user typed into this range while the command was in flight. Keep that
+                    // input and put the newline before it, where the original Enter was pressed.
+                    input.setRangeText('\n', selectionStart, selectionStart, 'preserve');
+                } else {
+                    return;
+                }
+                publishNativeTextInput(id, input);
+            });
+            void delivery.catch(error => console.error('[Lumi PWA] Native key handling failed.', error));
+            trackNativeEdit(id, delivery);
         }
     });
     input.addEventListener('focus', () => {
@@ -335,15 +391,18 @@ export function showNativeTextInput(
     paddingLeft,
     textAlignment,
     direction,
-    dark) {
+    dark,
+    browserRevision = 0,
+    forwardEnterKey = false) {
     if (browserRecoveryActive)
         return;
     let input = nativeTextInputs.get(id);
     if (input && (input.tagName === 'TEXTAREA') !== multiline) {
+        browserRevision = Math.max(browserRevision, nativeEditState.get(input).revision);
         destroyNativeTextInput(id);
         input = undefined;
     }
-    input ??= createNativeTextInput(id, multiline);
+    input ??= createNativeTextInput(id, multiline, browserRevision);
 
     input.style.display = 'block';
     input.style.left = `${x}px`;
@@ -383,8 +442,13 @@ export function showNativeTextInput(
         input.type = sensitive ? 'password' : 'text';
     input.setAttribute('aria-label', placeholder || uiText('TextInput', 'Text input'));
 
-    if (!composingNativeTextInputs.has(id) && input.value !== value) {
+    // Layout can carry older text. A managed change made after seeing this edit (e.g. Send
+    // clearing the field) must still be applied, even if its acknowledgement is in flight.
+    const state = nativeEditState.get(input);
+    state.forwardEnterKey = forwardEnterKey;
+    if (!composingNativeTextInputs.has(id) && browserRevision >= state.revision && input.value !== value) {
         const caret = input.selectionStart ?? value.length;
+        state.value = value;
         input.value = value;
         const clamped = Math.min(caret, value.length);
         input.setSelectionRange(clamped, clamped);
@@ -413,6 +477,7 @@ export function destroyNativeTextInput(id) {
     if (activeNativeTextInputId === id)
         activeNativeTextInputId = undefined;
     composingNativeTextInputs.delete(id);
+    pendingNativeEdits.delete(id);
     nativeTextInputs.delete(id);
     input.remove();
 }

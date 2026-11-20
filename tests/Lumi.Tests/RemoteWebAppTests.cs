@@ -184,10 +184,55 @@ public sealed class RemoteWebAppTests
         Assert.Contains("frame-ancestors 'self'", renderer.Header("Content-Security-Policy"));
         Assert.Contains("script-src 'unsafe-inline'", renderer.Header("Content-Security-Policy"));
         Assert.Equal("SAMEORIGIN", renderer.Header("X-Frame-Options"));
+        Assert.Equal("credentialless", renderer.Header("Cross-Origin-Embedder-Policy"));
         Assert.Equal("Empty renderer", renderer.Body);
         Assert.Contains("script-src 'self' 'wasm-unsafe-eval'", app.Header("Content-Security-Policy"));
         Assert.Contains("frame-ancestors 'none'", app.Header("Content-Security-Policy"));
         Assert.Equal("DENY", app.Header("X-Frame-Options"));
+    }
+
+    [Fact]
+    public async Task OnlyVersionedWorkerAssetsAreCrossOriginIsolated()
+    {
+        using var fixture = new WebFixture();
+        var worker = $"render-worker/{new string('a', 64)}";
+        foreach (var file in new[] { "index.html", "service-worker.js",
+                     $"{worker}/index.html", $"{worker}/_framework/dotnet.worker.js" })
+            fixture.Write(file, file);
+
+        foreach (var file in new[] { "", "service-worker.js",
+                     $"{worker}/index.html", $"{worker}/_framework/dotnet.worker.js" })
+        {
+            var response = await fixture.RequestAsync("GET", "/app/" + file);
+            Assert.StartsWith("HTTP/1.1 200 OK", response.Headers);
+            Assert.Contains("Cross-Origin-Resource-Policy: same-origin", response.Headers);
+            if (file.StartsWith(worker, StringComparison.Ordinal))
+            {
+                Assert.Contains("Cross-Origin-Opener-Policy: same-origin", response.Headers);
+                Assert.Contains("Cross-Origin-Embedder-Policy: require-corp", response.Headers);
+                Assert.Contains("Cache-Control: public, max-age=31536000, immutable", response.Headers);
+            }
+            else
+            {
+                Assert.DoesNotContain("Cross-Origin-Opener-Policy:", response.Headers);
+                Assert.DoesNotContain("Cross-Origin-Embedder-Policy:", response.Headers);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task MissingWorkerRevisionReturnsToTheFallbackWithoutDroppingTheChatLink()
+    {
+        using var fixture = new WebFixture();
+        fixture.Write("index.html", "copy-free shell");
+        var worker = $"/app/render-worker/{new string('a', 64)}";
+        var chat = Guid.NewGuid();
+
+        var entry = await fixture.RequestAsync("GET", $"{worker}/index.html?lumi-chat={chat:D}");
+        Assert.StartsWith("HTTP/1.1 302 Found", entry.Headers);
+        Assert.Equal($"/app/?renderer=copy-free&lumi-chat={chat:D}", entry.Header("Location"));
+        var missing = await fixture.RequestAsync("GET", $"{worker}/_framework/dotnet.js");
+        Assert.StartsWith("HTTP/1.1 404 Not Found", missing.Headers);
     }
 
     [Fact]

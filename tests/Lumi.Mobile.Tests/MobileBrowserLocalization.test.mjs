@@ -70,7 +70,7 @@ test('saved Hebrew is applied to startup, installation and manifest without chan
     assert.equal(app.nodes[0].textContent, 'פותח את Lumi...');
     assert.equal(app.nodes[1].textContent, 'לנסות שוב');
     assert.equal(app.nodes[2].textContent, 'התקנת Lumi ל־Android');
-    assert.equal(app.manifest.href, './manifest.he.webmanifest');
+    assert.equal(app.manifest.href, '/app/manifest.he.webmanifest');
     assert.equal(app.requests[0].url, 'https://lumi.test/app/localization/he.xml');
     assert.equal(app.requests[0].options.credentials, 'same-origin');
     assert.equal(JSON.stringify(app.localization).includes('never-exposed'), false);
@@ -101,7 +101,7 @@ for (const [requested, expected] of [
             assert.equal(app.nodes[0].textContent, catalog.get('WebOpening'));
             assert.notEqual(app.nodes[0].textContent, 'Opening Lumi...');
             assert.equal(app.nodes[2].textContent, catalog.get('AndroidInstallTitle'));
-            assert.equal(app.manifest.href, `./manifest.${expected}.webmanifest`);
+            assert.equal(app.manifest.href, `/app/manifest.${expected}.webmanifest`);
             assert.equal(app.requests[0].url, `https://lumi.test/app/localization/${expected}.xml`);
         }
     });

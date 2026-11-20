@@ -24,7 +24,11 @@ internal static partial class BrowserSmoothness
         ?? throw new InvalidOperationException("Build with -p:LumiMobileSmoothness=true and open ?smoothness=1.");
 
     [JSExport]
-    public static void ObserveTouch(double x, double y, bool pressed) => _session?.ObserveHostTouch(x, y, pressed);
+    public static Task ObserveTouch(double x, double y, bool pressed)
+    {
+        _session?.ObserveHostTouch(x, y, pressed);
+        return Task.CompletedTask;
+    }
 
     [JSImport("getPerformanceTime", "./browserHost.js")]
     private static partial double GetPerformanceTime();

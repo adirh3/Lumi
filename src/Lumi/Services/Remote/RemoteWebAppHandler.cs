@@ -5,6 +5,7 @@ namespace Lumi.Services.Remote;
 internal sealed class RemoteWebAppHandler(RemoteWebAssetProvider? assets)
 {
     private const string AppPrefix = "/app/";
+    private const string RenderWorkerPrefix = "render-worker/";
     private const string HtmlPreviewPolicy =
         "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'self'; " +
         "form-action 'none'; sandbox allow-scripts allow-downloads; " +
@@ -77,10 +78,20 @@ internal sealed class RemoteWebAppHandler(RemoteWebAssetProvider? assets)
         if (relative == "index.html" && context.Request.QueryValue("lumi-refresh") is not null)
             relative = "cache-recovery.html";
 
-        var fileLike = Path.HasExtension(relative);
+        var isRenderWorkerAsset = IsRenderWorkerAsset(relative);
         if (!assets.TryGet(relative, context.Request, out var asset))
         {
-            if (fileLike || !assets.TryGet("index.html", context.Request, out asset))
+            if (isRenderWorkerAsset && relative.EndsWith("/index.html", StringComparison.Ordinal))
+            {
+                // A tab or bookmark can point to a revision no longer included in the desktop app.
+                var location = "/app/?renderer=copy-free";
+                if (Guid.TryParse(context.Request.QueryValue("lumi-chat"), out var chatId))
+                    location += $"&lumi-chat={chatId:D}";
+                await context.WriteRedirectAsync(location, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            if (Path.HasExtension(relative) || relative.StartsWith(RenderWorkerPrefix, StringComparison.Ordinal)
+                || !assets.TryGet("index.html", context.Request, out asset))
             {
                 await context.WriteTextAsync(Loc.Remote_ResourceNotFound, cancellationToken, 404).ConfigureAwait(false);
                 return;
@@ -97,6 +108,15 @@ internal sealed class RemoteWebAppHandler(RemoteWebAssetProvider? assets)
             // Only this empty renderer shell can run a file's scripts, always in an opaque sandbox.
             headers["Content-Security-Policy"] = HtmlPreviewPolicy;
             headers["X-Frame-Options"] = "SAMEORIGIN";
+            // The isolated app can embed the preview without dropping the gateway login for the
+            // document request. Its opaque sandbox can still load public cross-origin resources.
+            headers["Cross-Origin-Embedder-Policy"] = "credentialless";
+        }
+        if (isRenderWorkerAsset)
+        {
+            headers["Cross-Origin-Opener-Policy"] = "same-origin";
+            headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+            headers["Cache-Control"] = "public, max-age=31536000, immutable";
         }
         if (asset.ContentEncoding is { Length: > 0 } encoding)
             headers["Content-Encoding"] = encoding;
@@ -117,6 +137,23 @@ internal sealed class RemoteWebAppHandler(RemoteWebAssetProvider? assets)
                 cancellationToken,
                 headOnly: string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase))
             .ConfigureAwait(false);
+    }
+
+    private static bool IsRenderWorkerAsset(string path)
+    {
+        const int versionLength = 64;
+        var prefixLength = RenderWorkerPrefix.Length;
+        if (path.Length <= prefixLength + versionLength
+            || !path.StartsWith(RenderWorkerPrefix, StringComparison.Ordinal)
+            || path[prefixLength + versionLength] != '/')
+        {
+            return false;
+        }
+
+        foreach (var character in path.AsSpan(prefixLength, versionLength))
+            if (character is not (>= '0' and <= '9' or >= 'a' and <= 'f'))
+                return false;
+        return true;
     }
 
     private static Dictionary<string, string> MergeHeaders(

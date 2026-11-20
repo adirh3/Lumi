@@ -29,6 +29,95 @@ const bitmap = (width = 100, height = 200) => ({
     width, height, closed: 0, close() { this.closed++; }
 });
 
+test('the pinned runtime only marks a pooled worker ready after its own load completes', async () => {
+    const context = vm.createContext({ crossOriginIsolated: true, SharedArrayBuffer });
+    const configure = vm.runInContext(source('renderWorkerRuntime.js')
+        .replaceAll('export function ', 'function ') + '\nconfigureRenderWorker;', context);
+    let configureModule;
+    const builder = {
+        withModuleConfig({ preRun }) { configureModule = preRun; return this; },
+        withConfig({ jsThreadBlockingMode }) {
+            assert.equal(jsThreadBlockingMode, 'ThrowWhenBlockingWait');
+            return this;
+        }
+    };
+    configure(builder);
+    const ready = [];
+    const pool = {
+        async loadWasmModuleToWorker(worker) {
+            await new Promise(resolve => ready.push(resolve));
+            worker.info.isLoaded = true;
+        }
+    };
+    configureModule({ PThread: pool });
+    const workers = [{ info: {} }, { info: {} }];
+    const loads = workers.map(worker => pool.loadWasmModuleToWorker(worker));
+    assert.ok(workers.every(worker => !worker.loaded));
+    ready[1]();
+    await loads[1];
+    assert.equal(workers[1].loaded, true);
+    assert.equal(workers[0].loaded, undefined);
+    ready[0]();
+    await loads[0];
+    assert.equal(workers[0].loaded, true);
+});
+
+test('a render wakeup goes only to the document that owns that canvas', () => {
+    const code = source('renderWorkerPlatform.js').replace(/^(?:import|export).*$/gm, '');
+    const init = () => {
+        const timerCalls = [];
+        class RenderWorker {
+            constructor() { return eventTarget(this); }
+        }
+        const worker = new RenderWorker();
+        const registry = { create: () => 42 };
+        vm.runInNewContext(code, {
+            TimerHelper: { setTimeout: delay => timerCalls.push(delay) },
+            WebRenderTargetRegistry: registry,
+            getDotnetRuntime: () => ({ Module: { PThread: { pthreads: { 7: worker } } } }),
+            document: {}, Worker: RenderWorker
+        });
+        return { timerCalls, worker, registry };
+    };
+
+    const first = init(), second = init();
+    assert.equal(first.registry.create(7), 42);
+    first.registry.create(7);
+    second.registry.create(7);
+    first.worker.dispatch('message', { data: { lumiRenderWorker: 'wake', delay: 1 } });
+    first.worker.dispatch('message', { data: { cmd: 'unrelated', delay: 2 } });
+    assert.deepEqual(first.timerCalls, [1]);
+    assert.deepEqual(second.timerCalls, []);
+});
+
+test('the render worker forwards wakeups and observes the canvas before Avalonia opens it', () => {
+    const code = source('renderWorkerPlatform.js').replace(/^(?:import|export).*$/gm, '');
+    const TimerHelper = { setTimeout() { throw new Error('render worker drained the UI queue'); } };
+    const messages = [];
+    class Canvas {
+        constructor() { return eventTarget(this); }
+        getContext(kind) { return kind === 'webgl2' ? {} : null; }
+    }
+    const worker = { postMessage: message => messages.push(message) };
+    const registry = {
+        initializeWorker() {
+            worker.onmessage = ({ data }) => data.canvas.getContext('webgl2');
+        }
+    };
+    vm.runInNewContext(code, {
+        TimerHelper, WebRenderTargetRegistry: registry, OffscreenCanvas: Canvas, self: worker
+    });
+
+    TimerHelper.setTimeout(1);
+    registry.initializeWorker();
+    const canvas = new Canvas();
+    worker.onmessage({ data: { avaloniaCmd: 'registerCanvas', canvas } });
+    canvas.getContext('webgl2');
+    canvas.dispatch('webglcontextlost');
+    assert.deepEqual(messages.map(message => [message.lumiRenderWorker, message.delay ?? message.kind]),
+        [['wake', 1], ['canvas', 'webgl2'], ['context-lost', undefined]]);
+});
+
 function host({
     threaded = false, showStatus = true, presentBitmaps = true, unsupported = false,
     workerError, snapshot, snapshotError

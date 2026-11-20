@@ -213,7 +213,8 @@ internal readonly record struct NativeTextInputOverlayOptions(
     Thickness Padding,
     string TextAlignment,
     string Direction,
-    bool IsDark);
+    bool IsDark,
+    bool ForwardEnterKey);
 
 internal interface INativeTextInputOverlaySession : IDisposable
 {

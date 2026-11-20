@@ -138,6 +138,14 @@ backing-store, frame timing, and main-thread long-task summaries. Canvas draw
 batches and worker updates are separate observations, not physical display FPS.
 The report stays in that tab and contains no chat content or credentials.
 
+To qualify the actual render worker, use the [two-runtime Release publish](development.md)
+and pair Android Chrome at `/app/` to an isolated Debug desktop. Check that the
+versioned worker document is isolated, the chat visibly draws, and the same
+origin and pairing survive a reload. Exercise the title and model sheets,
+keyboard editing, chooser cancellation and a small upload. Check that an update
+waits while a draft is open and that a live graphics failure offers a reload
+to the copy-free renderer instead of automatically discarding the draft.
+
 ### Build and run
 
 Use optimized, explicitly instrumented builds. Normal Release builds do not include
@@ -220,8 +228,8 @@ native Chromium `--dpr` override select a form factor. `--workerframes 1` exerci
 bitmap worker presentation separately from the benchmark's normal-renderer default.
 `--workerframes clock` (URL: `?workerframes=clock`) keeps the worker clock,
 touch resampling and retained drawing buffer, but presents the WebGL canvas
-directly without copying it to the worker. This is the app's default on compatible
-Android Chromium browsers; `workerframes=0` disables the worker entirely.
+directly without copying it to the worker. This is the fallback for the bundled
+render worker on Android Chromium; `workerframes=0` disables both worker paths.
 `--refresh-hz`
 can require a known refresh mode instead of silently accepting a different one.
 PWA trials also record `controlAndCanvasReadyMs`: cold app navigation until its diagnostic

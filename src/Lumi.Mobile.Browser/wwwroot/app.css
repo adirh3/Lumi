@@ -198,6 +198,28 @@ body {
   display: none;
 }
 
+.lumi-startup-fallback {
+  color: inherit;
+  animation: lumi-startup-fallback 0s 15s backwards;
+}
+
+.lumi-splash button:not([hidden]) + .lumi-startup-fallback {
+  display: none;
+}
+
+@keyframes lumi-startup-fallback {
+  from { visibility: hidden; }
+  to { visibility: visible; }
+}
+
+:root[data-lumi-render-boot] .lumi-splash {
+  z-index: 1000;
+}
+
+:root[data-lumi-render-boot] .lumi-native-text-input-overlay {
+  visibility: hidden;
+}
+
 .lumi-recovery {
   position: fixed;
   inset: 0;
