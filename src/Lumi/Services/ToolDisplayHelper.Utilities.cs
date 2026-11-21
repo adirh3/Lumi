@@ -326,16 +326,27 @@ public static partial class ToolDisplayHelper
 
     // ── Terminal output helpers ───────────────────────────
 
-    /// <summary>Strips SDK metadata lines (e.g. exit code markers) from terminal output.</summary>
+    /// <summary>Trims terminal output and removes a trailing SDK exit-code marker.</summary>
     public static string? CleanTerminalOutput(string? output)
     {
         if (string.IsNullOrEmpty(output)) return output;
-        return Regex.Replace(
-            output,
-            @"\s*<exited with exit code \d+>\s*$",
-            "",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-            RegexTimeout).TrimEnd();
+
+        const string markerPrefix = "<exited with exit code ";
+        var text = output.AsSpan().TrimEnd();
+        if (text.Length > markerPrefix.Length + 1 && text[^1] == '>')
+        {
+            var codeEnd = text.Length - 1;
+            var codeStart = codeEnd;
+            while (codeStart > 0 && char.IsDigit(text[codeStart - 1]))
+                codeStart--;
+
+            var markerStart = codeStart - markerPrefix.Length;
+            if (codeStart < codeEnd && markerStart >= 0
+                && text[markerStart..codeStart].Equals(markerPrefix, StringComparison.OrdinalIgnoreCase))
+                text = text[..markerStart].TrimEnd();
+        }
+
+        return output[..text.Length];
     }
 
     public static string MergeTerminalOutput(string? existingOutput, string incomingOutput, bool replaceExistingOutput)

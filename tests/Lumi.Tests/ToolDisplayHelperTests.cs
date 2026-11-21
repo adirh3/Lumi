@@ -366,6 +366,25 @@ public class ToolDisplayHelperTests
     }
 
     [Fact]
+    public void CleanTerminalOutput_PreservesLongWhitespaceAfterANonTrailingMarker()
+    {
+        var output = "<exited with exit code 1>" + new string(' ', 16 * 1024 * 1024) + "after";
+
+        Assert.Equal(output, ToolDisplayHelper.CleanTerminalOutput(output));
+    }
+
+    [Theory]
+    [InlineData("<exited with exit code 0>", "")]
+    [InlineData("output\r\n<EXITED WITH EXIT CODE 42> \r\n", "output")]
+    [InlineData("output\u00a0<exited with exit code \u0661>\u00a0", "output")]
+    [InlineData("<exited with exit code 1>\nmore\n<exited with exit code > \n",
+        "<exited with exit code 1>\nmore\n<exited with exit code >")]
+    public void CleanTerminalOutput_StripsOnlyAValidTrailingExitMarker(string input, string expected)
+    {
+        Assert.Equal(expected, ToolDisplayHelper.CleanTerminalOutput(input));
+    }
+
+    [Fact]
     public void ExtractTerminalOutput_PreservesLongerLiveOutputOverCompletionPreview()
     {
         var result = new ToolExecutionCompleteResult
