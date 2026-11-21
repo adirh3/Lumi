@@ -19,6 +19,41 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class EasyConnectViewTests
 {
+    [Fact]
+    public async Task RussianCustomHttpConsentShowsTheSecurityWarning()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            Loc.Load("ru");
+            try
+            {
+                using var vm = new EasyConnectViewModel(new DataStore(new AppData()), TestCopilot.Shared,
+                    new FakeSecureKeyStore(), () => { });
+                var footer = new EasyConnectDialogFooter { DataContext = vm };
+                var window = new Window { Width = 700, Height = 300, Content = footer };
+                window.Show();
+                try
+                {
+                    vm.Providers.Single(card => card.Profile.IsCustom).OpenCommand.Execute(null);
+                    vm.BaseUrl = "http://provider.example/v1";
+                    window.UpdateLayout();
+                    var consent = footer.FindControl<CheckBox>("AllowInsecureHttpToggle")!;
+                    Assert.True(consent.IsEffectivelyVisible);
+                    Assert.Equal("Разрешить незашифрованный HTTP", consent.Content);
+                    Assert.Contains(footer.GetVisualDescendants().OfType<TextBlock>(), text =>
+                        text.IsEffectivelyVisible && text.Text ==
+                        "Любой, кто может отслеживать это соединение, сможет прочитать содержимое чатов и ключи API. По возможности используйте HTTPS.");
+                    Assert.False(vm.AllowInsecureHttp);
+                    consent.IsChecked = true;
+                    Assert.True(vm.AllowInsecureHttp);
+                }
+                finally { window.Close(); }
+            }
+            finally { Loc.Load("en"); }
+        }, CancellationToken.None);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("octocat")]

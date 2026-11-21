@@ -24,6 +24,7 @@ public sealed class MobileLocalizationTests
     [Theory]
     [InlineData("en", "Send with Enter", FlowDirection.LeftToRight)]
     [InlineData("he", "שליחה באמצעות Enter", FlowDirection.RightToLeft)]
+    [InlineData("ru", "Отправлять по Enter", FlowDirection.LeftToRight)]
     public async Task SendKeySettingUsesTheUiLanguage(string language, string label, FlowDirection direction)
     {
         using var session = HeadlessMobileSession.Start();

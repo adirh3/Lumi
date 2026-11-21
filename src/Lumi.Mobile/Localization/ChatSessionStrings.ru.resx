@@ -1,5 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <root>
+  <data name="SendWithEnter" xml:space="preserve"><value>Отправлять по Enter</value></data>
+  <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter добавляет новую строку. Только на этом устройстве.</value></data>
   <data name="FollowUpSuggestions" xml:space="preserve"><value>Предложенные ответы</value></data>
   <data name="FollowUpHelp" xml:space="preserve"><value>Нажмите, чтобы отправить. Удерживайте, чтобы сначала отредактировать ответ.</value></data>
   <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
