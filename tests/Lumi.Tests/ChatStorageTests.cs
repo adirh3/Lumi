@@ -589,6 +589,45 @@ public sealed class ChatStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task LatestChatReply_SkipsUnfinishedAndChildMessagesWithoutOpeningTheChat()
+    {
+        var dataStore = OpenDataStore(out _);
+        var chat = new Chat
+        {
+            Messages =
+            [
+                new() { Role = "user", Content = "First request" },
+                new() { Role = "assistant", Content = "A finished reply" },
+                new() { Role = "user", Content = "Another request" },
+                new() { Role = "assistant", Content = "Working on it", IsProgress = true },
+                new() { Role = "assistant", Content = "Partial answer", IsStreaming = true },
+                new() { Role = "assistant", Content = "Interrupted answer", IsInterrupted = true },
+                new() { Role = "assistant", Content = "Child answer", ParentToolCallId = "child" },
+                new() { Role = "assistant", Content = " \t\n" },
+            ],
+        };
+        dataStore.Data.Chats.Add(chat);
+        await dataStore.SaveChatAsync(chat);
+        CloseStores();
+
+        var reopened = OpenDataStore(out _);
+        var stored = Assert.Single(reopened.Data.Chats);
+        Assert.Equal("A finished reply", (await reopened.ReadLatestChatReplyAsync(stored))?.Content);
+        Assert.Empty(stored.Messages);
+        var states = typeof(DataStore).GetField("_transcriptStates", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.Empty(Assert.IsType<Dictionary<Guid, ChatTranscriptState>>(states.GetValue(reopened)));
+
+        await reopened.LoadChatMessagesAsync(stored);
+        Assert.DoesNotContain(stored.Messages, message => message.Content == "A finished reply");
+        Assert.Contains(stored.Messages, message => message is { Content: "Interrupted answer", IsInterrupted: true });
+        Assert.Equal("A finished reply", (await reopened.ReadLatestChatReplyAsync(stored))?.Content);
+
+        stored.Messages.Add(new ChatMessage { Role = "assistant", Content = "A new reply" });
+        Assert.Equal("A new reply", (await reopened.ReadLatestChatReplyAsync(stored))?.Content);
+        Assert.Null(await reopened.ReadLatestChatReplyAsync(new Chat()));
+    }
+
+    [Fact]
     public async Task HistorySearch_CountsMatchesInStoredMessagesIgnoringCase()
     {
         var dataStore = OpenDataStore(out _);
@@ -2424,6 +2463,7 @@ public sealed class ChatStorageTests : IDisposable
             InputCanceled = true,
             InteractionReceipt = new InteractionReceipt { SourceMessageId = Guid.NewGuid(), BlockId = "b", Title = "t", Summary = "s", Detail = "d", Action = "go", Status = "Done", Error = "e" },
             IsStreaming = true,
+            IsInterrupted = true,
             IsProgress = false,
             Model = "m",
             ReasoningEffort = "high",

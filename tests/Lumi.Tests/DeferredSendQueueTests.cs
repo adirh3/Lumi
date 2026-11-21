@@ -2560,6 +2560,38 @@ public sealed partial class DeferredSendQueueTests
         }, CancellationToken.None);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StoppingAStream_KeepsThePartialTextOutOfTheLatestReply(bool turnEndBeforeAbort)
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.Chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "Previous completed reply." });
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            rpc.Emit(new AssistantTurnStartEvent { Data = new AssistantTurnStartData { TurnId = "step" } });
+            rpc.Emit(new AssistantMessageDeltaEvent
+            {
+                Data = new AssistantMessageDeltaData { MessageId = "stopped", DeltaContent = "An unfinished reply" }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            host.Runtime.ManualStopRequested = true;
+            if (turnEndBeforeAbort)
+                rpc.Emit(new AssistantTurnEndEvent { Data = new AssistantTurnEndData { TurnId = "step" } });
+            rpc.Emit(new AbortEvent { Data = new AbortData { Reason = Microsoft.Copilot.AbortReason.UserInitiated } });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Contains(host.Chat.Messages, message => message is { Content: "An unfinished reply", IsStreaming: false });
+            Assert.Equal("Previous completed reply.", (await host.DataStore.ReadLatestChatReplyAsync(host.Chat))?.Content);
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task AbortedIdleAfterReplacementEcho_DoesNotEndTheReplacementTurn()
     {

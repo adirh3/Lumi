@@ -864,6 +864,9 @@
   "Library_Action_OpenChat": "Open source chat",
 
   "Sidebar_NewChat": "New Chat",
+  "Sidebar_ChatHoverLatestReply": "Latest reply",
+  "Sidebar_ChatHoverNoReply": "No assistant reply yet.",
+  "Sidebar_ChatHoverUnavailable": "No reply preview available.",
   "Sidebar_NewChatTooltip": "New chat (Ctrl+N)",
   "Sidebar_NewWindowTooltip": "New chat in new window",
   "Sidebar_NewChatInNewWindow": "New Chat in New Window",

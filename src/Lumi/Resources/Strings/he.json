@@ -864,6 +864,9 @@
   "Library_Action_OpenChat": "פתיחת צ׳אט המקור",
 
   "Sidebar_NewChat": "צ׳אט חדש",
+  "Sidebar_ChatHoverLatestReply": "התשובה האחרונה",
+  "Sidebar_ChatHoverNoReply": "עדיין אין תשובה מהעוזר.",
+  "Sidebar_ChatHoverUnavailable": "אין תצוגה מקדימה של התשובה.",
   "Sidebar_NewChatTooltip": "צ׳אט חדש (Ctrl+N)",
   "Sidebar_NewWindowTooltip": "צ׳אט חדש בחלון חדש",
   "Sidebar_NewChatInNewWindow": "צ׳אט חדש בחלון חדש",

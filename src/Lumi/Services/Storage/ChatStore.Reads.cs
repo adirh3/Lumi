@@ -211,6 +211,17 @@ internal sealed partial class ChatStore
             ORDER BY seq DESC LIMIT 1;
             """, chatKey, ("$role", role), ("$before", beforeSeq)).FirstOrDefault(), (ChatMessage?)null);
 
+    public Task<ChatMessage?> ReadLatestChatReplyAsync(Guid chatId, long beforeSeq)
+        => ReadAsync(chatId, (connection, chatKey) => ReadMessages(connection, """
+            SELECT seq, body FROM messages INDEXED BY messages_outline
+            WHERE chat_key = $chat AND role IN ('user', 'assistant', 'system', 'error') AND role = 'assistant'
+              AND seq < $before AND text_length > 0 AND parent_tool_call_id IS NULL
+              AND json_extract(body, '$.isProgress') IS NOT 1 AND json_extract(body, '$.isStreaming') IS NOT 1
+              AND json_extract(body, '$.isInterrupted') IS NOT 1
+              AND trim(json_extract(body, '$.content'), char(9, 10, 11, 12, 13, 32)) <> ''
+            ORDER BY seq DESC LIMIT 1;
+            """, chatKey, ("$before", beforeSeq)).FirstOrDefault(), (ChatMessage?)null);
+
     /// <summary>
     /// For each run, the few steps its card summarizes without its work: the latest step that shows
     /// as a step card (a tool outside <paramref name="toolsWithoutCards"/>, and not a run of its own),

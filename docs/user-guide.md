@@ -768,6 +768,13 @@ ID; only genuinely unavailable native history falls back to a new session with t
 Edits restore the live session before rewinding its history, and pending external-skill activations
 are retried on the restored handle even when its session ID did not change.
 
+### Previewing chats
+
+On desktop, rest the pointer on a chat in the sidebar to see an excerpt from its latest finished
+assistant reply and whether Lumi is still working, paused, or waiting for you. This reads the
+existing reply without opening the chat, marking it as read, or making another AI request.
+If Lumi finishes a reply while the card is open, the card updates in place.
+
 ### Unread chats
 
 Right-click a sidebar chat and choose **Mark as unread** to add it to the unread

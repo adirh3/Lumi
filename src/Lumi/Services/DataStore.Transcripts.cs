@@ -1336,6 +1336,21 @@ public partial class DataStore
         return stored is null ? null : MapAttached(chat, [stored])[0];
     }
 
+    /// <summary>The latest finished top-level reply, without opening the chat or hydrating its history.</summary>
+    internal async Task<ChatMessage?> ReadLatestChatReplyAsync(Chat chat, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var (window, tail) = SnapshotTail(chat, trackUnopened: false);
+        var reply = tail.FindLast(static message => message is
+            { Role: "assistant", ParentToolCallId: null, IsStreaming: false, IsInterrupted: false, IsProgress: not true }
+            && !string.IsNullOrWhiteSpace(message.Content));
+        if (reply is not null || _chatStore is null || (window.IsLoaded && !window.HasHistory))
+            return reply;
+
+        return await _chatStore.ReadLatestChatReplyAsync(chat.Id, window.IsLoaded ? window.TailStartSeq : long.MaxValue)
+            .WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>
     /// The whole chat's messages per role (stored history and live tail), with how many of them have
     /// text. Counts in storage without reading the transcript.
@@ -1368,12 +1383,25 @@ public partial class DataStore
         return counts;
     }
 
-    private (ChatTranscriptWindow Window, List<ChatMessage> Tail) SnapshotTail(Chat chat)
+    private (ChatTranscriptWindow Window, List<ChatMessage> Tail) SnapshotTail(Chat chat, bool trackUnopened = true)
     {
         if (_chatStore is null)
             return (new ChatTranscriptWindow(true, 1, 0), chat.Messages.ToList());
 
-        var state = GetTranscriptState(chat.Id);
+        ChatTranscriptState state;
+        if (trackUnopened)
+            state = GetTranscriptState(chat.Id);
+        else
+        {
+            lock (_transcriptStatesSync)
+            {
+                if (!_transcriptStates.TryGetValue(chat.Id, out var tracked))
+                    return (default, chat.Messages.ToList());
+
+                state = tracked;
+            }
+        }
+
         lock (state)
         {
             return (new ChatTranscriptWindow(state.IsLoaded, state.TailStartSeq, state.IsLoaded ? state.HistoryCount : 0),

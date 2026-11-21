@@ -1803,7 +1803,8 @@
                   </Border>
 
                   <ScrollViewer x:Name="ChatListScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                                Classes="hover-scroll" Margin="0,4,0,0">
+                                Classes="hover-scroll" Margin="0,4,0,0"
+                                PointerMoved="OnChatListHoverMoved" PointerExited="OnChatListHoverExited">
                     <StackPanel>
                     <ItemsControl x:Name="ChatGroupsHost" ItemsSource="{Binding ChatGroups}" Margin="14,0,14,8">
                       <ItemsControl.ItemTemplate>
@@ -2019,7 +2020,6 @@
                                                  Classes="chat-row-title"
                                                  Classes.unread="{Binding HasUnreadMessages}"
                                                  Text="{Binding Title}"
-                                                 ToolTip.Tip="{Binding Title}"
                                                  TextTrimming="CharacterEllipsis"
                                                  VerticalAlignment="Center" />
                                     </DockPanel>
@@ -3336,6 +3336,50 @@
                    Foreground="#FFDDE7F7" />
       </StackPanel>
     </Border>
+
+    <Popup x:Name="ChatHoverPreview"
+           Placement="RightEdgeAlignedTop" HorizontalOffset="6"
+           ShouldUseOverlayLayer="True" IsHitTestVisible="False" WindowManagerAddShadowHint="False">
+      <Border x:Name="ChatHoverCard"
+              Width="316" Padding="14,12" Margin="8"
+              IsHitTestVisible="False"
+              TextOptions.TextRenderingMode="Antialias"
+              Background="{DynamicResource Brush.SurfaceOverlay}"
+              BorderBrush="{DynamicResource Brush.BorderDefault}" BorderThickness="1"
+              CornerRadius="14" BoxShadow="0 5 14 -3 #40000000">
+        <StackPanel Spacing="8">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="9">
+            <Border Width="28" Height="28" CornerRadius="8" VerticalAlignment="Top"
+                    Background="{DynamicResource Brush.SurfaceSubtle}">
+              <PathIcon Data="{StaticResource Icon.Chat}" Width="13" Height="13"
+                        Foreground="{DynamicResource Brush.TextSecondary}" />
+            </Border>
+            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+              <TextBlock x:Name="ChatHoverTitle" FontSize="{DynamicResource Font.SizeBody}"
+                         FontWeight="SemiBold" MaxLines="2"
+                         TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
+              <TextBlock x:Name="ChatHoverStatus" FontSize="{DynamicResource Font.SizeCaption}"
+                         Foreground="{DynamicResource Brush.AccentDefault}"
+                         TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+          </Grid>
+          <Border Height="1" Background="{DynamicResource Brush.BorderDefault}" />
+          <StackPanel Spacing="4">
+            <Grid x:Name="ChatHoverReplyMeta" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBlock Text="{loc:Str Sidebar_ChatHoverLatestReply}"
+                         FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold"
+                         Foreground="{DynamicResource Brush.TextSecondary}" TextTrimming="CharacterEllipsis" />
+              <TextBlock x:Name="ChatHoverReplyTime" Grid.Column="1"
+                         FontSize="{DynamicResource Font.SizeCaption}"
+                         Foreground="{DynamicResource Brush.TextTertiary}" />
+            </Grid>
+            <TextBlock x:Name="ChatHoverReplyText" FontSize="{DynamicResource Font.SizeBody}"
+                       Foreground="{DynamicResource Brush.TextSecondary}"
+                       TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxLines="4" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Popup>
 
     <!-- ═══ Onboarding Overlay ═══ -->
     <Panel x:Name="OnboardingPanel" IsVisible="True">

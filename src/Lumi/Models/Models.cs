@@ -244,6 +244,12 @@ public class ChatMessage
     private bool _isStreaming;
     public bool IsStreaming { get => _isStreaming; set => SetPersisted(ref _isStreaming, value); }
 
+    private bool _isInterrupted;
+
+    /// <summary>Assistant text kept in the transcript from an interrupted stream, not a finished reply.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsInterrupted { get => _isInterrupted; set => SetPersisted(ref _isInterrupted, value); }
+
     private bool? _isProgress;
     /// <summary>
     /// Whether this assistant message was a progress update written while working (true) or part of
@@ -417,6 +423,7 @@ public class ChatMessage
         InputCanceled = InputCanceled,
         InteractionReceipt = InteractionReceipt?.Clone(),
         IsStreaming = IsStreaming,
+        IsInterrupted = IsInterrupted,
         IsProgress = IsProgress,
         ApiCallId = ApiCallId,
         Model = Model,

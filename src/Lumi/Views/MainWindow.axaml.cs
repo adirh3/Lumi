@@ -225,10 +225,12 @@ public partial class MainWindow : Window
             UpdateTransparencyFallbackOpacity();
             ApplyWindowContentPaddingForState();
         };
+        Deactivated += (_, _) => DismissChatHoverPreview();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
+        DismissChatHoverPreview();
         base.OnDetachedFromVisualTree(e);
         DisposeCancellationTokenSource(ref _sidebarAnimCts);
         DisposeCancellationTokenSource(ref _navHoverIntentCts);
@@ -276,6 +278,7 @@ public partial class MainWindow : Window
     private void InitializeComponent()
     {
         AvaloniaXamlLoader.Load(this);
+        InitializeChatHoverPreview();
 
         _onboardingPanel = this.FindControl<Panel>("OnboardingPanel");
         _onboardingHost = this.FindControl<ContentControl>("OnboardingHost");
@@ -788,6 +791,7 @@ public partial class MainWindow : Window
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        DismissChatHoverPreview();
         base.OnKeyDown(e);
         if (e.Handled) return;
         if (DataContext is not MainViewModel vm) return;
@@ -1348,6 +1352,8 @@ public partial class MainWindow : Window
         _currentShellIndex = index;
         var sidebarIndex = SidebarForPage(index);
         var sidebarChanged = _currentSidebarIndex != sidebarIndex;
+        if (sidebarChanged)
+            DismissChatHoverPreview();
         _currentSidebarIndex = sidebarIndex;
 
         for (int i = 0; i < _pages.Length; i++)
@@ -1434,6 +1440,8 @@ public partial class MainWindow : Window
     private async void AnimateSidebarCollapse(bool collapse)
     {
         if (_sidebarBorder is null) return;
+        if (collapse)
+            DismissChatHoverPreview();
 
         if (_sidebarResizeThumb is not null && !collapse)
             _sidebarResizeThumb.IsVisible = true;
@@ -1961,6 +1969,7 @@ public partial class MainWindow : Window
 
     private void OnChatListPointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        DismissChatHoverPreview();
         if (e.Source is not Visual source)
             return;
 
@@ -2454,6 +2463,8 @@ public partial class MainWindow : Window
 
     private void OnChatListScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
+        if (e.OffsetDelta != default || e.ViewportDelta != default)
+            DismissChatHoverPreview();
         if (_chatListScroller is null || DataContext is not MainViewModel vm || !vm.HasMoreChats) return;
 
         var distanceFromBottom = _chatListScroller.Extent.Height - _chatListScroller.Viewport.Height - _chatListScroller.Offset.Y;
@@ -3275,6 +3286,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnChatContextMenuOpening(object? sender, CancelEventArgs e)
     {
+        DismissChatHoverPreview();
         if (sender is not ContextMenu menu) return;
 
         // The menu's own DataContext is not yet inherited when Opening fires, so resolve the row's

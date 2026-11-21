@@ -616,6 +616,7 @@ public partial class ChatViewModel
                 if (streamingMsg is not null)
                 {
                     _inProgressMessages.Remove(chat.Id);
+                    streamingMsg.IsInterrupted = true;
                     if (FinalizeTerminalAssistantMessage(chat, streamingMsg))
                     {
                         if (shouldUpdateDisplayedChatUi)
@@ -1043,12 +1044,13 @@ public partial class ChatViewModel
             }
         }
 
-        void FinalizeCompletedTurnStreams(bool shouldUpdateDisplayedChatUi)
+        void FinalizeCompletedTurnStreams(bool shouldUpdateDisplayedChatUi, bool interrupted)
         {
             FlushAssistantDelta();
             if (streamingMsg is not null)
             {
                 _inProgressMessages.Remove(chat.Id);
+                streamingMsg.IsInterrupted = interrupted;
                 if (FinalizeTerminalAssistantMessage(chat, streamingMsg))
                 {
                     if (shouldUpdateDisplayedChatUi)
@@ -1077,12 +1079,12 @@ public partial class ChatViewModel
             reasoningStream.Clear();
         }
 
-        void CompleteAssistantResponse(bool updateDisplayed)
+        void CompleteAssistantResponse(bool updateDisplayed, bool aborted)
         {
             var stoppedByUser = runtime.ManualStopRequested;
             SetInteractionReceiptStatus(runtime, stoppedByUser ? "Stopped" : "ReplyReady");
             var wasBusy = runtime.IsBusy;
-            FinalizeCompletedTurnStreams(updateDisplayed);
+            FinalizeCompletedTurnStreams(updateDisplayed, interrupted: aborted || stoppedByUser);
             AttachPendingSourcesToFinalAssistantMessage();
             ResolvePendingSteersAsDelivered(chat.Id);
             MarkAssistantIdle(runtime);
@@ -1913,7 +1915,7 @@ public partial class ChatViewModel
                         // session.idle carries the safety net for a lost terminal event instead.
                         if (IsAuthoritativeSession() && shouldReconcileSubagentTools)
                             ReconcileInProgressSubagentTools(chat, "Completed");
-                        FinalizeCompletedTurnStreams(shouldUpdateDisplayedChatUi);
+                        FinalizeCompletedTurnStreams(shouldUpdateDisplayedChatUi, interrupted: runtime.ManualStopRequested);
                         if (IsAuthoritativeSession() && isTopLevelTurnEnd)
                         {
                             PublishTerminalChatLifecycleEventOnce(
@@ -1955,7 +1957,7 @@ public partial class ChatViewModel
                             return;
                         }
 
-                        CompleteAssistantResponse(IsDisplayedSession());
+                        CompleteAssistantResponse(IsDisplayedSession(), aborted: assistantIdle.Data.Aborted == true);
                         QueueSaveChat(chat, saveIndex: false);
                         ScheduleQueuedBusySendDrain(chat.Id);
 
@@ -2006,7 +2008,7 @@ public partial class ChatViewModel
                         reasoningStream.CancelPending();
                         CompleteAndResetSubagentOutputState();
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
-                        CompleteAssistantResponse(shouldUpdateDisplayedChatUi);
+                        CompleteAssistantResponse(shouldUpdateDisplayedChatUi, aborted: idle.Data.Aborted == true);
 
                         // In SDK 0.2.2+, session.idle is only emitted once background work is drained.
                         // Clearing IsBusy updates Chat.IsRunning, so keep it on the UI thread.
@@ -2260,6 +2262,7 @@ public partial class ChatViewModel
                         if (streamingMsg is not null)
                         {
                             _inProgressMessages.Remove(chat.Id);
+                            streamingMsg.IsInterrupted = true;
                             streamingMsg.IsStreaming = false;
                             if (!string.IsNullOrWhiteSpace(streamingMsg.Content))
                             {
