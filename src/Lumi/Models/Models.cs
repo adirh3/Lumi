@@ -875,6 +875,9 @@ public class ChatTag : INotifyPropertyChanged
 {
     public const string DefaultColor = "#6E8BFF";
 
+    internal static IReadOnlyList<string> Palette { get; } =
+        [DefaultColor, "#60A5FA", "#35C2A8", "#84CC16", "#F59E0B", "#FB923C", "#FB7185", "#A78BFA"];
+
     private string _name = "";
     private string _color = DefaultColor;
 
@@ -2232,4 +2235,8 @@ public class AppData
 
     /// <summary>Places the new chat no longer suggests as one of the user's usual setups.</summary>
     public List<LaunchpadSetupPin> HiddenSetups { get; set; } = [];
+
+    internal ChatTag? FindChatTagByName(string name, Guid? exceptId = null)
+        => ChatTags.FirstOrDefault(tag => tag.Id != exceptId
+            && string.Equals(tag.Name, name, StringComparison.OrdinalIgnoreCase));
 }

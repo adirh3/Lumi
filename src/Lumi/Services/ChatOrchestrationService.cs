@@ -16,7 +16,7 @@ namespace Lumi.Services;
 /// <summary>
 /// Backs the <c>manage_chats</c> tool, letting Lumi act as a "manager" that orchestrates other chats:
 /// create new chats (optionally in a project / with a Lumi agent), send messages into existing chats,
-/// track their progress, edit their title/tag, pin or unpin them, and list them — all without leaving
+/// track their progress, create and assign tags, edit titles, pin or unpin chats, and list them — all without leaving
 /// the current conversation.
 ///
 /// Messages are delivered through the same robust target-chat send path that background jobs use
@@ -92,6 +92,7 @@ public sealed class ChatOrchestrationService : IDisposable
         int? limit = null,
         string? tag = null,
         bool clearTag = false,
+        string? color = null,
         Guid? sourceChatId = null,
         Action<Guid, string>? onChatLinked = null,
         CancellationToken cancellationToken = default)
@@ -103,10 +104,11 @@ public sealed class ChatOrchestrationService : IDisposable
             "send" or "message" or "reply" => SendMessageAsync(identifier, message, model, reasoningEffort, wait, timeoutSeconds, sourceChatId, onChatLinked, cancellationToken),
             "status" or "progress" or "read" => GetStatusAsync(identifier, maxMessages, cancellationToken),
             "edit" or "update" => EditChatAsync(identifier, title, tag, clearTag, cancellationToken),
+            "create_tag" => CreateTagAsync(tag, color, cancellationToken),
             "pin" => SetPinnedAsync(identifier, isPinned: true, cancellationToken),
             "unpin" => SetPinnedAsync(identifier, isPinned: false, cancellationToken),
             _ => Task.FromResult(
-                $"Unknown manage_chats action \"{action}\". Use list, create, send, status, edit, pin, or unpin.")
+                $"Unknown manage_chats action \"{action}\". Use list, create, send, status, edit, create_tag, pin, or unpin.")
         };
     }
 
@@ -209,9 +211,9 @@ public sealed class ChatOrchestrationService : IDisposable
                         .Select(candidate => $"{Quote(candidate.Name)} ({candidate.Id})")
                         .ToArray();
                     var guidance = available.Length == 0
-                        ? "No chat tags exist yet. Create one from a chat's right-click Tag > Manage tags menu first."
+                        ? "No chat tags exist yet."
                         : $"Available tags: {string.Join(", ", available)}.";
-                    return (Changed: false, Message: $"No tag matches {Quote(tag!.Trim())}. {guidance}");
+                    return (Changed: false, Message: $"No tag matches {Quote(tag!.Trim())}. {guidance} Use action=create_tag to create a new tag.");
                 }
             }
 
@@ -251,6 +253,34 @@ public sealed class ChatOrchestrationService : IDisposable
 
         await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(false);
         return result.Message;
+    }
+
+    private Task<string> CreateTagAsync(string? tag, string? color, CancellationToken cancellationToken)
+    {
+        var name = tag?.Trim();
+        if (string.IsNullOrEmpty(name))
+            return Task.FromResult("A chat tag name is required. Provide it in tag.");
+
+        var requestedColor = color?.Trim();
+        var paletteColor = requestedColor is null
+            ? ChatTag.DefaultColor
+            : ChatTag.Palette.FirstOrDefault(hex => string.Equals(hex, requestedColor, StringComparison.OrdinalIgnoreCase));
+        if (paletteColor is null)
+            return Task.FromResult($"Unsupported chat tag color \"{requestedColor}\". Choose one of: {string.Join(", ", ChatTag.Palette)}.");
+
+        return InvokeUiAsync(async () =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_dataStore.Data.FindChatTagByName(name) is { } existing)
+                return $"Chat tag {Quote(existing.Name)} already exists (id: {existing.Id}, color: {existing.Color}).";
+
+            var created = new ChatTag { Name = name, Color = paletteColor };
+            _dataStore.Data.ChatTags.Add(created);
+            // Once the tag is visible in the catalog, persist it even if the turn is stopped.
+            await _dataStore.SaveAsync();
+            _dataStore.NotifyChatTagCatalogChanged(created.Id);
+            return $"Created chat tag {Quote(created.Name)} (id: {created.Id}, color: {created.Color}). Use action=edit to assign it to a chat.";
+        });
     }
 
     // ── pin / unpin ─────────────────────────────────────────────────────────
@@ -840,13 +870,13 @@ public sealed class ChatOrchestrationService : IDisposable
         builder.Append("\n\nAvailable tags");
         if (tags.Length == 0)
         {
-            builder.Append(": none. Create tags from any chat's right-click Tag > Manage tags menu.");
+            builder.Append(": none. Use action=create_tag to create a tag.");
             return;
         }
 
         builder.Append(" (usable with action=edit):\n");
         foreach (var tag in tags)
-            builder.Append("  • ").Append(Quote(tag.Name)).Append(" — id: ").Append(tag.Id).Append('\n');
+            builder.Append("  • ").Append(Quote(tag.Name)).Append(" — id: ").Append(tag.Id).Append(", color: ").Append(tag.Color).Append('\n');
     }
 
     private string DescribeLiveState(Chat chat)

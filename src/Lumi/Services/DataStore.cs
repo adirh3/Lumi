@@ -69,7 +69,7 @@ public partial class DataStore : IChatContentSearch
     /// Raised on the caller's thread after the shared chat-tag catalog changes so every open main
     /// window can refresh its independent tag manager.
     /// </summary>
-    public event Action<object?>? ChatTagCatalogChanged;
+    public event Action<Guid, object?>? ChatTagCatalogChanged;
 
     /// <summary>Tells every Settings window that shares this store that a look setting every window
     /// shares changed (the ambient presence, the accent colour or the window material), so each shows
@@ -174,8 +174,8 @@ public partial class DataStore : IChatContentSearch
     public AppData Data => _data;
     internal bool UsesPersistentStorage => _usesPersistentStorage;
 
-    public void NotifyChatTagCatalogChanged(object? source = null)
-        => ChatTagCatalogChanged?.Invoke(source);
+    public void NotifyChatTagCatalogChanged(Guid tagId, object? source = null)
+        => ChatTagCatalogChanged?.Invoke(tagId, source);
 
     internal bool IsWorktreeCleanupReserved(string? path)
     {

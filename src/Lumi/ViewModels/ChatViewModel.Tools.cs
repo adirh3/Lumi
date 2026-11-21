@@ -1653,7 +1653,7 @@ public partial class ChatViewModel
     {
         return AIFunctionFactory.Create(
             async (
-                [Description("Action to perform: 'list' (all chats with live status plus the available tag catalog), 'create' (start a new chat), 'send', 'status', 'edit', 'pin', or 'unpin'.")] string action,
+                [Description("Action to perform: 'list' (chats and the tag catalog), 'create' (start a new chat), 'send', 'status', 'edit', 'create_tag', 'pin', or 'unpin'.")] string action,
                 [Description("For 'send'/'status'/'edit'/'pin'/'unpin': the target chat id (preferred) or its exact title. Ignored for 'list'/'create'.")] string? identifier = null,
                 [Description("For 'create': the new chat title. For 'edit': an optional replacement title.")] string? title = null,
                 [Description("For 'create'/'send': the message to deliver to the chat. For 'create' this is the initial prompt (optional — omit to create an empty chat). For 'send' this is required.")] string? message = null,
@@ -1668,8 +1668,9 @@ public partial class ChatViewModel
                 [Description("For 'status': how many recent messages to summarize (1-40, default 8). For 'list': ignored.")] int? maxMessages = null,
                 [Description("For 'list': optional text filter to match chat titles, projects, or assigned tags.")] string? query = null,
                 [Description("For 'list': maximum number of chats to return (1-60, default 20).")] int? limit = null,
-                [Description("For 'edit': existing tag id or exact name to assign. Use action=list to discover all tags, including unassigned tags.")] string? tag = null,
-                [Description("For 'edit': set true to remove the chat's assigned tag. Do not combine with tag.")] bool clearTag = false) =>
+                [Description("For 'create_tag': the new tag's name. For 'edit': existing tag id or exact name to assign. Use action=list to discover all tags, including unassigned tags.")] string? tag = null,
+                [Description("For 'edit': set true to remove the chat's assigned tag. Do not combine with tag.")] bool clearTag = false,
+                [Description("For 'create_tag': an optional hex color from Lumi's tag palette, listed in the tool description. Omit to use the default.")] string? color = null) =>
             {
                 var svc = OrchestrationService;
                 if (svc is null)
@@ -1695,6 +1696,7 @@ public partial class ChatViewModel
                     limit,
                     tag,
                     clearTag,
+                    color,
                     sourceChatId: chatId,
                     onChatLinked: (id, chatTitle) => { linkedId = id; linkedTitle = chatTitle; },
                     cancellationToken: GetCurrentCancellationToken());
@@ -1705,7 +1707,9 @@ public partial class ChatViewModel
                 return result;
             },
             "manage_chats",
-            "Orchestrate other Lumi chats so you can act as a manager coordinating work across multiple chats and projects. Actions: 'list' shows chats plus every available custom tag (including unassigned tags); 'create' starts a chat; 'send' delivers a message; 'status' reports progress; 'edit' changes the title and/or assigns an existing tag (or clears it); 'pin' and 'unpin' control priority. By default create/send run the target chat in the BACKGROUND and return immediately. Set wait=true to block for the reply. Use this when the user asks you to spin up, delegate to, track, edit, tag, or coordinate multiple chats.",
+            "Orchestrate other Lumi chats and manage chat tags on request. Actions: 'list' shows chats plus every available custom tag (including unassigned tags); 'create' starts a chat; 'send' delivers a message; 'status' reports progress; 'edit' changes the title and/or assigns an existing tag (or clears it); 'create_tag' adds a tag to the catalog without assigning it; 'pin' and 'unpin' control priority. "
+            + $"For 'create_tag', the optional color choices are {string.Join(", ", ChatTag.Palette)}. Use 'edit' to assign the new tag by its returned id. "
+            + "By default create/send run the target chat in the BACKGROUND and return immediately. Set wait=true to block for the reply. Use this when the user asks you to spin up, delegate to, track, edit, tag, or coordinate chats.",
             Lumi.Models.AppDataJsonContext.Default.Options);
     }
 

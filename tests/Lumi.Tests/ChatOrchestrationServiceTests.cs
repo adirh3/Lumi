@@ -2,13 +2,19 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Controls;
+using Avalonia.Data;
 using Microsoft.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Xunit;
+using AIFunction = Microsoft.Extensions.AI.AIFunction;
+using AIFunctionArguments = Microsoft.Extensions.AI.AIFunctionArguments;
 
 namespace Lumi.Tests;
 
@@ -114,6 +120,7 @@ public sealed class ChatOrchestrationServiceTests
         int? limit = null,
         string? tag = null,
         bool clearTag = false,
+        string? color = null,
         Guid? sourceChatId = null)
     {
         string result = "";
@@ -124,7 +131,7 @@ public sealed class ChatOrchestrationServiceTests
             {
                 result = await service.ManageChatsAsync(
                     action, identifier, title, message, project, agent, skills, model,
-                    reasoningEffort, worktree, wait, timeoutSeconds, maxMessages, query, limit, tag, clearTag, sourceChatId,
+                    reasoningEffort, worktree, wait, timeoutSeconds, maxMessages, query, limit, tag, clearTag, color, sourceChatId,
                     cancellationToken: CancellationToken.None);
             }
             catch (Exception ex)
@@ -298,6 +305,132 @@ public sealed class ChatOrchestrationServiceTests
     }
 
     [Fact]
+    public async Task ManageChatsTool_CreatesTagAndAssignsItById()
+    {
+        using var session = HeadlessTestSession.Start();
+        var target = new Chat { Title = "Tag target" };
+        var other = new Chat { Title = "Other chat" };
+        var existing = new ChatTag { Name = "ZZ existing" };
+        var data = CreateData(target, other);
+        data.ChatTags.Add(existing);
+        var (store, registry, sessionStore) = CreateEnvironment(data);
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+        {
+            await session.Dispatch(async () =>
+            {
+                using var viewModel = new ChatViewModel(store, TestCopilot.Shared) { OrchestrationService = service };
+                using var tagManager = new ChatTagsViewModel(store);
+                var list = new ListBox { DataContext = tagManager };
+                using var items = list.Bind(ItemsControl.ItemsSourceProperty, new Binding(nameof(ChatTagsViewModel.Tags)));
+                using var selection = list.Bind(ListBox.SelectedItemProperty, new Binding(nameof(ChatTagsViewModel.SelectedTag)) { Mode = BindingMode.TwoWay });
+                tagManager.OpenManagerCommand.Execute(null);
+                tagManager.EditName = "Unsaved name";
+                tagManager.SelectedColorOption = tagManager.ColorOptions[4];
+                var buildTool = typeof(ChatViewModel).GetMethod("BuildManageChatsTool", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var tool = Assert.IsAssignableFrom<AIFunction>(buildTool.Invoke(viewModel, [target.Id]));
+
+                var create = await tool.InvokeAsync(new AIFunctionArguments
+                {
+                    ["action"] = "create_tag",
+                    ["tag"] = " Work ",
+                    ["color"] = " #35c2a8 "
+                });
+
+                var tag = Assert.Single(list.Items.OfType<ChatTag>(), candidate => candidate.Name == "Work");
+                Assert.Contains($"Created chat tag \"Work\" (id: {tag.Id}, color: #35C2A8)", Assert.IsType<JsonElement>(create).GetString());
+                Assert.Equal("#35C2A8", tag.Color);
+                Assert.Same(existing, list.SelectedItem);
+                Assert.Equal("Unsaved name", tagManager.EditName);
+                Assert.Equal("#F59E0B", tagManager.SelectedColorOption?.Hex);
+                Assert.Null(target.TagId);
+
+                var assign = await tool.InvokeAsync(new AIFunctionArguments
+                {
+                    ["action"] = "edit",
+                    ["identifier"] = target.Id.ToString(),
+                    ["tag"] = tag.Id.ToString()
+                });
+
+                Assert.Contains("tag: \"Work\"", Assert.IsType<JsonElement>(assign).GetString());
+                Assert.Equal(tag.Id, target.TagId);
+                Assert.Same(tag, target.Tag);
+                Assert.Null(other.TagId);
+            }, CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task CreateTag_FinishesSavingIfTheTurnStopsAfterItStarts()
+    {
+        using var session = HeadlessTestSession.Start();
+        var store = new DataStore();
+        using var registry = new ChatSurfaceRegistry();
+        using var sessionStore = new ChatSessionStore(store, TestCopilot.Shared, registry);
+        using var service = new ChatOrchestrationService(store, registry, sessionStore);
+        using var turn = new CancellationTokenSource();
+        var tagName = "Stop during save " + Guid.NewGuid().ToString("N");
+
+        await session.Dispatch(async () =>
+        {
+            Task<string> create;
+            using (File.Open(Path.Combine(DataStore.AppDirectory, "data.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            {
+                create = service.ManageChatsAsync("create_tag", tag: tagName, cancellationToken: turn.Token);
+                Assert.False(create.IsCompleted);
+                Assert.Contains(store.Data.ChatTags, tag => tag.Name == tagName);
+                turn.Cancel();
+            }
+
+            Assert.Contains("Created chat tag", await create.WaitAsync(TimeSpan.FromSeconds(10)));
+            var saved = JsonFilePersistence.ReadPrimaryAppData(Path.Combine(DataStore.AppDirectory, "data.json"));
+            Assert.Equal(AppDataReadStatus.Valid, saved.Status);
+            Assert.Contains(saved.Data!.ChatTags, tag => tag.Name == tagName);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task CreateTag_UsesDefaultColorAndDoesNotRecolorAnExistingTag()
+    {
+        using var session = HeadlessTestSession.Start();
+        var (store, registry, sessionStore) = CreateEnvironment(CreateData());
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+        {
+            var create = await RunAsync(session, service, "create_tag", tag: "Work");
+            var original = Assert.Single(store.Data.ChatTags);
+            Assert.Contains(original.Id.ToString(), create);
+
+            var duplicate = await RunAsync(session, service, "create_tag", tag: " work ", color: "#F59E0B");
+
+            Assert.Contains("already exists", duplicate);
+            Assert.Contains(original.Id.ToString(), duplicate);
+            Assert.Same(original, Assert.Single(store.Data.ChatTags));
+            Assert.Equal(ChatTag.DefaultColor, original.Color);
+        }
+    }
+
+    [Theory]
+    [InlineData(" ", null, "A chat tag name is required")]
+    [InlineData("Work", "#FFFFFF", "Unsupported chat tag color")]
+    public async Task CreateTag_RejectsInvalidInputWithoutCreatingATag(string tag, string? color, string expected)
+    {
+        using var session = HeadlessTestSession.Start();
+        var (store, registry, sessionStore) = CreateEnvironment(CreateData());
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+        {
+            var result = await RunAsync(session, service, "create_tag", tag: tag, color: color);
+
+            Assert.Contains(expected, result);
+            Assert.Empty(store.Data.ChatTags);
+        }
+    }
+
+    [Fact]
     public async Task Edit_RejectsUnknownTagAndListsValidChoices()
     {
         using var session = HeadlessTestSession.Start();
@@ -322,6 +455,7 @@ public sealed class ChatOrchestrationServiceTests
 
             Assert.Contains("No tag matches", result);
             Assert.Contains("\"Existing\"", result);
+            Assert.Contains("action=create_tag", result);
             Assert.Null(chat.TagId);
         }
     }

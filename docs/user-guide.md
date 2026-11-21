@@ -516,6 +516,9 @@ window-wide default. Chip and selection fills still provide contrast independent
   Projects are set up in **Customize → Projects**: in that list the project you're in keeps its gear in
   view and every other project shows one on hover, and its **New project** and **Manage projects** open
   the section too.
+- **Chat tags** label individual chats without changing their project. Use **Tag → Manage tags** in a
+  chat's menu, or ask Lumi to create a tag and apply it to the chats you choose. Each chat can have
+  one tag.
 - **Memories** is a Settings page, listed under **Profile**. Settings reopens on the page used last,
   so it reopens Memories if that is where you left it. Its **Briefs** group, with its own chip beside the
   categories, holds Lumi's own account of where each project stands, and one across projects, which new

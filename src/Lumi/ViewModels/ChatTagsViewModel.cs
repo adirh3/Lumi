@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -17,23 +18,13 @@ public sealed record ChatTagAssignment(Chat Chat, ChatTag? Tag);
 public partial class ChatTagsViewModel : ObservableObject, IDisposable
 {
     private readonly DataStore _dataStore;
+    private readonly ObservableCollection<ChatTag> _tags = [];
     private bool _isDisposed;
 
     public IReadOnlyList<ChatTagColorOption> ColorOptions { get; } =
-    [
-        new("#6E8BFF"),
-        new("#60A5FA"),
-        new("#35C2A8"),
-        new("#84CC16"),
-        new("#F59E0B"),
-        new("#FB923C"),
-        new("#FB7185"),
-        new("#A78BFA")
-    ];
+        ChatTag.Palette.Select(static hex => new ChatTagColorOption(hex)).ToArray();
 
-    public IReadOnlyList<ChatTag> Tags => _dataStore.Data.ChatTags
-        .OrderBy(tag => tag.Name, StringComparer.CurrentCultureIgnoreCase)
-        .ToArray();
+    public ReadOnlyObservableCollection<ChatTag> Tags { get; }
 
     public bool HasTags => _dataStore.Data.ChatTags.Count > 0;
     public bool HasNoTags => !HasTags;
@@ -51,6 +42,8 @@ public partial class ChatTagsViewModel : ObservableObject, IDisposable
     public ChatTagsViewModel(DataStore dataStore)
     {
         _dataStore = dataStore;
+        Tags = new(_tags);
+        RefreshTagList();
         _selectedColorOption = ColorOptions[0];
         _dataStore.ChatTagCatalogChanged += OnChatTagCatalogChanged;
     }
@@ -106,9 +99,7 @@ public partial class ChatTagsViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (_dataStore.Data.ChatTags.Any(tag =>
-                tag.Id != SelectedTag?.Id
-                && string.Equals(tag.Name, name, StringComparison.OrdinalIgnoreCase)))
+        if (_dataStore.Data.FindChatTagByName(name, exceptId: SelectedTag?.Id) is not null)
         {
             ValidationMessage = Loc.ChatTags_DuplicateName;
             return;
@@ -147,11 +138,11 @@ public partial class ChatTagsViewModel : ObservableObject, IDisposable
         }
 
         IsCreating = false;
+        RefreshTagList();
         SelectedTag = savedTag;
         ValidationMessage = "";
-        RefreshTagList();
         await _dataStore.SaveAsync();
-        _dataStore.NotifyChatTagCatalogChanged(this);
+        _dataStore.NotifyChatTagCatalogChanged(savedTag.Id, this);
     }
 
     [RelayCommand]
@@ -180,7 +171,7 @@ public partial class ChatTagsViewModel : ObservableObject, IDisposable
         else
             NewTag();
         await _dataStore.SaveAsync();
-        _dataStore.NotifyChatTagCatalogChanged(this);
+        _dataStore.NotifyChatTagCatalogChanged(tagId, this);
     }
 
     [RelayCommand]
@@ -249,18 +240,34 @@ public partial class ChatTagsViewModel : ObservableObject, IDisposable
 
     private void RefreshTagList()
     {
-        OnPropertyChanged(nameof(Tags));
+        var sorted = _dataStore.Data.ChatTags.OrderBy(tag => tag.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+        for (var index = _tags.Count - 1; index >= 0; index--)
+        {
+            if (!sorted.Contains(_tags[index]))
+                _tags.RemoveAt(index);
+        }
+
+        for (var index = 0; index < sorted.Length; index++)
+        {
+            var existing = _tags.IndexOf(sorted[index]);
+            if (existing < 0)
+                _tags.Insert(index, sorted[index]);
+            else if (existing != index)
+                _tags.Move(existing, index);
+        }
+
         OnPropertyChanged(nameof(HasTags));
         OnPropertyChanged(nameof(HasNoTags));
     }
 
-    private void OnChatTagCatalogChanged(object? source)
+    private void OnChatTagCatalogChanged(Guid tagId, object? source)
     {
         if (_isDisposed || ReferenceEquals(source, this))
             return;
 
+        if (SelectedTag?.Id == tagId)
+            ReconcileSelection();
         RefreshTagList();
-        ReconcileSelection();
     }
 
     private void ReconcileSelection()
