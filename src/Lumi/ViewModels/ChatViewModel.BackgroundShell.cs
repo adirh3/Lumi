@@ -170,17 +170,17 @@ public partial class ChatViewModel
     private static async Task StopRemainingSessionTasksAsync(
         CopilotSession session, ChatRuntimeState runtime, bool confirmStopped = false)
     {
-        // session.abort stops the agent loop, but intentionally leaves attached shells alive.
-        var tasks = await session.Rpc.Tasks.ListAsync();
-        foreach (var id in tasks.Tasks.Select(GetRunningTaskId).OfType<string>())
+        // session.abort stops the agent loop, but doesn't stop running shells.
+        var tasks = await CopilotSessionTasks.ListAsync(session);
+        foreach (var id in tasks.Select(GetRunningTaskId).OfType<string>())
         {
             MarkSessionBackgroundActive(runtime);
             var result = await session.Rpc.Tasks.CancelAsync(id);
             if (!result.Cancelled)
             {
                 // A task can finish between listing it and cancellation.
-                var remaining = await session.Rpc.Tasks.ListAsync();
-                if (remaining.Tasks.Any(task => GetRunningTaskId(task) == id))
+                var remaining = await CopilotSessionTasks.ListAsync(session);
+                if (remaining.Any(task => GetRunningTaskId(task) == id))
                     throw new InvalidOperationException(Loc.Get(nameof(Loc.Chat_BackgroundStopFailed), id));
             }
         }
@@ -188,7 +188,7 @@ public partial class ChatViewModel
         if (confirmStopped)
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            while ((await session.Rpc.Tasks.ListAsync(timeout.Token)).Tasks.Any(task => GetRunningTaskId(task) is not null))
+            while ((await CopilotSessionTasks.ListAsync(session, timeout.Token)).Any(task => GetRunningTaskId(task) is not null))
                 await Task.Delay(100, timeout.Token);
         }
 
@@ -209,6 +209,7 @@ public partial class ChatViewModel
 
     private DispatcherTimer? _backgroundShellMonitor;
     private bool _backgroundShellPollInFlight;
+    private int _backgroundShellPollGeneration;
 
     internal IReadOnlySet<string> GetRunningBackgroundShellIds(Guid chatId) =>
         _runtimeStates.TryGetValue(chatId, out var runtime)
@@ -323,7 +324,11 @@ public partial class ChatViewModel
         return timer;
     }
 
-    private void StopBackgroundShellMonitor() => _backgroundShellMonitor?.Stop();
+    private void StopBackgroundShellMonitor()
+    {
+        _backgroundShellMonitor?.Stop();
+        _backgroundShellPollGeneration++;
+    }
 
     /// <summary>Called on session-idle for the displayed chat: all background work has drained, so any
     /// remaining background cards are finished. Resolves them and stops polling.</summary>
@@ -382,15 +387,20 @@ public partial class ChatViewModel
                 return;
             }
 
-            TaskList tasks;
+            var generation = _backgroundShellPollGeneration;
+            // Stop can leave the same chat and session handle in place for the next turn.
+            bool PollStillApplies() => !_isDisposed && generation == _backgroundShellPollGeneration
+                && IsSessionActive && ReferenceEquals(_activeSession, session) && CurrentChat?.Id == chat.Id;
+
+            IList<TaskInfo> tasks;
             try
             {
-                tasks = await session.Rpc.Tasks.ListAsync(CancellationToken.None);
+                tasks = await CopilotSessionTasks.ListAsync(session);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Trace.TraceWarning($"[Chat] Could not refresh session activity: {ex.Message}");
-                if (ReferenceEquals(_activeSession, session) && CurrentChat?.Id == chat.Id && IsSessionActive)
+                if (PollStillApplies())
                     BackgroundActivityNotice = Loc.Get("Chat_BackgroundActivityUnavailable");
                 return;
             }
@@ -398,11 +408,11 @@ public partial class ChatViewModel
             // The chat may have been switched (or the session torn down) while the RPC was in flight;
             // if so the shared transcript builder now reflects a different chat, so abandon this stale
             // poll rather than marking another chat's cards from this chat's shell list.
-            if (!ReferenceEquals(_activeSession, session) || CurrentChat?.Id != chat.Id || !IsSessionActive)
+            if (!PollStillApplies())
                 return;
 
-            ApplyBackgroundActivitySnapshot(tasks.Tasks, DateTimeOffset.UtcNow);
-            var runningShells = tasks.Tasks.OfType<TaskInfoShell>().Where(IsRunningBackgroundShell).ToList();
+            ApplyBackgroundActivitySnapshot(tasks, DateTimeOffset.UtcNow);
+            var runningShells = tasks.OfType<TaskInfoShell>().Where(IsRunningBackgroundShell).ToList();
 
             // Map each still-running shell to a DISTINCT terminal card. First observation correlates by
             // command text (excluding cards already claimed this poll, so N identical-command shells map
@@ -415,7 +425,7 @@ public partial class ChatViewModel
                 // A chat switch during a previous iteration's await resets the shared transcript builder
                 // and tracked-shell map to a different chat; abandon rather than binding this chat's
                 // shells onto another chat's cards. The next tick re-polls the now-current chat.
-                if (!ReferenceEquals(_activeSession, session) || CurrentChat?.Id != chat.Id)
+                if (!PollStillApplies())
                     return;
 
                 var command = shell.Command?.Trim() ?? string.Empty;
@@ -450,7 +460,7 @@ public partial class ChatViewModel
 
                 // One progress read feeds both the shell's activity row and its terminal card.
                 var progress = await TryGetTaskProgressAsync(session, shell.Id);
-                if (!ReferenceEquals(_activeSession, session) || CurrentChat?.Id != chat.Id)
+                if (!PollStillApplies())
                     return;
 
                 FindSessionActivity(shell.Id)?.ApplyProgress(progress);
@@ -469,7 +479,7 @@ public partial class ChatViewModel
             foreach (var item in RunningSessionActivities.Where(item => !item.IsCommand && !item.HasRun).ToList())
             {
                 var progress = await TryGetTaskProgressAsync(session, item.Id);
-                if (!ReferenceEquals(_activeSession, session) || CurrentChat?.Id != chat.Id)
+                if (!PollStillApplies())
                     return;
 
                 item.ApplyProgress(progress);
@@ -477,7 +487,7 @@ public partial class ChatViewModel
 
             // The final per-task await may also have spanned a chat switch; re-check before mutating
             // completion / status state so a stale poll cannot complete or restyle another chat's cards.
-            if (!ReferenceEquals(_activeSession, session) || CurrentChat?.Id != chat.Id)
+            if (!PollStillApplies())
                 return;
 
             // Any tracked shell whose card was not re-observed running this poll has finished. Keying on
@@ -514,7 +524,7 @@ public partial class ChatViewModel
     {
         try
         {
-            return (await session.Rpc.Tasks.GetProgressAsync(taskId, CancellationToken.None)).Progress;
+            return await CopilotSessionTasks.GetProgressAsync(session, taskId);
         }
         catch
         {

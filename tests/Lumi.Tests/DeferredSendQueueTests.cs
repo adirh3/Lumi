@@ -1272,12 +1272,14 @@ public sealed partial class DeferredSendQueueTests
         Assert.False(rpc.DrainPaused);
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     [Trait("Category", "CoreQA")]
-    public async Task StopSession_CancelsAttachedShellsInsteadOfOnlyAbortingTheAssistant()
+    public async Task StopSession_CancelsRunningShellsInsteadOfOnlyAbortingTheAssistant(bool detached)
     {
         using var host = DeferredSendHost.Create();
-        using var rpc = new AbortRpc();
+        using var rpc = new AbortRpc { ReportsDetachedShells = detached };
         rpc.RunningShells.Add("debug-process");
         host.AttachSession(rpc);
         host.MarkTurnEndedWithBackgroundWorkPending();
@@ -1288,6 +1290,49 @@ public sealed partial class DeferredSendQueueTests
         Assert.Equal(["debug-process"], rpc.CancelledShells);
         Assert.Empty(rpc.RunningShells);
         Assert.False(host.IsChatRuntimeActive());
+    }
+
+    [Fact]
+    public async Task StopSession_DropsProgressPollsThatWereReadingDetachedTasks()
+    {
+        var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                using var host = DeferredSendHost.Create();
+                var progress = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using var rpc = new AbortRpc { ReportsDetachedShells = true, TaskProgressReply = progress };
+                host.AttachSession(rpc);
+                host.MarkTurnEndedWithBackgroundWorkPending();
+                foreach (var id in new[] { "first-shell", "second-shell" })
+                {
+                    rpc.RunningShells.Add(id);
+                    host.Chat.Messages.Add(new ChatMessage
+                    {
+                        Role = "tool", ToolName = "powershell", ToolCallId = id, ToolStatus = "Completed",
+                        Content = "{\"command\":\"Start-Sleep -Seconds 300\",\"mode\":\"async\",\"detach\":true}"
+                    });
+                }
+                host.RebuildTranscript();
+                host.ViewModel.RebuildTranscript();
+
+                var refresh = host.ViewModel.RefreshBackgroundActivityAsync();
+                await rpc.TaskProgressReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Null(await host.StopGenerationAsync());
+                Assert.Empty(host.Runtime.RunningBackgroundShells);
+                progress.SetResult(new { progress = new { type = "shell", recentOutput = "stale output", pid = 1234.0 } });
+                await refresh;
+
+                Assert.Empty(host.Runtime.RunningBackgroundShells);
+                Assert.All(host.Chat.Messages, message =>
+                    Assert.False(host.TerminalCard(message.ToolCallId!).IsRunningInBackground));
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(ui.Dispose);
+        }
     }
 
     [Fact]
@@ -3534,8 +3579,11 @@ public sealed partial class DeferredSendQueueTests
         public List<string> CancelledShells { get; } = [];
         public List<string> Operations { get; } = [];
         public bool RejectTaskCancellation { get; init; }
+        public bool ReportsDetachedShells { get; init; }
         public TaskCompletionSource<object>? TaskListReply { get; init; }
         public TaskCompletionSource TaskListReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<object>? TaskProgressReply { get; init; }
+        public TaskCompletionSource TaskProgressReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<object>? EventsReply { get; init; }
         /// <summary>Released once for every read of the session's events.</summary>
         public SemaphoreSlim EventsRequests { get; } = new(0);
@@ -3586,7 +3634,8 @@ public sealed partial class DeferredSendQueueTests
                 type = "shell",
                 id,
                 status = "running",
-                attachmentMode = "attached",
+                attachmentMode = ReportsDetachedShells ? "detached" : "attached",
+                pid = ReportsDetachedShells ? 1234.0 : (double?)null,
                 executionMode = "background",
                 command = "Start-Sleep -Seconds 300",
                 description = "Debug process",
@@ -3609,8 +3658,14 @@ public sealed partial class DeferredSendQueueTests
         public Dictionary<string, string> ShellOutputs { get; } = [];
 
         [JsonRpcMethod("session.tasks.getProgress", UseSingleObjectParameterDeserialization = true)]
-        public object GetTaskProgress(Dictionary<string, object> request)
+        public async Task<object> GetTaskProgress(Dictionary<string, object> request)
         {
+            if (TaskProgressReply is { } reply)
+            {
+                TaskProgressReceived.TrySetResult();
+                return await reply.Task;
+            }
+
             var id = Assert.IsType<string>(request["id"]);
             return ShellOutputs.TryGetValue(id, out var output)
                 ? new { progress = new { type = "shell", recentOutput = output } }

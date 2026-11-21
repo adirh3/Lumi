@@ -1559,6 +1559,54 @@ public class CopilotIntegrationTests : IAsyncLifetime
         await session.DisposeAsync();
     }
 
+    [SkippableFact]
+    public async Task StopSession_DetachedShellOnReadyAssistant()
+    {
+        SkipIfDisabled();
+        Skip.IfNot(OperatingSystem.IsWindows(), "Reproduces the detached shell payload reported on Windows.");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var ct = timeout.Token;
+        var config = SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
+        {
+            WorkingDirectory = TestProfile.Root,
+            SystemPrompt = ""
+        });
+        config.Tools = new SessionToolOptions { AvailableTools = ["powershell"] };
+        config.Mcp = new SessionMcpOptions { DisabledServers = ["github-mcp-server", "githubiq"] };
+        var session = await _service.CreateSessionAsync(config, ct);
+        var sessionId = session.SessionId;
+        try
+        {
+            await session.Rpc.Tools.InitializeAndValidateAsync(ct);
+            var result = await session.Rpc.Tools.ExecuteAsync("powershell",
+                JsonSerializer.SerializeToElement(new
+                {
+                    command = "Start-Sleep -Seconds 20",
+                    description = "Stop session fixture",
+                    mode = "async",
+                    detach = true,
+                    initial_wait = 1
+                }), "stop-detached-probe", ct);
+            Assert.Equal("success", result.GetProperty("resultType").GetString());
+            var abort = await session.Rpc.AbortAsync(cancellationToken: ct);
+            Assert.True(abort.Success, abort.Error);
+
+            var tasks = await CopilotSessionTasks.ListAsync(session, ct);
+            var shell = Assert.Single(tasks.OfType<Microsoft.Copilot.Rpc.TaskInfoShell>());
+            Assert.Equal(Microsoft.Copilot.Rpc.TaskStatus.Running, shell.Status);
+            Assert.IsType<Microsoft.Copilot.Rpc.TaskProgressShell>(await CopilotSessionTasks.GetProgressAsync(session, shell.Id, ct));
+            Assert.True((await session.Rpc.Tasks.CancelAsync(shell.Id, ct)).Cancelled);
+            Assert.DoesNotContain(await CopilotSessionTasks.ListAsync(session, ct),
+                task => task is Microsoft.Copilot.Rpc.TaskInfoShell { Status: var status }
+                        && status == Microsoft.Copilot.Rpc.TaskStatus.Running);
+        }
+        finally
+        {
+            await session.DisposeAsync();
+            await _service.DeleteSessionAsync(sessionId);
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     //  6. Custom tools — invocation + events + hook
     // ═══════════════════════════════════════════════════════════════════════

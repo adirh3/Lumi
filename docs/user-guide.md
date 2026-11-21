@@ -934,8 +934,9 @@ Once Lumi is ready, open it to see each running task with a live clock and what 
 a command's newest output line, an agent's latest step, or a task's progress message.
 Click a command to show its newest output lines, or an agent to open its run on the
 Workspace's **Agents** page, the same view its row in the chat opens. The list updates
-in place while it is open, so an expanded command keeps streaming. **Stop session**
-cancels everything still running in that chat.
+in place while it is open, so an expanded command keeps streaming. While the session is
+still active, **Stop session** cancels the work Copilot tracks for that chat, including
+detached background commands.
 
 ### Desktop motion
 
