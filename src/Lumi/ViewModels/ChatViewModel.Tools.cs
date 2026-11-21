@@ -228,6 +228,8 @@ public partial class ChatViewModel
             var svc = GetOrCreateBrowserService(chatId);
             Dispatcher.UIThread.Post(() =>
             {
+                if (!ReferenceEquals(GetBrowserServiceForChat(chatId), svc))
+                    return;
                 if (CurrentChat?.Id == chatId) HasUsedBrowser = true;
                 BrowserShowRequested?.Invoke(chatId);
             });
@@ -253,6 +255,8 @@ public partial class ChatViewModel
             {
                 Dispatcher.UIThread.Post(() =>
                 {
+                    if (!ReferenceEquals(GetBrowserServiceForChat(chatId), svc))
+                        return;
                     if (CurrentChat?.Id == chatId) HasUsedBrowser = true;
                     BrowserShowRequested?.Invoke(chatId);
                 });
@@ -306,6 +310,8 @@ public partial class ChatViewModel
                     var svc = GetOrCreateBrowserService(chatId);
                     Dispatcher.UIThread.Post(() =>
                     {
+                        if (!ReferenceEquals(GetBrowserServiceForChat(chatId), svc))
+                            return;
                         if (CurrentChat?.Id == chatId) HasUsedBrowser = true;
                         BrowserShowRequested?.Invoke(chatId);
                     });

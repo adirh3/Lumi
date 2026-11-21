@@ -562,5 +562,12 @@ public partial class ChatViewModel
     /// <summary>A job or another chat is driving this turn, so nobody may be there to answer.</summary>
     internal void MarkTurnUnattended(Guid chatId) => _unattendedTurns.Add(chatId);
 
-    internal void MarkTurnAttended(Guid chatId) => _unattendedTurns.Remove(chatId);
+    internal void MarkTurnAttended(Guid chatId)
+    {
+        _unattendedTurns.Remove(chatId);
+        // A user follow-up uses their own browser again. Keep the job's detached browser
+        // alive until idle so an already-running browser operation can finish.
+        if (_dataStore.Data.Chats.Find(chat => chat.Id == chatId)?.IsPaused != true)
+            DetachJobBrowserSession(chatId);
+    }
 }
