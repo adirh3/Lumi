@@ -203,6 +203,11 @@
                                   ContentTemplate="{TemplateBinding HeaderTemplate}"
                                   VerticalAlignment="Center"
                                   RecognizesAccessKey="True" />
+                <TextBlock Grid.Column="2"
+                           Text="{TemplateBinding InputGesture, Converter={x:Static sc:StrataKeyGestureConverter.Instance}}"
+                           IsVisible="{TemplateBinding InputGesture, Converter={x:Static ObjectConverters.IsNotNull}}"
+                           Margin="14,0,0,0" VerticalAlignment="Center" FlowDirection="LeftToRight"
+                           FontSize="11" Foreground="{DynamicResource Brush.TextSecondary}" />
                 <PathIcon Name="PART_Chevron"
                           Grid.Column="2"
                           Width="10"
@@ -1317,6 +1322,16 @@
          marks to preview and jump to. -->
     <Style Selector="sc|StrataChatShell /template/ sc|StrataTranscriptRail#PART_TranscriptRail">
       <Setter Property="AutomationProperties.Name" Value="{loc:Str TranscriptRail_Name}" />
+    </Style>
+    <Style Selector="sc|StrataChatShell#ChatShell /template/ ScrollViewer#PART_TranscriptScroll">
+      <Setter Property="Focusable" Value="True" />
+      <Setter Property="AutomationProperties.Name" Value="{loc:Str SettingsGroup_Transcript}" />
+      <Setter Property="FocusAdorner">
+        <Template>
+          <Border BorderBrush="{DynamicResource Brush.BorderFocus}" BorderThickness="1" CornerRadius="10"
+                  IsHitTestVisible="False" />
+        </Template>
+      </Setter>
     </Style>
 
     <Style Selector="Panel#HeaderEdgeMaterial">

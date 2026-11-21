@@ -25,7 +25,7 @@ public partial class ChatView
 {
     private const double UserMessageLandingSlack = 12;
 
-    private TopLevel? _userNavKeySource;
+    private TopLevel? _chatNavigationKeySource;
     private TranscriptTurn? _userNavTarget;
     private double _userNavLandingOffset = double.NaN;
     private bool _userNavInFlight;
@@ -104,22 +104,33 @@ public partial class ChatView
         return _transcriptScrollViewer is { } viewer && landing?.TranslatePoint(default, viewer) is { } point ? point.Y : null;
     }
 
-    private void AttachUserMessageNavigation(TopLevel? topLevel)
+    private void AttachChatNavigation(TopLevel? topLevel)
     {
-        if (ReferenceEquals(_userNavKeySource, topLevel))
+        if (ReferenceEquals(_chatNavigationKeySource, topLevel))
             return;
 
-        _userNavKeySource?.RemoveHandler(KeyDownEvent, OnUserMessageNavigationKeyDown);
-        _userNavKeySource = topLevel;
+        _chatNavigationKeySource?.RemoveHandler(KeyDownEvent, OnChatNavigationKeyDown);
+        _chatNavigationKeySource = topLevel;
         // On the window, not this view: when nothing is focused the key is raised on the window
         // itself and would never reach the chat view.
-        _userNavKeySource?.AddHandler(KeyDownEvent, OnUserMessageNavigationKeyDown, RoutingStrategies.Tunnel);
+        _chatNavigationKeySource?.AddHandler(KeyDownEvent, OnChatNavigationKeyDown, RoutingStrategies.Tunnel);
     }
 
-    private void OnUserMessageNavigationKeyDown(object? sender, KeyEventArgs e)
+    private void OnChatNavigationKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Handled || !IsEffectivelyVisible)
             return;
+
+        if (e.KeyModifiers == KeyModifiers.None && e.Key is Key.PageUp or Key.PageDown
+            && IsWindowWithoutFocusedControl(e.Source)
+            && _chatNavigationKeySource is not MainWindow { CanNavigateChatsWithKeyboard: false }
+            && _subscribedVm is { IsChatVisible: true, IsLoadingChat: false })
+        {
+            PageTranscriptByKeyboard(e);
+            if (e.Handled)
+                TryFocusTranscript();
+            return;
+        }
 
         var direction = GetUserMessageNavigationDirection(e.Key, e.KeyModifiers, OperatingSystem.IsMacOS());
         if (direction == 0 || !CanNavigateUserMessagesFrom(e.Source))
@@ -137,7 +148,7 @@ public partial class ChatView
     /// </summary>
     private bool CanNavigateUserMessagesFrom(object? source)
     {
-        if (source is null || ReferenceEquals(source, _userNavKeySource))
+        if (IsWindowWithoutFocusedControl(source))
             return true;
 
         if (source is not Visual visual)
@@ -154,6 +165,9 @@ public partial class ChatView
         return _transcriptScrollViewer is { } transcript
             && (ReferenceEquals(transcript, visual) || transcript.IsVisualAncestorOf(visual));
     }
+
+    private bool IsWindowWithoutFocusedControl(object? source)
+        => source is null || ReferenceEquals(source, _chatNavigationKeySource);
 
     private async Task NavigateUserMessageAsync(int direction)
     {

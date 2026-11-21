@@ -215,7 +215,7 @@
                   <ItemsControl DockPanel.Dock="Right" ItemsSource="{Binding Keys}" Margin="12,0,0,0" VerticalAlignment="Center">
                     <ItemsControl.ItemsPanel>
                       <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" Spacing="4" />
+                        <StackPanel Orientation="Horizontal" Spacing="4" FlowDirection="LeftToRight" />
                       </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
@@ -227,7 +227,7 @@
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
                   <TextBlock Text="{Binding Description}" FontSize="12.5" VerticalAlignment="Center"
-                             Foreground="{DynamicResource Brush.TextSecondary}" TextTrimming="CharacterEllipsis" />
+                             Foreground="{DynamicResource Brush.TextSecondary}" TextWrapping="Wrap" />
                 </DockPanel>
               </DataTemplate>
             </ItemsControl.ItemTemplate>

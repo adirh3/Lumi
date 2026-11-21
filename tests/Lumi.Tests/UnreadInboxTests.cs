@@ -331,7 +331,7 @@ public sealed class UnreadInboxTests
             using var vm = CreateViewModel([work, home], inWork, inHome);
 
             // Unfiltered: nothing is hidden, so neither the pill nor any row claims otherwise.
-            Assert.Equal(Loc.Unread_OpenTooltip, vm.UnreadTooltipText);
+            Assert.StartsWith(Loc.Unread_OpenTooltip, vm.UnreadTooltipText);
             Assert.All(vm.UnreadChats, entry => Assert.Equal(entry.Title, entry.TooltipText));
 
             vm.SelectProjectFilterCommand.Execute(work);

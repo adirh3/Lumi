@@ -436,6 +436,15 @@ public partial class SettingsViewModel
             new([command, ","], Loc.Shortcut_Settings),
             new([command, "+ / −"], Loc.Shortcut_Scale),
             new([alt, "← / →"], Loc.Shortcut_History),
+            new([$"F6 / {shift}{(mac ? "" : "+")}F6"], Loc.Get("Shortcut_FocusChatAreas")),
+            new(["↑ / ↓", "Home / End"], Loc.Get("Shortcut_BrowseChatRows")),
+            new(["Enter"], Loc.Get("Shortcut_OpenChatRow")),
+            new([command, shift, "I"], Loc.Get("Shortcut_UnreadInbox")),
+            new([command, "F"], Loc.Get("Shortcut_FindInChat")),
+            new([mac ? "⌥⌘" : command, "↑ / ↓"], Loc.Get("Shortcut_UserMessages")),
+            new(["Page Up / Down"], Loc.Get("Shortcut_PageConversation")),
+            new([alt, "Page Up / Down"], Loc.Get("Shortcut_PageDraft")),
+            new([command, "Home / End"], Loc.Get("Shortcut_ConversationEdges")),
         ];
     }
 }

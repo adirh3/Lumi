@@ -290,6 +290,14 @@
     <Style Selector="Border#SidebarBorder ListBox.chat-list ListBoxItem:selected /template/ Border#LayoutRoot, Border#SidebarBorder ListBox.chat-list ListBoxItem:selected:pointerover /template/ Border#LayoutRoot">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
     </Style>
+    <Style Selector="Border#SidebarBorder ListBox.chat-list ListBoxItem">
+      <Setter Property="FocusAdorner">
+        <Template>
+          <Border BorderBrush="{DynamicResource Brush.BorderFocus}" BorderThickness="1" CornerRadius="8"
+                  IsHitTestVisible="False" />
+        </Template>
+      </Setter>
+    </Style>
     <Style Selector="Border#SidebarBorder ListBox.chat-list ListBoxItem /template/ Border#PART_SelectedPipe">
       <Setter Property="Width" Value="3" />
       <Setter Property="Height" Value="16" />
@@ -1563,7 +1571,7 @@
                   <PathIcon Data="M4 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm8 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm8 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" Width="14" Height="14"
                             Foreground="{DynamicResource Brush.TextSecondary}" />
                 </Button>
-                <Button Classes="subtle" HorizontalAlignment="Stretch"
+                <Button x:Name="SidebarNewChatButton" Classes="subtle" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Left"
                         CornerRadius="{DynamicResource Radius.Base}"
                         Padding="10,8" MinHeight="0"

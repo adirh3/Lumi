@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Services;
 using Lumi.Services.Appearance;
@@ -101,6 +102,27 @@ public partial class ChatWindow : Window
             _viewModel.CancelDeleteWorktreeDialogCommand.Execute(null);
             e.Handled = true;
             return;
+        }
+
+        if (_viewModel is { HasOpenDialog: false }
+            && _chatWorkspace?.ChatView is { IsEffectivelyVisible: true } chatView
+            && (e.Source is not Visual source || source.FindAncestorOfType<BrowserView>() is null))
+        {
+            var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+            if (e.Key == Key.L && e.KeyModifiers == command)
+            {
+                chatView.FocusComposer();
+                e.Handled = true;
+                return;
+            }
+
+            if (ChatView.IsFocusCycleGesture(e))
+            {
+                if (chatView.IsInTranscript(e.Source) || !chatView.TryFocusTranscript())
+                    chatView.FocusComposer();
+                e.Handled = true;
+                return;
+            }
         }
 
         var scaleDelta = UiScaleService.GetShortcutDelta(e.Key, e.KeyModifiers);

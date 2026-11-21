@@ -271,7 +271,7 @@ public partial class ChatView : UserControl
         AddHandler(StrataInteractiveBlock.RequestedEvent, OnInteractiveRequest);
         AddHandler(StrataActionReceipt.SourceRequestedEvent, OnInteractionSourceRequested);
         AddHandler(KeyDownEvent, OnLinkedChatKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
-        AddHandler(KeyDownEvent, OnEmptyComposerScrollKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(KeyDownEvent, OnChatReadingKeyDown, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, OnTranscriptScrollKeyDown, RoutingStrategies.Bubble);
         AddHandler(KeyDownEvent, OnComposerReplyKeyDown, RoutingStrategies.Bubble);
         InitializeQueuedSends();
@@ -422,14 +422,14 @@ public partial class ChatView : UserControl
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        AttachUserMessageNavigation(TopLevel.GetTopLevel(this));
+        AttachChatNavigation(TopLevel.GetTopLevel(this));
         Dispatcher.UIThread.Post(EnsureTranscriptScrollViewer, DispatcherPriority.Loaded);
         UpdateLaunchpadActivation();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        AttachUserMessageNavigation(null);
+        AttachChatNavigation(null);
         DetachTranscriptScrollViewer();
         UnsubscribeMountedTurns();
         UnsubscribeFromViewModel();
@@ -440,6 +440,17 @@ public partial class ChatView : UserControl
     {
         _composer?.FocusInput();
     }
+
+    internal static bool IsFocusCycleGesture(KeyEventArgs e)
+        => e.Key == Key.F6 && e.KeyModifiers is KeyModifiers.None or KeyModifiers.Shift;
+
+    internal bool IsInTranscript(object? source)
+        => _transcriptScrollViewer is { } viewer && source is Visual visual
+            && (ReferenceEquals(viewer, visual) || viewer.IsVisualAncestorOf(visual));
+
+    internal bool TryFocusTranscript()
+        => _subscribedVm is { IsChatVisible: true, IsLoadingChat: false }
+            && _transcriptScrollViewer?.Focus(NavigationMethod.Tab) == true;
 
     private void FocusComposerAtEnd() => _composer?.FocusInputAtEnd();
 
@@ -757,28 +768,44 @@ public partial class ChatView : UserControl
         }
     }
 
-    private void OnEmptyComposerScrollKeyDown(object? sender, KeyEventArgs e)
+    private void OnChatReadingKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Handled
-            || e.KeyModifiers != KeyModifiers.None
-            || e.Key is not (Key.Up or Key.Down)
-            || _chatShell is null
-            || _transcriptScrollViewer is null)
-        {
+        if (_transcriptScrollViewer is not { } viewer
+            || _subscribedVm is not { IsChatVisible: true, IsLoadingChat: false }
+            || _chatNavigationKeySource is MainWindow { CanNavigateChatsWithKeyboard: false }
+            || e.Key is not (Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End))
             return;
-        }
 
-        var sourceControl = e.Source as Control;
-        var input = sourceControl as TextBox
-            ?? sourceControl?.FindAncestorOfType<TextBox>();
-        if (input?.Name != "PART_Input"
-            || !ReferenceEquals(input.FindAncestorOfType<StrataChatComposer>(), _composer)
-            || !string.IsNullOrEmpty(input.Text))
-        {
+        var transcriptFocused = ReferenceEquals(e.Source, viewer);
+        var composer = e.Source is TextBox { Name: "PART_Input" } input
+            && ReferenceEquals(input.FindAncestorOfType<StrataChatComposer>(), _composer) ? input : null;
+        if (!transcriptFocused && composer is null)
             return;
-        }
 
-        ScrollTranscriptByKeyboard(e);
+        var plain = e.KeyModifiers == KeyModifiers.None;
+        var emptyComposer = composer is not null && string.IsNullOrEmpty(composer.Text);
+        var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+
+        switch (e.Key)
+        {
+            case Key.Up or Key.Down when plain && (transcriptFocused || emptyComposer):
+                ScrollTranscriptByKeyboard(e);
+                break;
+
+            case Key.PageUp or Key.PageDown when (plain && (transcriptFocused || emptyComposer))
+                                                || (composer is not null && e.KeyModifiers == KeyModifiers.Alt):
+                PageTranscriptByKeyboard(e);
+                break;
+
+            case Key.Home when (transcriptFocused && plain) || (emptyComposer && e.KeyModifiers == command):
+                ScrollTranscriptByKeyboard(e, 0, towardOlder: true);
+                break;
+
+            case Key.End when (transcriptFocused && plain) || (emptyComposer && e.KeyModifiers == command):
+                JumpToLatest(focusComposer: false);
+                e.Handled = true;
+                break;
+        }
     }
 
     private void OnTranscriptScrollKeyDown(object? sender, KeyEventArgs e)
@@ -811,24 +838,38 @@ public partial class ChatView : UserControl
 
     private void ScrollTranscriptByKeyboard(KeyEventArgs e)
     {
-        if (_chatShell is null || _transcriptScrollViewer is null)
+        if (_transcriptScrollViewer is not { } viewer)
             return;
 
-        var maxOffset = Math.Max(0, _transcriptScrollViewer.Extent.Height - _transcriptScrollViewer.Viewport.Height);
+        var towardOlder = e.Key == Key.Up;
+        var delta = towardOlder ? -TranscriptKeyboardScrollStep : TranscriptKeyboardScrollStep;
+        ScrollTranscriptByKeyboard(e, viewer.Offset.Y + delta, towardOlder);
+    }
+
+    private void PageTranscriptByKeyboard(KeyEventArgs e)
+    {
+        if (_chatShell is not { } shell || _transcriptScrollViewer is not { } viewer)
+            return;
+
+        var page = Math.Max(0, viewer.Viewport.Height - shell.ReadingLineInset - (_composerSpacer?.Bounds.Height ?? 0));
+        var towardOlder = e.Key == Key.PageUp;
+        ScrollTranscriptByKeyboard(e, viewer.Offset.Y + (towardOlder ? -page : page), towardOlder);
+    }
+
+    private void ScrollTranscriptByKeyboard(KeyEventArgs e, double offset, bool towardOlder)
+    {
+        if (_chatShell is not { } shell || _transcriptScrollViewer is not { } viewer)
+            return;
+
+        var maxOffset = Math.Max(0, viewer.Extent.Height - viewer.Viewport.Height);
         if (maxOffset <= ChatScrollPolicy.FractionalEpsilon)
             return;
 
-        var direction = e.Key == Key.Up
+        shell.PreserveViewport();
+        viewer.Offset = viewer.Offset.WithY(Math.Clamp(offset, 0, maxOffset));
+        RecordTranscriptPagingDirection(towardOlder
             ? TranscriptPagingDirection.TowardOlder
-            : TranscriptPagingDirection.TowardNewer;
-        var delta = direction == TranscriptPagingDirection.TowardOlder
-            ? -TranscriptKeyboardScrollStep
-            : TranscriptKeyboardScrollStep;
-        var targetOffset = Math.Clamp(_transcriptScrollViewer.Offset.Y + delta, 0, maxOffset);
-
-        _chatShell.PreserveViewport();
-        _transcriptScrollViewer.Offset = _transcriptScrollViewer.Offset.WithY(targetOffset);
-        RecordTranscriptPagingDirection(direction);
+            : TranscriptPagingDirection.TowardNewer);
         e.Handled = true;
     }
 

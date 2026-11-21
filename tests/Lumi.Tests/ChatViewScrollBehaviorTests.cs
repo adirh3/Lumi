@@ -1378,6 +1378,111 @@ public sealed class ChatViewScrollBehaviorTests
     }
 
     [Fact]
+    public async Task ComposerReadingKeys_PageAndJumpWithoutStealingDraftEditing()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await DispatchAsync(session, async () =>
+        {
+            var chat = CreateLongChat();
+            var data = new AppData { Settings = new UserSettings { AutoSaveChats = false }, Chats = [chat] };
+            using var vm = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            var view = new ChatView { DataContext = vm };
+            var window = new Window { Width = 1100, Height = 820, Content = view };
+            window.Show();
+            try
+            {
+                await vm.LoadChatAsync(chat);
+                var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
+                shell.JumpToLatest();
+                await WaitUntilAsync(() => shell.TranscriptScrollViewer is { } scroller
+                    && scroller.Extent.Height - scroller.Viewport.Height > 2 * scroller.Viewport.Height
+                    && shell.IsPinnedToBottom);
+
+                var viewer = shell.TranscriptScrollViewer!;
+                var input = view.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "PART_Input");
+                Assert.True(input.Focus());
+                var atEnd = viewer.Offset.Y;
+                window.KeyPress(Key.PageUp, RawInputModifiers.None, PhysicalKey.None, null);
+                await WaitUntilAsync(() => viewer.Offset.Y < atEnd - viewer.Viewport.Height / 2);
+                Assert.Same(input, window.FocusManager?.GetFocusedElement());
+                Assert.False(shell.IsFollowingTail);
+
+                var command = OperatingSystem.IsMacOS() ? RawInputModifiers.Meta : RawInputModifiers.Control;
+                window.KeyPress(Key.Home, command, PhysicalKey.None, null);
+                await WaitUntilAsync(() => viewer.Offset.Y < 1);
+                window.KeyPress(Key.End, command, PhysicalKey.None, null);
+                await WaitUntilAsync(() => shell.IsFollowingTail && shell.IsPinnedToBottom);
+
+                input.Text = "Draft text";
+                input.SelectAll();
+                var selection = (input.SelectionStart, input.SelectionEnd);
+                window.KeyPress(Key.PageUp, RawInputModifiers.None, PhysicalKey.None, null);
+                await PumpAsync();
+                Assert.True(shell.IsPinnedToBottom);
+
+                input.SelectAll();
+                window.KeyPress(Key.PageUp, RawInputModifiers.Alt, PhysicalKey.None, null);
+                await WaitUntilAsync(() => !shell.IsFollowingTail && viewer.Offset.Y < atEnd - viewer.Viewport.Height / 2);
+                Assert.Equal("Draft text", input.Text);
+                Assert.Equal(selection, (input.SelectionStart, input.SelectionEnd));
+                Assert.Same(input, window.FocusManager?.GetFocusedElement());
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PageKeys_KeepWorkingWhenTheChatWindowLosesControlFocus()
+    {
+        using var session = HeadlessTestSession.Start();
+        await WithStoredHistoryAsync(session, async (window, view, vm, viewer) =>
+        {
+            Assert.True(view.TryFocusTranscript());
+            await Page(Key.PageUp, towardOlder: true);
+            window.FocusManager!.Focus(null);
+            Assert.Null(window.FocusManager.GetFocusedElement());
+
+            await Page(Key.PageUp, towardOlder: true);
+            Assert.Same(viewer, window.FocusManager.GetFocusedElement());
+            await Page(Key.PageDown, towardOlder: false);
+
+            async Task Page(Key key, bool towardOlder)
+            {
+                var before = viewer.Offset.Y;
+                window.KeyPress(key, RawInputModifiers.None, PhysicalKey.None, null);
+                await SettleAsync(vm);
+                var distance = (viewer.Offset.Y - before) * (towardOlder ? -1 : 1);
+                Assert.True(distance > 100,
+                    $"{key} moved {distance:0}px from {before:0}px with focus on {window.FocusManager?.GetFocusedElement()}.");
+            }
+        });
+    }
+
+    [Fact]
+    public async Task TranscriptHomeAndEnd_ReachStoredBeginningAndResumeFollowingLatest()
+    {
+        using var session = HeadlessTestSession.Start();
+        await WithStoredHistoryAsync(session, async (window, view, vm, viewer) =>
+        {
+            Assert.True(view.TryFocusTranscript());
+            window.KeyPress(Key.Home, RawInputModifiers.None, PhysicalKey.None, null);
+            await WaitUntilAsync(() => viewer.Offset.Y < 1
+                && vm.MountedTranscriptTurns.SelectMany(turn => turn.Items).OfType<UserMessageItem>()
+                    .Any(item => item.Content == "Question 0"));
+            Assert.Same(viewer, window.FocusManager?.GetFocusedElement());
+
+            var shell = view.FindControl<StrataChatShell>("ChatShell")!;
+            window.KeyPress(Key.End, RawInputModifiers.None, PhysicalKey.None, null);
+            await WaitUntilAsync(() => shell.IsFollowingTail && shell.IsPinnedToBottom);
+            Assert.Same(viewer, window.FocusManager?.GetFocusedElement());
+        });
+    }
+
+    [Fact]
     public async Task UserMessageShortcut_StepsBackThroughOlderExchangesThatAreOnlyInStorage()
     {
         using var session = HeadlessTestSession.Start();

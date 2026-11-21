@@ -484,6 +484,21 @@ Library filters and previews, and Jobs. A new destination replaces forward histo
 are skipped. History keeps the latest 200 destinations rather than retaining every visit throughout
 a long session. These navigate pages, not undo edits. The embedded browser keeps its own history.
 
+**Keyboard navigation in Chats.** Press **F6** to cycle between the chat list, conversation, and
+message box; **Shift+F6** goes the other way. Hidden areas are skipped. In the list, **↑/↓** move
+across date groups and **Home/End** move to the first or last loaded row without opening it.
+Press **Enter** to open the focused chat and start typing. **Ctrl+Shift+I** (**⌘⇧I** on macOS)
+opens or closes the unread inbox when there are unread chats; **Tab** reaches its replies and
+**Esc** closes it.
+
+In the conversation or an empty message box, **Page Up/Down** page through the transcript.
+With a draft, use **Alt+Page Up/Down** (**⌥Page Up/Down**) to keep typing where you left off.
+Use **Home/End** with the conversation focused via F6, or **Ctrl+Home/End** (**⌘Home/End**) in an empty message
+box, to jump to the beginning or the latest reply. **↑/↓** in an empty message box scroll by a
+small step; **Ctrl+↑/↓** (**⌥⌘↑/↓**) jump between your messages. **Ctrl+L** (**⌘L**) returns
+focus to the message box. See **Settings → General → Keyboard** for the shortcut reference.
+The chat title menu also shows the shortcuts for **Duplicate chat** and **Open in new window**.
+
 Grayscale text antialiasing is scoped to exposed and floating glass surfaces: every sidebar section,
 the navigation bar and collapsed rail, the chat header and composer, follow-up chips and the paused bar,
 the search palette, and glass title/composer pickers. Glass popup content opts in itself, whether hosted

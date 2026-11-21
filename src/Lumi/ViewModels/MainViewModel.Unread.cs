@@ -157,9 +157,10 @@ public partial class MainViewModel
         HasUnreadOutsideFilter = outsideCount > 0;
         UnreadBadgeText = unread.Count > 9 ? Loc.Unread_BadgeOverflow : unread.Count.ToString(Loc.Culture);
         UnreadSummaryText = BuildUnreadSummary(unread.Count, outsideCount);
-        UnreadTooltipText = outsideCount > 0
+        var unreadTooltip = outsideCount > 0
             ? string.Format(CultureInfo.CurrentCulture, Loc.Unread_OpenTooltipElsewhere, outsideCount)
             : Loc.Unread_OpenTooltip;
+        UnreadTooltipText = $"{unreadTooltip} ({Loc.AdaptKeyboardHint("Ctrl+Shift+I")})";
         HasUnreadChats = unread.Count > 0;
 
         UnreadStateChanged?.Invoke();

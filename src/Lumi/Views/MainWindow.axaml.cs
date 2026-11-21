@@ -388,7 +388,10 @@ public partial class MainWindow : Window
 
         _chatListScroller = this.FindControl<ScrollViewer>("ChatListScroller");
         if (_chatListScroller is not null)
+        {
             _chatListScroller.ScrollChanged += OnChatListScrollChanged;
+            _chatListScroller.AddHandler(KeyDownEvent, OnChatListKeyDown, RoutingStrategies.Tunnel);
+        }
         this.FindControl<ItemsControl>("ChatGroupsHost")?.AddHandler(
             RequestBringIntoViewEvent, OnChatListBringIntoView);
 
@@ -880,9 +883,31 @@ public partial class MainWindow : Window
 
         if (_isUnreadPanelOpen && e.Key == Key.Escape && noMods)
         {
+            if (IsWithinUnreadInbox(e.Source))
+                _unreadInboxToggle?.Focus(NavigationMethod.Tab);
             vm.CloseUnreadPanelCommand.Execute(null);
             e.Handled = true;
             return;
+        }
+
+        if (CanNavigateChatsWithKeyboard && CanHandleHistoryNavigationInput(vm, e.Source))
+        {
+            if (ctrl && shift && !alt && e.Key == Key.I && vm.HasUnreadChats)
+            {
+                if (vm.IsSidebarCollapsed)
+                    vm.ToggleSidebarCommand.Execute(null);
+                _unreadInboxToggle?.Focus(NavigationMethod.Tab);
+                vm.ToggleUnreadPanelCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+
+            if (!_isProjectSwitcherOpen && ChatView.IsFocusCycleGesture(e)
+                && MoveChatFocus(vm, e.Source, backwards: shift))
+            {
+                e.Handled = true;
+                return;
+            }
         }
 
         // ── Ctrl+N — New chat ──
@@ -992,6 +1017,19 @@ public partial class MainWindow : Window
         }
 
     }
+
+    internal bool CanNavigateChatsWithKeyboard => DataContext is MainViewModel
+    {
+        IsOnboarded: true,
+        SelectedNavIndex: 0,
+        RenamingChat: null,
+        IsWorktreeDeleteDialogOpen: false,
+        ChatTagsVM.IsDialogOpen: false,
+        ShareVM.IsOpen: false,
+        ImportVM.IsOpen: false,
+        SearchOverlayVM.IsOpen: false,
+        WhatsNewVM.IsOpen: false
+    };
 
     private bool CanHandleHistoryNavigationInput(MainViewModel vm, object? source)
     {
@@ -1950,6 +1988,106 @@ public partial class MainWindow : Window
     /// on every list rebuild/selection was orders of magnitude more work than the sidebar needs.
     /// </summary>
     private Visual ChatListWalkRoot => (Visual?)_chatListScroller ?? this;
+
+    private bool MoveChatFocus(MainViewModel vm, object? source, bool backwards)
+    {
+        if (_chatView is not { IsEffectivelyVisible: true } chatView)
+            return false;
+
+        var fromSidebar = _sidebarBorder is not null && source is Visual visual
+            && _sidebarBorder.IsVisualAncestorOf(visual);
+        var fromTranscript = chatView.IsInTranscript(source);
+
+        if (backwards)
+        {
+            if ((!fromTranscript && !fromSidebar && chatView.TryFocusTranscript())
+                || (!fromSidebar && TryFocusChatList(vm)))
+                return true;
+        }
+        else if ((!fromSidebar && !fromTranscript && TryFocusChatList(vm))
+                 || (!fromTranscript && chatView.TryFocusTranscript()))
+        {
+            return true;
+        }
+
+        chatView.FocusComposer();
+        return true;
+    }
+
+    private bool TryFocusChatList(MainViewModel vm)
+    {
+        if (vm.IsSidebarCollapsed || _chatListScroller is not { IsEffectivelyVisible: true })
+            return false;
+
+        var rows = GetChatListRows();
+        var row = rows.Find(item => item.DataContext is Chat chat && chat.Id == vm.ActiveChatId)
+            ?? rows.FirstOrDefault();
+        return row is not null
+            ? FocusChatListRow(row)
+            : this.FindControl<Button>("SidebarNewChatButton")?.Focus(NavigationMethod.Tab) == true;
+    }
+
+    private List<ListBoxItem> GetChatListRows()
+        => ChatListWalkRoot.GetVisualDescendants().OfType<ListBoxItem>().Where(IsChatListItem).ToList();
+
+    private static bool FocusChatListRow(ListBoxItem row)
+    {
+        // Directional focus would make Avalonia select (and open) the row.
+        if (!row.Focus(NavigationMethod.Tab))
+            return false;
+        row.BringIntoView();
+        return true;
+    }
+
+    private void OnChatListKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled || e.KeyModifiers != KeyModifiers.None
+            || e.Key is not (Key.Up or Key.Down or Key.Home or Key.End or Key.Enter)
+            || DataContext is not MainViewModel { IsSidebarCollapsed: false } vm)
+            return;
+
+        var row = e.Source switch
+        {
+            ListBoxItem item when IsChatListItem(item) => item,
+            ListBox list when list.Classes.Contains("chat-list") =>
+                list.ContainerFromIndex(Math.Max(0, list.SelectedIndex)) as ListBoxItem,
+            _ => null,
+        };
+        if (row is null)
+            return;
+
+        if (!CanNavigateChatsWithKeyboard)
+        {
+            // Some in-window dialogs leave focus on the row. Don't fall through to ListBox selection.
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Enter && row.DataContext is Chat chat)
+        {
+            if (vm.ActiveChatId == chat.Id)
+                _chatView?.FocusComposer();
+            else
+                vm.OpenChatCommand.Execute(chat);
+            e.Handled = true;
+            return;
+        }
+
+        var rows = GetChatListRows();
+        var index = rows.IndexOf(row);
+        if (index < 0)
+            return;
+
+        var target = e.Key switch
+        {
+            Key.Up => Math.Max(0, index - 1),
+            Key.Down => Math.Min(rows.Count - 1, index + 1),
+            Key.Home => 0,
+            _ => rows.Count - 1,
+        };
+        FocusChatListRow(rows[target]);
+        e.Handled = true;
+    }
 
     private void AttachListBoxHandlers()
     {

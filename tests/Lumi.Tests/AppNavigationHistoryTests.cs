@@ -8,6 +8,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
 using Lumi.Models;
@@ -531,6 +532,111 @@ public sealed class AppNavigationHistoryTests
             await Settle();
             Assert.False(vm.SearchOverlayVM.IsOpen);
             Assert.Equal(3, vm.SettingsVM.SelectedPageIndex);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact]
+    public Task KeyboardChatNavigation_BrowsesAcrossGroupsBeforeOpeningAChat() => Run(async (vm, data) =>
+    {
+        var first = data.Chats[0];
+        var second = data.Chats[1];
+        first.UpdatedAt = DateTimeOffset.Now;
+        second.UpdatedAt = first.UpdatedAt.AddDays(-1);
+        second.HasUnreadMessages = true;
+        vm.RefreshChatList();
+
+        var window = new MainWindow { DataContext = vm, Width = 1280, Height = 860 };
+        window.Show();
+        try
+        {
+            Assert.True(await vm.OpenChatByIdAsync(first.Id));
+            await Settle();
+            Assert.Equal("PART_Input", Assert.IsType<TextBox>(window.FocusManager?.GetFocusedElement()).Name);
+
+            async Task Press(Key key, RawInputModifiers modifiers = RawInputModifiers.None)
+            {
+                window.KeyPress(key, modifiers, PhysicalKey.None, null);
+                await Settle();
+            }
+
+            await Press(Key.F6);
+            Assert.Same(first, Assert.IsType<ListBoxItem>(window.FocusManager?.GetFocusedElement()).DataContext);
+            await Press(Key.Down);
+            var highlighted = Assert.IsType<ListBoxItem>(window.FocusManager?.GetFocusedElement());
+            Assert.Same(second, highlighted.DataContext);
+            Assert.False(highlighted.IsSelected);
+            Assert.Equal(first.Id, vm.ActiveChatId);
+            Assert.True(second.HasUnreadMessages);
+
+            await Press(Key.Home);
+            Assert.Same(first, Assert.IsType<ListBoxItem>(window.FocusManager?.GetFocusedElement()).DataContext);
+            await Press(Key.End);
+            Assert.Same(highlighted, window.FocusManager?.GetFocusedElement());
+
+            vm.ChatTagsVM.OpenManagerCommand.Execute(null);
+            await Settle();
+            Assert.Same(highlighted, window.FocusManager?.GetFocusedElement());
+            await Press(Key.Up);
+            Assert.Same(highlighted, window.FocusManager?.GetFocusedElement());
+            await Press(Key.Enter);
+            Assert.False(vm.ChatVM.IsLoadingChat);
+            Assert.Equal(first.Id, vm.ActiveChatId);
+            Assert.True(second.HasUnreadMessages);
+            vm.ChatTagsVM.CloseManagerCommand.Execute(null);
+
+            await Press(Key.Enter);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            while (vm.ActiveChatId != second.Id || window.FocusManager?.GetFocusedElement() is not TextBox)
+                await Task.Delay(10, timeout.Token);
+            Assert.False(second.HasUnreadMessages);
+
+            await Press(Key.F6, RawInputModifiers.Shift);
+            Assert.Equal("PART_TranscriptScroll", Assert.IsType<ScrollViewer>(window.FocusManager?.GetFocusedElement()).Name);
+            await Press(Key.F6, RawInputModifiers.Shift);
+            Assert.Same(second, Assert.IsType<ListBoxItem>(window.FocusManager?.GetFocusedElement()).DataContext);
+            await Press(Key.F6);
+            Assert.Equal("PART_TranscriptScroll", Assert.IsType<ScrollViewer>(window.FocusManager?.GetFocusedElement()).Name);
+            await Press(Key.F6);
+            Assert.Equal("PART_Input", Assert.IsType<TextBox>(window.FocusManager?.GetFocusedElement()).Name);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact]
+    public Task UnreadInboxShortcut_RevealsTheSidebarAndFocusesTheInbox() => Run(async (vm, data) =>
+    {
+        data.Chats[1].HasUnreadMessages = true;
+        vm.RefreshUnreadState();
+        vm.IsSidebarCollapsed = true;
+        var window = new MainWindow { DataContext = vm, Width = 1280, Height = 860 };
+        window.Show();
+        try
+        {
+            await Settle();
+            var command = OperatingSystem.IsMacOS() ? RawInputModifiers.Meta : RawInputModifiers.Control;
+            window.KeyPress(Key.I, command | RawInputModifiers.Shift, PhysicalKey.None, null);
+            await Settle();
+            Assert.False(vm.IsSidebarCollapsed);
+            Assert.True(vm.IsUnreadPanelOpen);
+            var inbox = window.FindControl<Button>("UnreadInboxToggle");
+            Assert.Same(inbox, window.FocusManager?.GetFocusedElement());
+
+            window.KeyPress(Key.Tab, RawInputModifiers.None, PhysicalKey.None, null);
+            await Settle();
+            Assert.IsType<UnreadChatEntry>(Assert.IsType<Button>(window.FocusManager?.GetFocusedElement()).CommandParameter);
+
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
+            await Settle();
+            Assert.False(vm.IsUnreadPanelOpen);
+            Assert.Same(inbox, window.FocusManager?.GetFocusedElement());
+            Assert.True(data.Chats[1].HasUnreadMessages);
         }
         finally
         {

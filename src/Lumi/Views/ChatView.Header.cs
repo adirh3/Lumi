@@ -3,6 +3,7 @@ using System.Linq;
 using System.Windows.Input;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Lumi.ViewModels;
@@ -97,6 +98,7 @@ public partial class ChatView
             return;
 
         _subscribedVm.RefreshHeaderDetails();
+        var commandModifier = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
 
         foreach (var item in menu.Items.OfType<MenuItem>())
         {
@@ -111,6 +113,7 @@ public partial class ChatView
                     break;
                 case "ChatTitleDuplicateItem":
                     Bind(item, detached?.DuplicateChatCommand ?? main.DuplicateChatCommand);
+                    item.InputGesture = detached is null ? new KeyGesture(Key.D, commandModifier | KeyModifiers.Shift) : null;
                     break;
                 case "ChatTitleMoveItem":
                     ChatMenuBuilder.PopulateMoveToProjectMenu(item, main, chat, FindIconGeometry);
@@ -121,6 +124,7 @@ public partial class ChatView
                 case "ChatTitleNewWindowItem":
                     Bind(item, main.OpenChatInNewWindowCommand);
                     item.IsVisible = detached is null;
+                    item.InputGesture = detached is null ? new KeyGesture(Key.N, commandModifier | KeyModifiers.Shift) : null;
                     break;
                 case "ChatTitleDeleteItem":
                     Bind(item, detached?.DeleteChatCommand ?? main.DeleteChatCommand);
