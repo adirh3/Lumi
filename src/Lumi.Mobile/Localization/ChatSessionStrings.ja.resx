@@ -1,5 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <root>
+  <data name="SendWithEnter" xml:space="preserve"><value>Enter で送信</value></data>
+  <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter で改行します。このデバイスのみ。</value></data>
   <data name="FollowUpSuggestions" xml:space="preserve"><value>返信の候補</value></data>
   <data name="FollowUpHelp" xml:space="preserve"><value>タップで送信。長押しで編集してから送信。</value></data>
   <resheader name="resmimetype">

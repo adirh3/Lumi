@@ -53,10 +53,7 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
                         | InputTypes.TextFlagMultiLine
                         | InputTypes.TextFlagAutoCorrect
                         | InputTypes.TextFlagCapSentences,
-            ImeOptions = ImeAction.None
-                         | (ImeAction)ImeFlags.NoEnterAction
-                         | (ImeAction)ImeFlags.NoExtractUi
-                         | (ImeAction)ImeFlags.NoFullscreen,
+            ImeOptions = SendKeyOptions(host.SendWithEnter),
             Clickable = true,
             LongClickable = true,
             Focusable = true,
@@ -85,6 +82,30 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
             if (!state.ApplyingModel)
                 host.SetTextFromNative(editor.Text ?? "");
             QueueHeightUpdate(host, state);
+        };
+        state.KeyHandler = (_, args) =>
+        {
+            var key = args.Event;
+            if (!host.SendWithEnter || key is null
+                || args.KeyCode is not (Keycode.Enter or Keycode.NumpadEnter)
+                || key.IsShiftPressed || key.IsCtrlPressed || key.IsAltPressed || key.IsMetaPressed
+                || IsComposing(editor))
+                return;
+
+            args.Handled = key.Action switch
+            {
+                KeyEventActions.Down when key.RepeatCount == 0 => host.RequestEnterFromNative(),
+                KeyEventActions.Down or KeyEventActions.Up => true,
+                _ => false
+            };
+        };
+        state.EditorActionHandler = (_, args) =>
+        {
+            var key = args.Event;
+            if (host.SendWithEnter && args.ActionId == ImeAction.Send
+                && (key is null || key.Action == KeyEventActions.Down
+                    && !key.IsShiftPressed && !IsComposing(editor)))
+                args.Handled = host.RequestEnterFromNative();
         };
         state.LayoutChangedHandler = (_, _) => QueueHeightUpdate(host, state);
         state.TouchHandler = (_, args) =>
@@ -159,6 +180,14 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
                 ApplyEditorSize(host, state);
                 return;
             }
+            if (args.Property == NativeComposerEditorHost.SendWithEnterProperty)
+            {
+                editor.ImeOptions = SendKeyOptions(host.SendWithEnter);
+                if (editor.HasFocus)
+                    editor.Context?.GetSystemService(Context.InputMethodService)
+                        ?.JavaCast<InputMethodManager>()?.RestartInput(editor);
+                return;
+            }
             if (args.Property != NativeComposerEditorHost.IsVisibleProperty)
                 return;
             // The platform host applies visibility during layout; hide its old surface immediately.
@@ -167,6 +196,8 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
                 Blur(host);
         };
         editor.TextChanged += state.TextChangedHandler;
+        editor.KeyPress += state.KeyHandler;
+        editor.EditorAction += state.EditorActionHandler;
         editor.LayoutChange += state.LayoutChangedHandler;
         editor.Touch += state.TouchHandler;
         editor.FocusChange += state.FocusChangedHandler;
@@ -179,6 +210,14 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         ApplyEditorSize(host, state);
         return new AndroidViewControlHandle(editor);
     }
+
+    private static ImeAction SendKeyOptions(bool sendWithEnter) =>
+        (sendWithEnter ? ImeAction.Send : ImeAction.None | (ImeAction)ImeFlags.NoEnterAction)
+        | (ImeAction)ImeFlags.NoExtractUi
+        | (ImeAction)ImeFlags.NoFullscreen;
+
+    private static bool IsComposing(EditText editor) =>
+        editor.EditableText is { } text && BaseInputConnection.GetComposingSpanStart(text) >= 0;
 
     private static bool TryShowKeyboard(NativeComposerEditorHost host, EditorState state, int focusVersion)
     {
@@ -228,6 +267,8 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         if (state.Editor.PeerReference.IsValid)
         {
             state.Editor.TextChanged -= state.TextChangedHandler;
+            state.Editor.KeyPress -= state.KeyHandler;
+            state.Editor.EditorAction -= state.EditorActionHandler;
             state.Editor.LayoutChange -= state.LayoutChangedHandler;
             state.Editor.Touch -= state.TouchHandler;
             state.Editor.FocusChange -= state.FocusChangedHandler;
@@ -435,6 +476,8 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         public bool DeferFocusNotification { get; set; }
         public int FocusVersion { get; set; }
         public EventHandler<global::Android.Text.TextChangedEventArgs>? TextChangedHandler { get; set; }
+        public EventHandler<View.KeyEventArgs>? KeyHandler { get; set; }
+        public EventHandler<TextView.EditorActionEventArgs>? EditorActionHandler { get; set; }
         public EventHandler<View.LayoutChangeEventArgs>? LayoutChangedHandler { get; set; }
         public EventHandler<View.TouchEventArgs>? TouchHandler { get; set; }
         public EventHandler<View.FocusChangeEventArgs>? FocusChangedHandler { get; set; }

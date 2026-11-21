@@ -16,6 +16,7 @@ using Avalonia.Input.TextInput;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using CommunityToolkit.Mvvm.Input;
 using Lumi.Mobile.Behaviors;
 using Lumi.Mobile.Layout;
 using Lumi.Mobile.Localization;
@@ -1493,6 +1494,173 @@ public sealed class MobileShellViewTests
             Assert.True(TextInputOptions.GetShowSuggestions(input));
             Assert.False(args.Handled);
         });
+    }
+
+    [Fact]
+    public async Task SendWithEnterSettingUpdatesBrowserComposerWithoutChangingShiftEnter()
+    {
+        var presenter = new RecordingNativeTextInputOverlayPresenter();
+        MobilePlatformServices.TextInputOverlayPresenter = presenter;
+        try
+        {
+            await RunAsync(async (shell, window) =>
+            {
+                Pair(shell);
+                OpenChat(shell);
+                Layout(window, shell, 412, 892);
+                await Task.Delay(360);
+                Pump(window);
+
+                var composer = window.GetVisualDescendants().OfType<StrataChatComposer>().Single();
+                var input = composer.GetVisualDescendants().OfType<TextBox>()
+                    .Single(control => control.Name == "PART_Input");
+                var native = Assert.Single(presenter.Sessions,
+                    session => session.IsShown && session.Options.Placeholder == input.PlaceholderText);
+                var sends = 0;
+                composer.SetCurrentValue(StrataChatComposer.SendCommandProperty,
+                    new RelayCommand(() => sends++));
+                native.SimulateText("Draft");
+                Pump(window);
+
+                Assert.False(composer.SendWithEnter);
+                native.SimulateKey(Key.Enter);
+                Assert.Equal(0, sends);
+                shell.Page = MobilePage.Settings;
+                Pump(window);
+                var toggle = Assert.IsType<ToggleSwitch>(Named(window, "SendWithEnterSwitch"));
+                Assert.False(toggle.IsChecked);
+                toggle.IsChecked = true;
+                Pump(window);
+                Assert.True(shell.SendWithEnter);
+                Assert.True(composer.SendWithEnter);
+
+                shell.Page = MobilePage.Chat;
+                Pump(window);
+                Assert.False(native.SimulateKey(Key.Enter, KeyModifiers.Shift));
+                Assert.True(native.SimulateKey(Key.Enter));
+                Assert.Equal(1, sends);
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.ResetTextInputOverlayPresenter(presenter);
+        }
+    }
+
+    [Fact]
+    public async Task SendWithEnterDoesNotStopAReplyWhenTheDraftIsEmpty()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            shell.SendWithEnter = true;
+            shell.Chat.IsBusy = true;
+            Layout(window, shell, 412, 892);
+            Pump(window);
+
+            var composer = window.GetVisualDescendants().OfType<StrataChatComposer>().Single();
+            var input = composer.GetVisualDescendants().OfType<TextBox>()
+                .Single(control => control.Name == "PART_Input");
+            var stops = 0;
+            composer.SetCurrentValue(StrataChatComposer.StopCommandProperty,
+                new RelayCommand(() => stops++));
+            input.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            Assert.Equal(0, stops);
+        });
+    }
+
+    [Fact]
+    public async Task SendWithEnterSendsAnAttachmentWithoutText()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            shell.SendWithEnter = true;
+            shell.Chat.Attachments.Add(new PendingAttachment("notes.txt", "notes.txt"));
+            Layout(window, shell, 412, 892);
+            Pump(window);
+
+            var composer = window.GetVisualDescendants().OfType<StrataChatComposer>().Single();
+            var input = composer.GetVisualDescendants().OfType<TextBox>()
+                .Single(control => control.Name == "PART_Input");
+            var sends = 0;
+            composer.SetCurrentValue(StrataChatComposer.SendCommandProperty,
+                new RelayCommand(() => sends++));
+            input.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            Assert.Equal(1, sends);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SendWithEnterReachesThePairedDesktop(bool attachmentOnly)
+    {
+        await using var desktop = new FakeLumiDesktop();
+        desktop.Start();
+        var presenter = new RecordingNativeTextInputOverlayPresenter();
+        MobilePlatformServices.TextInputOverlayPresenter = presenter;
+        try
+        {
+            await RunAsync(async (shell, window) =>
+            {
+                shell.Connect.ManualAddress = desktop.BaseUrl;
+                await shell.Connect.ConnectManuallyCommand.ExecuteAsync(null);
+                shell.Connect.PairingCode = "123456";
+                await shell.Connect.SubmitCodeCommand.ExecuteAsync(null);
+                Assert.True(shell.IsPaired);
+                var deadline = DateTime.UtcNow.AddSeconds(10);
+                while (shell.BootstrapSnapshotCount == 0 && DateTime.UtcNow < deadline)
+                    await Task.Delay(25);
+                Assert.True(shell.BootstrapSnapshotCount > 0);
+
+                var chatId = Guid.NewGuid();
+                shell.Chat.Reset(chatId, "Send-key test");
+                shell.Page = MobilePage.Chat;
+                shell.IsDrawerOpen = false;
+                shell.SendWithEnter = true;
+                Layout(window, shell, 412, 892);
+                await Task.Delay(360);
+                Pump(window);
+
+                var composer = window.GetVisualDescendants().OfType<StrataChatComposer>().Single();
+                var input = composer.GetVisualDescendants().OfType<TextBox>()
+                    .Single(control => control.Name == "PART_Input");
+                var native = Assert.Single(presenter.Sessions,
+                    session => session.IsShown && session.Options.Placeholder == input.PlaceholderText);
+                if (attachmentOnly)
+                    await shell.Chat.AttachFileAsync("notes.txt", new byte[] { 1, 2, 3 });
+                else
+                    native.SimulateText("A message from Enter");
+                Pump(window);
+                if (attachmentOnly)
+                    Assert.True(composer.CanSendWithoutPrompt);
+                Assert.True(native.SimulateKey(Key.Enter));
+
+                RemoteCommand? sent = null;
+                deadline = DateTime.UtcNow.AddSeconds(10);
+                while (sent is null && DateTime.UtcNow < deadline)
+                {
+                    lock (desktop.ReceivedCommands)
+                        sent = desktop.ReceivedCommands.LastOrDefault(command =>
+                            command.Action == RemoteProtocol.Actions.SendMessage);
+                    if (sent is null)
+                        await Task.Delay(25);
+                }
+                Assert.NotNull(sent);
+                if (attachmentOnly)
+                    Assert.Contains(desktop.UploadedPath!, sent.Get("message"));
+                else
+                    Assert.Equal("A message from Enter", sent.Get("message"));
+                Assert.Equal(chatId.ToString(), sent.Get("chatId"));
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.ResetTextInputOverlayPresenter(presenter);
+        }
     }
 
     [Fact]

@@ -42,6 +42,9 @@ public sealed class MobileConnectionSettings
     /// <summary>Lets the glow drift and breathe while Lumi works, which costs battery; off by default.</summary>
     public bool AnimateGlowWhileWorking { get; set; }
 
+    /// <summary>Send with Enter on this device instead of inserting a new line.</summary>
+    public bool SendWithEnter { get; set; }
+
     /// <summary>Docked sidebar collapsed on a tablet or unfolded foldable.</summary>
     public bool IsSidebarCollapsed { get; set; }
 

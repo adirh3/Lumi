@@ -27,6 +27,9 @@ public sealed class NativeComposerEditorHost
             nameof(Placeholder),
             "");
 
+    public static readonly StyledProperty<bool> SendWithEnterProperty =
+        AvaloniaProperty.Register<NativeComposerEditorHost, bool>(nameof(SendWithEnter));
+
     public static readonly StyledProperty<double> FontSizeProperty =
         TextElement.FontSizeProperty.AddOwner<NativeComposerEditorHost>();
 
@@ -73,6 +76,12 @@ public sealed class NativeComposerEditorHost
         set => SetValue(PlaceholderProperty, value);
     }
 
+    public bool SendWithEnter
+    {
+        get => GetValue(SendWithEnterProperty);
+        set => SetValue(SendWithEnterProperty, value);
+    }
+
     public double FontSize
     {
         get => GetValue(FontSizeProperty);
@@ -84,6 +93,9 @@ public sealed class NativeComposerEditorHost
 
     internal bool IsInputFocused { get; private set; }
     internal event Action<bool>? InputFocusChanged;
+    internal event Func<bool>? EnterRequested;
+
+    internal bool RequestEnterFromNative() => SendWithEnter && EnterRequested?.Invoke() == true;
 
     internal void SetInputFocusFromNative(bool focused)
     {

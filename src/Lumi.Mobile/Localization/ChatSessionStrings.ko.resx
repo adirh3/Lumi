@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="SendWithEnter" xml:space="preserve"><value>Enter로 보내기</value></data>
+  <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter로 줄을 바꿉니다. 이 기기에만 적용됩니다.</value></data>
   <data name="FollowUpSuggestions" xml:space="preserve"><value>추천 답장</value></data>
   <data name="FollowUpHelp" xml:space="preserve"><value>탭하여 보내기. 길게 눌러 먼저 편집.</value></data>
   <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>

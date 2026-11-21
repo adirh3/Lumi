@@ -25,6 +25,26 @@ namespace Lumi.Mobile.Tests;
 public sealed class MobileAppearanceSettingsTests
 {
     [Fact]
+    public async Task SendWithEnterIsOffByDefaultAndRememberedOnThisDevice()
+    {
+        using var session = HeadlessMobileSession.Start();
+        var store = session.NewStore();
+        await using (var shell = new MobileShellViewModel(store: store, post: action => action()))
+        {
+            Assert.False(shell.SendWithEnter);
+            shell.SendWithEnter = true;
+            Assert.True(store.Load().SendWithEnter);
+        }
+
+        await using (var reopened = new MobileShellViewModel(store: store, post: action => action()))
+        {
+            Assert.True(reopened.SendWithEnter);
+            reopened.SendWithEnter = false;
+        }
+        Assert.False(store.Load().SendWithEnter);
+    }
+
+    [Fact]
     public async Task TheLookIsRememberedAndRestoreLeavesTheLanguageAlone()
     {
         using var session = HeadlessMobileSession.Start();

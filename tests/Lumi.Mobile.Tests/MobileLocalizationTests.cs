@@ -22,6 +22,38 @@ namespace Lumi.Mobile.Tests;
 public sealed class MobileLocalizationTests
 {
     [Theory]
+    [InlineData("en", "Send with Enter", FlowDirection.LeftToRight)]
+    [InlineData("he", "שליחה באמצעות Enter", FlowDirection.RightToLeft)]
+    public async Task SendKeySettingUsesTheUiLanguage(string language, string label, FlowDirection direction)
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            using var cultures = new CultureScope();
+            var store = new MemorySettingsStore();
+            store.Settings.Language = language;
+            await using var shell = new MobileShellViewModel(store: store, post: action => action());
+            var view = new MobileSettingsView { DataContext = shell };
+            var window = new Window { Width = 412, Height = 892, Content = view };
+            try
+            {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                var toggle = view.FindControl<ToggleSwitch>("SendWithEnterSwitch")!;
+                Assert.Equal(direction, view.FlowDirection);
+                Assert.Equal(label, Avalonia.Automation.AutomationProperties.GetName(toggle));
+                Assert.False(toggle.IsChecked);
+                toggle.IsChecked = true;
+                Assert.True(store.Settings.SendWithEnter);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
     [InlineData("en", "Suggested replies", "Tap to send. Long-press to edit first.", FlowDirection.LeftToRight)]
     [InlineData("he", "תשובות מוצעות", "הקישו לשליחה. לחיצה ארוכה לעריכה לפני השליחה.", FlowDirection.RightToLeft)]
     public async Task FollowUpsTranslateOnlyTheirChromeNotTheSuggestedMessage(

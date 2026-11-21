@@ -154,6 +154,24 @@ test('multiline fields that do not forward Enter leave rapid typing and newlines
     assert.equal(prevented.mock.callCount(), 0);
 });
 
+test('composer forwards Enter but leaves Shift+Enter and IME composition to the browser', t => {
+    const keyed = t.mock.fn(() => true);
+    browserHost.configureNativeTextInputs(t.mock.fn(), keyed, t.mock.fn());
+    browserHost.showNativeTextInput(1, 0, 0, 200, 80, 0, 0, 200, 80,
+        'Draft', 'Message Lumi', true, 0, 'text', 'enter', false, false, false,
+        true, 'Inter', 16, 400, 'normal', 24, 0, 4, 4, 4, 4, 'start', 'ltr', false, 0, true);
+    const input = bodyChildren.find(item => item.tagName === 'TEXTAREA');
+    const prevented = t.mock.fn();
+    input.dispatch('keydown', { key: 'Enter', shiftKey: true, preventDefault: prevented });
+    input.dispatch('keydown', { key: 'Enter', isComposing: true, preventDefault: prevented });
+    assert.equal(keyed.mock.callCount(), 0);
+    assert.equal(prevented.mock.callCount(), 0);
+
+    input.dispatch('keydown', { key: 'Enter', preventDefault: prevented });
+    assert.equal(keyed.mock.callCount(), 1);
+    assert.equal(prevented.mock.callCount(), 1);
+});
+
 test('a forwarded but unhandled Enter keeps text typed before the managed answer', async t => {
     let decide;
     const changed = t.mock.fn(async () => {});

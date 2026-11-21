@@ -12,6 +12,7 @@ using Avalonia.Layout;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using CommunityToolkit.Mvvm.Input;
 using Lumi.Mobile.Behaviors;
 using Lumi.Mobile.Layout;
 using Lumi.Mobile.Services;
@@ -1223,6 +1224,74 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
 
             return Task.CompletedTask;
         }, nativeFactory: new FocusEditorFactory());
+
+    [Fact]
+    public Task NativeComposerEnterUsesTheSharedSendActionOnlyWhenEnabled() =>
+        RunUiAsync(412, (shell, view, window) =>
+        {
+            var composer = Required<StrataChatComposer>(view, "Composer");
+            var editor = Assert.IsType<NativeComposerEditorHost>(composer.EditorContent);
+            var sends = 0;
+            composer.SetCurrentValue(StrataChatComposer.SendCommandProperty,
+                new RelayCommand(() => sends++));
+            editor.SetTextFromNative("Plan [where?] for [when?]");
+            Pump(window);
+
+            Assert.False(editor.RequestEnterFromNative());
+            Assert.Equal(0, sends);
+            shell.SendWithEnter = true;
+            Pump(window);
+            Assert.True(editor.SendWithEnter);
+            composer.BeginFillIn(["[where?]", "[when?]"]);
+            Pump(window);
+            Assert.True(editor.RequestEnterFromNative());
+            Assert.Equal(0, sends);
+            Assert.True(editor.RequestEnterFromNative());
+            Assert.Equal(1, sends);
+
+            shell.SendWithEnter = false;
+            Pump(window);
+            Assert.False(editor.RequestEnterFromNative());
+            Assert.Equal(1, sends);
+
+            var stops = 0;
+            composer.SetCurrentValue(StrataChatComposer.StopCommandProperty,
+                new RelayCommand(() => stops++));
+            editor.SetTextFromNative("");
+            shell.Chat.IsBusy = true;
+            shell.SendWithEnter = true;
+            Pump(window);
+            Assert.True(editor.RequestEnterFromNative());
+            Assert.Equal(0, stops);
+            Assert.Equal(1, sends);
+            return Task.CompletedTask;
+        }, nativeFactory: new FocusEditorFactory());
+
+    [Fact]
+    public Task NativeComposerEnterSendsAnAttachmentWhileBusy() =>
+        RunUiAsync(412, (shell, view, window) =>
+        {
+            var composer = Required<StrataChatComposer>(view, "Composer");
+            var editor = Assert.IsType<NativeComposerEditorHost>(composer.EditorContent);
+            var sends = 0;
+            var stops = 0;
+            composer.SetCurrentValue(StrataChatComposer.SendCommandProperty,
+                new RelayCommand(() => sends++));
+            composer.SetCurrentValue(StrataChatComposer.StopCommandProperty,
+                new RelayCommand(() => stops++));
+            shell.SendWithEnter = true;
+            Pump(window);
+
+            Assert.True(composer.CanSendWithoutPrompt);
+            Assert.True(editor.RequestEnterFromNative());
+            Assert.Equal(1, sends);
+            Assert.Equal(0, stops);
+            return Task.CompletedTask;
+        }, nativeFactory: new FocusEditorFactory(), setup: shell =>
+        {
+            shell.Chat.IsBusy = true;
+            shell.Chat.Attachments.Add(new PendingAttachment("notes.txt", "notes.txt"));
+        });
 
     [Fact]
     public Task TabletProjectPickerKeepsTheDraftVisibleWithoutRaisingNativeTextOverThePopup() =>

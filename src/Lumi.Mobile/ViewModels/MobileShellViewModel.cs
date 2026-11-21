@@ -246,6 +246,7 @@ public sealed partial class MobileShellViewModel :
 
     [ObservableProperty] private MobileLayoutState _layout = MobileLayoutState.From(390, 844);
     [ObservableProperty] private ThemePreference _theme = ThemePreference.System;
+    [ObservableProperty] private bool _sendWithEnter;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsEnglishLanguage))]
     [NotifyPropertyChangedFor(nameof(IsHebrewLanguage))]
@@ -320,6 +321,7 @@ public sealed partial class MobileShellViewModel :
         _settings = _store.Load();
         Strings.Load(_settings.Language);
         _language = Strings.Language;
+        _sendWithEnter = _settings.SendWithEnter;
         _post = post ?? (action => Dispatcher.UIThread.Post(action));
 
         Client = client ?? new LumiRemoteClient(_settings.DeviceId, _settings.DeviceName);
@@ -1960,6 +1962,12 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(IsDarkTheme));
         OnPropertyChanged(nameof(ThemeLabel));
         OnAppearanceChanged();
+    }
+
+    partial void OnSendWithEnterChanged(bool value)
+    {
+        _settings.SendWithEnter = value;
+        _store.Save(_settings);
     }
 
     /// <summary>The theme in words, in the Appearance summary of the Settings list.</summary>

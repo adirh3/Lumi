@@ -223,6 +223,7 @@ public partial class ChatDetailView : UserControl
 
         _composer = composer;
         composer.PropertyChanged += OnComposerPropertyChanged;
+        composer.AddHandler(KeyDownEvent, OnComposerKeyDown, RoutingStrategies.Tunnel);
         composer.GotFocus += OnComposerGotFocus;
         composer.LostFocus += OnComposerLostFocus;
         composer.SendRequested += OnComposerActionRequested;
@@ -243,11 +244,13 @@ public partial class ChatDetailView : UserControl
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Placeholder = composer.Placeholder,
-            Text = composer.PromptText ?? ""
+            Text = composer.PromptText ?? "",
+            SendWithEnter = composer.SendWithEnter
         };
         _nativeComposerEditor = editor;
         editor.PropertyChanged += OnNativeComposerEditorPropertyChanged;
         editor.InputFocusChanged += OnNativeInputFocusChanged;
+        editor.EnterRequested += OnNativeComposerEnterRequested;
         composer.EditorContent = editor;
         UpdateNativeComposerVisibility();
         UpdateComposerFocus();
@@ -258,6 +261,7 @@ public partial class ChatDetailView : UserControl
         if (_composer is not null)
         {
             _composer.PropertyChanged -= OnComposerPropertyChanged;
+            _composer.RemoveHandler(KeyDownEvent, OnComposerKeyDown);
             _composer.GotFocus -= OnComposerGotFocus;
             _composer.LostFocus -= OnComposerLostFocus;
             _composer.SendRequested -= OnComposerActionRequested;
@@ -270,6 +274,7 @@ public partial class ChatDetailView : UserControl
         {
             _nativeComposerEditor.PropertyChanged -= OnNativeComposerEditorPropertyChanged;
             _nativeComposerEditor.InputFocusChanged -= OnNativeInputFocusChanged;
+            _nativeComposerEditor.EnterRequested -= OnNativeComposerEnterRequested;
         }
         if (_composer is not null
             && ReferenceEquals(_composer.EditorContent, _nativeComposerEditor))
@@ -294,6 +299,34 @@ public partial class ChatDetailView : UserControl
                 e.GetNewValue<string?>() ?? "");
             UpdateComposerFocus();
         }
+        else if (e.Property == StrataChatComposer.SendWithEnterProperty && _nativeComposerEditor is not null)
+        {
+            _nativeComposerEditor.SendWithEnter = e.GetNewValue<bool>();
+        }
+    }
+
+    private bool OnNativeComposerEnterRequested()
+    {
+        var input = _composer?.GetVisualDescendants().OfType<TextBox>()
+            .FirstOrDefault(control => control.Name == "PART_Input");
+        if (input is null)
+            return false;
+        var args = new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter };
+        input.RaiseEvent(args);
+        return args.Handled;
+    }
+
+    private void OnComposerKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (_composer is not { SendWithEnter: true, IsBusy: true } composer
+            || e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None
+            || e.Source is not TextBox { Name: "PART_Input" } input
+            || composer.CanSendWithoutPrompt)
+            return;
+
+        var text = composer.EditorContent is null ? input.Text : composer.PromptText;
+        if (string.IsNullOrWhiteSpace(text))
+            e.Handled = true;
     }
 
     private void OnComposerGotFocus(object? sender, RoutedEventArgs e)

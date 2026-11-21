@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="SendWithEnter" xml:space="preserve"><value>按 Enter 发送</value></data>
+  <data name="SendWithEnterDescription" xml:space="preserve"><value>按 Shift+Enter 换行。仅在此设备上生效。</value></data>
   <data name="FollowUpSuggestions" xml:space="preserve"><value>建议回复</value></data>
   <data name="FollowUpHelp" xml:space="preserve"><value>点按即可发送。长按可先编辑。</value></data>
   <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>

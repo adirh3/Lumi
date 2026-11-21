@@ -965,6 +965,10 @@ you've seen).
 
 ### Mobile conversations
 
+In the mobile app or web app, **Settings → Send with Enter** lets Enter send a message on
+that device; it is off by default. When it is on, Shift+Enter inserts a new line. This
+choice is independent of the desktop's send-key setting.
+
 After a reply, Lumi's suggested replies from your PC sit as a row of pills on the composer; swipe
 sideways for more. Tap one to send it as it reads, just as clicking a suggestion does on the desktop,
 or long-press it to put its words in the composer and edit them first. Suggestions step aside while
