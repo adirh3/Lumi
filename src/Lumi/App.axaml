@@ -193,6 +193,12 @@
       <Setter Property="IsVisible" Value="False" />
     </Style>
 
+    <!-- Fill Lumi's scaled title bar, keeping the Simple theme's minimum hit target. -->
+    <Style Selector="WindowDrawnDecorations /template/ Button#PART_MinimizeButton, WindowDrawnDecorations /template/ Button#PART_MaximizeButton, WindowDrawnDecorations /template/ Button#PART_CloseButton">
+      <Setter Property="Height" Value="NaN" />
+      <Setter Property="MinHeight" Value="30" />
+    </Style>
+
     <!-- Make drawn decorations fully transparent so acrylic/mica blur shows through -->
     <Style Selector="WindowDrawnDecorations">
       <Setter Property="DefaultShadowThickness" Value="0" />
