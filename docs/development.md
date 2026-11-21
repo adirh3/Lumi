@@ -712,7 +712,7 @@ their own licenses and notices; including Lumi's notice does not replace them.
 
 Lumi supports English (`en`), Hebrew (`he`), Spanish (`es`), Brazilian Portuguese (`pt-BR`),
 Simplified Chinese (`zh-Hans`), German (`de`), French (`fr`), Japanese (`ja`),
-Korean (`ko`) and Modern Standard Arabic (`ar`). Hebrew and Arabic use right-to-left layouts.
+Korean (`ko`), Modern Standard Arabic (`ar`) and Russian (`ru`). Hebrew and Arabic use right-to-left layouts.
 Desktop UI text lives in
 `src/Lumi/Resources/Strings/`, with `en.json` as the source catalog; the source generator exposes typed `Loc` properties,
 `Loc.Get` for formatted messages, and `{loc:Str Key}` for XAML. Keep all catalogs in sync, including

@@ -30,6 +30,26 @@ public sealed class PermissionControlsTests
     // ── Defaults and persistence ───────────────────────
 
     [Fact]
+    public void RussianRulePreviewDistinguishesAskingFromAllowingWithoutChangingTheCommand()
+    {
+        var rule = new ApprovalRule { Kind = ApprovalRuleKind.Command, Target = "git push", Action = ApprovalRuleAction.Ask };
+        try
+        {
+            Loc.Load("ru");
+            Assert.Equal("Lumi всегда сначала спросит вас, даже в режиме полного доступа: Команды, начинающиеся с git push.",
+                ApprovalRuleText.Preview(rule));
+            rule.Action = ApprovalRuleAction.Allow;
+            Assert.Equal("Lumi выполняет действие без подтверждения: Команды, начинающиеся с git push.",
+                ApprovalRuleText.Preview(rule));
+            Assert.Equal("git push", rule.Target);
+        }
+        finally
+        {
+            Loc.Load("en");
+        }
+    }
+
+    [Fact]
     [Trait("Category", "CoreQA")]
     public void Defaults_KeepFullAccess_ForExistingAndNewUsers()
     {

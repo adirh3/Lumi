@@ -211,6 +211,7 @@ public sealed class LaunchpadPlannerTests
     [InlineData("ja")]
     [InlineData("ko")]
     [InlineData("ar")]
+    [InlineData("ru")]
     public void StarterTemplates_KeepTheirBlanksInEveryLanguage(string language)
     {
         var english = LaunchpadStarterCatalog.TemplateKeys.ToDictionary(key => key, key => LaunchpadTemplate.Blanks(Loc.Get(key)).Count);

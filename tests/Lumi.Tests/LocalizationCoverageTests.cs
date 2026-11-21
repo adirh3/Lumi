@@ -27,6 +27,7 @@ public sealed class LocalizationCoverageTests
     [InlineData("ja")]
     [InlineData("ko")]
     [InlineData("ar")]
+    [InlineData("ru")]
     public void SupportedCatalogsHaveMatchingKeysAndFormatArguments(string language)
     {
         var english = ReadCatalog("en");

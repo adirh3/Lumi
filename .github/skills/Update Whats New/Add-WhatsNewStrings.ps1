@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Adds a release's What's new strings to all ten desktop string catalogs in one step.
+    Adds a release's What's new strings to every desktop string catalog in one step.
 
 .DESCRIPTION
     Reads a JSON file that gives each new key its text in every language:

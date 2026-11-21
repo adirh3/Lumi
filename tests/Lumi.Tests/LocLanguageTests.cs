@@ -13,6 +13,8 @@ public sealed class LocLanguageTests
     [InlineData("ja-JP", "ja")]
     [InlineData("ko-KR", "ko")]
     [InlineData("ar-SA", "ar")]
+    [InlineData("ru", "ru")]
+    [InlineData("ru-RU", "ru")]
     [InlineData("pt", "pt-BR")]
     [InlineData("pt-BR", "pt-BR")]
     [InlineData("pt-PT", "pt-BR")]

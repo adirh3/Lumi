@@ -56,6 +56,7 @@ public sealed class MobileLocalizationTests
     [Theory]
     [InlineData("en", "Suggested replies", "Tap to send. Long-press to edit first.", FlowDirection.LeftToRight)]
     [InlineData("he", "תשובות מוצעות", "הקישו לשליחה. לחיצה ארוכה לעריכה לפני השליחה.", FlowDirection.RightToLeft)]
+    [InlineData("ru", "Предложенные ответы", "Нажмите, чтобы отправить. Удерживайте, чтобы сначала отредактировать ответ.", FlowDirection.LeftToRight)]
     public async Task FollowUpsTranslateOnlyTheirChromeNotTheSuggestedMessage(
         string language, string title, string help, FlowDirection direction)
     {
@@ -107,6 +108,7 @@ public sealed class MobileLocalizationTests
     [InlineData("ja", "コピー")]
     [InlineData("ko", "복사")]
     [InlineData("ar", "نسخ")]
+    [InlineData("ru", "Копировать")]
     public async Task PlanMarkdownUsesTheUiLanguageWithoutChangingItsContent(string language, string copy)
     {
         using var session = HeadlessMobileSession.Start();
@@ -155,6 +157,7 @@ public sealed class MobileLocalizationTests
     [InlineData("ja-JP", "ja", "設定", FlowDirection.LeftToRight)]
     [InlineData("ko-KR", "ko", "설정", FlowDirection.LeftToRight)]
     [InlineData("ar-SA", "ar", "الإعدادات", FlowDirection.RightToLeft)]
+    [InlineData("ru-RU", "ru", "Настройки", FlowDirection.LeftToRight)]
     [InlineData("zh-TW", "en", "Settings", FlowDirection.LeftToRight)]
     [InlineData("unsupported", "en", "Settings", FlowDirection.LeftToRight)]
     public void StartupCultureSelectsResourcesAndBackgroundThreadDefaults(
@@ -184,6 +187,7 @@ public sealed class MobileLocalizationTests
     [InlineData("ja")]
     [InlineData("ko")]
     [InlineData("ar")]
+    [InlineData("ru")]
     public void EmbeddedCatalogsHaveMatchingKeysAndValidFormatArguments(string language)
     {
         var manager = new ResourceManager(
@@ -217,6 +221,7 @@ public sealed class MobileLocalizationTests
     [InlineData("ja")]
     [InlineData("ko")]
     [InlineData("ar")]
+    [InlineData("ru")]
     public async Task AddedLanguagesPersistWithoutChangingDraftsAndApplyOnRestart(string language)
     {
         using var cultures = new CultureScope();
@@ -248,6 +253,7 @@ public sealed class MobileLocalizationTests
     [InlineData("ja")]
     [InlineData("ko")]
     [InlineData("ar")]
+    [InlineData("ru")]
     public async Task LanguageChoicesRenderAndWorkInSetupAndSettings(string language)
     {
         using var session = HeadlessMobileSession.Start();
@@ -307,6 +313,46 @@ public sealed class MobileLocalizationTests
                 Assert.True(shell.LanguageRestartRequired);
                 Assert.Equal("Unsent original content", shell.Chat.PromptText);
                 Assert.Equal(language, ChatSessionStrings.Language);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RussianSetupAndAppearanceShowTranslatedInstructions()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            using var cultures = new CultureScope();
+            var store = new MemorySettingsStore();
+            store.Settings.Language = "ru";
+            await using var shell = new MobileShellViewModel(store: store, post: action => action());
+            var view = new MobileShellView { DataContext = shell };
+            var window = new Window { Width = 360, Height = 780, Content = view };
+            try
+            {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var setup = view.FindControl<ConnectView>("ConnectPage")!;
+                Assert.Equal("Ваш Lumi всегда с вами.", setup.FindControl<TextBlock>("FindStepTitle")!.Text);
+                var steps = setup.FindControl<Grid>("SetupProgress")!.GetVisualDescendants().OfType<TextBlock>()
+                    .Select(text => text.Text).ToArray();
+                Assert.Contains("1  Найдите компьютер", steps);
+                Assert.Contains("2  Подключите телефон", steps);
+
+                shell.IsPaired = true;
+                shell.Page = MobilePage.Settings;
+                shell.OpenSettingsSectionCommand.Execute("Appearance");
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var settings = view.FindControl<MobileSettingsView>("SettingsPage")!;
+                Assert.Contains(settings.GetVisualDescendants().OfType<TextBlock>(), text =>
+                    text.Text == "Сияние движется и дышит, пока Lumi думает или пишет. Расходует больше заряда батареи.");
             }
             finally
             {

@@ -58,7 +58,7 @@
              Link="wwwroot\localization\$([System.String]::Copy('%(Filename)').Replace('ChatSessionStrings.', '')).xml"
              TargetPath="wwwroot\localization\$([System.String]::Copy('%(Filename)').Replace('ChatSessionStrings.', '')).xml"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <_PwaLanguage Include="he;es;pt-BR;zh-Hans;de;fr;ja;ko;ar">
+    <_PwaLanguage Include="he;es;pt-BR;zh-Hans;de;fr;ja;ko;ar;ru">
       <Direction>ltr</Direction>
     </_PwaLanguage>
     <_PwaLanguage Update="he;ar">

@@ -1,0 +1,773 @@
+<?xml version='1.0' encoding='utf-8'?>
+<root>
+  <data name="FollowUpSuggestions" xml:space="preserve"><value>Предложенные ответы</value></data>
+  <data name="FollowUpHelp" xml:space="preserve"><value>Нажмите, чтобы отправить. Удерживайте, чтобы сначала отредактировать ответ.</value></data>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <data name="ReadyWithBackgroundActivity" xml:space="preserve">
+    <value>Готов · фоновая активность</value>
+  </data>
+  <data name="StopSession" xml:space="preserve">
+    <value>Закончить сессию</value>
+  </data>
+  <data name="Retry" xml:space="preserve"><value>Повторить</value></data>
+  <data name="TryAgain" xml:space="preserve"><value>Попробовать снова</value></data>
+  <data name="SignInAgain" xml:space="preserve"><value>Войдите заново</value></data>
+  <data name="Cancel" xml:space="preserve"><value>Отмена</value></data>
+  <data name="Save" xml:space="preserve"><value>Сохранить</value></data>
+  <data name="Saving" xml:space="preserve"><value>Сохранение…</value></data>
+  <data name="Delete" xml:space="preserve"><value>Удалить</value></data>
+  <data name="DeleteEllipsis" xml:space="preserve"><value>Удалить…</value></data>
+  <data name="Edit" xml:space="preserve"><value>Изменить</value></data>
+  <data name="Back" xml:space="preserve"><value>Назад</value></data>
+  <data name="Done" xml:space="preserve"><value>Готово</value></data>
+  <data name="Copy" xml:space="preserve"><value>Копировать</value></data>
+  <data name="SelectAll" xml:space="preserve"><value>Выбрать всё</value></data>
+  <data name="SelectText" xml:space="preserve"><value>Выберите текст</value></data>
+  <data name="EditMessage" xml:space="preserve"><value>Редактировать сообщение</value></data>
+  <data name="SaveAndResend" xml:space="preserve"><value>Сохранить и отправить повторно</value></data>
+  <data name="MessageEditWarning" xml:space="preserve"><value>Это заменит ваше сообщение и удалит сообщения после него.</value></data>
+  <data name="MessageEditUnavailable" xml:space="preserve"><value>Обновите Lumi на вашем компьютере, чтобы редактировать сообщения.</value></data>
+  <data name="MessageEditTruncated" xml:space="preserve"><value>Откройте это сообщение на вашем компьютере, чтобы редактировать его полный текст.</value></data>
+  <data name="MessageEditPending" xml:space="preserve"><value>Подождите, пока это сообщение не достигнет вашего компьютера, прежде чем редактировать его.</value></data>
+  <data name="MessageEditFailed" xml:space="preserve"><value>Сообщение не удалось отредактировать. Ваши изменения все еще здесь.</value></data>
+  <data name="CopyMessageFailed" xml:space="preserve"><value>Сообщение не удалось скопировать.</value></data>
+  <data name="CopySelection" xml:space="preserve"><value>Скопировать выделенный текст</value></data>
+  <data name="NoTextSelected" xml:space="preserve"><value>Выберите текст, который вы хотите скопировать.</value></data>
+  <data name="OpenWith" xml:space="preserve"><value>Открыть с помощью</value></data>
+  <data name="ClearSearch" xml:space="preserve"><value>Сбросить поиск</value></data>
+  <data name="Settings" xml:space="preserve"><value>Настройки</value></data>
+  <data name="Chats" xml:space="preserve"><value>Чаты</value></data>
+  <data name="Chat" xml:space="preserve"><value>Чат</value></data>
+  <data name="Jobs" xml:space="preserve"><value>Задания</value></data>
+  <data name="Customize" xml:space="preserve"><value>Настроить</value></data>
+  <data name="Library" xml:space="preserve"><value>Библиотека</value></data>
+  <data name="Memories" xml:space="preserve"><value>Память</value></data>
+  <data name="Projects" xml:space="preserve"><value>Проекты</value></data>
+  <data name="Project" xml:space="preserve"><value>Проект</value></data>
+  <data name="Skills" xml:space="preserve"><value>Навыки</value></data>
+  <data name="Skill" xml:space="preserve"><value>Навык</value></data>
+  <data name="Agents" xml:space="preserve"><value>Агенты</value></data>
+  <data name="Agent" xml:space="preserve"><value>Агент</value></data>
+  <data name="Connectors" xml:space="preserve"><value>Подключения</value></data>
+  <data name="ConnectorsHeader" xml:space="preserve"><value>ПОДКЛЮЧЕНИЯ</value></data>
+  <data name="Model" xml:space="preserve"><value>AI модель</value></data>
+  <data name="ReasoningEffort" xml:space="preserve"><value>Уровень рассуждения</value></data>
+  <data name="ContextWindow" xml:space="preserve"><value>Окно контекста</value></data>
+  <data name="Plan" xml:space="preserve"><value>План</value></data>
+  <data name="Sources" xml:space="preserve"><value>Источники</value></data>
+  <data name="Instructions" xml:space="preserve"><value>Инструкции</value></data>
+  <data name="Output" xml:space="preserve"><value>Выход</value></data>
+  <data name="Started" xml:space="preserve"><value>Начало</value></data>
+  <data name="Completed" xml:space="preserve"><value>Завершено</value></data>
+  <data name="ExitCode" xml:space="preserve"><value>Код выхода</value></data>
+  <data name="Preferences" xml:space="preserve"><value>Параметры</value></data>
+  <data name="Workspace" xml:space="preserve"><value>Рабочее пространство</value></data>
+  <data name="LocalCheckout" xml:space="preserve"><value>Локальная рабочая копия</value></data>
+  <data name="NewWorktree" xml:space="preserve"><value>Новое рабочее дерево</value></data>
+  <data name="None" xml:space="preserve"><value>Нет</value></data>
+  <data name="Name" xml:space="preserve"><value>Название</value></data>
+  <data name="Description" xml:space="preserve"><value>Описание</value></data>
+  <data name="Icon" xml:space="preserve"><value>Иконка</value></data>
+  <data name="Details" xml:space="preserve"><value>Детали</value></data>
+  <data name="Appearance" xml:space="preserve"><value>Внешний вид</value></data>
+  <data name="Connection" xml:space="preserve"><value>Подключение</value></data>
+  <data name="About" xml:space="preserve"><value>О программе</value></data>
+  <data name="System" xml:space="preserve"><value>Системная</value></data>
+  <data name="Light" xml:space="preserve"><value>Светлая</value></data>
+  <data name="Dark" xml:space="preserve"><value>Тёмная</value></data>
+  <data name="Language" xml:space="preserve"><value>Язык</value></data>
+  <data name="LanguageDescription" xml:space="preserve"><value>Выберите язык для этой программы.</value></data>
+  <data name="LanguageRestart" xml:space="preserve"><value>Закройте и снова откройте Lumi, чтобы применить язык. В браузере перезагрузите страницу после сохранения всех неотправленных текстов.</value></data>
+  <data name="AllProjects" xml:space="preserve"><value>Все проекты</value></data>
+  <data name="AllChats" xml:space="preserve"><value>Все чаты</value></data>
+  <data name="NewChat" xml:space="preserve"><value>Новый чат</value></data>
+  <data name="StartNewChat" xml:space="preserve"><value>Начать новый чат</value></data>
+  <data name="SearchChats" xml:space="preserve"><value>Поиск чатов</value></data>
+  <data name="SearchYourChats" xml:space="preserve"><value>Поиск в ваших чатах</value></data>
+  <data name="LoadMoreChats" xml:space="preserve"><value>Загрузить больше чатов</value></data>
+  <data name="LongPressChatActions" xml:space="preserve"><value>Долгое нажатие для действий в чате</value></data>
+  <data name="LaunchpadIdeas" xml:space="preserve"><value>Идеи</value></data>
+  <data name="LongPressSetupActions" xml:space="preserve"><value>Долгое нажатие, чтобы сохранить или изменить эту настройку</value></data>
+  <data name="RenameChat" xml:space="preserve"><value>Переименовать чат</value></data>
+  <data name="DeleteChat" xml:space="preserve"><value>Удалить чат</value></data>
+  <data name="ChatName" xml:space="preserve"><value>Название чата</value></data>
+  <data name="DeleteChatWarning" xml:space="preserve"><value>Эта беседа будет удалена с вашего телефона и компьютера. Это действие нельзя отменить.</value></data>
+  <data name="PinChat" xml:space="preserve"><value>Закрепить чат</value></data>
+  <data name="UnpinChat" xml:space="preserve"><value>Открепить чат</value></data>
+  <data name="DeleteChatQuestion" xml:space="preserve"><value>Удалить этот чат?</value></data>
+  <data name="ChatActions" xml:space="preserve"><value>Действия чата</value></data>
+  <data name="OpenNamed" xml:space="preserve"><value>Открыть {0}</value></data>
+  <data name="RemoveNamed" xml:space="preserve"><value>Удалить {0}</value></data>
+  <data name="JobWakeNamed" xml:space="preserve"><value>Задача активации: {0}</value></data>
+  <data name="ChatDetailsNamed" xml:space="preserve"><value>Детали чата: {0}</value></data>
+  <data name="ModelNamed" xml:space="preserve"><value>Модель: {0}</value></data>
+  <data name="ProjectNamed" xml:space="preserve"><value>Проект: {0}</value></data>
+  <data name="AgentNamed" xml:space="preserve"><value>Агент: {0}</value></data>
+  <data name="SkillNamed" xml:space="preserve"><value>Навык: {0}</value></data>
+  <data name="StartWithNamed" xml:space="preserve"><value>Начать с {0}</value></data>
+  <data name="EffortNamed" xml:space="preserve"><value>Уровень рассуждения: {0}</value></data>
+  <data name="ContextNamed" xml:space="preserve"><value>Окно контекста: {0}</value></data>
+  <data name="SelectProjectNamed" xml:space="preserve"><value>Выберите проект: {0}</value></data>
+  <data name="InProjectNamed" xml:space="preserve"><value>В {0}</value></data>
+  <data name="ChatNamed" xml:space="preserve"><value>Чат: {0}</value></data>
+  <data name="NewInSection" xml:space="preserve"><value>Новое в {0}</value></data>
+  <data name="ProfileNamed" xml:space="preserve"><value>{0}: профиль и воспоминания</value></data>
+  <data name="ProfileMemories" xml:space="preserve"><value>Профиль · {0}</value></data>
+  <data name="ConnectionNamed" xml:space="preserve"><value>Соединение: {0}</value></data>
+  <data name="JobWokeChat" xml:space="preserve"><value>Фоновая задача разбудила этот чат</value></data>
+  <data name="CopyAnswer" xml:space="preserve"><value>Скопировать ответ</value></data>
+  <data name="ShareAnswer" xml:space="preserve"><value>Поделиться ответом</value></data>
+  <data name="ChatDetailsHelp" xml:space="preserve"><value>Модель, усилия рассуждения, контекст, план, рабочая область и действия в чате</value></data>
+  <data name="EarlierActivity" xml:space="preserve"><value>Ранее активность</value></data>
+  <data name="ReturnToLatest" xml:space="preserve"><value>Вернуться к последнему</value></data>
+  <data name="LoadingConversation" xml:space="preserve"><value>Загрузка беседы</value></data>
+  <data name="LoadingConversationEllipsis" xml:space="preserve"><value>Загрузка беседы...</value></data>
+  <data name="MessageLumi" xml:space="preserve"><value>Напишите Lumi…</value></data>
+  <data name="AddFilesAndContext" xml:space="preserve"><value>Добавить файлы, агента, навыки и больше</value></data>
+  <data name="AddsToMessage" xml:space="preserve"><value>Добавить это к вашему сообщению</value></data>
+  <data name="SetupsRequireUpdate" xml:space="preserve"><value>Обновите Lumi на вашем компьютере, чтобы увидеть ваши обычные настройки здесь.</value></data>
+  <data name="HowLumiWorked" xml:space="preserve"><value>Как работал Lumi</value></data>
+  <data name="JobDetails" xml:space="preserve"><value>Детали задания</value></data>
+  <data name="ContextUsed" xml:space="preserve"><value>Используемый контекст</value></data>
+  <data name="ChooseFirstWorkspace" xml:space="preserve"><value>Выберите, где будет выполнена первая кодовая операция.</value></data>
+  <data name="AddToChat" xml:space="preserve"><value>Добавить к этому чату</value></data>
+  <data name="FilesAndPhotos" xml:space="preserve"><value>Файлы и фотографии</value></data>
+  <data name="ForThisChat" xml:space="preserve"><value>Для этого чата</value></data>
+  <data name="ContextDescription" xml:space="preserve"><value>Сколько из разговора модель учитывает при ответе.</value></data>
+  <data name="EffortDescription" xml:space="preserve"><value>Более высокий уровень даёт подробные ответы, но требует больше времени.</value></data>
+  <data name="Faster" xml:space="preserve"><value>Быстрее</value></data>
+  <data name="MoreThorough" xml:space="preserve"><value>Более подробно</value></data>
+  <data name="ConnectTagline" xml:space="preserve"><value>Всё важное — немного ближе.</value></data>
+  <data name="ConnectStepFind" xml:space="preserve"><value>1  Найдите компьютер</value></data>
+  <data name="ConnectStepPair" xml:space="preserve"><value>2  Подключите телефон</value></data>
+  <data name="ConnectTitle" xml:space="preserve"><value>Ваш Lumi всегда с вами.</value></data>
+  <data name="ConnectDescription" xml:space="preserve"><value>Продолжайте разговоры и выполняйте задачи на компьютере с телефона.</value></data>
+  <data name="ConnectFirstOpen" xml:space="preserve"><value>Сначала откройте Lumi на вашем компьютере</value></data>
+  <data name="ConnectDesktopInstructions" xml:space="preserve"><value>На компьютере откройте «Настройки → Мобильная версия» и включите доступ с телефона. Откройте ссылку для настройки или введите адрес ниже.</value></data>
+  <data name="PcAddress" xml:space="preserve"><value>Адрес компьютера</value></data>
+  <data name="PcAddressHelp" xml:space="preserve"><value>Используйте адрес, отображаемый в Lumi Desktop.</value></data>
+  <data name="PcAddressExample" xml:space="preserve"><value>например, 100.100.20.10</value></data>
+  <data name="Continue" xml:space="preserve"><value>Продолжить</value></data>
+  <data name="TailscaleAdvice" xml:space="preserve"><value>Для приватного подключения из любой точки, поддерживайте подключение Tailscale на обоих устройствах.</value></data>
+  <data name="UseLocalWifi" xml:space="preserve"><value>Используйте локальную Wi-Fi сеть</value></data>
+  <data name="LocalWifiWarning" xml:space="preserve"><value>Трафик локальной Wi-Fi сети не шифруется. Используйте только доверенные сети.</value></data>
+  <data name="FindNearby" xml:space="preserve"><value>Найти Lumi рядом</value></data>
+  <data name="Nearby" xml:space="preserve"><value>Вблизи</value></data>
+  <data name="OneLastStep" xml:space="preserve"><value>Последний шаг.</value></data>
+  <data name="PairCodeInstructions" xml:space="preserve"><value>Введите 6-значный код из раздела «Настройки → Мобильная версия» на компьютере, чтобы подключить этот телефон.</value></data>
+  <data name="PairCodeAccessible" xml:space="preserve"><value>Шестизначный код подключения</value></data>
+  <data name="DifferentPc" xml:space="preserve"><value>Используйте другой компьютер</value></data>
+  <data name="BackToChat" xml:space="preserve"><value>Назад в чат</value></data>
+  <data name="Working" xml:space="preserve"><value>Работает</value></data>
+  <data name="BackToSettings" xml:space="preserve"><value>Назад в Настройки</value></data>
+  <data name="Theme" xml:space="preserve"><value>Тема</value></data>
+  <data name="ThemeDescription" xml:space="preserve"><value>Выберите внешний вид или подстройте под ваш телефон</value></data>
+  <data name="AccentColor" xml:space="preserve"><value>Цвет акцента</value></data>
+  <data name="Accent_Lumi" xml:space="preserve"><value>Lumi</value></data>
+  <data name="Accent_Ocean" xml:space="preserve"><value>Океан</value></data>
+  <data name="Accent_Lagoon" xml:space="preserve"><value>Лагуна</value></data>
+  <data name="Accent_Forest" xml:space="preserve"><value>Лес</value></data>
+  <data name="Accent_Sunset" xml:space="preserve"><value>Закат</value></data>
+  <data name="Accent_Blossom" xml:space="preserve"><value>Цветок</value></data>
+  <data name="Accent_Grape" xml:space="preserve"><value>Виноград</value></data>
+  <data name="Accent_Graphite" xml:space="preserve"><value>Графит</value></data>
+  <data name="TextSize" xml:space="preserve"><value>Размер текста</value></data>
+  <data name="TextSizeDescription" xml:space="preserve"><value>Текст Lumi также подстраивается под размер шрифта вашего телефона.</value></data>
+  <data name="TextSizeSmall" xml:space="preserve"><value>Маленький</value></data>
+  <data name="TextSizeDefault" xml:space="preserve"><value>Стандартное</value></data>
+  <data name="TextSizeLarge" xml:space="preserve"><value>Большой</value></data>
+  <data name="TextSizeLarger" xml:space="preserve"><value>Больше</value></data>
+  <data name="TextSizeLargest" xml:space="preserve"><value>Наибольший</value></data>
+  <data name="GlowTitle" xml:space="preserve"><value>Сияние Lumi</value></data>
+  <data name="GlowSubtle" xml:space="preserve"><value>Нежно</value></data>
+  <data name="GlowBalanced" xml:space="preserve"><value>Сбалансированный</value></data>
+  <data name="GlowVivid" xml:space="preserve"><value>Ярко</value></data>
+  <data name="AnimateGlow" xml:space="preserve"><value>Анимировать во время работы Lumi</value></data>
+  <data name="AnimateGlowDescription" xml:space="preserve"><value>Сияние движется и дышит, пока Lumi думает или пишет. Расходует больше заряда батареи.</value></data>
+  <data name="LivePreview" xml:space="preserve"><value>Живой предпросмотр</value></data>
+  <data name="PreviewUserMessage" xml:space="preserve"><value>Сделайте этот обзор дружелюбнее?</value></data>
+  <data name="PreviewAssistantMessage" xml:space="preserve"><value>Конечно! Вот более теплая версия, которая сохраняет все ключевые моменты.</value></data>
+  <data name="RestoreDefaultLook" xml:space="preserve"><value>Восстановить стандартный вид</value></data>
+  <data name="VersionNamed" xml:space="preserve"><value>Версия {0}</value></data>
+  <data name="ThisConnection" xml:space="preserve"><value>Это соединение</value></data>
+  <data name="ThisDevice" xml:space="preserve"><value>Этот устройство</value></data>
+  <data name="RefreshConnection" xml:space="preserve"><value>Обновить соединение</value></data>
+  <data name="RefreshConnectionHelp" xml:space="preserve"><value>Обновите ваши чаты и библиотеку.</value></data>
+  <data name="Refresh" xml:space="preserve"><value>Обновить</value></data>
+  <data name="ConnectionActivity" xml:space="preserve"><value>Деятельность соединения</value></data>
+  <data name="BrowserSignIn" xml:space="preserve"><value>Вход в браузере</value></data>
+  <data name="BrowserSignInHelp" xml:space="preserve"><value>Перезагрузите через браузер, если срок действия входа истёк. Соединение сохраняется; непереданный текст не сохраняется.</value></data>
+  <data name="ReloadWebApp" xml:space="preserve"><value>Перезагрузить веб-приложение</value></data>
+  <data name="DisconnectPc" xml:space="preserve"><value>Отключиться от этого компьютера</value></data>
+  <data name="ChatsStayOnPc" xml:space="preserve"><value>Ваши чаты и файлы остаются на вашем компьютере.</value></data>
+  <data name="AboutDescription" xml:space="preserve"><value>Lumi на вашем телефоне работает с Lumi на вашем компьютере: ваши чаты, файлы и инструменты остаются там.</value></data>
+  <data name="DisconnectQuestion" xml:space="preserve"><value>Отключиться от этого компьютера?</value></data>
+  <data name="DisconnectDescription" xml:space="preserve"><value>Этот телефон теряет доступ и возвращается к настройкам. Ваши чаты и файлы остаются на компьютере.</value></data>
+  <data name="DisconnectRevoke" xml:space="preserve"><value>Отключиться и отозвать доступ</value></data>
+  <data name="KeepConnected" xml:space="preserve"><value>Поддерживать соединение</value></data>
+  <data name="CantReachPcQuestion" xml:space="preserve"><value>Не удается подключиться к вашему компьютеру?</value></data>
+  <data name="RemoveLocalConnectionHelp" xml:space="preserve"><value>Удалить сохранённое подключение только с этого телефона. Его доступ на компьютере останется активным.</value></data>
+  <data name="RemoveLocalConnection" xml:space="preserve"><value>Удалить только с этого телефона</value></data>
+  <data name="UpdateNow" xml:space="preserve"><value>Обновить сейчас</value></data>
+  <data name="TryLoadingAgain" xml:space="preserve"><value>Попробуйте загрузить снова</value></data>
+  <data name="ShortSummary" xml:space="preserve"><value>Короткий пересказ</value></data>
+  <data name="EmojiOrSymbol" xml:space="preserve"><value>Одно эмодзи или символ</value></data>
+  <data name="PcWorkspace" xml:space="preserve"><value>Рабочая область компьютера</value></data>
+  <data name="PcFolder" xml:space="preserve"><value>Папка на вашем компьютере</value></data>
+  <data name="LibrarySavedOnPc" xml:space="preserve"><value>Изменения сохраняются в вашей общей библиотеке на компьютере.</value></data>
+  <data name="AppliesOnPc" xml:space="preserve"><value>Применяется на вашем компьютере сразу</value></data>
+  <data name="OpenJobChat" xml:space="preserve"><value>Открыть чат задачи</value></data>
+  <data name="OpenJobChatHelp" xml:space="preserve"><value>Посмотреть, что он нашел, или задать вопрос</value></data>
+  <data name="LoadingDetails" xml:space="preserve"><value>Загрузка деталей…</value></data>
+  <data name="WorkingOnPc" xml:space="preserve"><value>Работа на вашем компьютере…</value></data>
+  <data name="DiscardQuestion" xml:space="preserve"><value>Отменить изменения?</value></data>
+  <data name="KeepEditing" xml:space="preserve"><value>Продолжить редактирование</value></data>
+  <data name="Discard" xml:space="preserve"><value>Отменить</value></data>
+  <data name="GitChanges" xml:space="preserve"><value>Изменения Git</value></data>
+  <data name="PreviousFile" xml:space="preserve"><value>Предыдущий файл</value></data>
+  <data name="NextFile" xml:space="preserve"><value>Следующий файл</value></data>
+  <data name="RefreshChangedFiles" xml:space="preserve"><value>Обновить измененные файлы</value></data>
+  <data name="CloseGitChanges" xml:space="preserve"><value>Закрыть изменения Git</value></data>
+  <data name="SelectFileToReview" xml:space="preserve"><value>Выберите файл для проверки изменений</value></data>
+  <data name="BinaryFile" xml:space="preserve"><value>Бинарный файл</value></data>
+  <data name="LineCountsUnavailable" xml:space="preserve"><value>Счетчики строк недоступны</value></data>
+  <data name="NoChangedFiles" xml:space="preserve"><value>Нет измененных файлов</value></data>
+  <data name="NothingToReview" xml:space="preserve"><value>Нечего проверять в этом диапазоне.</value></data>
+  <data name="ReadingGitChanges" xml:space="preserve"><value>Чтение изменений репозитория…</value></data>
+  <data name="LoadingFileChanges" xml:space="preserve"><value>Загрузка изменений файла…</value></data>
+  <data name="NoTextPreview" xml:space="preserve"><value>Нет текстового предварительного просмотра</value></data>
+  <data name="SelectFile" xml:space="preserve"><value>Выберите файл</value></data>
+  <data name="GitReadOnlyHelp" xml:space="preserve"><value>Просмотрите разницу здесь. Ваш репозиторий останется неизменным.</value></data>
+  <data name="RunningSuffix" xml:space="preserve"><value>, Запущено</value></data>
+  <data name="UnreadSuffix" xml:space="preserve"><value>, Непрочитано</value></data>
+  <data name="Pinned" xml:space="preserve"><value>Закреплено</value></data>
+  <data name="Today" xml:space="preserve"><value>Сегодня</value></data>
+  <data name="VisibleChatCount" xml:space="preserve"><value>{0:N0} из {1:N0} отображено</value></data>
+  <data name="NoChatsFound" xml:space="preserve"><value>Чаты не найдены</value></data>
+  <data name="NextIdeaStartsHere" xml:space="preserve"><value>Ваш следующий идея начинается здесь</value></data>
+  <data name="TryDifferentSearch" xml:space="preserve"><value>Попробуйте другое слово или более коротную фразу.</value></data>
+  <data name="ProjectEmptyChats" xml:space="preserve"><value>Начните чат в этом проекте или покажите все чаты.</value></data>
+  <data name="EmptyChatsDescription" xml:space="preserve"><value>Начните новый чат. Ваши диалоги появятся здесь и на вашем компьютере.</value></data>
+  <data name="SearchingChats" xml:space="preserve"><value>Поиск ваших чатов...</value></data>
+  <data name="UpdatingChats" xml:space="preserve"><value>Обновление чатов...</value></data>
+  <data name="ResultCountOne" xml:space="preserve"><value>1 результат</value></data>
+  <data name="ResultCountMany" xml:space="preserve"><value>{0:N0} результатов</value></data>
+  <data name="RecentChats" xml:space="preserve"><value>Последние чаты</value></data>
+  <data name="LoadMoreChatsFailed" xml:space="preserve"><value>Не удалось загрузить другие чаты. Проверьте подключение к компьютеру и попробуйте снова.</value></data>
+  <data name="UpdateChatsFailed" xml:space="preserve"><value>Не удалось обновить чаты. Проверьте подключение к компьютеру и попробуйте снова.</value></data>
+  <data name="ConnectWebApp" xml:space="preserve"><value>Подключить веб-приложение</value></data>
+  <data name="ConnectPhone" xml:space="preserve"><value>Подключить телефон</value></data>
+  <data name="AddressReadyTrust" xml:space="preserve"><value>Ваш адрес компьютера готов. Подтвердите доверенную локальную сеть, затем нажмите Продолжить.</value></data>
+  <data name="AddressReady" xml:space="preserve"><value>Ваш адрес компьютера готов. Проверьте его ниже, затем нажмите Продолжить.</value></data>
+  <data name="ConfirmLanSearch" xml:space="preserve"><value>Подтвердите доступ к доверенной сети перед поиском на вашей локальной сети.</value></data>
+  <data name="LookingForLumi" xml:space="preserve"><value>Поиск Lumi на вашей сети…</value></data>
+  <data name="NoLumiFound" xml:space="preserve"><value>Lumi не найдена. Убедитесь, что Lumi открыта на вашем компьютере с включенным доступом к телефону, или введите её адрес ниже.</value></data>
+  <data name="EnableLanBeforeContinuing" xml:space="preserve"><value>Локальные сети не зашифрованы. Включите опцию локальной сети перед продолжением.</value></data>
+  <data name="DirectLanWarning" xml:space="preserve"><value>Прямые подключения к локальной сети не зашифрованы. Включайте опцию локальной сети только на доверенной сети.</value></data>
+  <data name="SayingHello" xml:space="preserve"><value>Здравствуйте…</value></data>
+  <data name="AddressNoAnswer" xml:space="preserve"><value>Lumi не ответила на этот адрес.</value></data>
+  <data name="InvalidPcAddress" xml:space="preserve"><value>Введите действительный адрес компьютера.</value></data>
+  <data name="VersionMismatch" xml:space="preserve"><value>Эта Lumi имеет другую версию. Обновите оба приложения и попробуйте снова.</value></data>
+  <data name="AddressTimeout" xml:space="preserve"><value>Этот адрес слишком долго отвечал.</value></data>
+  <data name="Pairing" xml:space="preserve"><value>Связывание…</value></data>
+  <data name="PairingFailed" xml:space="preserve"><value>Связывание не удалось.</value></data>
+  <data name="PairingTimeout" xml:space="preserve"><value>Соединение заняло слишком много времени.</value></data>
+  <data name="NewChatBrief" xml:space="preserve"><value>Задайте вопрос или выполните действие на вашем компьютере.</value></data>
+  <data name="UsualSetups" xml:space="preserve"><value>Ваши обычные настройки</value></data>
+  <data name="SetupsBeforeFirstMessage" xml:space="preserve"><value>Настройки доступны до первого сообщения.</value></data>
+  <data name="SetupUnavailable" xml:space="preserve"><value>Эта настройка больше недоступна. Выберите другую настройку.</value></data>
+  <data name="ActionIncomplete" xml:space="preserve"><value>Это действие не завершилось. Пожалуйста, попробуйте снова.</value></data>
+  <data name="ProjectCountOne" xml:space="preserve"><value>1 проект</value></data>
+  <data name="ProjectCountMany" xml:space="preserve"><value>{0} проектов</value></data>
+  <data name="UpdateDownloading" xml:space="preserve"><value>Скачивание обновления</value></data>
+  <data name="UpdateReady" xml:space="preserve"><value>Обновление готово</value></data>
+  <data name="UpdateApplying" xml:space="preserve"><value>Применение обновления</value></data>
+  <data name="UpdateFailed" xml:space="preserve"><value>Обновление не удалось завершить</value></data>
+  <data name="UpdateDownloadingHelp" xml:space="preserve"><value>Вы можете продолжать использовать Lumi во время загрузки проверенного приложения.</value></data>
+  <data name="UpdateReadyHelp" xml:space="preserve"><value>Lumi автоматически обновится, когда ваша работа будет сохранена. Или выберите Обновить сейчас после завершения загрузки и действий.</value></data>
+  <data name="UpdateDiscardHelp" xml:space="preserve"><value>Обновление перезапустит Lumi. Несохраненные черновики, ответы на вопросы и несохраненные правки на любой странице будут удалены. Ваши соединения и сохраненные чаты будут сохранены.</value></data>
+  <data name="UpdateAndDiscard" xml:space="preserve"><value>Обновить и удалить</value></data>
+  <data name="UpdateApplyingHelp" xml:space="preserve"><value>Перезапуск Lumi с новой сборкой. Ваши соединения будут сохранены.</value></data>
+  <data name="UpdateFailedHelp" xml:space="preserve"><value>Ваше текущее приложение и соединение будут сохранены. Попробуйте снова, когда подключитесь.</value></data>
+  <data name="Unknown" xml:space="preserve"><value>неизвестно</value></data>
+  <data name="GreetingLateNight" xml:space="preserve"><value>Всё ещё в сети</value></data>
+  <data name="GreetingMorning" xml:space="preserve"><value>Доброе утро</value></data>
+  <data name="GreetingAfternoon" xml:space="preserve"><value>Добрый день</value></data>
+  <data name="GreetingEvening" xml:space="preserve"><value>Добрый вечер</value></data>
+  <data name="GreetingWithName" xml:space="preserve"><value>{0}, {1}.</value></data>
+  <data name="GreetingWithoutName" xml:space="preserve"><value>{0}.</value></data>
+  <data name="SignInRequired" xml:space="preserve"><value>Необходимо войти</value></data>
+  <data name="Offline" xml:space="preserve"><value>Оффлайн</value></data>
+  <data name="Reconnecting" xml:space="preserve"><value>Переподключение</value></data>
+  <data name="Connected" xml:space="preserve"><value>Подключено</value></data>
+  <data name="GettingReady" xml:space="preserve"><value>Подготовка</value></data>
+  <data name="MicrosoftSignInAttention" xml:space="preserve"><value>Необходимо обратить внимание на вход в Microsoft. Соединение Lumi сохраняется.</value></data>
+  <data name="YourPc" xml:space="preserve"><value>ваш компьютер</value></data>
+  <data name="CantReachHost" xml:space="preserve"><value>Не удаётся подключиться к {0}. Убедитесь, что устройство включено и находится в сети, затем повторите попытку.</value></data>
+  <data name="PhoneOffline" xml:space="preserve"><value>Телефон не подключён к сети. Lumi снова подключится к {0}, когда сеть станет доступна.</value></data>
+  <data name="ReconnectingToHost" xml:space="preserve"><value>Переподключение к {0}...</value></data>
+  <data name="ReconnectingToHostReason" xml:space="preserve"><value>Переподключение к {0}... {1}</value></data>
+  <data name="LumiGettingReady" xml:space="preserve"><value>Lumi готовится...</value></data>
+  <data name="BackToChats" xml:space="preserve"><value>Назад к чатам</value></data>
+  <data name="HideChats" xml:space="preserve"><value>Скрыть чаты</value></data>
+  <data name="ShowChats" xml:space="preserve"><value>Показать чаты</value></data>
+  <data name="AlreadyPaired" xml:space="preserve"><value>Этот телефон уже подключен к {0}. Отключите его перед подключением к другому компьютеру.</value></data>
+  <data name="RevokeFailed" xml:space="preserve"><value>Lumi не удалось отключить этот телефон. Повторите попытку, когда компьютер будет в сети.</value></data>
+  <data name="LoadActivityFailed" xml:space="preserve"><value>Не удается загрузить эту активность с вашего компьютера.</value></data>
+  <data name="WrongChatActivity" xml:space="preserve"><value>Lumi вернула активность для другого чата.</value></data>
+  <data name="ConnectionChangedAction" xml:space="preserve"><value>Изменение соединения с компьютером произошло до завершения этого действия.</value></data>
+  <data name="ConnectionChangedUpload" xml:space="preserve"><value>Изменение соединения с компьютером произошло во время загрузки.</value></data>
+  <data name="ActivityDetailsUnavailable" xml:space="preserve"><value>Детали активности недоступны на этом Lumi.</value></data>
+  <data name="ActivityDetailsFailed" xml:space="preserve"><value>Не удается загрузить детали активности.</value></data>
+  <data name="ActivityDetailsFailedReason" xml:space="preserve"><value>Не удалось загрузить детали активности: {0}</value></data>
+  <data name="ReceiveFileFailed" xml:space="preserve"><value>Lumi не может принять этот файл.</value></data>
+  <data name="SendFileFailed" xml:space="preserve"><value>Не удалось отправить этот файл на ваш компьютер.</value></data>
+  <data name="StarterPlanDay" xml:space="preserve"><value>Планировать мой день</value></data>
+  <data name="StarterResearch" xml:space="preserve"><value>Исследовать тему</value></data>
+  <data name="StarterCreateDocument" xml:space="preserve"><value>Создать документ</value></data>
+  <data name="NewerActivityAvailable" xml:space="preserve"><value>Доступна новая активность</value></data>
+  <data name="NewerActivity" xml:space="preserve"><value>Новая активность</value></data>
+  <data name="ActivityWindow" xml:space="preserve"><value>Активность {0:N0}–{1:N0} из {2:N0}</value></data>
+  <data name="WaitingForInput" xml:space="preserve"><value>Ожидание вашего ввода</value></data>
+  <data name="ThinkingEllipsis" xml:space="preserve"><value>Размышление…</value></data>
+  <data name="WritingEllipsis" xml:space="preserve"><value>Пишет…</value></data>
+  <data name="WorkingEllipsis" xml:space="preserve"><value>Работа…</value></data>
+  <data name="WorkingDots" xml:space="preserve"><value>Обработка...</value></data>
+  <data name="NotSupported" xml:space="preserve"><value>Не поддерживается</value></data>
+  <data name="SetByDesktop" xml:space="preserve"><value>Установлено на рабочем столе</value></data>
+  <data name="PcNoAnswer" xml:space="preserve"><value>Компьютер не ответил.</value></data>
+  <data name="PinModelFailed" xml:space="preserve"><value>Не удалось закрепить {0}. {1}</value></data>
+  <data name="UnpinModelFailed" xml:space="preserve"><value>Не удалось открепить {0}. {1}</value></data>
+  <data name="PinNamed" xml:space="preserve"><value>Закрепить {0}</value></data>
+  <data name="UnpinNamed" xml:space="preserve"><value>Открепить {0}</value></data>
+  <data name="EffortNone" xml:space="preserve"><value>Нет</value></data>
+  <data name="EffortMinimal" xml:space="preserve"><value>Минимальное</value></data>
+  <data name="EffortLow" xml:space="preserve"><value>Низкий</value></data>
+  <data name="EffortMedium" xml:space="preserve"><value>Средний</value></data>
+  <data name="EffortHigh" xml:space="preserve"><value>Высокий</value></data>
+  <data name="EffortXHigh" xml:space="preserve"><value>Очень высокий</value></data>
+  <data name="EffortMax" xml:space="preserve"><value>Максимальный</value></data>
+  <data name="ContextDefault" xml:space="preserve"><value>Стандартное</value></data>
+  <data name="ContextLong" xml:space="preserve"><value>Длинный контекст</value></data>
+  <data name="ContextTokens" xml:space="preserve"><value>{0} / {1} токенов</value></data>
+  <data name="SendRestarted" xml:space="preserve"><value>Lumi перезапустилась перед подтверждением этой отправки. Обновите диалог перед повторной отправкой, или отредактируйте сообщение для отправки его как нового запроса.</value></data>
+  <data name="SendReplayUnavailable" xml:space="preserve"><value>Lumi больше не может безопасно воспроизвести эту отправку. Обновите чат для подтверждения его исхода, или отредактируйте сообщение перед отправкой снова.</value></data>
+  <data name="SendMessageFailed" xml:space="preserve"><value>Lumi не может отправить это сообщение.</value></data>
+  <data name="Stopping" xml:space="preserve"><value>Остановка…</value></data>
+  <data name="StopTurnFailedReason" xml:space="preserve"><value>Не удалось остановить этот ход: {0}</value></data>
+  <data name="StopTurnFailed" xml:space="preserve"><value>Lumi не может остановить этот ход.</value></data>
+  <data name="AgentPickerDescription" xml:space="preserve"><value>Агент приносит свои собственные инструкции, навыки и инструменты.</value></data>
+  <data name="ProjectPickerDescription" xml:space="preserve"><value>Где живет этот чат и чьи инструкции он следует.</value></data>
+  <data name="SkillsPickerDescription" xml:space="preserve"><value>Что Lumi может использовать в этом чате.</value></data>
+  <data name="ConnectorsPickerDescription" xml:space="preserve"><value>Приложения и службы, которые Lumi может использовать в этом чате.</value></data>
+  <data name="NoAgentsOnPc" xml:space="preserve"><value>Ваш компьютер не имеет агентов. Создайте одного в интерфейсе настроек.</value></data>
+  <data name="NoProjectsOnPc" xml:space="preserve"><value>Ваш компьютер не имеет проектов. Создайте один в интерфейсе настроек.</value></data>
+  <data name="NoSkillsOnPc" xml:space="preserve"><value>Ваш компьютер не имеет навыков. Создайте один в интерфейсе настроек.</value></data>
+  <data name="NoConnectorsEnabled" xml:space="preserve"><value>Нет активных подключений. Включите их в разделе «Настроить», чтобы использовать здесь.</value></data>
+  <data name="NoAgent" xml:space="preserve"><value>Нет агента</value></data>
+  <data name="LumiOnItsOwn" xml:space="preserve"><value>Lumi в одиночку</value></data>
+  <data name="NoProject" xml:space="preserve"><value>Нет проекта</value></data>
+  <data name="ChatOfItsOwn" xml:space="preserve"><value>Чат в одиночку</value></data>
+  <data name="SkillsCount" xml:space="preserve"><value>{0} навыков</value></data>
+  <data name="ConnectorsCount" xml:space="preserve"><value>{0} соединителей</value></data>
+  <data name="InteractiveUpdateRequired" xml:space="preserve"><value>Обновите Lumi на вашем компьютере, чтобы включить сохраненные интерактивные ответы.</value></data>
+  <data name="AnswerClosed" xml:space="preserve"><value>Этот ответ больше недоступен.</value></data>
+  <data name="WaitForReply" xml:space="preserve"><value>Подождите ответа от Lumi перед продолжением.</value></data>
+  <data name="InteractionChatChanged" xml:space="preserve"><value>Открытый чат или компьютер изменился. Этот ввод не был отправлен в другой чат.</value></data>
+  <data name="InteractionUnconfirmed" xml:space="preserve"><value>Lumi еще не подтвердила это действие. Ваши выборы сохранены; повторная отправка проверяет ту же заявку.</value></data>
+  <data name="InteractionSaveFailed" xml:space="preserve"><value>Интерактивное действие не удалось сохранить.</value></data>
+  <data name="InteractionInterrupted" xml:space="preserve"><value>Связь была прервана. Ваши выборы сохранены.</value></data>
+  <data name="AnswerPlaceholder" xml:space="preserve"><value>Введите ваш ответ…</value></data>
+  <data name="You" xml:space="preserve"><value>Вы</value></data>
+  <data name="Queued" xml:space="preserve"><value>В очереди...</value></data>
+  <data name="Steering" xml:space="preserve"><value>Управление...</value></data>
+  <data name="Steered" xml:space="preserve"><value>Управление завершено</value></data>
+  <data name="SteerFailed" xml:space="preserve"><value>Не удалось управлять</value></data>
+  <data name="JobWakeSummary" xml:space="preserve"><value>Задача разбудила этот чат.</value></data>
+  <data name="SourceCountOne" xml:space="preserve"><value>1 источник</value></data>
+  <data name="SourceCountMany" xml:space="preserve"><value>{0} источников</value></data>
+  <data name="Thinking" xml:space="preserve"><value>Размышление</value></data>
+  <data name="DurationSeconds" xml:space="preserve"><value>{0}с</value></data>
+  <data name="DurationMinutesSeconds" xml:space="preserve"><value>{0}м {1}с</value></data>
+  <data name="Researched" xml:space="preserve"><value>Исследовано</value></data>
+  <data name="Implemented" xml:space="preserve"><value>Имплементировано</value></data>
+  <data name="Verified" xml:space="preserve"><value>Проверено</value></data>
+  <data name="Worked" xml:space="preserve"><value>Работал</value></data>
+  <data name="ActionCountOne" xml:space="preserve"><value>1 действие</value></data>
+  <data name="ActionCountMany" xml:space="preserve"><value>{0} действий</value></data>
+  <data name="FileChangedOne" xml:space="preserve"><value>Изменён 1 файл</value></data>
+  <data name="FileChangedMany" xml:space="preserve"><value>{0} файлов изменено</value></data>
+  <data name="FinishedWithIssue" xml:space="preserve"><value>Завершено с проблемой</value></data>
+  <data name="Stopped" xml:space="preserve"><value>Остановлено</value></data>
+  <data name="WorkForDuration" xml:space="preserve"><value>{0} в течение {1}</value></data>
+  <data name="WorkForDurationActions" xml:space="preserve"><value>{0} в течение {1} · {2}</value></data>
+  <data name="WorkedForDuration" xml:space="preserve"><value>Работал {0}</value></data>
+  <data name="HideTechnicalDetails" xml:space="preserve"><value>Скрыть технические детали</value></data>
+  <data name="ShowTechnicalDetails" xml:space="preserve"><value>Показать технические детали</value></data>
+  <data name="PinnedModels" xml:space="preserve"><value>Закреплено</value></data>
+  <data name="ReadOnly" xml:space="preserve"><value>Только для чтения</value></data>
+  <data name="ReadOnlyHeader" xml:space="preserve"><value>Только для чтения</value></data>
+  <data name="ReadOnlyAfter" xml:space="preserve"><value>{0} · Только для чтения</value></data>
+  <data name="ReadOnlyBefore" xml:space="preserve"><value>Только для чтения · {0}</value></data>
+  <data name="GitKnownTextChanges" xml:space="preserve"><value>Известные изменения текста · частичные</value></data>
+  <data name="GitTotalTextChanges" xml:space="preserve"><value>Общее количество изменений текста</value></data>
+  <data name="BackToChangedFiles" xml:space="preserve"><value>Назад к изменённым файлам</value></data>
+  <data name="GitChangedFileOne" xml:space="preserve"><value>1 изменённый файл</value></data>
+  <data name="GitChangedFileMany" xml:space="preserve"><value>{0} изменённых файлов</value></data>
+  <data name="LimitedSuffix" xml:space="preserve"><value> · Ограниченный</value></data>
+  <data name="PositionOfCount" xml:space="preserve"><value>{0} из {1}</value></data>
+  <data name="GitResolvingScope" xml:space="preserve"><value>Разрешение проекта / рабочего дерева…</value></data>
+  <data name="GitNoRepositorySelected" xml:space="preserve"><value>Не выбран репозиторий</value></data>
+  <data name="GitOpenChat" xml:space="preserve"><value>Открыть чат для проверки проекта или рабочего дерева</value></data>
+  <data name="GitScopeUnavailable" xml:space="preserve"><value>Недоступен проект / рабочее дерево</value></data>
+  <data name="GitUpdateRequired" xml:space="preserve"><value>Обновите Lumi на рабочем столе для просмотра изменений Git с телефона</value></data>
+  <data name="GitLoadFailed" xml:space="preserve"><value>Изменения Git не могут быть загружены</value></data>
+  <data name="GitScopeDescription" xml:space="preserve"><value>Чат: {0}
+{1} · Только для чтения</value></data>
+  <data name="GitWorkingTreeClean" xml:space="preserve"><value>Ваше рабочее дерево чистое. Обновите после внесения изменений на рабочем столе</value></data>
+  <data name="GitNoRepository" xml:space="preserve"><value>Этот чат не имеет доступного репозитория Git</value></data>
+  <data name="GitCancelled" xml:space="preserve"><value>Запрос Git отменён. Обновите для повторной попытки</value></data>
+  <data name="GitWorkspaceChanged" xml:space="preserve"><value>Изменился рабочий пространство. Обновите изменения Git</value></data>
+  <data name="GitDiffTruncated" xml:space="preserve"><value>Этот diff усечен на мобильном устройстве. Откройте рабочий стол для полного файла</value></data>
+  <data name="GitNoTextDiff" xml:space="preserve"><value>Дифф текста недоступен для этого файла (бинарный, пустой или изменение только метаданных)</value></data>
+  <data name="PreviewOnlySuffix" xml:space="preserve"><value> · Только для предварительного просмотра</value></data>
+  <data name="GitDiffLoadFailed" xml:space="preserve"><value>Дифф файла не может быть загружен</value></data>
+  <data name="GitKindModified" xml:space="preserve"><value>Изменён</value></data>
+  <data name="GitKindAdded" xml:space="preserve"><value>Добавлено</value></data>
+  <data name="GitKindDeleted" xml:space="preserve"><value>Удалено</value></data>
+  <data name="GitKindRenamed" xml:space="preserve"><value>Переименовано</value></data>
+  <data name="GitKindCopied" xml:space="preserve"><value>Скопировано</value></data>
+  <data name="GitKindUntracked" xml:space="preserve"><value>Неотслеживаемо</value></data>
+  <data name="GitKindTypeChanged" xml:space="preserve"><value>Тип изменён</value></data>
+  <data name="GitKindConflicted" xml:space="preserve"><value>Конфликт</value></data>
+  <data name="GitKindRecreated" xml:space="preserve"><value>Пересоздан</value></data>
+  <data name="GitKindSubmodule" xml:space="preserve"><value>Подмодуль</value></data>
+  <data name="GitKindUnknown" xml:space="preserve"><value>Неизвестно</value></data>
+  <data name="SwitchState" xml:space="preserve"><value>{0}: {1}</value></data>
+  <data name="SwitchOn" xml:space="preserve"><value>включено</value></data>
+  <data name="SwitchOff" xml:space="preserve"><value>выключено</value></data>
+  <data name="On" xml:space="preserve"><value>Вкл.</value></data>
+  <data name="Off" xml:space="preserve"><value>Выкл.</value></data>
+  <data name="Enabled" xml:space="preserve"><value>Включен</value></data>
+  <data name="Disabled" xml:space="preserve"><value>отключено</value></data>
+  <data name="Paused" xml:space="preserve"><value>Приостановлен</value></data>
+  <data name="BuiltIn" xml:space="preserve"><value>Встроенное</value></data>
+  <data name="Yours" xml:space="preserve"><value>Ваш</value></data>
+  <data name="LibraryBuiltInNote" xml:space="preserve"><value>Встроен в Lumi. Чтобы изменить, сделайте копию на вашем компьютере.</value></data>
+  <data name="LibraryConnectorNote" xml:space="preserve"><value>Коннекторы настроены на вашем компьютере. Вы можете включить или выключить этот здесь.</value></data>
+  <data name="LibraryJobNote" xml:space="preserve"><value>Работы редактируются на вашем компьютере. Вы можете включить или выключить этот здесь.</value></data>
+  <data name="ActionsForNamed" xml:space="preserve"><value>Действия для {0}</value></data>
+  <data name="JobsSummary" xml:space="preserve"><value>{0} включено · {1} приостановлено</value></data>
+  <data name="LibraryNewItem" xml:space="preserve"><value>Новый {0}</value></data>
+  <data name="LibraryEditItem" xml:space="preserve"><value>Редактировать {0}</value></data>
+  <data name="LibraryDiscardDescription" xml:space="preserve"><value>Ваши изменения в «{0}» будут потеряны. Ничего не будет удалено с вашего компьютера.</value></data>
+  <data name="LibraryDeleteQuestion" xml:space="preserve"><value>Удалить из библиотеки?</value></data>
+  <data name="LibraryEnableItem" xml:space="preserve"><value>Включить {0}</value></data>
+  <data name="LibraryDisableItem" xml:space="preserve"><value>Отключить {0}</value></data>
+  <data name="LibraryDeleteDescription" xml:space="preserve"><value>Удалить «{0}» из вашей общей библиотеки? Это будет удалено и с вашего компьютера, и с этого телефона. Это действие нельзя отменить.</value></data>
+  <data name="LibraryNoResults" xml:space="preserve"><value>Нет результатов в категории {0}</value></data>
+  <data name="LibraryEmptyYet" xml:space="preserve"><value>Пока нет {0}</value></data>
+  <data name="LibrarySearchHelp" xml:space="preserve"><value>Попробуйте другой запрос или очистите поиск, чтобы увидеть все {0}.</value></data>
+  <data name="LibraryAddConnectors" xml:space="preserve"><value>Добавьте коннекторы на вашем компьютере. Вы можете включить или выключить их здесь.</value></data>
+  <data name="LibraryAddJobs" xml:space="preserve"><value>Создайте работы на вашем компьютере. Вы можете включить или выключить их здесь.</value></data>
+  <data name="LibraryAddAgent" xml:space="preserve"><value>Используйте +, чтобы добавить {0}, или добавьте его на вашем компьютере. Ваша библиотека общая.</value></data>
+  <data name="LibraryAddItem" xml:space="preserve"><value>Используйте +, чтобы добавить {0}, или добавьте один на вашем компьютере. Ваша библиотека общается.</value></data>
+  <data name="LibrarySearch" xml:space="preserve"><value>Поиск {0}</value></data>
+  <data name="LibraryChooseConnector" xml:space="preserve"><value>Выберите подключатель, чтобы увидеть, что он делает. Включите или выключите его прямо в его строке.</value></data>
+  <data name="LibraryChooseJob" xml:space="preserve"><value>Выберите задачу, чтобы увидеть, когда она выполняется, и открыть чат. Включите или выключите её прямо в её строке.</value></data>
+  <data name="LibraryChooseAgent" xml:space="preserve"><value>Выберите {0}, чтобы открыть её, или добавьте одну с помощью +.</value></data>
+  <data name="LibraryChooseItem" xml:space="preserve"><value>Выберите {0}, чтобы открыть её, или добавьте одну с помощью +.</value></data>
+  <data name="ProjectSingular" xml:space="preserve"><value>проект</value></data>
+  <data name="SkillSingular" xml:space="preserve"><value>навык</value></data>
+  <data name="AgentSingular" xml:space="preserve"><value>агент</value></data>
+  <data name="MemorySingular" xml:space="preserve"><value>память</value></data>
+  <data name="ConnectorSingular" xml:space="preserve"><value>подключатель</value></data>
+  <data name="JobSingular" xml:space="preserve"><value>задача</value></data>
+  <data name="ItemSingular" xml:space="preserve"><value>элемент</value></data>
+  <data name="SkillContent" xml:space="preserve"><value>Содержимое навыка</value></data>
+  <data name="SystemPrompt" xml:space="preserve"><value>Системный промпт</value></data>
+  <data name="Content" xml:space="preserve"><value>Содержимое</value></data>
+  <data name="Memory" xml:space="preserve"><value>Память</value></data>
+  <data name="MemoryCountOne" xml:space="preserve"><value>1 памятка</value></data>
+  <data name="MemoryCountMany" xml:space="preserve"><value>{0} памяток</value></data>
+  <data name="ChatCountOne" xml:space="preserve"><value>1 чат</value></data>
+  <data name="ChatCountMany" xml:space="preserve"><value>{0} чата</value></data>
+  <data name="SkillCountOne" xml:space="preserve"><value>1 навык</value></data>
+  <data name="SkillCountMany" xml:space="preserve"><value>{0} навыков</value></data>
+  <data name="ToolCount" xml:space="preserve"><value>{0} инструментов</value></data>
+  <data name="SkillBuiltIn" xml:space="preserve"><value>Навык · Встроен</value></data>
+  <data name="AgentBuiltIn" xml:space="preserve"><value>Агент · Встроен</value></data>
+  <data name="Tools" xml:space="preserve"><value>Инструменты</value></data>
+  <data name="RunsOnPc" xml:space="preserve"><value>Запускается на вашем компьютере</value></data>
+  <data name="OnlineService" xml:space="preserve"><value>Онлайн-сервис</value></data>
+  <data name="ConnectorOnPc" xml:space="preserve"><value>Подключатель · На вашем компьютере</value></data>
+  <data name="ConnectorOnline" xml:space="preserve"><value>Подключатель · Онлайн</value></data>
+  <data name="Command" xml:space="preserve"><value>Команда</value></data>
+  <data name="Address" xml:space="preserve"><value>Адрес</value></data>
+  <data name="JobTrigger" xml:space="preserve"><value>Задача · {0}</value></data>
+  <data name="Prompt" xml:space="preserve"><value>Предложение</value></data>
+  <data name="Runs" xml:space="preserve"><value>Запускает</value></data>
+  <data name="LastRun" xml:space="preserve"><value>Последнее выполнение</value></data>
+  <data name="Watches" xml:space="preserve"><value>Наблюдение</value></data>
+  <data name="Scheduled" xml:space="preserve"><value>Запланировано</value></data>
+  <data name="WakeScript" xml:space="preserve"><value>Скрипт пробуждения</value></data>
+  <data name="FollowsChat" xml:space="preserve"><value>Следует за чатом</value></data>
+  <data name="Automation" xml:space="preserve"><value>Автоматизация</value></data>
+  <data name="LibraryFullDetailsFailed" xml:space="preserve"><value>Lumi не может загрузить полные данные. Попробуйте снова, когда ваш компьютер подключен.</value></data>
+  <data name="LibraryFullDetailsFailedReason" xml:space="preserve"><value>Не удалось загрузить полные данные. {0}</value></data>
+  <data name="LibraryChangeFailed" xml:space="preserve"><value>Не удалось изменить этот элемент. Попробуйте снова.</value></data>
+  <data name="LibraryChangeFailedReason" xml:space="preserve"><value>Не удалось изменить этот элемент. {0}</value></data>
+  <data name="DonePeriod" xml:space="preserve"><value>Завершено.</value></data>
+  <data name="LibraryLoadingFullDetails" xml:space="preserve"><value>Загрузка полных данных…</value></data>
+  <data name="LibraryCannotEdit" xml:space="preserve"><value>Этот элемент не может быть отредактирован с этой подключения.</value></data>
+  <data name="LibraryFullItemFailed" xml:space="preserve"><value>Lumi не может загрузить полный элемент. Попробуйте снова, когда ваш компьютер подключен.</value></data>
+  <data name="LibraryLoadItemFailedReason" xml:space="preserve"><value>Не удалось загрузить этот элемент. {0}</value></data>
+  <data name="LibraryNameRequired" xml:space="preserve"><value>Дайте ему имя.</value></data>
+  <data name="LibrarySaveFailed" xml:space="preserve"><value>Не удалось сохранить. Ваши изменения все еще здесь.</value></data>
+  <data name="LibrarySavedOnPcMessage" xml:space="preserve"><value>Сохранено на вашем компьютере.</value></data>
+  <data name="LibrarySaveFailedReason" xml:space="preserve"><value>Не удалось сохранить. Ваши изменения все еще здесь. {0}</value></data>
+  <data name="LibraryDeleteFailed" xml:space="preserve"><value>Не удалось удалить этот элемент. Попробуйте снова.</value></data>
+  <data name="LibraryDeleted" xml:space="preserve"><value>Удалено из вашей общей библиотеки.</value></data>
+  <data name="LibraryDeleteFailedReason" xml:space="preserve"><value>Не удалось удалить этот элемент. {0}</value></data>
+  <data name="EnabledOnPc" xml:space="preserve"><value>Включен на вашем компьютере.</value></data>
+  <data name="DisabledOnPc" xml:space="preserve"><value>Отключен на вашем компьютере.</value></data>
+  <data name="LibraryRefreshFailed" xml:space="preserve"><value>{0} Список не может обновиться. Переподключитесь к вашему компьютеру для перезагрузки.</value></data>
+  <data name="RequestTimeout" xml:space="preserve"><value>Lumi слишком долго отвечала.</value></data>
+  <data name="ProtocolRequired" xml:space="preserve"><value>Этот телефон требует удаленного протокола Lumi {0} с ограниченными событиями.</value></data>
+  <data name="UnreadableResponse" xml:space="preserve"><value>Lumi вернула непонятный ответ.</value></data>
+  <data name="NotConnectedToDesktop" xml:space="preserve"><value>Не подключено к интерфейсу Lumi на компьютере.</value></data>
+  <data name="WaitingCompatibleDesktop" xml:space="preserve"><value>Ожидание подключения к совместимому интерфейсу Lumi на компьютере.</value></data>
+  <data name="NoLongerPaired" xml:space="preserve"><value>Это устройство больше не связано с Lumi.</value></data>
+  <data name="ProducedFileTooLarge" xml:space="preserve"><value>Этот созданный файл слишком большой для открытия на мобильном устройстве.</value></data>
+  <data name="ProducedFileDownloadLimit" xml:space="preserve"><value>Созданный файл превышает предел загрузки на мобильном устройстве.</value></data>
+  <data name="FileTooLargeToSend" xml:space="preserve"><value>Этот файл слишком большой для отправки.</value></data>
+  <data name="ConnectionClosed" xml:space="preserve"><value>Lumi закрыла соединение.</value></data>
+  <data name="InvalidBootstrap" xml:space="preserve"><value>Lumi не отправила валидный снимок начальной загрузки.</value></data>
+  <data name="ConnectionClosedBeforeBootstrap" xml:space="preserve"><value>Lumi закрыла поток до отправки снимка начальной загрузки.</value></data>
+  <data name="LiveConnectionTimeout" xml:space="preserve"><value>Живое соединение Lumi перестало отвечать.</value></data>
+  <data name="SseLineTooLarge" xml:space="preserve"><value>Строка SSE слишком большая.</value></data>
+  <data name="SseLineUnterminated" xml:space="preserve"><value>Поток SSE завершился с незаконченной строкой.</value></data>
+  <data name="ResponseProtocolLimit" xml:space="preserve"><value>Ответ превышает предел протокола в {0:N0} байтах.</value></data>
+  <data name="CantReachLumi" xml:space="preserve"><value>Невозможно подключиться к Lumi. Проверьте, что ваш компьютер включен и подключен к той же сети Wi-Fi.</value></data>
+  <data name="HttpResponseError" xml:space="preserve"><value>Lumi вернула HTTP {0}{1}.</value></data>
+  <data name="TailscaleNotConnected" xml:space="preserve"><value>Tailscale не подключен для этого адреса компьютера. Подключите Tailscale и попробуйте снова.</value></data>
+  <data name="SavedFileLengthMismatch" xml:space="preserve"><value>Сохраненный файл не соответствует загрузке ({0} из {1} байт).</value></data>
+  <data name="Phone" xml:space="preserve"><value>Телефон</value></data>
+  <data name="AndroidPhone" xml:space="preserve"><value>Android-телефон</value></data>
+  <data name="ThisLumiPc" xml:space="preserve"><value>Этот компьютер Lumi</value></data>
+  <data name="LumiWebApp" xml:space="preserve"><value>Lumi веб-приложение</value></data>
+  <data name="BrowserDownloadLimit" xml:space="preserve"><value>Скачивание превышает ограничение браузера.</value></data>
+  <data name="BrowserSameOriginOnly" xml:space="preserve"><value>Lumi Web может подключаться только к компьютеру, который предоставил это приложение.</value></data>
+  <data name="BrowserGatewaySignIn" xml:space="preserve"><value>Необходимо войти в систему Microsoft. Повторно войдите с учётной записью владельца туннеля. Соединение Lumi сохраняется; скопируйте любые неотправленные черновики перед перезагрузкой. Перезагрузка веб-приложения в настройках также доступна.</value></data>
+  <data name="AttachToLumi" xml:space="preserve"><value>Подключиться к Lumi</value></data>
+  <data name="PhoneAttachTooLarge" xml:space="preserve"><value>Этот файл слишком большой для отправки с этого телефона.</value></data>
+  <data name="AttachFileFailed" xml:space="preserve"><value>Этот файл не удалось прикрепить.</value></data>
+  <data name="FileTooLargeKnownSize" xml:space="preserve"><value>{0} слишком большой для отправки ({1} МБ). Ограничение составляет {2} МБ.</value></data>
+  <data name="FileTooLargeUnknownSize" xml:space="preserve"><value>{0} слишком большой для отправки. Ограничение составляет {1} МБ.</value></data>
+  <data name="CopyAnswerFailed" xml:space="preserve"><value>Ответ не удалось скопировать.</value></data>
+  <data name="ShareAnswerFailed" xml:space="preserve"><value>Ответ не удалось поделиться.</value></data>
+  <data name="OpenSourceFailed" xml:space="preserve"><value>Этот источник не удалось открыть.</value></data>
+  <data name="DownloadFileFailed" xml:space="preserve"><value>Этот файл не удалось скачать.</value></data>
+  <data name="SaveLumiFile" xml:space="preserve"><value>Сохранить файл Lumi</value></data>
+  <data name="DownloadedFileCannotOpen" xml:space="preserve"><value>Файл был скачан, но этот телефон не может его открыть.</value></data>
+  <data name="OpenFileFailed" xml:space="preserve"><value>Этот файл не удалось открыть.</value></data>
+  <data name="LocalNetworkPermissionRequired" xml:space="preserve"><value>Для подключения к вашему компьютеру Lumi требуется разрешение на доступ к локальной сети.</value></data>
+  <data name="LumiText" xml:space="preserve"><value>Текст Lumi</value></data>
+  <data name="TransportRequestOne" xml:space="preserve"><value>{0} запрос</value></data>
+  <data name="TransportRequestMany" xml:space="preserve"><value>{0} запроса</value></data>
+  <data name="TransportLiveUpdateOne" xml:space="preserve"><value>{0} прямой обновление</value></data>
+  <data name="TransportLiveUpdateMany" xml:space="preserve"><value>{0} прямых обновлений</value></data>
+  <data name="TransportReconnectOne" xml:space="preserve"><value>{0} переподключение</value></data>
+  <data name="TransportReconnectMany" xml:space="preserve"><value>{0} переподключений</value></data>
+  <data name="TransportChatReloadOne" xml:space="preserve"><value>{0} перезагрузка чата</value></data>
+  <data name="TransportChatReloadMany" xml:space="preserve"><value>{0} перезагрузок чата</value></data>
+  <data name="TransportSummary" xml:space="preserve"><value>{0}, {1} получено, {2}, {3}</value></data>
+  <data name="TransportUnchanged" xml:space="preserve"><value>, {0} из {1} уже обновлено</value></data>
+  <data name="WebOpening" xml:space="preserve"><value>Запуск Lumi...</value></data>
+  <data name="WebNeedsReload" xml:space="preserve"><value>Lumi нуждается в перезагрузке</value></data>
+  <data name="WebReload" xml:space="preserve"><value>Перезагрузить Lumi</value></data>
+  <data name="WebReloadNote" xml:space="preserve"><value>Сохраненные чаты остаются на вашем компьютере. Перезагрузка может удалить неотправленный текст.</value></data>
+  <data name="WebOffline" xml:space="preserve"><value>Вы не подключены к интернету. Подключитесь к интернету и попробуйте снова.</value></data>
+  <data name="WebStartFailed" xml:space="preserve"><value>Lumi не может запуститься: {0}</value></data>
+  <data name="WebContextLost" xml:space="preserve"><value>Ваш браузер перестал отображать Lumi. Перезагрузите для восстановления соединения.</value></data>
+  <data name="MessageText" xml:space="preserve"><value>Текст сообщения</value></data>
+  <data name="TextInput" xml:space="preserve"><value>Текст ввода</value></data>
+  <data name="WebRefreshing" xml:space="preserve"><value>Обновление веб-приложения...</value></data>
+  <data name="WebUpdateInstallFailed" xml:space="preserve"><value>Установка обновления веб-приложения не удалась.</value></data>
+  <data name="WebUpdateTimeout" xml:space="preserve"><value>Обновление веб-приложения заняло слишком много времени.</value></data>
+  <data name="WebFindingRegistration" xml:space="preserve"><value>Поиск регистрации приложения</value></data>
+  <data name="WebReplacingRegistration" xml:space="preserve"><value>Замена регистрации приложения</value></data>
+  <data name="WebRegistering" xml:space="preserve"><value>Регистрация текущего приложения</value></data>
+  <data name="WebUpdatingRuntime" xml:space="preserve"><value>Обновление кэшированного времени выполнения...</value></data>
+  <data name="WebCheckingBuild" xml:space="preserve"><value>Проверка текущей сборки</value></data>
+  <data name="WebInstallingFiles" xml:space="preserve"><value>Установка проверенных файлов приложения</value></data>
+  <data name="WebActivatingUpdate" xml:space="preserve"><value>Активация обновления приложения</value></data>
+  <data name="WebOpeningStage" xml:space="preserve"><value>Открытие Lumi</value></data>
+  <data name="WebRefreshFailed" xml:space="preserve"><value>Lumi не смогла обновить веб-приложение. Соединение сохранено. {0}: {1}. Попробуйте снова.</value></data>
+  <data name="AndroidInstallTitle" xml:space="preserve"><value>Установите Lumi для Android</value></data>
+  <data name="AndroidSetup" xml:space="preserve"><value>Настройка Android</value></data>
+  <data name="AndroidInstallIntro" xml:space="preserve"><value>Нативное приложение использует те же Lumi-диалоги и интерфейс, что и веб-приложение, с клавиатурой Android и файловым менеджером.</value></data>
+  <data name="AndroidDownloadOfficial" xml:space="preserve"><value>Скачать официальный APK</value></data>
+  <data name="AndroidNoAppStore" xml:space="preserve"><value>Lumi не публикуется в каких-либо магазинах приложений. Получите официальный APK с GitHub ниже.</value></data>
+  <data name="AndroidMatchingRelease" xml:space="preserve"><value>Совместим с этой версией Lumi Desktop.</value></data>
+  <data name="AndroidDownloadApk" xml:space="preserve"><value>Скачать APK для Android</value></data>
+  <data name="AndroidInstallHint" xml:space="preserve"><value>После завершения загрузки откройте APK и нажмите Установить. Android может запросить разрешение на установку из этого браузера один раз.</value></data>
+  <data name="OpenLumi" xml:space="preserve"><value>Открыть Lumi</value></data>
+  <data name="AndroidOpenHint" xml:space="preserve"><value>После установки вернитесь на эту страницу и продолжите. Если Lumi не установлена, этот кнопка откроет страницу загрузки официального APK вместо магазина приложений.</value></data>
+  <data name="AndroidEnterPairingCode" xml:space="preserve"><value>Введите код соединения</value></data>
+  <data name="AndroidPairingHint" xml:space="preserve"><value>Используйте 6-значный код, отображаемый в Lumi Desktop. Вы делаете это только один раз.</value></data>
+  <data name="UseWebApp" xml:space="preserve"><value>Используйте веб-приложение вместо этого</value></data>
+  <data name="AndroidVersionMatching" xml:space="preserve"><value>Lumi {0}, совместимое с этой версией для настольных компьютеров.</value></data>
+  <data name="WebManifestDescription" xml:space="preserve"><value>Ваш Lumi на компьютере, доступный с вашего телефона.</value></data>
+  <data name="WorkerStarting" xml:space="preserve"><value>Запуск рендерера worker</value></data>
+  <data name="WorkerUnavailable" xml:space="preserve"><value>Обычный рендерер (worker недоступен)</value></data>
+  <data name="WorkerStopped" xml:space="preserve"><value>Обычный рендерер (worker остановлен)</value></data>
+  <data name="WorkerRenderer" xml:space="preserve"><value>Рендерер worker</value></data>
+  <data name="WorkerRendererStats" xml:space="preserve"><value>Рендерер worker ({0} Гц, {1} новых кадров/с)</value></data>
+  <data name="SimulatorTitle" xml:space="preserve"><value>Lumi Mobile — симулятор устройства</value></data>
+  <data name="Device" xml:space="preserve"><value>Устройство</value></data>
+  <data name="Bezel" xml:space="preserve"><value>Рамка</value></data>
+  <data name="SimulatorUnknownDevice" xml:space="preserve"><value>Неизвестное устройство '{0}'. Известные устройства: {1}</value></data>
+  <data name="SimulatorHinge" xml:space="preserve"><value> · шарнир {0:0.#} dp</value></data>
+  <data name="SimulatorFoldPosition" xml:space="preserve"><value> · складывается на {0:0} dp</value></data>
+  <data name="SimulatorThreePanes" xml:space="preserve"><value>три панели</value></data>
+  <data name="SimulatorTwoPanes" xml:space="preserve"><value>две панели</value></data>
+  <data name="SimulatorOnePane" xml:space="preserve"><value>одна панель</value></data>
+  <data name="SimulatorShort" xml:space="preserve"><value> · короткий</value></data>
+  <data name="SimulatorReadout" xml:space="preserve"><value>{0:0}×{1:0} dp · {2}{3}{4}</value></data>
+  <data name="SimFlipCover" xml:space="preserve"><value>Экран с поднимающейся крышкой</value></data>
+  <data name="SimCompactPhone" xml:space="preserve"><value>Компактный телефон</value></data>
+  <data name="SimFoldFolded" xml:space="preserve"><value>Fold — сложен</value></data>
+  <data name="SimGalaxyCover" xml:space="preserve"><value>Galaxy Z Fold7 — обложка</value></data>
+  <data name="SimGalaxyCoverLandscape" xml:space="preserve"><value>Galaxy Z Fold7 — обложка (горизонтальное положение)</value></data>
+  <data name="SimPhoneLandscape" xml:space="preserve"><value>Телефон (горизонтальное положение)</value></data>
+  <data name="SimGalaxyOpenLarge" xml:space="preserve"><value>Galaxy Z Fold7 — открыт, большой размер экрана</value></data>
+  <data name="SimFoldUnfolded" xml:space="preserve"><value>Fold — развернут</value></data>
+  <data name="SimGalaxyOpen" xml:space="preserve"><value>Galaxy Z Fold7 — открыт</value></data>
+  <data name="SimGalaxyBook" xml:space="preserve"><value>Galaxy Z Fold7 — книжная форма</value></data>
+  <data name="SimGalaxyTabletop" xml:space="preserve"><value>Galaxy Z Fold7 — настольная форма</value></data>
+  <data name="SimFoldTabletop" xml:space="preserve"><value>Fold — настольная форма</value></data>
+  <data name="SimTablet" xml:space="preserve"><value>Планшет</value></data>
+  <data name="SimTabletLandscape" xml:space="preserve"><value>Планшет (горизонтальное положение)</value></data>
+  <data name="SimLargeTabletLandscape" xml:space="preserve"><value>Большой планшет (горизонтальное положение)</value></data>
+  <data name="DesignPreviewTitle" xml:space="preserve"><value>Lumi Mobile - предварительный просмотр дизайна</value></data>
+  <data name="PopupPreviewTitle" xml:space="preserve"><value>Lumi Mobile - предварительный просмотр отполированного всплывающего окна</value></data>
+  <data name="Models" xml:space="preserve"><value>Модели</value></data>
+  <data name="ChatDetails" xml:space="preserve"><value>Детали чата</value></data>
+  <data name="Activity" xml:space="preserve"><value>Деятельность</value></data>
+  <data name="LibraryActions" xml:space="preserve"><value>Действия библиотеки</value></data>
+  <data name="DiscardChanges" xml:space="preserve"><value>Отменить изменения</value></data>
+  <data name="Disconnect" xml:space="preserve"><value>Отключиться</value></data>
+  <data name="FormChoices" xml:space="preserve"><value>Выбор формы</value></data>
+  <data name="DatePicker" xml:space="preserve"><value>Выбор даты</value></data>
+  <data name="SubmittedInput" xml:space="preserve"><value>Подтверждённый ввод</value></data>
+  <data name="ActionReceipts" xml:space="preserve"><value>Отчёты о действиях</value></data>
+  <data name="LocalUiFixture" xml:space="preserve"><value>Локальный фикстур интерфейса</value></data>
+  <data name="Close" xml:space="preserve"><value>Закрыть</value></data>
+  <data name="ComposerFilesPhotos" xml:space="preserve"><value>Файлы и фотографии</value></data>
+  <data name="CopyDetails" xml:space="preserve"><value>Копировать детали</value></data>
+  <data name="BackgroundJob" xml:space="preserve"><value>Фоновая задача</value></data>
+  <data name="WakeSignalReceived" xml:space="preserve"><value>Получен сигнал пробуждения.</value></data>
+  <data name="MobileTruncationNotice" xml:space="preserve"><value>[сокращено на мобильном; откройте настольную версию для полного вывода]</value></data>
+  <data name="EffortStandard" xml:space="preserve"><value>Стандартный</value></data>
+  <data name="FusionEffort" xml:space="preserve"><value>Совместная работа</value></data>
+  <data name="FusionEffortDescription" xml:space="preserve"><value>Балансируйте скорость, стоимость и глубину с помощью нативного маршрутизатора моделей Fusion</value></data>
+  <data name="FilePreviewFile" xml:space="preserve"><value>Файл</value></data>
+  <data name="FileSizeBytes" xml:space="preserve"><value>{0} Б</value></data>
+  <data name="FileSizeKilobytes" xml:space="preserve"><value>{0} КБ</value></data>
+  <data name="FileSizeMegabytes" xml:space="preserve"><value>{0} МБ</value></data>
+  <data name="CsvRowsOne" xml:space="preserve"><value>{0} строка</value></data>
+  <data name="CsvRowsMany" xml:space="preserve"><value>{0} строки</value></data>
+  <data name="CsvColumnsOne" xml:space="preserve"><value>{0} столбец</value></data>
+  <data name="CsvColumnsMany" xml:space="preserve"><value>{0} столбцов</value></data>
+  <data name="CsvColumnNamed" xml:space="preserve"><value>Столбец {0}</value></data>
+  <data name="PdfPagesOne" xml:space="preserve"><value>{0} страница</value></data>
+  <data name="PdfPagesMany" xml:space="preserve"><value>{0} страниц</value></data>
+  <data name="PdfPageOf" xml:space="preserve"><value>Страница {0} из {1}</value></data>
+  <data name="FilePreviewPagesLimited" xml:space="preserve"><value>Показаны первые {0} страницы. Откройте файл в другом приложении, чтобы увидеть остальное.</value></data>
+  <data name="FilePreviewRowsLimited" xml:space="preserve"><value>Показаны первые {0} строки. Откройте файл в другом приложении, чтобы увидеть остальное.</value></data>
+  <data name="FilePreviewTruncated" xml:space="preserve"><value>Показано начало этого файла. Откройте его в другом приложении, чтобы увидеть всё.</value></data>
+  <data name="FilePreviewInvalid" xml:space="preserve"><value>Этот файл повреждён или не соответствует его названию.</value></data>
+  <data name="FilePreviewUnreadable" xml:space="preserve"><value>Этот файл не может быть прочитан на этом устройстве.</value></data>
+  <data name="FilePreviewFailed" xml:space="preserve"><value>Произошла ошибка при открытии этого файла.</value></data>
+  <data name="FilePreviewFailedTitle" xml:space="preserve"><value>Не удалось открыть этот файл</value></data>
+  <data name="FilePreviewLoading" xml:space="preserve"><value>Загрузка превью…</value></data>
+  <data name="FilePreviewEmpty" xml:space="preserve"><value>Этот файл пуст.</value></data>
+  <data name="FilePreviewUnsupportedTitle" xml:space="preserve"><value>Нет превью для этого файла</value></data>
+  <data name="FilePreviewUnsupportedDetail" xml:space="preserve"><value>Откройте его в другом приложении на этом устройстве или сохраните копию.</value></data>
+  <data name="FilePreviewOpenWith" xml:space="preserve"><value>Открыть с помощью</value></data>
+  <data name="FilePreviewDownload" xml:space="preserve"><value>Скачать</value></data>
+  <data name="FilePreviewShare" xml:space="preserve"><value>Поделиться</value></data>
+  <data name="FilePreviewSave" xml:space="preserve"><value>Сохранить</value></data>
+  <data name="FilePreviewSaved" xml:space="preserve"><value>Сохранена копия</value></data>
+  <data name="FilePreviewShareFailed" xml:space="preserve"><value>Этот файл не может быть поделен.</value></data>
+  <data name="FilePreviewSaveFailed" xml:space="preserve"><value>Этот файл не может быть сохранен.</value></data>
+  <data name="FilePreviewClose" xml:space="preserve"><value>Закрыть превью</value></data>
+  <data name="Notifications" xml:space="preserve"><value>Уведомления</value></data>
+  <data name="NotifyMe" xml:space="preserve"><value>Уведомлять меня на этом телефоне</value></data>
+  <data name="NotificationsSummary" xml:space="preserve"><value>Уведомления: ответы и вопросы от {0} во время отсутствия</value></data>
+  <data name="NotificationsAwayRule" xml:space="preserve"><value>{0} считает вас отсутствующим, когда компьютер заблокирован или если клавиатура и мышь не использовались {1} мин. Изменить это можно на компьютере в разделе «Настройки → Мобильная версия».</value></data>
+  <data name="NotificationsOffOnPc" xml:space="preserve"><value>Уведомления на телефон отключены на {0}. Включите их в Lumi на компьютере в разделе «Настройки → Мобильная версия».</value></data>
+  <data name="NotificationsPcUpdateNeeded" xml:space="preserve"><value>Обновите Lumi на {0}, чтобы получать уведомления.</value></data>
+  <data name="NotificationsBlocked" xml:space="preserve"><value>Android блокирует уведомления от Lumi.</value></data>
+  <data name="OpenSystemSettings" xml:space="preserve"><value>Открыть настройки</value></data>
+  <data name="NotificationsKinds" xml:space="preserve"><value>Что вы слышите</value></data>
+  <data name="NotificationChannelQuestions" xml:space="preserve"><value>Вопросы и одобрения</value></data>
+  <data name="NotificationChannelQuestionsDescription" xml:space="preserve"><value>Когда Lumi требует от вас продолжить работу</value></data>
+  <data name="NotificationChannelReplies" xml:space="preserve"><value>Завершенные ответы</value></data>
+  <data name="NotificationChannelRepliesDescription" xml:space="preserve"><value>Когда Lumi завершает ответы</value></data>
+  <data name="NotificationChannelConnection" xml:space="preserve"><value>Подключение</value></data>
+  <data name="NotificationChannelConnectionDescription" xml:space="preserve"><value>Тихое уведомление, пока Lumi подключена к вашему компьютеру</value></data>
+  <data name="SendTestNotification" xml:space="preserve"><value>Отправить тестовое уведомление</value></data>
+  <data name="TestNotificationSent" xml:space="preserve"><value>Отправлено. Оно должно прийти через несколько секунд.</value></data>
+  <data name="TestNotificationFailed" xml:space="preserve"><value>Не удалось отправить тест: {0}</value></data>
+  <data name="NotificationTestTitle" xml:space="preserve"><value>Уведомления работают</value></data>
+  <data name="NotificationTestText" xml:space="preserve"><value>Так будет выглядеть {0}, когда вы отсутствуете.</value></data>
+  <data name="NotificationReplyFallback" xml:space="preserve"><value>Завершено отправка ответа.</value></data>
+  <data name="NotificationInputText" xml:space="preserve"><value>Требуется ваше ввод: {0}</value></data>
+  <data name="NotificationApprovalText" xml:space="preserve"><value>Требуется ваше одобрение на {0}: {1}</value></data>
+  <data name="NotificationConnected" xml:space="preserve"><value>Подключено к {0}</value></data>
+  <data name="NotificationConnecting" xml:space="preserve"><value>Подключение к {0}…</value></data>
+  <data name="NotificationWaiting" xml:space="preserve"><value>Ожидание {0}</value></data>
+  <data name="NotificationPublicReply" xml:space="preserve"><value>Lumi завершила ответ</value></data>
+  <data name="NotificationActionReply" xml:space="preserve"><value>Ответить</value></data>
+  <data name="NotificationSendFailed" xml:space="preserve"><value>Не удалось отправить. Попробуйте снова или откройте Lumi.</value></data>
+  <data name="NotificationPublicRequest" xml:space="preserve"><value>Lumi требует вашего внимания</value></data>
+  <data name="NotificationsPromptTitle" xml:space="preserve"><value>Получать уведомления, когда Lumi требует вашего внимания</value></data>
+  <data name="NotificationsPromptText" xml:space="preserve"><value>Когда вы отсутствуете от {0}, этот телефон слышит момент, когда ответ готов или у Lumi есть вопрос. Ничего не приходит, когда вы находитесь у компьютера.</value></data>
+  <data name="NotificationsPromptExample" xml:space="preserve"><value>Все готово — отчет готов на вашем рабочем столе.</value></data>
+  <data name="TurnOnNotifications" xml:space="preserve"><value>Включить уведомления</value></data>
+  <data name="NotNow" xml:space="preserve"><value>Не сейчас</value></data>
+  <data name="NotificationsBackgroundNote" xml:space="preserve"><value>Чтобы мгновенно добраться до вас, Lumi поддерживает тихое соединение с вашим компьютером. Android показывает это как тихое уведомление «Подключено», которое можно спрятать.</value></data>
+  <data name="NotificationsNeedHttps" xml:space="preserve"><value>Браузеры разрешают уведомления только для защищённых адресов (https). Чтобы получать их здесь, выберите Microsoft Dev Tunnel в разделе «Настройки → Мобильная версия» на {0}, затем откройте Lumi с помощью показанного кода.</value></data>
+  <data name="NotificationsNeedHomeScreen" xml:space="preserve"><value>На iPhone и iPad уведомления работают, когда Lumi находится на вашем Главном экране: нажмите Поделиться, затем Добавить на Главный экран, и откройте Lumi оттуда.</value></data>
+  <data name="NotificationsBrowserUnsupported" xml:space="preserve"><value>Этот браузер не может получать уведомления. Попробуйте Chrome, Edge, Firefox или Safari.</value></data>
+  <data name="NotificationsBlockedWeb" xml:space="preserve"><value>Ваш браузер блокирует уведомления от Lumi. Разрешите их в настройках сайта, затем вернитесь к Lumi.</value></data>
+  <data name="NotificationsWebReady" xml:space="preserve"><value>Готово. {0} отправляет уведомления в этот браузер.</value></data>
+  <data name="NotificationsWebRegistering" xml:space="preserve"><value>Установка уведомлений…</value></data>
+  <data name="NotificationsWebFailed" xml:space="preserve"><value>Не удалось настроить уведомления: {0}</value></data>
+  <data name="NotificationsBrowserFailed" xml:space="preserve"><value>Этот браузер не поддерживает службу push.</value></data>
+  <data name="NotificationsWebNote" xml:space="preserve"><value>Уведомления проходят через службу push вашего браузера, зашифрованные так, чтобы только этот браузер мог их прочитать. Они приходят даже когда Lumi закрыт.</value></data>
+  <data name="AllowNotifications" xml:space="preserve"><value>Разрешить уведомления</value></data>
+  <data name="NotificationsPermissionNeeded" xml:space="preserve"><value>Уведомления включены, но Lumi пока не имеет разрешения на их отображение здесь.</value></data>
+  <data name="NotificationsAllowTitle" xml:space="preserve"><value>Позвольте Lumi уведомлять вас здесь</value></data>
+  <data name="NotificationsBlockedTitle" xml:space="preserve"><value>Уведомления заблокированы</value></data>
+  <data name="NotificationsBlockedInstalled" xml:space="preserve"><value>Ваш телефон блокирует уведомления от Lumi. Разрешите их для Lumi в настройках телефона, затем вернитесь к Lumi.</value></data>
+  <data name="TestNotificationDelivered" xml:space="preserve"><value>Оно пришло. Проверьте свои уведомления.</value></data>
+  <data name="TestNotificationNotReceived" xml:space="preserve"><value>{0} отправил его, но этот браузер его не получил. Если ничего не пришло, этот браузер может не доставлять уведомления веб-приложений; попробуйте другой браузер.</value></data>
+  <data name="WebAppInstallTitle" xml:space="preserve"><value>Lumi, один касание до вас</value></data>
+  <data name="WebAppInstallText" xml:space="preserve"><value>Сохраните Lumi на вашем Главном экране, чтобы он был готов всегда, когда вы хотите продолжить чат.</value></data>
+  <data name="WebAppInstallPreview" xml:space="preserve"><value>Ваши чаты, в своем месте</value></data>
+  <data name="WebAppInstallAction" xml:space="preserve"><value>Установить Lumi</value></data>
+  <data name="WebAppInstallHow" xml:space="preserve"><value>Как добавить Lumi</value></data>
+  <data name="WebAppInstallSettings" xml:space="preserve"><value>Добавьте Lumi на главный экран</value></data>
+  <data name="WebAppInstallSettingsHint" xml:space="preserve"><value>Открывайте Lumi как приложение</value></data>
+  <data name="WebAppInstallShareStep" xml:space="preserve"><value>Откройте меню поделиться в вашем браузере.</value></data>
+  <data name="WebAppInstallMenuStep" xml:space="preserve"><value>Откройте меню браузера или меню поделиться.</value></data>
+  <data name="WebAppInstallAppleStep" xml:space="preserve"><value>Выберите Добавить на главный экран, затем Добавить. Оставьте галочку Открыть как веб-приложение, если она отображается.</value></data>
+  <data name="WebAppInstallBrowserStep" xml:space="preserve"><value>Выберите Установить приложение или Добавить на главный экран, затем подтвердите.</value></data>
+  <data name="WebAppInstallOpenStep" xml:space="preserve"><value>Откройте Lumi из нового значка на главном экране.</value></data>
+  <data name="WebAppInstallFallback" xml:space="preserve"><value>Не можете найти опцию? Откройте эту страницу в Safari на iPhone/iPad или в Chrome на Android.</value></data>
+  <data name="WebAppInstallFailed" xml:space="preserve"><value>Диалог установки не открылся. Вы можете добавить Lumi, следуя инструкциям ниже.</value></data>
+</root>

@@ -1,6 +1,6 @@
 ---
 name: Update Whats New
-description: Curates the in-app What's new for the next Lumi release (highlights since the last release, a spotlight, all ten languages) and checks it. Run it before every release; Publish New Version does.
+description: Curates the in-app What's new for the next Lumi release (highlights since the last release, a spotlight, all supported languages) and checks it. Run it before every release; Publish New Version does.
 ---
 
 # Update What's New
@@ -44,11 +44,11 @@ it at its version step), or when the user asks to change what an update shows.
    make the phone the spotlight (`Destination = PhoneSettings`): it is how people discover the companion app, and it
    adapts for users who already paired one.
 5. **Write the strings** with keys `WhatsNew_<Feature>_Title`, `_Body`, and `_Action` (when there is a place to go),
-   in all ten languages, then add them to every catalog in one step. Put them in a JSON file outside the repository
+   in every supported language, then add them to every catalog in one step. Put them in a JSON file outside the repository
    (the session folder or `$env:TEMP`), each key with its text by catalog name:
    ```json
    {
-     "WhatsNew_Voice_Title": { "en": "…", "he": "…", "es": "…", "pt-BR": "…", "zh-Hans": "…", "de": "…", "fr": "…", "ja": "…", "ko": "…", "ar": "…" },
+     "WhatsNew_Voice_Title": { "en": "…", "he": "…", "es": "…", "pt-BR": "…", "zh-Hans": "…", "de": "…", "fr": "…", "ja": "…", "ko": "…", "ar": "…", "ru": "…" },
      "WhatsNew_Voice_Body": { "en": "…", "he": "…", "…": "…" }
    }
    ```

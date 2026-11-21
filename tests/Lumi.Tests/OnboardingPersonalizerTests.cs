@@ -30,6 +30,7 @@ public sealed class OnboardingPersonalizerTests
     [InlineData("ja")]
     [InlineData("ko")]
     [InlineData("ar")]
+    [InlineData("ru")]
     public void PersonalizationKeepsTheSelectedLanguageVariant(string language)
     {
         var culture = CultureInfo.GetCultureInfo(language);

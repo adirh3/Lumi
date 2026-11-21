@@ -14,7 +14,7 @@ public static class ChatSessionStrings
         ("en", "English"), ("he", "עברית"), ("es", "Español"),
         ("pt-BR", "Português (Brasil)"), ("zh-Hans", "简体中文"),
         ("de", "Deutsch"), ("fr", "Français"), ("ja", "日本語"),
-        ("ko", "한국어"), ("ar", "العربية")
+        ("ko", "한국어"), ("ar", "العربية"), ("ru", "Русский")
     ];
 
     private static readonly ResourceManager Resources = new(
@@ -61,11 +61,13 @@ public static class ChatSessionStrings
         "ja" => "ja",
         "ko" => "ko",
         "ar" => "ar",
+        "ru" => "ru",
         { } code when code.StartsWith("de-", StringComparison.Ordinal) => "de",
         { } code when code.StartsWith("fr-", StringComparison.Ordinal) => "fr",
         { } code when code.StartsWith("ja-", StringComparison.Ordinal) => "ja",
         { } code when code.StartsWith("ko-", StringComparison.Ordinal) => "ko",
         { } code when code.StartsWith("ar-", StringComparison.Ordinal) => "ar",
+        { } code when code.StartsWith("ru-", StringComparison.Ordinal) => "ru",
         "es" => "es",
         { } code when code.StartsWith("es-", StringComparison.Ordinal) => "es",
         "pt" => "pt-BR",

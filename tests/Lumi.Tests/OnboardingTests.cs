@@ -235,6 +235,7 @@ public sealed class OnboardingTests
     [InlineData("ja")]
     [InlineData("ko")]
     [InlineData("ar")]
+    [InlineData("ru")]
     public async Task ChoosingAnotherLanguageAsksTheShellToRestartInIt(string code)
     {
         using var session = HeadlessTestSession.Start();

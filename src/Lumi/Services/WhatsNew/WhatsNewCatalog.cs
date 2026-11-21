@@ -81,7 +81,7 @@ public sealed record WhatsNewRelease(Version Version, IReadOnlyList<WhatsNewItem
 /// <summary>
 /// What each version of Lumi shows after an update, newest first. Every release Lumi ships has an entry here, made
 /// before the version is bumped (an empty one when the release brings nothing worth showing). The Update Whats New
-/// skill (.github/skills) walks through writing one, its strings in all ten languages included; the entries below show
+/// skill (.github/skills) walks through writing one, its strings in every supported language included; the entries below show
 /// each kind of item: a spotlight, items with an action and plain ones.
 /// </summary>
 public static class WhatsNewCatalog
