@@ -174,6 +174,48 @@ public sealed class EasyConnectViewTests
     }
 
     [Fact]
+    public async Task CustomHttpConnectionFieldsCannotChangeWhileDiscoveryIsInFlight()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var respond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var http = new HttpClient(new ResponseHandler(_ => new(HttpStatusCode.ServiceUnavailable), respond.Task));
+            using var vm = new EasyConnectViewModel(new DataStore(new AppData()), TestCopilot.Shared,
+                new FakeSecureKeyStore(), () => { }, new ProviderConnectionService(http));
+            var view = new EasyConnectDialogView { DataContext = vm };
+            var window = new Window { Width = 700, Height = 760, Content = view };
+            window.Show();
+            try
+            {
+                vm.Providers.Single(card => card.Profile.IsCustom).OpenCommand.Execute(null);
+                vm.BaseUrl = "http://provider.example/v1";
+                vm.ApiKey = "test-key";
+                vm.AllowInsecureHttp = true;
+                window.UpdateLayout();
+                var address = view.FindControl<TextBox>("ConnectBaseUrl")!;
+                var key = view.FindControl<TextBox>("ConnectApiKey")!;
+                Assert.True(address.IsEffectivelyEnabled);
+                Assert.True(key.IsEffectivelyEnabled);
+
+                var discovery = vm.DiscoverCommand.ExecuteAsync(null);
+                Assert.False(discovery.IsCompleted);
+                Assert.False(address.IsEffectivelyEnabled);
+                Assert.False(key.IsEffectivelyEnabled);
+
+                respond.SetResult();
+                await discovery.WaitAsync(TimeSpan.FromSeconds(5));
+
+                Assert.True(vm.HasError);
+                Assert.True(vm.IsAccountStage);
+                Assert.True(address.IsEffectivelyEnabled);
+                Assert.True(key.IsEffectivelyEnabled);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task WelcomeOffersFoundryWithGuidedKeySetupAndDeploymentFallback()
     {
         using var session = HeadlessTestSession.Start();
@@ -532,10 +574,14 @@ public sealed class EasyConnectViewTests
         }, CancellationToken.None);
     }
 
-    private sealed class ResponseHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
+    private sealed class ResponseHandler(Func<HttpRequestMessage, HttpResponseMessage> respond, Task? wait = null) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
-            => Task.FromResult(respond(request));
+        {
+            if (wait is not null)
+                await wait.WaitAsync(cancellationToken);
+            return respond(request);
+        }
     }
 }

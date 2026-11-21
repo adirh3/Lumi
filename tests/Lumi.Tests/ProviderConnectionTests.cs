@@ -283,6 +283,29 @@ public sealed class ProviderConnectionTests
         => Assert.Throws<ProviderConnectionException>(() => ProviderConnectionService.BuildModelsUri(new() { BaseUrl = url }));
 
     [Fact]
+    public void NonLoopbackHttpRequiresConsentAndACustomProvider()
+    {
+        var endpoint = new ByokEndpoint { ConnectionProviderId = "custom", BaseUrl = "http://provider.example/v1" };
+        Assert.Throws<ProviderConnectionException>(() => ProviderConnectionService.BuildModelsUri(endpoint));
+        Assert.Equal("http://provider.example/v1/models",
+            ProviderConnectionService.BuildModelsUri(endpoint, allowInsecureHttp: true).AbsoluteUri);
+        endpoint.ConnectionProviderId = "ollama";
+        Assert.Throws<ProviderConnectionException>(() => ProviderConnectionService.BuildModelsUri(endpoint, allowInsecureHttp: true));
+    }
+
+    [Theory]
+    [InlineData("http://user:secret@provider.example/v1")]
+    [InlineData("http://provider.example/v1?key=secret")]
+    [InlineData("http://provider.example/v1#fragment")]
+    public void CustomHttpConsentDoesNotPermitAmbiguousUrls(string url)
+    {
+        var endpoint = new ByokEndpoint { ConnectionProviderId = "custom", BaseUrl = url };
+        var error = Assert.Throws<ProviderConnectionException>(() =>
+            ProviderConnectionService.BuildModelsUri(endpoint, allowInsecureHttp: true));
+        Assert.DoesNotContain("secret", error.Message);
+    }
+
+    [Fact]
     public void DiscoveryDeduplicatesAndFiltersNonToolModels()
     {
         using var json = JsonDocument.Parse("""
@@ -859,6 +882,94 @@ public sealed class ProviderConnectionTests
         await vm.DiscoverCommand.ExecuteAsync(null);
         Assert.False(vm.HasKey);
         Assert.Equal(131072, Assert.Single(vm.Models).Model.ContextTokens);
+    }
+
+    [Fact]
+    public async Task CustomHttpConsentIsRequiredBeforeDiscoveryAndResetsWhenTheAddressChanges()
+    {
+        var requests = 0;
+        using var http = new HttpClient(new StubHandler(request =>
+        {
+            Interlocked.Increment(ref requests);
+            Assert.Equal("http://other.example/v1/models", request.RequestUri!.AbsoluteUri);
+            return new(HttpStatusCode.OK) { Content = new StringContent("""{"data":[{"id":"local-model"}]}""") };
+        }));
+        using var vm = new EasyConnectViewModel(new DataStore(new AppData()), TestCopilot.Shared,
+            new FakeSecureKeyStore(), () => { }, new ProviderConnectionService(http));
+        vm.Providers.Single(card => card.Profile.IsCustom).OpenCommand.Execute(null);
+        vm.RequiresApiKey = false;
+        vm.BaseUrl = "http://provider.example/v1";
+        Assert.True(vm.ShowInsecureHttpConsent);
+        Assert.False(vm.CanDiscover);
+        await vm.DiscoverCommand.ExecuteAsync(null);
+
+        vm.AllowInsecureHttp = true;
+        Assert.True(vm.CanDiscover);
+        vm.BaseUrl = "http://other.example/v1";
+        Assert.False(vm.AllowInsecureHttp);
+        Assert.False(vm.CanDiscover);
+        await vm.DiscoverCommand.ExecuteAsync(null);
+        Assert.Equal(0, Volatile.Read(ref requests));
+
+        vm.AllowInsecureHttp = true;
+        await vm.DiscoverCommand.ExecuteAsync(null);
+        Assert.True(vm.IsModelStage);
+        Assert.Equal("local-model", Assert.Single(vm.Models).Id);
+        Assert.True(vm.ShowInsecureHttpConsent);
+    }
+
+    [Fact]
+    public async Task AdvancedHttpAccountOpensWithoutRequestsAndCanBeRefreshedAndSavedAfterConsent()
+    {
+        var data = new AppData();
+        var endpoint = new ByokEndpoint
+        {
+            Id = "advanced", Name = "Self-hosted", BaseUrl = "http://provider.example/v1",
+            ProviderType = "openai", WireApi = "completions", ApiKeyMode = ByokApiKeyMode.Stored, ApiKey = "test-key"
+        };
+        data.Settings.ByokEndpoints.Add(endpoint);
+        var model = new ByokModel { EndpointId = endpoint.Id, ModelId = "self-hosted", DisplayName = "Self-hosted model" };
+        data.Settings.ByokModels.Add(model);
+        var requests = 0;
+        using var http = new HttpClient(new StubHandler(request =>
+        {
+            Interlocked.Increment(ref requests);
+            Assert.Equal("http://provider.example/v1/models", request.RequestUri!.AbsoluteUri);
+            Assert.Equal("Bearer test-key", request.Headers.Authorization?.ToString());
+            return new(HttpStatusCode.OK) { Content = new StringContent("""{"data":[{"id":"self-hosted"}]}""") };
+        }));
+        using var vm = new EasyConnectViewModel(new DataStore(data), TestCopilot.Shared, new FakeSecureKeyStore(),
+            () => { }, new ProviderConnectionService(http));
+        Assert.Single(vm.Connections).ManageCommand.Execute(null);
+        Assert.True(vm.IsModelStage);
+        Assert.True(vm.ShowInsecureHttpConsent);
+        Assert.False(vm.HasError);
+        Assert.False(vm.IsFindingImageModels);
+        Assert.False(vm.CanDiscover);
+        vm.SkipModelCheck = true;
+        Assert.False(vm.CanSave);
+        await vm.DiscoverCommand.ExecuteAsync(null);
+        await vm.SaveConnectionCommand.ExecuteAsync(null);
+        Assert.Equal(0, Volatile.Read(ref requests));
+        Assert.Same(endpoint, Assert.Single(data.Settings.ByokEndpoints));
+
+        vm.AllowInsecureHttp = true;
+        await vm.DiscoverCommand.ExecuteAsync(null);
+        Assert.True(Volatile.Read(ref requests) > 0);
+        Assert.True(vm.CanSave);
+        await vm.SaveConnectionCommand.ExecuteAsync(null);
+        Assert.False(vm.HasError);
+        Assert.True(vm.IsComplete);
+        var saved = Assert.Single(data.Settings.ByokEndpoints);
+        Assert.Equal(endpoint.Id, saved.Id);
+        Assert.Equal(endpoint.BaseUrl, saved.BaseUrl);
+        Assert.Equal(endpoint.ApiKey, saved.ApiKey);
+        Assert.Equal(model.Id, Assert.Single(data.Settings.ByokModels).Id);
+
+        vm.CloseDialogCommand.Execute(null);
+        Assert.Single(vm.Connections).ManageCommand.Execute(null);
+        Assert.False(vm.AllowInsecureHttp);
+        Assert.False(vm.CanDiscover);
     }
 
     [Theory]

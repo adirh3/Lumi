@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Byok;
 using Lumi.Services.ImageGeneration;
 
 namespace Lumi.ViewModels;
@@ -120,7 +121,7 @@ public partial class EasyConnectViewModel
     /// Reads the account's image models as the model step opens. An account set up for images keeps its model;
     /// otherwise images are offered on when chats would have none without it, or when the dialog was opened for them.
     /// </summary>
-    private void BeginImageDiscovery(ByokEndpoint endpoint, Func<string?> key)
+    private void BeginImageDiscovery(ByokEndpoint endpoint, Func<string?> key, bool allowInsecureHttp = false)
     {
         if (!CanCreateImages)
         {
@@ -137,7 +138,10 @@ public partial class EasyConnectViewModel
         if (savedModel is not null)
             SelectImageModel(AddImageChoice(savedModel));
         NotifyImages();
-        _ = DiscoverImageModelsAsync(endpoint, key);
+        // Opening an existing account must not send its credentials over HTTP before consent.
+        if (!ProviderConnectionService.IsNonLoopbackHttp(endpoint.BaseUrl)
+            || (endpoint.ConnectionProviderId == "custom" && allowInsecureHttp))
+            _ = DiscoverImageModelsAsync(endpoint, key);
     }
 
     private async Task DiscoverImageModelsAsync(ByokEndpoint endpoint, Func<string?> key)

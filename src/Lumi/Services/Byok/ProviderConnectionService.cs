@@ -37,12 +37,12 @@ public sealed class ProviderConnectionService : IDisposable
     }
 
     public async Task<IReadOnlyList<ProviderModel>> DiscoverAsync(
-        ByokEndpoint endpoint, string? key, CancellationToken cancellationToken)
+        ByokEndpoint endpoint, string? key, CancellationToken cancellationToken, bool allowInsecureHttp = false)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         cancellationToken = timeout.Token;
-        var uri = BuildModelsUri(endpoint);
+        var uri = BuildModelsUri(endpoint, allowInsecureHttp);
         var isGemini = ProviderCatalog.FromUrl(endpoint.BaseUrl)?.Id == "gemini";
         if (isGemini)
             uri = new Uri("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000");
@@ -99,9 +99,9 @@ public sealed class ProviderConnectionService : IDisposable
         }
     }
 
-    internal static Uri BuildModelsUri(ByokEndpoint endpoint)
+    internal static Uri BuildModelsUri(ByokEndpoint endpoint, bool allowInsecureHttp = false)
     {
-        var uri = ValidateBaseUri(endpoint.BaseUrl);
+        var uri = ValidateBaseUri(endpoint.BaseUrl, allowInsecureHttp && endpoint.ConnectionProviderId == "custom");
         var path = endpoint.BaseUrl.TrimEnd('/');
         if (endpoint.ProviderType == "anthropic" && !uri.AbsolutePath.TrimEnd('/').EndsWith("/v1", StringComparison.Ordinal))
             path += "/v1";
@@ -119,13 +119,19 @@ public sealed class ProviderConnectionService : IDisposable
         return uri.GetLeftPart(UriPartial.Path).TrimEnd('/');
     }
 
-    private static Uri ValidateBaseUri(string baseUrl)
+    internal static bool IsNonLoopbackHttp(string baseUrl)
+        => Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) && IsNonLoopbackHttp(uri);
+
+    private static bool IsNonLoopbackHttp(Uri uri) => uri.Scheme == Uri.UriSchemeHttp && !uri.IsLoopback;
+
+    private static Uri ValidateBaseUri(string baseUrl, bool allowInsecureHttp = false)
     {
         if (ByokConfigHelper.ValidateBaseUrl(baseUrl) is not null
             || !Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
             || !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query)
-            || !string.IsNullOrEmpty(uri.Fragment)
-            || (uri.Scheme != Uri.UriSchemeHttps && !uri.IsLoopback))
+            || !string.IsNullOrEmpty(uri.Fragment))
+            throw new ProviderConnectionException(Loc.Get("EasyConnect_InvalidBaseUrl"));
+        if (!allowInsecureHttp && IsNonLoopbackHttp(uri))
             throw new ProviderConnectionException(Loc.Get("EasyConnect_InvalidUrl"));
         return uri;
     }

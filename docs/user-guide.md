@@ -245,6 +245,13 @@ its models, replace its key, or open usage and billing; the **⋯** menu also of
 **Use as default** and **Disconnect**. Selecting an already connected provider in
 the gallery opens its existing connection instead of adding a duplicate.
 
+For a self-hosted **Custom provider** on another machine, prefer HTTPS. If the
+server only offers HTTP, select **Allow unencrypted HTTP** before discovering
+models or saving the account, including when managing an existing HTTP endpoint.
+HTTP does not encrypt chat content or API keys. The confirmation resets when
+you change the address or reopen the dialog; it does not change the saved
+endpoint or interrupt existing chats. HTTP on localhost needs no confirmation.
+
 When a provider reports supported reasoning-effort levels and a default, Lumi
 stores the levels supported by the Copilot runtime and exposes the effort selector for that model. OpenRouter's
 `reasoning.supported_efforts` metadata is supported. Reasoning tokens alone do

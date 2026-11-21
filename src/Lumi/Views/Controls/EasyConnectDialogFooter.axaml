@@ -30,16 +30,22 @@
     </Style>
   </UserControl.Styles>
 
-  <Panel MinHeight="34">
+  <Grid RowDefinitions="Auto,*" MinHeight="34">
+    <StackPanel Spacing="2" Margin="0,0,0,8" IsVisible="{Binding ShowInsecureHttpConsent}">
+      <CheckBox x:Name="AllowInsecureHttpToggle" Content="{loc:Str EasyConnect_AllowInsecureHttp}"
+                IsChecked="{Binding AllowInsecureHttp}" IsEnabled="{Binding !IsWorking}" />
+      <TextBlock Classes="ec-footnote" Text="{loc:Str EasyConnect_InsecureHttpWarning}" />
+    </StackPanel>
+
     <!-- Gallery: a privacy promise instead of actions -->
-    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsGallery}" VerticalAlignment="Center">
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsGallery}" VerticalAlignment="Center">
       <PathIcon Data="{StaticResource Ec.Lock}" Width="12" Height="12" VerticalAlignment="Center"
                 Foreground="{DynamicResource Brush.TextTertiary}" />
       <TextBlock Classes="ec-footnote" Text="{loc:Str EasyConnect_ProviderPrivacy}" />
     </StackPanel>
 
     <!-- Account -->
-    <DockPanel IsVisible="{Binding IsAccountStage}">
+    <DockPanel Grid.Row="1" IsVisible="{Binding IsAccountStage}">
       <StackPanel DockPanel.Dock="Right" Classes="ec-actions">
         <Button x:Name="ConnectBack" Classes="mg-button" Command="{Binding BackCommand}" IsEnabled="{Binding CanGoBack}"
                 Content="{Binding BackText}" />
@@ -50,7 +56,7 @@
     </DockPanel>
 
     <!-- Model -->
-    <DockPanel IsVisible="{Binding ShowModelFooter}">
+    <DockPanel Grid.Row="1" IsVisible="{Binding ShowModelFooter}">
       <StackPanel DockPanel.Dock="Right" Classes="ec-actions">
         <Button Classes="mg-button" Command="{Binding BackCommand}" IsEnabled="{Binding CanGoBack}" Content="{Binding BackText}" />
         <Button x:Name="VerifyProviderConnection" Classes="accent mg-button" Command="{Binding SaveConnectionCommand}"
@@ -64,7 +70,7 @@
     </DockPanel>
 
     <!-- Confirm disconnect (manage) -->
-    <DockPanel IsVisible="{Binding ShowRemoveConfirm}">
+    <DockPanel Grid.Row="1" IsVisible="{Binding ShowRemoveConfirm}">
       <StackPanel DockPanel.Dock="Right" Classes="ec-actions">
         <Button Classes="mg-button" Command="{Binding CancelRemoveCommand}" Content="{loc:Str EasyConnect_Cancel}" />
         <Button x:Name="ConfirmRemoveConnection" Classes="danger mg-button" Command="{Binding ConfirmRemoveCommand}"
@@ -74,7 +80,7 @@
     </DockPanel>
 
     <!-- Connecting -->
-    <DockPanel IsVisible="{Binding IsConnectingStage}">
+    <DockPanel Grid.Row="1" IsVisible="{Binding IsConnectingStage}">
       <StackPanel DockPanel.Dock="Right" Classes="ec-actions">
         <Button Classes="mg-button" Command="{Binding CancelCommand}" IsEnabled="{Binding CanCancel}"
                 Content="{loc:Str EasyConnect_Cancel}" />
@@ -83,12 +89,12 @@
     </DockPanel>
 
     <!-- Done -->
-    <DockPanel IsVisible="{Binding IsComplete}">
+    <DockPanel Grid.Row="1" IsVisible="{Binding IsComplete}">
       <StackPanel DockPanel.Dock="Right" Classes="ec-actions">
         <Button x:Name="ConnectDoneButton" Classes="accent mg-button" Command="{Binding DoneCommand}"
                 Content="{Binding DoneActionText}" />
       </StackPanel>
       <Panel />
     </DockPanel>
-  </Panel>
+  </Grid>
 </UserControl>

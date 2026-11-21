@@ -356,6 +356,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _requiresApiKey = true;
     [ObservableProperty] private bool _useKeyInstead;
     [ObservableProperty] private bool _allowPlaintextStorage;
+    [ObservableProperty] private bool _allowInsecureHttp;
     [ObservableProperty] private string _authorizationUrl = "";
 
     public bool CanSignIn => SelectedProvider?.HasBrowserSignIn == true;
@@ -390,6 +391,9 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public bool HasSecureStorage => _keys.IsSupported;
     public bool CanSaveCredential => _keys.IsSupported || (AllowPlaintextStorage && !IsChatGpt);
     public bool ShowPlaintextConsent => HasKey && !HasSecureStorage && !KeepsSavedKey && !IsChatGpt;
+    private bool RequiresInsecureHttpConsent => IsCustom && ProviderConnectionService.IsNonLoopbackHttp(BaseUrl);
+    public bool ShowInsecureHttpConsent => RequiresInsecureHttpConsent && (IsAccountStage || ShowModelFooter);
+    private bool HasTransportConsent => !RequiresInsecureHttpConsent || AllowInsecureHttp;
     private bool KeepsSavedKey => HasKey && _reconnecting is { ApiKeyMode: not ByokApiKeyMode.None }
         && string.IsNullOrWhiteSpace(ApiKey) && _pendingKey is null;
     public bool IsOpenAiType => ProviderType == "openai";
@@ -398,7 +402,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public bool ShowWireChoice => (IsCustom || IsFoundry) && !IsAnthropicType;
     public bool IsCompletionsWire => WireApi != "responses";
     public bool IsResponsesWire => WireApi == "responses";
-    public bool CanDiscover => SelectedProvider is not null && !IsCopilot && !IsWorking
+    public bool CanDiscover => SelectedProvider is not null && !IsCopilot && !IsWorking && HasTransportConsent
         && (!IsFoundry || !string.IsNullOrWhiteSpace(BaseUrl))
         && (!HasKey || !string.IsNullOrWhiteSpace(ApiKey) || !string.IsNullOrEmpty(_pendingKey)
             || _chatGptSignIn is not null || _reconnecting is not null);
@@ -441,7 +445,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         : IsGitHubDefault ? Loc.Get("EasyConnect_DefaultKeepsGitHub")
         : Loc.Get("EasyConnect_DefaultKeepsCurrent");
     // An account can be saved for images alone; set up for images, its chat models are left as they are.
-    public bool CanSave => !IsWorking && (IsImageSetup ? ImagesReady : Models.Any(model => model.IsSelected) || ImagesReady);
+    public bool CanSave => !IsWorking && HasTransportConsent
+        && (IsImageSetup ? ImagesReady : Models.Any(model => model.IsSelected) || ImagesReady);
 
     /// <summary>Saving checks a chat model with one tool call: only when chat models are being chosen.</summary>
     public bool ShowsModelCheck => !SkipModelCheck && !IsImageSetup && Models.Any(model => model.IsSelected);
@@ -569,13 +574,19 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         }
         UpdateActions();
     }
-    partial void OnBaseUrlChanged(string value) => UpdateActions();
+    partial void OnBaseUrlChanged(string value)
+    {
+        AllowInsecureHttp = false;
+        UpdateActions();
+        OnPropertyChanged(nameof(ShowInsecureHttpConsent));
+    }
     partial void OnIsWorkingChanged(bool value)
     {
         UpdateAccountState();
         OnPropertyChanged(nameof(HasStatus));
     }
     partial void OnAllowPlaintextStorageChanged(bool value) => OnPropertyChanged(nameof(CanSaveCredential));
+    partial void OnAllowInsecureHttpChanged(bool value) => UpdateActions();
     partial void OnProviderTypeChanged(string value)
     {
         foreach (var name in new[] { nameof(IsOpenAiType), nameof(IsAzureType), nameof(IsAnthropicType), nameof(ShowWireChoice) })
@@ -610,6 +621,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(ShowModelFooter));
         OnPropertyChanged(nameof(ShowRemoveConfirm));
+        OnPropertyChanged(nameof(ShowInsecureHttpConsent));
     }
     partial void OnIsManagingChanged(bool value)
     {
@@ -626,6 +638,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
                      nameof(IsModelStepDone), nameof(IsReadyStepActive), nameof(IsReadyStepDone), nameof(DialogTitle),
                      nameof(ShowNoModels), nameof(ShowContinue), nameof(IsFindingModels), nameof(CanGoBack),
                      nameof(BackText), nameof(ShowModelFooter), nameof(ShowRemoveConfirm),
+                     nameof(ShowInsecureHttpConsent),
                      nameof(ShowPlanConfirmation), nameof(DoneTitle), nameof(DoneActionText) })
             OnPropertyChanged(name);
         NotifyImages();
@@ -657,7 +670,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
                      nameof(RemovePrompt), nameof(ServerAddressLabel), nameof(ServerAddressPlaceholder),
                      nameof(ManualModelLabel), nameof(ManualModelPlaceholder), nameof(EmptyModelsHint),
                      nameof(IsChatGpt), nameof(ShowKeyAlternative), nameof(ShowPlanConfirmation), nameof(DoneActionText),
-                     nameof(CanSaveCredential) })
+                     nameof(CanSaveCredential), nameof(ShowInsecureHttpConsent) })
             OnPropertyChanged(name);
         UpdateAccountState();
         NotifyImages();
@@ -817,6 +830,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         IsSavingStage = false;
         SkipModelCheck = false;
         AllowPlaintextStorage = false;
+        AllowInsecureHttp = false;
         Error = "";
         Status = "";
         AuthorizationUrl = "";
@@ -1268,18 +1282,21 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         Status = Loc.Get("EasyConnect_FindingModels");
         IReadOnlyList<ProviderModel> models;
         string discoveryNotice = "";
+        var allowInsecureHttp = AllowInsecureHttp;
+        ByokEndpoint? discoveredEndpoint = null;
         string? accountKey = null;
         if (IsChatGpt)
             models = await DiscoverChatGptModelsAsync(ct);
         else
         {
-            var key = HasKey ? await CurrentKeyAsync() : null;
-            accountKey = key;
-            if (HasKey && string.IsNullOrEmpty(key))
+            discoveredEndpoint = DraftEndpoint();
+            var needsKey = HasKey;
+            accountKey = needsKey ? await CurrentKeyAsync() : null;
+            if (needsKey && string.IsNullOrEmpty(accountKey))
                 throw new ProviderConnectionException(Loc.Get("EasyConnect_KeyRequired"));
             try
             {
-                models = await _connections.DiscoverAsync(DraftEndpoint(), key, ct);
+                models = await _connections.DiscoverAsync(discoveredEndpoint, accountKey, ct, allowInsecureHttp);
             }
             catch (ProviderConnectionException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
             {
@@ -1329,8 +1346,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         Status = discoveryNotice;
         Stage = ConnectStage.Models;
         NotifyModels();
-        if (!IsChatGpt)
-            BeginImageDiscovery(DraftEndpoint(), () => accountKey);
+        if (discoveredEndpoint is not null)
+            BeginImageDiscovery(discoveredEndpoint, () => accountKey, allowInsecureHttp);
     }
 
     private async Task<IReadOnlyList<ProviderModel>> DiscoverChatGptModelsAsync(CancellationToken ct)
@@ -1431,7 +1448,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         await RunAsync(async ct =>
         {
             var endpoint = DraftEndpoint();
-            ProviderConnectionService.BuildModelsUri(endpoint);
+            ProviderConnectionService.BuildModelsUri(endpoint, allowInsecureHttp: AllowInsecureHttp);
             var isChatGpt = IsChatGpt;
             var key = HasKey && !isChatGpt ? await CurrentKeyAsync() : null;
             if (HasKey && !isChatGpt && string.IsNullOrEmpty(key))

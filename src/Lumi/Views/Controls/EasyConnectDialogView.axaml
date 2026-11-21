@@ -446,7 +446,7 @@
         </Border>
 
         <!-- Server details (local, custom and Foundry) -->
-        <StackPanel Spacing="12" IsVisible="{Binding CanEditEndpoint}">
+        <StackPanel Spacing="12" IsVisible="{Binding CanEditEndpoint}" IsEnabled="{Binding !IsWorking}">
           <StackPanel Spacing="6" IsVisible="{Binding IsCustom}">
             <TextBlock Classes="ec-label" Text="{loc:Str EasyConnect_ApiType}" />
             <Border Classes="mg-segmented" HorizontalAlignment="Left">
@@ -486,7 +486,7 @@
         </StackPanel>
 
         <!-- API key -->
-        <StackPanel Spacing="12" IsVisible="{Binding ShowKeyEntry}">
+        <StackPanel Spacing="12" IsVisible="{Binding ShowKeyEntry}" IsEnabled="{Binding !IsWorking}">
           <Grid ColumnDefinitions="Auto,*,Auto" IsVisible="{Binding ShowKeyGuide}">
             <Border Classes="ec-num"><TextBlock Text="1" /></Border>
             <TextBlock Grid.Column="1" Classes="ec-strong" Text="{loc:Str EasyConnect_KeyStep1}" Margin="10,0" VerticalAlignment="Center" />
@@ -537,7 +537,8 @@
         <StackPanel x:Name="ChatModelChoices" Spacing="12" IsVisible="{Binding ShowChatModels}">
         <DockPanel>
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" VerticalAlignment="Top" IsVisible="{Binding IsManaging}">
-            <Button Classes="mg-text-button" Command="{Binding DiscoverCommand}" ToolTip.Tip="{loc:Str EasyConnect_RefreshModels}">
+            <Button Classes="mg-text-button" Command="{Binding DiscoverCommand}" IsEnabled="{Binding CanDiscover}"
+                    ToolTip.Tip="{loc:Str EasyConnect_RefreshModels}">
               <StackPanel Orientation="Horizontal" Spacing="5">
                 <PathIcon Data="{StaticResource Ec.Refresh}" />
                 <TextBlock Text="{loc:Str EasyConnect_RefreshModels}" />
