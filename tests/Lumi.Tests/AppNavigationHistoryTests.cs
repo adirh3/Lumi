@@ -436,6 +436,49 @@ public sealed class AppNavigationHistoryTests
         Assert.Equal(data.Projects[0].Id, vm.SelectedProjectFilter);
     });
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task NewChatPrompt_SurvivesOpeningAnExistingChat(bool returnWithBack) => Run(async (vm, data) =>
+    {
+        const string prompt = "Draft a reply.\nKeep it short. ";
+        vm.ChatVM.PromptText = prompt;
+        var existingChat = data.Chats[0];
+
+        Assert.True(await vm.OpenChatByIdAsync(existingChat.Id));
+        Assert.True(string.IsNullOrEmpty(vm.ChatVM.PromptText));
+        vm.ChatVM.PromptText = "Draft for the existing chat";
+        await Settle();
+
+        if (returnWithBack)
+            Assert.True(await vm.TryNavigateHistoryAsync(-1));
+        else
+            vm.NewChatCommand.Execute(null);
+
+        Assert.Null(vm.ChatVM.CurrentChat);
+        Assert.Equal(prompt, vm.ChatVM.PromptText);
+
+        vm.ChatVM.PromptText = "";
+        Assert.True(await vm.OpenChatByIdAsync(existingChat.Id));
+        Assert.Equal("Draft for the existing chat", vm.ChatVM.PromptText);
+        vm.NewChatCommand.Execute(null);
+        Assert.True(string.IsNullOrEmpty(vm.ChatVM.PromptText));
+    });
+
+    [Fact]
+    public Task NewChatPrompt_IsRestoredEvenWhenTheOpenChatHasNoMessages() => Run(async (vm, data) =>
+    {
+        var emptyChat = new Chat { Title = "Empty fork" };
+        data.Chats.Add(emptyChat);
+        vm.ChatVM.PromptText = "Unsent prompt";
+
+        Assert.True(await vm.OpenChatByIdAsync(emptyChat.Id));
+        vm.NewChatCommand.Execute(null);
+
+        Assert.Null(vm.ChatVM.CurrentChat);
+        Assert.Equal("Unsent prompt", vm.ChatVM.PromptText);
+    });
+
     [Fact]
     public Task ProjectFilter_IsRememberedWhenTheSelectedChatDoesNotChange() => Run(async (vm, data) =>
     {

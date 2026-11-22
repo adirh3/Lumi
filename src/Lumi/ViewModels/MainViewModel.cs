@@ -64,6 +64,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private bool _isRefreshingCopilotState;
     private bool _wasExternalOnly;
     private bool _isSyncingDefaultModelSelectionFromChat;
+    private string? _parkedNewChatPrompt;
 
     private const int ChatPageSize = 50;
     private int _chatLoadLimit = ChatPageSize;
@@ -998,6 +999,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 chat.HasUnreadMessages = false;
             ActiveChatId = surface.CurrentChat?.Id;
             return;
+        }
+
+        // The unhosted new-chat surface is disposed; only its unsent text needs to outlive it.
+        if (surface.CurrentChat is null)
+        {
+            surface.PromptText = _parkedNewChatPrompt;
+            _parkedNewChatPrompt = null;
+        }
+        else if (previous.CurrentChat is null)
+        {
+            _parkedNewChatPrompt = previous.PromptText is { Length: > 0 } prompt ? prompt : null;
         }
 
         DetachChatViewModel(previous);
@@ -2038,8 +2050,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void NewChat()
     {
-        // If the current chat is empty (no messages), just reuse it
-        if (ChatVM.CurrentChat is not null
+        // Reuse an empty chat unless there's a separate new-chat prompt to come back to.
+        if (_parkedNewChatPrompt is null
+            && ChatVM.CurrentChat is not null
             && ChatVM.CurrentChat.Messages.Count == 0
             && !ChatVM.OwnsAnyLiveChat())
         {

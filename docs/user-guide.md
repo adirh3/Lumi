@@ -485,6 +485,9 @@ Library filters and previews, and Jobs. A new destination replaces forward histo
 are skipped. History keeps the latest 200 destinations rather than retaining every visit throughout
 a long session. These navigate pages, not undo edits. The embedded browser keeps its own history.
 
+If you type an unsent prompt in **New Chat** and open an existing conversation, **New Chat** or
+**Back** brings your text back in the same window, separate from the conversation's draft.
+
 **Keyboard navigation in Chats.** Press **F6** to cycle between the chat list, conversation, and
 message box; **Shift+F6** goes the other way. Hidden areas are skipped. In the list, **↑/↓** move
 across date groups and **Home/End** move to the first or last loaded row without opening it.
