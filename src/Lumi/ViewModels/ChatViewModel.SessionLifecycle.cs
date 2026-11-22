@@ -1736,10 +1736,7 @@ public partial class ChatViewModel
                             // process keeps running. Keep the card honestly "Running in background"
                             // (instead of flipping to "Completed") and let the Tasks-API monitor track it.
                             if (ToolDisplayHelper.IsShellCommandTool(toolName) && LooksLikeBackgroundShellArgs(toolMsg.Content))
-                            {
-                                var command = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "command") ?? string.Empty;
-                                TrackBackgroundShell(rootToolCallId, command);
-                            }
+                                TrackBackgroundShell(rootToolCallId);
                         }
                     }
                     });

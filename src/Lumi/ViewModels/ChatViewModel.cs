@@ -1904,23 +1904,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // while this chat was hidden, any leftover entries are stale — the shell already finished — so
         // recreating the card would resurrect a "Running in background" card that ticks forever with no
         // monitor to resolve it. Drop the stale map instead and rebuild the card as completed.
+        var runningShells = EmptyRunningBackgroundShells;
         if (CurrentChat is { } current)
         {
             var seedRuntime = GetOrCreateRuntimeState(current.Id);
-            if (seedRuntime.HasPendingBackgroundWork && seedRuntime.RunningBackgroundShells.Count > 0)
-            {
-                _transcriptBuilder.SetKnownRunningBackgroundShells(seedRuntime.RunningBackgroundShells);
-            }
+            if (seedRuntime.HasPendingBackgroundWork)
+                runningShells = seedRuntime.RunningBackgroundShells;
             else
-            {
                 seedRuntime.RunningBackgroundShells.Clear();
-                _transcriptBuilder.SetKnownRunningBackgroundShells(EmptyRunningBackgroundShells);
-            }
         }
-        else
-        {
-            _transcriptBuilder.SetKnownRunningBackgroundShells(EmptyRunningBackgroundShells);
-        }
+        _transcriptBuilder.SetKnownRunningBackgroundShells(runningShells);
 
         // The stored history leads the transcript: the live builder starts where it ends, seeded with
         // what it showed, and the history's placeholders (or built exchanges) go in front.
@@ -1945,9 +1938,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Approval cards are live runtime requests, not saved messages: put the chat's back.
         RestoreApprovalCardsToTranscript();
 
-        // Re-arm the background-shell monitor when switching to a chat that left an async shell
-        // running; it rediscovers the shell (by command) and re-marks the freshly-rebuilt card.
+        // Restore completion tracking before the first poll: session.idle can finish these
+        // shells as soon as the transcript is rebuilt.
         _trackedBackgroundShells.Clear();
+        foreach (var (toolCallId, startedAt) in runningShells)
+        {
+            _trackedBackgroundShells.Add(toolCallId, new TrackedBackgroundShell
+            {
+                RootToolCallId = toolCallId,
+                StartedUtc = startedAt.UtcDateTime,
+            });
+        }
         if (CurrentChat is not null && GetOrCreateRuntimeState(CurrentChat.Id).HasPendingBackgroundWork)
             EnsureBackgroundShellMonitorRunning();
 
