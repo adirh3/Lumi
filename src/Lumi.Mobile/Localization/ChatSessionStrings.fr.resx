@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="SendOptions" xml:space="preserve"><value>Options d’envoi</value></data>
+  <data name="SendNow" xml:space="preserve"><value>Envoyer maintenant</value></data>
+  <data name="QueuedMessages" xml:space="preserve"><value>En file d’attente : {0}</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Envoyer avec Entrée</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Maj+Entrée ajoute une nouvelle ligne. Sur cet appareil uniquement.</value></data>
   <data name="FollowUpSuggestions" xml:space="preserve"><value>Réponses suggérées</value></data>

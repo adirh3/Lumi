@@ -1619,12 +1619,16 @@
             </StackPanel>
           </sc:StrataChatMessage.Content>
         </sc:StrataChatMessage>
-        <TextBlock Text="{Binding SteerStatusText}"
-                   IsVisible="{Binding HasSteerStatus}"
-                   HorizontalAlignment="Right"
-                   Margin="0,-2,8,0"
-                   FontSize="{DynamicResource Font.SizeCaption}"
-                   Foreground="{DynamicResource Brush.TextTertiary}" />
+        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right"
+                    Margin="0,-2,8,0" IsVisible="{Binding HasSteerStatus}">
+          <TextBlock Text="{Binding SteerStatusText}" VerticalAlignment="Center"
+                     FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextTertiary}" />
+          <Button x:Name="SteerSendNowButton" Classes="subtle touch"
+                  Content="{loc:Str SendNow}" IsVisible="{Binding CanSendNow}"
+                  Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.SendSteeredNowCommand}"
+                  CommandParameter="{Binding}" />
+        </StackPanel>
       </StackPanel>
     </DataTemplate>
 
@@ -2194,6 +2198,14 @@
         <Border x:Name="ComposerInset">
           <Border x:Name="ComposerSideInset">
           <StackPanel MaxWidth="{DynamicResource Chat.ReadingColumnWidth}">
+          <StackPanel x:Name="QueuedMessageStatus" Orientation="Horizontal" Spacing="6" Margin="8,0,8,6"
+                      IsVisible="{Binding Chat.HasQueuedMessages}">
+            <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Clock}" Width="14" Height="14"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+            <TextBlock Text="{Binding Chat.QueuedMessagesLabel}"
+                       FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextSecondary}" />
+          </StackPanel>
           <sc:StrataTypingIndicator x:Name="ChatTyping" Classes="mobile-working" Margin="8,0,8,8"
                                     Label="{Binding Chat.WorkingStatusText}"
                                     IsActive="{Binding Chat.IsWorking}"
@@ -2276,7 +2288,7 @@
                                MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
                                PromptText="{Binding Chat.PromptText, Mode=TwoWay}"
                                PreferAutoCompleteAbove="True"
-                               IsBusy="{Binding Chat.IsBusy}"
+                               IsBusy="{Binding Chat.IsWorking}"
                                SendWithEnter="{Binding SendWithEnter}"
                                CanSendWithoutPrompt="{Binding Chat.HasAttachments}"
                                AdvancesFillInOnSend="True"
@@ -2288,6 +2300,7 @@
                                SendCommand="{Binding Chat.SendCommand}"
                                StopCommand="{Binding Chat.StopCommand}"
                                StopAndSendCommand="{Binding Chat.StopAndSendCommand}"
+                               QueueCommand="{Binding Chat.ComposerQueueCommand}"
                                Models="{Binding Chat.AvailableModels}"
                                SelectedModel="{Binding Chat.Model, Mode=TwoWay}"
                                QualityLevels="{Binding Chat.QualityLevels}"
@@ -2333,6 +2346,14 @@
                 <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Plus}" />
               </Button>
           </sc:StrataChatComposer.LeadingContent>
+          <sc:StrataChatComposer.SendAccessoryContent>
+            <Button x:Name="SendOptionsButton" Classes="composer-add" Margin="0,0,6,0"
+                    IsVisible="{Binding Chat.ShowSendOptions}"
+                    AutomationProperties.Name="{loc:Str SendOptions}"
+                    Command="{Binding Chat.OpenSendOptionsCommand}">
+              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronDown}" />
+            </Button>
+          </sc:StrataChatComposer.SendAccessoryContent>
           <sc:StrataChatComposer.ToolbarContent>
               <!-- The model, beside send as on the desktop: its name and a chevron that opens the picker. -->
               <Button x:Name="ComposerModelButton" Classes="composer-model"
@@ -3059,6 +3080,46 @@
     </sc:StrataBottomSheet>
 
 
+
+    <sc:StrataBottomSheet x:Name="SendOptionsSheet" Classes="safe-area"
+                          IsOpen="{Binding Chat.IsSendOptionsOpen, Mode=TwoWay}"
+                          Title="{loc:Str SendOptions}">
+      <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="0,0,0,8">
+          <Button x:Name="SendOptionButton" Classes="sheet-item" Command="{Binding Chat.SendCommand}"
+                  AutomationProperties.Name="{Binding Chat.SendOptionLabel}">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ArrowUp}" Width="18" Height="18" />
+              <TextBlock Grid.Column="1" Text="{Binding Chat.SendOptionLabel}" VerticalAlignment="Center" />
+            </Grid>
+          </Button>
+          <Button x:Name="QueueSendOptionButton" Classes="sheet-item" Command="{Binding Chat.QueueSendCommand}"
+                  AutomationProperties.Name="{sc:InteractiveLabel addToQueue}"
+                  IsVisible="{Binding Chat.ShowQueueSendOption}">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Clock}" Width="18" Height="18" />
+              <TextBlock Grid.Column="1" Text="{sc:InteractiveLabel addToQueue}" VerticalAlignment="Center" />
+            </Grid>
+          </Button>
+          <Button x:Name="StopAndSendOptionButton" Classes="sheet-item" Command="{Binding Chat.StopAndSendCommand}"
+                  AutomationProperties.Name="{sc:InteractiveLabel stopAndSend}"
+                  IsVisible="{Binding Chat.ShowSendOptions}">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.StopSend}" Width="18" Height="18" />
+              <TextBlock Grid.Column="1" Text="{sc:InteractiveLabel stopAndSend}" VerticalAlignment="Center" />
+            </Grid>
+          </Button>
+          <Button x:Name="StopSessionOptionButton" Classes="sheet-item" Command="{Binding Chat.StopCommand}"
+                  AutomationProperties.Name="{loc:Str StopSession}"
+                  IsVisible="{Binding Chat.ShowSendOptions}">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.StopCircle}" Width="18" Height="18" />
+              <TextBlock Grid.Column="1" Text="{loc:Str StopSession}" VerticalAlignment="Center" />
+            </Grid>
+          </Button>
+        </StackPanel>
+      </ScrollViewer>
+    </sc:StrataBottomSheet>
 
     <!--
       The composer's +, as the desktop's + menu and its Skills and Connectors buttons: files and photos,

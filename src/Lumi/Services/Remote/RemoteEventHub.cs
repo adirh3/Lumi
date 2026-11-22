@@ -649,6 +649,7 @@ internal sealed class RemoteEventHub : IDisposable
                 MarkStatusDirty(observer.Surface.CurrentChat?.Id);
                 break;
             case nameof(ChatViewModel.IsStreaming):
+            case nameof(ChatViewModel.HasQueuedSends):
             case nameof(ChatViewModel.StatusText):
             case nameof(ChatViewModel.SelectedModel):
             case nameof(ChatViewModel.ContextCurrentTokens):

@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="SendOptions" xml:space="preserve"><value>发送选项</value></data>
+  <data name="SendNow" xml:space="preserve"><value>立即发送</value></data>
+  <data name="QueuedMessages" xml:space="preserve"><value>已排队：{0}</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>按 Enter 发送</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>按 Shift+Enter 换行。仅在此设备上生效。</value></data>
   <data name="FollowUpSuggestions" xml:space="preserve"><value>建议回复</value></data>

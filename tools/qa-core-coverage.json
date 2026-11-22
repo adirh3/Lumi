@@ -334,6 +334,7 @@
     "Lumi.Mobile.Tests.RemoteClientEndToEndTests.PairedCredentials_SurviveARestart",
     "Lumi.Mobile.Tests.RemoteClientEndToEndTests.PairedSession_UsesTheFirstSseSnapshotWithoutAnAutomaticSnapshotGet",
     "Lumi.Mobile.Tests.RemoteClientEndToEndTests.Pairing_RejectsAWrongCodeAndAcceptsTheRightOne",
+    "Lumi.Mobile.Tests.RemoteClientEndToEndTests.QueueingWhileBusy_WaitsForDesktopStatusWithoutAddingATranscriptBubble",
     "Lumi.Mobile.Tests.RemoteClientEndToEndTests.SendingAMessage_IssuesTheRealCommandAndFlipsTheComposerToBusy",
     "Lumi.Mobile.Tests.RemoteClientEndToEndTests.SendingWhileBusy_AsksTheDesktopToSteerInsteadOfRacingIt",
     "Lumi.Mobile.Tests.RemoteClientEndToEndTests.Sending_KeepsProgressUntilVisibleResponseActivity",

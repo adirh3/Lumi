@@ -623,6 +623,64 @@ public class RemoteClientEndToEndTests
     }
 
     [Fact]
+    public async Task QueueingWhileBusy_WaitsForDesktopStatusWithoutAddingATranscriptBubble()
+    {
+        await using var desktop = new FakeLumiDesktop();
+        var chatId = Guid.NewGuid();
+        desktop.Snapshot = new RemoteSnapshot
+        {
+            Chats = OneChatPage(new RemoteChat { Id = chatId, Title = "Queue" })
+        };
+        desktop.Transcript = new RemoteTranscript { ChatId = chatId, Title = "Queue", Revision = 1 };
+        desktop.Start();
+
+        await using var shell = CreateShell();
+        await PairAsync(shell, desktop);
+        await desktop.SubscriberConnected.WaitAsync(TimeSpan.FromSeconds(10));
+        shell.ChatList.OpenChatCommand.Execute(shell.ChatList.Groups[0].Chats[0]);
+        await WaitAsync(() => !shell.Chat.IsLoading, "the chat to open");
+        shell.Chat.PromptText = "ask this next";
+        var chat = shell.Chat;
+
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true });
+        Assert.False(chat.ShowQueueSendOption);
+        Assert.False(chat.QueueSendCommand.CanExecute(null));
+        Assert.True(chat.ShowSendOptions);
+
+        await PushQueueCountAsync(0);
+        Assert.True(chat.ShowQueueSendOption);
+        Assert.True(chat.QueueSendCommand.CanExecute(null));
+        await chat.QueueSendCommand.ExecuteAsync(null);
+
+        RemoteCommand sent;
+        lock (desktop.ReceivedCommands)
+            sent = Assert.Single(desktop.ReceivedCommands, command => command.Action == RemoteProtocol.Actions.QueueMessage);
+        Assert.Equal("ask this next", sent.Get("message"));
+        Assert.Equal(chatId.ToString(), sent.Get("chatId"));
+        Assert.Null(sent.GetBool("steer"));
+        Assert.Null(sent.GetBool("stopAndSend"));
+        Assert.Empty(chat.PromptText);
+        Assert.Empty(chat.Turns);
+        Assert.False(chat.HasQueuedMessages);
+
+        await PushQueueCountAsync(1);
+        Assert.Equal("Queued: 1", chat.QueuedMessagesLabel);
+        Assert.Empty(chat.Turns);
+        await PushQueueCountAsync(0);
+        Assert.False(chat.HasQueuedMessages);
+        Assert.False(chat.ShowSendOptions);
+
+        async Task PushQueueCountAsync(int count)
+        {
+            var status = new RemoteChatStatus { ChatId = chatId, IsBusy = true, QueuedMessageCount = count };
+            await desktop.PushAsync(RemoteProtocol.Events.ChatStatus,
+                JsonSerializer.Serialize(status, RemoteJsonContext.Default.RemoteChatStatus));
+            await WaitAsync(() => chat.QueuedMessageCount == count,
+                $"the desktop queue count to become {count}");
+        }
+    }
+
+    [Fact]
     public async Task ExplicitStopAndSend_AsksDesktopToAbortAndReplace()
     {
         await using var desktop = new FakeLumiDesktop();

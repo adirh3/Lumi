@@ -345,12 +345,14 @@ public partial class ChatViewModel
         Guid chatId,
         string prompt,
         ChatMessage? existing = null,
-        string? authorOverride = null)
+        string? authorOverride = null,
+        IReadOnlyCollection<string>? explicitAttachmentPaths = null,
+        string? remoteRequestId = null)
     {
         if (existing is null && string.IsNullOrWhiteSpace(prompt))
             return null;
 
-        var message = existing ?? CreateQueuedBusySend(chatId, prompt, authorOverride);
+        var message = existing ?? CreateQueuedBusySend(chatId, prompt, authorOverride, explicitAttachmentPaths, remoteRequestId);
         if (message is null)
             return null;
 
@@ -385,7 +387,8 @@ public partial class ChatViewModel
         Guid chatId,
         string prompt,
         string? authorOverride = null,
-        IReadOnlyCollection<string>? explicitAttachmentPaths = null)
+        IReadOnlyCollection<string>? explicitAttachmentPaths = null,
+        string? remoteRequestId = null)
     {
         var chat = CurrentChat?.Id == chatId
             ? CurrentChat
@@ -395,7 +398,10 @@ public partial class ChatViewModel
 
         var message = BuildQueuedSend(chat, prompt, authorOverride, explicitAttachmentPaths);
         if (message is not null)
+        {
+            message.RemoteRequestId = remoteRequestId;
             AddQueuedSendToTranscript(chat, message);
+        }
         return message;
     }
 

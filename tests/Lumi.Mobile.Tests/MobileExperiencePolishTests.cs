@@ -1052,7 +1052,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Pump(window);
             }
             var sheets = view.GetVisualDescendants().OfType<StrataBottomSheet>().ToArray();
-            Assert.Equal(21, sheets.Length);
+            Assert.Equal(22, sheets.Length);
+            Assert.Contains(sheets, sheet => sheet.Name == "SendOptionsSheet");
             Assert.Contains(sheets, sheet => sheet.Name == "MessageEditSheet");
             Assert.Contains(sheets, sheet => sheet.Name == "MessageSelectionSheet");
             Assert.Contains(sheets, sheet => sheet.Name == "NotificationsPromptSheet");
@@ -1292,6 +1293,50 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         {
             shell.Chat.IsBusy = true;
             shell.Chat.Attachments.Add(new PendingAttachment("notes.txt", "notes.txt"));
+        });
+
+    [Fact]
+    public Task BusyComposerSendOptionsUseTouchRowsAndDismissAboveTheNativeEditor() =>
+        RunUiAsync(412, async (shell, view, window) =>
+        {
+            var composer = Required<StrataChatComposer>(view, "Composer");
+            var editor = Assert.IsType<NativeComposerEditorHost>(composer.EditorContent);
+            var button = Required<Button>(composer, "SendOptionsButton");
+            Assert.False(button.IsVisible);
+
+            editor.SetTextFromNative("keep this draft");
+            PumpFrame(window);
+            await Task.Delay(320);
+            PumpFrame(window);
+            Assert.True(editor.IsVisible);
+            Tap(window, button);
+            var sheet = Required<StrataBottomSheet>(view, "SendOptionsSheet");
+            Assert.True(sheet.IsOpen);
+            Assert.False(editor.IsVisible);
+            PumpFrame(window);
+            await Task.Delay(StrataBottomSheet.OpenDuration + TimeSpan.FromMilliseconds(60));
+            PumpFrame(window);
+            var queue = Required<Button>(sheet, "QueueSendOptionButton");
+            Assert.True(queue.IsEffectivelyVisible);
+            Assert.True(queue.Bounds.Height >= 48);
+            Assert.Same(shell.Chat.QueueSendCommand, queue.Command);
+            Assert.Same(shell.Chat.SendCommand, Required<Button>(sheet, "SendOptionButton").Command);
+            Assert.Same(shell.Chat.StopAndSendCommand, Required<Button>(sheet, "StopAndSendOptionButton").Command);
+            Assert.Same(shell.Chat.StopCommand, Required<Button>(sheet, "StopSessionOptionButton").Command);
+
+            PressAndroidBack(window, shell);
+            Assert.False(sheet.IsOpen);
+            await Task.Delay(StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
+            Pump(window);
+            Assert.True(editor.IsVisible);
+            Assert.Equal("keep this draft", editor.Text);
+            Assert.False(shell.IsDrawerOpen);
+        }, nativeFactory: new FocusEditorFactory(), setup: shell =>
+        {
+            shell.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = shell.Chat.ChatId, IsBusy = true, QueuedMessageCount = 0
+            });
         });
 
     [Fact]
@@ -1783,9 +1828,6 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             {
                 ChatId = shell.Chat.ChatId, IsBusy = true, ProjectId = projectId, ProjectName = "Lumi"
             });
-            composer.StopCommand = null;
-            var stops = 0;
-            composer.StopRequested += (_, _) => stops++;
             Pump(window);
             await Task.Delay(280);
             Pump(window);
@@ -1798,8 +1840,15 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal("Lumi", Required<TextBlock>(view, "HeaderProjectText").Text);
             Assert.True(Required<ItemsControl>(composer, "PendingAttachments").IsEffectivelyVisible);
             Assert.True(Required<StrataTypingIndicator>(view, "ChatTyping").IsEffectivelyVisible);
-            Tap(window, Required<Button>(composer, "PART_SendButton"));
-            Assert.Equal(1, stops);
+            Tap(window, Required<Button>(composer, "SendOptionsButton"));
+            var sheet = Required<StrataBottomSheet>(view, "SendOptionsSheet");
+            PumpFrame(window);
+            await Task.Delay(StrataBottomSheet.OpenDuration + TimeSpan.FromMilliseconds(60));
+            PumpFrame(window);
+            var stop = Required<Button>(sheet, "StopSessionOptionButton");
+            Assert.Same(shell.Chat.StopCommand, stop.Command);
+            Tap(window, stop);
+            Assert.False(sheet.IsOpen);
             Assert.False(composer.IsCompact);
             Assert.Single(shell.Chat.Attachments);
         });

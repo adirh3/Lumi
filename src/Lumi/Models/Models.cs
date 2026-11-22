@@ -371,6 +371,9 @@ public class ChatMessage
     [JsonIgnore]
     public bool CanSendNowWhenQueued { get; set; }
 
+    internal bool CanSendSteerNow => SteerDelivery == MessageSteerState.Steering
+                                     || SteerDelivery == MessageSteerState.Queued && CanSendNowWhenQueued;
+
     /// <summary>
     /// Session-only (not serialized): what going back did to the files the agent changed, on the
     /// message an edit sent in place of the edited one, so its receipt survives transcript rebuilds.

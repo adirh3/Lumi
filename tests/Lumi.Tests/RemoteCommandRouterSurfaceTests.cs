@@ -2345,6 +2345,84 @@ public sealed class RemoteCommandRouterSurfaceTests
         Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
     });
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public Task MobileQueueUsesTheOwningSurfaceAndSendsNormallyIfTheReplyHasEnded(bool busy) => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync();
+        var owner = rig.DetachedSurface;
+        if (busy)
+        {
+            MarkBusy(owner, rig.DetachedChat);
+            owner.IsBusy = true;
+        }
+        owner.PromptText = "desktop draft";
+        var file = Path.Combine(Path.GetTempPath(), "desktop-draft.txt");
+        owner.AddAttachment(file);
+        int starts = 0;
+        var router = new RemoteCommandRouter(rig.DataStore, rig.Main, (vm, chat, prompt, _, _, _) =>
+        {
+            Assert.Same(owner, vm);
+            Assert.Same(rig.DetachedChat, chat);
+            Assert.Equal("from my phone", prompt);
+            starts++;
+            return Task.FromResult<string?>(null);
+        });
+
+        var result = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.QueueMessage) { RequestId = "mobile-queue" }
+                .With("chatId", rig.DetachedChat.Id.ToString())
+                .With("message", "from my phone"),
+            CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(busy ? 0 : 1, starts);
+        Assert.Equal(busy ? 1 : 0, RemoteProjector.BuildStatus(rig.DataStore, owner, rig.DetachedChat).QueuedMessageCount);
+        Assert.Equal("desktop draft", owner.PromptText);
+        Assert.Equal([file], owner.PendingAttachments);
+        Assert.DoesNotContain(rig.DetachedChat.Messages, message => message.Content == "from my phone");
+        Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
+    });
+
+    [Fact]
+    public Task MobileSendNowReclaimsOnlyTheRequestedPendingSteer() => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync();
+        var runtime = MarkBusy(rig.DetachedSurface, rig.DetachedChat);
+        var mainRuntime = MarkBusy(rig.Main.ChatVM, rig.MainChat);
+        var router = new RemoteCommandRouter(rig.DataStore, rig.Main);
+        var steer = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.SendMessage) { RequestId = "mobile-steer" }
+                .With("chatId", rig.DetachedChat.Id.ToString())
+                .With("message", "change direction")
+                .With("steer", "true"),
+            CancellationToken.None);
+        Assert.True(steer.Ok, steer.Error);
+        var pending = rig.DetachedSurface.Messages.Single(message => message.Content == "change direction");
+        var cloned = LumiRemoteServer.CloneMessageForRemote(pending.Message);
+        Assert.Equal("mobile-steer", cloned.RemoteRequestId);
+        Assert.True(cloned.CanSendSteerNow);
+
+        Task<RemoteCommandResult> SendNowAsync(Guid chatId, Guid messageId) => router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.SendSteeredNow)
+                .With("chatId", chatId.ToString())
+                .With("messageId", messageId.ToString()),
+            CancellationToken.None);
+
+        Assert.False((await SendNowAsync(rig.MainChat.Id, pending.Message.Id)).Ok);
+        Assert.True(mainRuntime.IsBusy);
+        Assert.False(runtime.SendQueuedNowWhenTurnStarts);
+
+        var accepted = await SendNowAsync(rig.DetachedChat.Id, pending.Message.Id);
+        Assert.True(accepted.Ok, accepted.Error);
+        Assert.True(runtime.SendQueuedNowWhenTurnStarts);
+        Assert.False(pending.CanSendNow);
+        Assert.Same(pending.Message, Assert.Single(rig.DetachedChat.Messages, message => message.Content == "change direction"));
+        Assert.False((await SendNowAsync(rig.DetachedChat.Id, pending.Message.Id)).Ok);
+        Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
+    });
+
     [Fact]
     public Task StopAndSendUsesTheDetachedRuntimeWithoutChangingTheMainSurface() => RunAsync(async () =>
     {
@@ -2364,9 +2442,10 @@ public sealed class RemoteCommandRouterSurfaceTests
             CancellationToken.None);
 
         Assert.True(result.Ok, result.Error);
-        Assert.Contains(
+        var replacement = Assert.Single(
             rig.DetachedChat.Messages,
             message => message.Content == "replace the running turn" && message.Author == "Lumi Mobile");
+        Assert.False(replacement.CanSendSteerNow);
         Assert.True(runtime.SendQueuedNowWhenTurnStarts);
         Assert.True(runtime.IsBusy);
         Assert.Equal("phone-stop-send", rig.DetachedChat.LastRemoteDeviceId);

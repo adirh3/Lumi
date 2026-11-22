@@ -1,5 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
 <root>
+  <data name="SendOptions" xml:space="preserve"><value>Варианты отправки</value></data>
+  <data name="SendNow" xml:space="preserve"><value>Отправить сейчас</value></data>
+  <data name="QueuedMessages" xml:space="preserve"><value>В очереди: {0}</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Отправлять по Enter</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter добавляет новую строку. Только на этом устройстве.</value></data>
   <data name="FollowUpSuggestions" xml:space="preserve"><value>Предложенные ответы</value></data>

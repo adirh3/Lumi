@@ -65,6 +65,9 @@ public sealed class RemoteChatStatus
     public bool IsAwaitingInput { get; set; }
     /// <summary>Remains true after the main assistant is ready until all session work finishes.</summary>
     public bool IsSessionActive { get; set; }
+    /// <summary>Messages waiting to follow the current reply. Null on hosts without queued sends.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? QueuedMessageCount { get; set; }
     /// <summary>Desktop-owned read state. Null when connected to a host predating read-state status.</summary>
     public bool? HasUnreadMessages { get; set; }
     /// <summary>An explicit mobile mark that a background transcript refresh must not acknowledge.</summary>
@@ -263,6 +266,8 @@ public sealed class RemoteTranscriptItem
     public DateTimeOffset? Timestamp { get; set; }
     /// <summary>None | Queued | Steering | Steered | Failed for a mid-turn user message.</summary>
     public string? SteerState { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CanSendNow { get; set; }
     public bool IsStreaming { get; set; }
     /// <summary>
     /// The desktop's recorded assistant role: true for progress, false for an answer part. Null for

@@ -273,6 +273,7 @@ public static class RemoteProtocol
         public const string InteractiveResponsesV1 = "interactive-responses-v1";
         public const string MessageEditingV1 = "message-editing-v1";
         public const string ChatReadStateV1 = "chat-read-state-v1";
+        public const string QueuedSendsV1 = "queued-sends-v1";
 
         /// <summary>
         /// A latest-window transcript request may carry the <see cref="RemoteTranscript.TranscriptVersion"/>
@@ -328,6 +329,7 @@ public static class RemoteProtocol
             ModelPinsV1,
             MessageEditingV1,
             ChatReadStateV1,
+            QueuedSendsV1,
             PhoneNotificationsV1,
             ExplorerPicturesV1,
             LaunchpadV2,
@@ -414,6 +416,8 @@ public static class RemoteProtocol
         public const string RenameChat = "rename_chat";
         public const string PinChat = "pin_chat";
         public const string SendMessage = "send_message";
+        public const string QueueMessage = "queue_message";
+        public const string SendSteeredNow = "send_steered_now";
         public const string EditMessage = "edit_message";
         public const string StopGeneration = "stop_generation";
         public const string RevokeDevice = "revoke_device";

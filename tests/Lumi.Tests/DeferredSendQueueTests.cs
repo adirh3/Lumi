@@ -667,6 +667,40 @@ public sealed partial class DeferredSendQueueTests
         Assert.Contains("answer me now", host.QueuedPrompts());
     }
 
+    [Fact]
+    public async Task ReplyFinishingBeforeSteerSubmission_SendsTheSteerAsTheNextTurn()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            host.Runtime.PendingSessionUserMessageCount = 1;
+
+            void FinishReply()
+            {
+                host.ViewModel.UserMessageSent -= FinishReply;
+                rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
+                Dispatcher.UIThread.RunJobs();
+                Assert.True(host.CanStartTurnOnReadySession());
+                Assert.Equal(MessageSteerState.Steering, Assert.Single(host.ViewModel.Messages).SteerState);
+            }
+            host.ViewModel.UserMessageSent += FinishReply;
+
+            Assert.True(await host.ViewModel.SteerExternalMessageAsync(host.Chat, "next question", "Lumi Mobile"));
+            await rpc.SendReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var message = Assert.Single(host.Chat.Messages, message => message.Content == "next question");
+            Assert.Equal(1, rpc.SendCount);
+            Assert.Null(rpc.LastSendMode);
+            Assert.Equal(MessageSteerState.None, message.SteerDelivery);
+        }, CancellationToken.None);
+    }
+
     /// <summary>
     /// A setup-time queued message cannot abort immediately because the first prompt has not reached the
     /// SDK yet. The request must wait for AssistantTurnStart, preserving session/MCP setup, and only then
@@ -3082,12 +3116,12 @@ public sealed partial class DeferredSendQueueTests
             host.ViewModel.PromptText = "and then  write\nthe tests";
             await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
 
+            Assert.True(host.ViewModel.QueueExternalMessage(host.Chat, "then check them", "Lumi Mobile", "phone-queue"));
             Assert.Equal("", host.ViewModel.PromptText);
             Assert.Equal(0, rpc.SendCount);
             Assert.Empty(host.QueuedPrompts());
             Assert.Empty(host.Chat.Messages);
-            var queued = Assert.Single(host.ViewModel.QueuedSends);
-            Assert.Equal("and then write the tests", queued.Text);
+            Assert.Equal(["and then write the tests", "then check them"], host.ViewModel.QueuedSends.Select(item => item.Text));
             Assert.True(host.ViewModel.HasQueuedSends);
 
             // The reply keeps writing while the message waits; it stays above the queued message.
@@ -3099,8 +3133,9 @@ public sealed partial class DeferredSendQueueTests
             Assert.NotEqual("immediate", rpc.LastSendMode);
             Assert.Equal(["the answer", "and then  write\nthe tests"], host.Chat.Messages.Select(message => message.Content));
             Assert.Equal(MessageSteerState.None, host.Chat.Messages[1].SteerDelivery);
-            Assert.Empty(host.ViewModel.QueuedSends);
-            Assert.False(host.ViewModel.HasQueuedSends);
+            var next = Assert.Single(host.ViewModel.QueuedSends);
+            Assert.Equal("then check them", next.Text);
+            Assert.Equal("phone-queue", next.Message.RemoteRequestId);
         }, CancellationToken.None);
     }
 
@@ -3312,7 +3347,7 @@ public sealed partial class DeferredSendQueueTests
         }
 
         public void QueuePrompt(string prompt, Guid? chatId = null, string? authorOverride = null)
-            => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null, authorOverride);
+            => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null, authorOverride, null, null);
 
         public void BeginEdit(ChatMessage message)
             => Invoke("BeginComposerEdit", message);

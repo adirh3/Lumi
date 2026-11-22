@@ -229,6 +229,7 @@ public partial class ChatDetailView : UserControl
         composer.SendRequested += OnComposerActionRequested;
         composer.StopRequested += OnComposerActionRequested;
         composer.StopAndSendRequested += OnComposerActionRequested;
+        composer.QueueRequested += OnComposerActionRequested;
         if (!MobilePlatformServices.NativeComposerEditorFactory.IsAvailable)
         {
             _sharedComposerInput = composer.GetVisualDescendants().OfType<TextBox>()
@@ -267,6 +268,7 @@ public partial class ChatDetailView : UserControl
             _composer.SendRequested -= OnComposerActionRequested;
             _composer.StopRequested -= OnComposerActionRequested;
             _composer.StopAndSendRequested -= OnComposerActionRequested;
+            _composer.QueueRequested -= OnComposerActionRequested;
         }
         if (_sharedComposerInput is not null)
             _sharedComposerInput.Classes.CollectionChanged -= OnSharedEditorClassesChanged;

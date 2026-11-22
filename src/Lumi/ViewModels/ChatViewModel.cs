@@ -7986,8 +7986,7 @@ public partial class ChatMessageViewModel : ObservableObject
     /// True while "Send now" can be requested. During session/MCP setup the click is latched and this
     /// hides until the first SDK turn starts, when Lumi can interrupt without recreating the session.
     /// </summary>
-    public bool CanSendNow => SteerState is MessageSteerState.Steering
-                              || (SteerState is MessageSteerState.Queued && CanSendNowWhenQueued);
+    public bool CanSendNow => Message.CanSendSteerNow;
 
     /// <summary>True once the agent has actually consumed the steered message into the running turn.</summary>
     public bool IsSteerDelivered => SteerState is MessageSteerState.Steered;

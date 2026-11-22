@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="SendOptions" xml:space="preserve"><value>Opciones de envío</value></data>
+  <data name="SendNow" xml:space="preserve"><value>Enviar ahora</value></data>
+  <data name="QueuedMessages" xml:space="preserve"><value>En cola: {0}</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Enviar con Enter</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter añade una nueva línea. Solo en este dispositivo.</value></data>
   <data name="FollowUpSuggestions" xml:space="preserve"><value>Respuestas sugeridas</value></data>

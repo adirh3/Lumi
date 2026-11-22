@@ -164,6 +164,7 @@ internal static class RemoteContentVersions
         hash.Add(message.ToolStartedAt?.UtcTicks ?? -1);
         hash.Add(BitConverter.DoubleToInt64Bits(message.ToolDurationMs ?? -1));
         hash.Add((long)message.SteerDelivery);
+        hash.Add(message.CanSendSteerNow);
         hash.Add(message.LinkedChatId);
         hash.Add(message.LinkedChatTitle);
         hash.Add(message.QuestionText?.Length ?? -1);

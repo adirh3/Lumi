@@ -52,6 +52,13 @@ public partial class ChatViewModel
 
     public bool HasQueuedSends => QueuedSends.Count > 0;
 
+    internal int GetWaitingSendCount(Guid chatId) =>
+        _waitingSends.TryGetValue(chatId, out var waiting) ? waiting.Count : 0;
+
+    internal bool ShouldQueueSend(Chat chat) =>
+        !chat.IsPaused && (HasWaitingSends(chat.Id)
+                           || IsChatRuntimeActive(chat.Id) && !CanStartTurnOnReadySession(chat));
+
     /// <summary>
     /// Queues the draft to be sent after the reply Lumi is writing, instead of steering it into that reply.
     /// When nothing is running it is an ordinary send.
@@ -67,10 +74,7 @@ public partial class ChatViewModel
             return;
 
         // A paused chat already holds every send until it resumes.
-        if (CurrentChat is not { } chat
-            || chat.IsPaused
-            || !IsChatRuntimeActive(chat.Id)
-            || CanStartTurnOnReadySession(chat))
+        if (CurrentChat is not { } chat || !ShouldQueueSend(chat))
         {
             await SendMessageCore(prompt, consumeComposerPrompt: true);
             return;
@@ -83,16 +87,37 @@ public partial class ChatViewModel
         if (message is null)
             return;
 
-        if (!_waitingSends.TryGetValue(chat.Id, out var waiting))
-            _waitingSends[chat.Id] = waiting = [];
-        waiting.Add(message);
+        AddWaitingSend(chat.Id, message);
         PromptText = "";
         _chatDrafts.Remove(chat.Id);
         SyncQueuedSends();
     }
 
+    internal bool QueueExternalMessage(Chat chat, string prompt, string author, string? requestId)
+    {
+        if (BlockSendForByokOnly(chat, ResolveSelectedModelForChat(chat), prompt, consumeComposerPrompt: false)
+            || BuildQueuedSend(chat, prompt, author, explicitAttachmentPaths: []) is not { } message)
+        {
+            return false;
+        }
+
+        message.RemoteRequestId = requestId;
+        AddWaitingSend(chat.Id, message);
+        SyncQueuedSends();
+        if (!IsChatRuntimeActive(chat.Id) || CanStartTurnOnReadySession(chat))
+            ScheduleQueuedBusySendDrain(chat.Id);
+        return true;
+    }
+
+    private void AddWaitingSend(Guid chatId, ChatMessage message)
+    {
+        if (!_waitingSends.TryGetValue(chatId, out var waiting))
+            _waitingSends[chatId] = waiting = [];
+        waiting.Add(message);
+    }
+
     private bool HasWaitingSends(Guid chatId)
-        => _waitingSends.TryGetValue(chatId, out var waiting) && waiting.Count > 0;
+        => GetWaitingSendCount(chatId) > 0;
 
     private bool HasPendingSends(Guid chatId)
         => _queuedBusySendPrompts.ContainsKey(chatId) || HasWaitingSends(chatId);

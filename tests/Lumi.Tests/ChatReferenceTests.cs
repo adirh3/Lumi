@@ -275,11 +275,11 @@ public sealed class ChatReferenceTests
         var trip = host.AddChat("Trip plan", DateTimeOffset.Now);
         host.Reference(trip);
 
-        host.Invoke("QueueBusySendPrompt", host.Chat.Id, "from the phone", null, "Lumi Mobile");
+        host.Invoke("QueueBusySendPrompt", host.Chat.Id, "from the phone", null, "Lumi Mobile", Array.Empty<string>(), null);
         Assert.Null(host.Chat.Messages.Single().ReferencedChats);
         Assert.Single(host.ViewModel.ReferencedChatChips);
 
-        host.Invoke("QueueBusySendPrompt", host.Chat.Id, "from the composer", null, null);
+        host.Invoke("QueueBusySendPrompt", host.Chat.Id, "from the composer", null, null, null, null);
         var reference = Assert.Single(host.Chat.Messages.Last().ReferencedChats!);
         Assert.Equal(trip.Id, reference.ChatId);
         Assert.Equal("Trip plan", reference.Title);
