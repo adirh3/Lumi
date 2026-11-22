@@ -9,6 +9,59 @@ namespace Lumi.ViewModels;
 /// </summary>
 public partial class ChatViewModel
 {
+    internal IReadOnlyList<PendingChatInput> GetPendingInputs()
+    {
+        var requests = new List<PendingChatInput>();
+        lock (_pendingQuestionsSync)
+        {
+            foreach (var (id, chatId) in _pendingQuestionChatIds)
+            {
+                if (!_pendingQuestions.TryGetValue(id, out var completion) || completion.Task.IsCompleted)
+                    continue;
+                var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
+                var message = chat?.Messages.LastOrDefault(candidate => candidate.QuestionId == id);
+                if (chat is not null && message is not null)
+                    requests.Add(new(this, chat, id, message, null));
+            }
+        }
+        foreach (var approval in _permissionRequests.Values.Where(request => request.IsPending))
+        {
+            var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == approval.ChatId);
+            if (chat is not null)
+                requests.Add(new(this, chat, approval.RequestId, null, approval));
+        }
+        return requests;
+    }
+
+    internal bool TryAnswerPendingInput(Guid chatId, string questionId, string answer)
+    {
+        lock (_pendingQuestionsSync)
+        {
+            if (!_pendingQuestionChatIds.TryGetValue(questionId, out var ownerId) || ownerId != chatId
+                || _dataStore.Data.Chats.Find(chat => chat.Id == chatId) is not { IsPaused: false })
+                return false;
+            return TryCompletePendingQuestion(questionId, answer);
+        }
+    }
+
+#if DEBUG
+    internal async Task RunAttentionQuestionFixtureAsync(Chat chat)
+    {
+        try
+        {
+            var answer = await BuildAskQuestionTool(chat.Id).InvokeAsync(new Microsoft.Extensions.AI.AIFunctionArguments
+            {
+                ["question"] = "Should the inbox include every project, or only the selected project?",
+                ["options"] = new[] { "Every project", "Selected project only" },
+                ["allowFreeText"] = true, ["allowMultiSelect"] = false
+            });
+            chat.Messages.Add(new() { Role = "assistant", Content = $"Thanks! The fixture received: {answer}" });
+            chat.HasUnreadMessages = true;
+        }
+        catch (OperationCanceledException) { }
+    }
+#endif
+
     private void NotifyQuestionAsked(ChatAttention attention)
     {
         _chatEvents.PublishAttention(attention);

@@ -793,6 +793,23 @@ assistant reply and whether Lumi is still working, paused, or waiting for you. T
 existing reply without opening the chat, marking it as read, or making another AI request.
 If Lumi finishes a reply while the card is open, the card updates in place.
 
+### Needs you
+
+The red **Needs you** banner, between the project selector and **Unread chats**, counts live
+questions, forms and approval requests from every project, even when the chat list is filtered.
+Click it to open the answering page. With the sidebar collapsed, the red **!** button opens the
+same page.
+
+Each request shows its original answer controls, its chat and project, a short **What led here**
+recap, and expandable **More context**. The recap uses bounded excerpts from the recent conversation,
+not another AI call. Open the chat for the full history or to answer there instead.
+Answering resumes the original waiting task; it does not send a new chat message. A request disappears
+when answered, canceled or expired, including when answered in another window or on a phone.
+Opening it or marking the chat as read does not dismiss it. These are live requests: expired
+questions from previous sessions are not offered as if they could still resume their old tasks.
+The sidebar's selected chat opens normally from this page, with a click or Enter. Approval request
+times are shared across windows, so opening another window does not make an old request look new.
+
 ### Unread chats
 
 Right-click a sidebar chat and choose **Mark as unread** to add it to the unread

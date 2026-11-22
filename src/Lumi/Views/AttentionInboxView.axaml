@@ -1,0 +1,121 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.AttentionInboxView"
+             x:DataType="vm:AttentionInboxViewModel"
+             x:CompileBindings="True">
+  <UserControl.DataTemplates>
+    <DataTemplate DataType="vm:QuestionItem">
+      <sc:StrataQuestionCard Question="{Binding Question}" OptionsList="{Binding OptionsList}"
+                             AllowFreeText="{Binding AllowFreeText}" AllowMultiSelect="{Binding AllowMultiSelect}"
+                             SelectedAnswer="{Binding SelectedAnswer, Mode=TwoWay}"
+                             IsAnswered="{Binding IsAnswered, Mode=TwoWay}" IsExpired="{Binding IsExpired}"
+                             Classes="motion-disabled" />
+    </DataTemplate>
+    <DataTemplate DataType="vm:InputRequestItem">
+      <sc:StrataInteractiveBlock Definition="{Binding Definition}" StateJson="{Binding StateJson}"
+                                Language="{Binding Language}" InputStatus="{Binding InputStatus}"
+                                CanSubmit="{Binding CanSubmit}" IsHosted="True" />
+    </DataTemplate>
+  </UserControl.DataTemplates>
+  <Grid RowDefinitions="Auto,*">
+    <Border Padding="28,24,28,20" BorderThickness="0,0,0,1"
+            BorderBrush="{DynamicResource Brush.BorderSubtle}">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+        <StackPanel Spacing="6">
+          <TextBlock Text="{loc:Str NeedsYou_Title}" FontSize="24" FontWeight="SemiBold"
+                     Foreground="{DynamicResource Brush.TextPrimary}" />
+          <TextBlock Text="{loc:Str NeedsYou_Description}" FontSize="13" TextWrapping="Wrap"
+                     Foreground="{DynamicResource Brush.TextSecondary}" />
+        </StackPanel>
+        <Border Grid.Column="1" Background="{DynamicResource Brush.DangerSubtle}"
+                CornerRadius="14" Padding="12,5" VerticalAlignment="Top" IsVisible="{Binding HasRequests}">
+          <TextBlock Text="{Binding CountText}" Foreground="{DynamicResource Brush.DangerDefault}" FontWeight="SemiBold" />
+        </Border>
+      </Grid>
+    </Border>
+    <ScrollViewer x:Name="NeedsYouScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasRequests}">
+      <ItemsControl x:Name="NeedsYouRequests" ItemsSource="{Binding Requests}" Margin="28,22"
+                    MaxWidth="850" HorizontalAlignment="Stretch">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:AttentionRequestViewModel">
+            <Border x:Name="NeedsYouRequest" Padding="22" Margin="0,0,0,20" CornerRadius="16"
+                    Background="{DynamicResource Brush.Surface0}"
+                    BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1">
+              <StackPanel Spacing="16">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel Spacing="5">
+                    <TextBlock Text="{Binding ChatTitle}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Brush.TextPrimary}" />
+                    <WrapPanel>
+                      <TextBlock Text="{Binding ProjectName}" Margin="0,0,12,0" FontSize="12"
+                                 Foreground="{DynamicResource Brush.TextSecondary}" />
+                      <TextBlock Text="{Binding Kind}" Margin="0,0,12,0" FontSize="12"
+                                 Foreground="{DynamicResource Brush.DangerDefault}" />
+                      <TextBlock Text="{Binding AskedAt}" FontSize="12" Foreground="{DynamicResource Brush.TextTertiary}" />
+                    </WrapPanel>
+                  </StackPanel>
+                  <Button x:Name="NeedsYouOpenChat" Grid.Column="1" Classes="subtle" VerticalAlignment="Top"
+                          Content="{loc:Str NeedsYou_OpenChat}" Command="{Binding OpenChatCommand}"
+                          Padding="12,6" MinHeight="0" />
+                </Grid>
+                <ContentControl Content="{Binding Item}" IsEnabled="{Binding CanAnswer}"
+                                HorizontalContentAlignment="Stretch" />
+                <TextBlock Text="{loc:Str Chat_PausedSendBlocked}" IsVisible="{Binding !CanAnswer}"
+                           TextWrapping="Wrap" Foreground="{DynamicResource Brush.WarningDefault}" />
+                <TextBlock Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                           TextWrapping="Wrap" Foreground="{DynamicResource Brush.DangerDefault}" />
+                <Border Padding="14" CornerRadius="10" Background="{DynamicResource Brush.GlassWell}">
+                  <StackPanel Spacing="8">
+                    <TextBlock Text="{loc:Str NeedsYou_Recap}" FontWeight="SemiBold" FontSize="12"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <TextBlock Text="{loc:Str NeedsYou_Loading}" IsVisible="{Binding IsContextLoading}"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                    <SelectableTextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontSize="13"
+                                         Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <StackPanel IsVisible="{Binding ContextError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                      <TextBlock Text="{Binding ContextError}" TextWrapping="Wrap"
+                                 Foreground="{DynamicResource Brush.DangerDefault}" />
+                      <Button Content="{loc:Str Setup_Retry}" Command="{Binding LoadContextCommand}"
+                              Classes="subtle" HorizontalAlignment="Left" />
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+                <Expander x:Name="NeedsYouContext" Header="{loc:Str NeedsYou_Context}"
+                          IsExpanded="{Binding IsContextExpanded, Mode=TwoWay}" HorizontalAlignment="Stretch"
+                          HorizontalContentAlignment="Stretch">
+                  <StackPanel Spacing="14" Margin="0,12,0,0">
+                    <TextBlock Text="{loc:Str NeedsYou_ContextHint}" TextWrapping="Wrap" FontSize="12"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                    <ItemsControl ItemsSource="{Binding Context}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:AttentionContextEntry">
+                          <StackPanel Spacing="5" Margin="0,0,0,16">
+                            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" FontSize="12"
+                                       Foreground="{DynamicResource Brush.TextSecondary}" />
+                            <SelectableTextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="13"
+                                                 Foreground="{DynamicResource Brush.TextPrimary}" />
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </Expander>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+    <StackPanel x:Name="NeedsYouEmpty" Grid.Row="1" IsVisible="{Binding !HasRequests}"
+                VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420" Margin="24" Spacing="10">
+      <TextBlock Text="{loc:Str NeedsYou_Empty}" FontSize="22" FontWeight="SemiBold" TextAlignment="Center"
+                 Foreground="{DynamicResource Brush.TextPrimary}" />
+      <TextBlock Text="{loc:Str NeedsYou_EmptyHint}" FontSize="14" TextWrapping="Wrap" TextAlignment="Center"
+                 Foreground="{DynamicResource Brush.TextSecondary}" />
+    </StackPanel>
+  </Grid>
+</UserControl>

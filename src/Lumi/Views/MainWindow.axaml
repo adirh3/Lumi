@@ -1051,6 +1051,21 @@
          Chats stream in several projects at once, so a reply can land in a project the sidebar is
          filtered away from. This pill sits directly above the chat list as the one filter-independent
          "you have new replies" surface, and opens into a card that jumps straight to any of them. -->
+    <Style Selector="Button.needs-you-banner">
+      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.DangerDefault}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="9,5" />
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.needs-you-banner:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.DangerHover}" />
+    </Style>
     <Style Selector="Border#UnreadPanel.unread-panel">
       <Setter Property="Padding" Value="0" />
       <Setter Property="CornerRadius" Value="12" />
@@ -1698,6 +1713,29 @@
 
                 <!-- Everything else starts under the closed switcher (6 above it, 36 tall), which opens over it. -->
                 <DockPanel Margin="0,42,0,0">
+                  <Button x:Name="NeedsYouBanner"
+                          DockPanel.Dock="Top"
+                          Classes="needs-you-banner"
+                          Margin="14,6,14,0"
+                          IsVisible="{Binding AttentionVM.HasRequests}"
+                          Command="{Binding OpenAttentionInboxCommand}"
+                          ToolTip.Tip="{loc:Str NeedsYou_Description}"
+                          AutomationProperties.Name="{Binding AttentionVM.BannerText}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                      <Border Width="18" Height="18" CornerRadius="9"
+                              Background="{DynamicResource Brush.DangerDefault}" VerticalAlignment="Center">
+                        <TextBlock Text="!" FontWeight="Bold" FontSize="13"
+                                   Foreground="{DynamicResource Brush.TextOnDanger}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      </Border>
+                      <TextBlock Grid.Column="1" Text="{Binding AttentionVM.BannerText}"
+                                 FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                 Foreground="{DynamicResource Brush.DangerDefault}" VerticalAlignment="Center" />
+                      <PathIcon Grid.Column="2" Data="{StaticResource Icon.ChevronRight}"
+                                Width="11" Height="11" VerticalAlignment="Center"
+                                Foreground="{DynamicResource Brush.DangerDefault}" />
+                    </Grid>
+                  </Button>
                   <!-- ── Unread inbox: the one place unread replies stay visible regardless of the
                            active project filter, and the fastest route back to them. ── -->
                   <Border x:Name="UnreadInboxRoot"
@@ -3160,6 +3198,13 @@
                 BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
           <ContentControl x:Name="PageDiscoverHost" />
         </Border>
+        <Border x:Name="PageAttention" IsVisible="False"
+                CornerRadius="{DynamicResource Radius.Overlay}"
+                Background="{DynamicResource Brush.SurfaceCard}"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
+                BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
+          <ContentControl x:Name="PageAttentionHost" />
+        </Border>
 
         <!-- "Copied for chat", and "a Lumi code is on your clipboard": centred over the page, just
              below its header row so the buttons that triggered it stay visible. -->
@@ -3237,6 +3282,19 @@
                 Margin="13,84,0,0"
                 IsVisible="{Binding ShowSidebarRail}"
                 ZIndex="29">
+      <Button x:Name="RailNeedsYou" Classes="subtle rail-nav-icon"
+              IsVisible="{Binding AttentionVM.HasRequests}" Command="{Binding OpenAttentionInboxCommand}"
+              ToolTip.Tip="{Binding AttentionVM.BannerText}"
+              AutomationProperties.Name="{Binding AttentionVM.BannerText}">
+        <Panel>
+          <TextBlock Text="!" FontSize="20" FontWeight="Bold"
+                     Foreground="{DynamicResource Brush.DangerDefault}" HorizontalAlignment="Center" />
+          <Border Classes="unread-nav-badge" Margin="0,-4,-6,0"
+                  Background="{DynamicResource Brush.DangerDefault}">
+            <TextBlock Text="{Binding AttentionVM.CountText}" Foreground="{DynamicResource Brush.TextOnDanger}" />
+          </Border>
+        </Panel>
+      </Button>
       <Button Classes="subtle rail-nav-icon" x:Name="RailChat"
               Command="{Binding SetNavCommand}" CommandParameter="0"
               ToolTip.Tip="{loc:Str NavTip_Chats}">

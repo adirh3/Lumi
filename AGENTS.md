@@ -251,6 +251,10 @@ Lumi has an Avalonia MCP server configured in `.vscode/mcp.json`. This gives you
 
 #### Debug-only agent harnesses
 
+- `--debug-needs-you` uses the isolated agent harness to show live synthetic questions, a form,
+  and an approval across chats. No model call or approved command runs. Use the red banner above
+  Unread chats to exercise `#PageAttention`; answered requests leave the page.
+
 Lumi includes focused Debug-only harnesses for coding agents:
 
 - `dotnet run --project src\Lumi\Lumi.csproj -- --debug-agent-harness` opens Lumi directly into a synthetic transcript fixture chat. The fixture is not saved to normal chat history and exercises user/assistant messages, reasoning, tools, subagents, questions, errors, sources, attachments, plan content, token metadata, and generated files.

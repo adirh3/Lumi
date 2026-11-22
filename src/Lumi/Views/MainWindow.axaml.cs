@@ -108,6 +108,7 @@ public partial class MainWindow : Window
     private ContentControl? _memoriesHost;
     private ContentControl? _mcpServersHost;
     private ContentControl? _discoverHost;
+    private ContentControl? _attentionHost;
     private ContentControl? _settingsHost;
     private SettingsView? _settingsView;
     private ContentControl? _libraryHost;
@@ -305,6 +306,7 @@ public partial class MainWindow : Window
             this.FindControl<Control>("PageSettings"),         // 7
             this.FindControl<Control>("PageLibrary"),          // 8
             this.FindControl<Control>("PageDiscover"),         // 9 = Customize → Discover
+            this.FindControl<Control>("PageAttention"),        // 10 = Needs you
         ];
 
         _sidebarPanels =
@@ -412,6 +414,7 @@ public partial class MainWindow : Window
         _settingsHost = this.FindControl<ContentControl>("PageSettingsHost");
         _libraryHost = this.FindControl<ContentControl>("PageLibraryHost");
         _discoverHost = this.FindControl<ContentControl>("PageDiscoverHost");
+        _attentionHost = this.FindControl<ContentControl>("PageAttentionHost");
 
         if (_sidebarResizeThumb is not null)
         {
@@ -1021,7 +1024,7 @@ public partial class MainWindow : Window
     internal bool CanNavigateChatsWithKeyboard => DataContext is MainViewModel
     {
         IsOnboarded: true,
-        SelectedNavIndex: 0,
+        SelectedNavIndex: 0 or MainViewModel.AttentionNavIndex,
         RenamingChat: null,
         IsWorktreeDeleteDialogOpen: false,
         ChatTagsVM.IsDialogOpen: false,
@@ -1461,7 +1464,12 @@ public partial class MainWindow : Window
 
     /// <summary>The sidebar a page shows. Memories is a Settings page, so it keeps the Settings list.</summary>
     internal static int SidebarForPage(int pageIndex)
-        => pageIndex == MainViewModel.MemoriesNavIndex ? 7 : pageIndex;
+        => pageIndex switch
+        {
+            MainViewModel.MemoriesNavIndex => 7,
+            MainViewModel.AttentionNavIndex => 0,
+            _ => pageIndex
+        };
 
     private void AnimateShellSectionChange(Control? page, Control? sidebar)
     {
@@ -1588,7 +1596,7 @@ public partial class MainWindow : Window
     /// </summary>
     internal static int NavButtonForPage(int pageIndex) => pageIndex switch
     {
-        0 => NavChatButton,
+        0 or MainViewModel.AttentionNavIndex => NavChatButton,
         MainViewModel.LibraryNavIndex => NavLibraryButton,
         1 => NavJobsButton,
         7 or MainViewModel.MemoriesNavIndex => NavSettingsButton,
@@ -2065,7 +2073,7 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Enter && row.DataContext is Chat chat)
         {
-            if (vm.ActiveChatId == chat.Id)
+            if (vm.ActiveChatId == chat.Id && vm.SelectedNavIndex == 0)
                 _chatView?.FocusComposer();
             else
                 vm.OpenChatCommand.Execute(chat);
@@ -2129,7 +2137,14 @@ public partial class MainWindow : Window
             return;
 
         if (!IsChatListDoubleClick(chat, point.Position, e))
+        {
+            if (vm.SelectedNavIndex == MainViewModel.AttentionNavIndex && item.IsSelected)
+            {
+                vm.OpenChatCommand.Execute(chat);
+                e.Handled = true;
+            }
             return;
+        }
 
         if (vm.OpenChatInNewWindowCommand.CanExecute(chat))
             vm.OpenChatInNewWindowCommand.Execute(chat);
@@ -3581,6 +3596,7 @@ public partial class MainWindow : Window
             7 => _settingsView = new SettingsView(),
             8 => new LibraryView(),
             MainViewModel.DiscoverNavIndex => new DiscoverView(),
+            MainViewModel.AttentionNavIndex => new AttentionInboxView(),
             _ => null
         };
         if (view is null)
@@ -3596,14 +3612,16 @@ public partial class MainWindow : Window
     {
         1 => _jobsHost, 2 => _projectsHost, 3 => _skillsHost, 4 => _agentsHost,
         5 => _memoriesHost, 6 => _mcpServersHost, 7 => _settingsHost, 8 => _libraryHost,
-        MainViewModel.DiscoverNavIndex => _discoverHost, _ => null
+        MainViewModel.DiscoverNavIndex => _discoverHost,
+        MainViewModel.AttentionNavIndex => _attentionHost, _ => null
     };
 
     private static object? PageDataContext(MainViewModel vm, int index) => index switch
     {
         1 => vm.JobsVM, 2 => vm.ProjectsVM, 3 => vm.SkillsVM, 4 => vm.AgentsVM,
         5 => vm.MemoriesVM, 6 => vm.McpServersVM, 7 => vm.SettingsVM, 8 => vm.LibraryVM,
-        MainViewModel.DiscoverNavIndex => vm.DiscoverVM, _ => null
+        MainViewModel.DiscoverNavIndex => vm.DiscoverVM,
+        MainViewModel.AttentionNavIndex => vm.AttentionVM, _ => null
     };
 
     private static object? PageStateKey(MainViewModel vm, int index) => index switch

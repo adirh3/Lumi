@@ -119,6 +119,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         7 => "7 Settings (#PageSettings)",
         8 => "8 Library (#PageLibrary)",
         9 => "9 Discover (#PageDiscover)",
+        10 => "10 Needs you (#PageAttention)",
         _ => $"{index} Unknown"
     };
 
@@ -183,6 +184,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>Nav index of Customize → Discover. The other Customize sections keep their page indices.</summary>
     public const int DiscoverNavIndex = 9;
+
+    public const int AttentionNavIndex = 10;
+
+    [RelayCommand]
+    private void OpenAttentionInbox()
+    {
+        AttentionVM.Refresh();
+        SelectedNavIndex = AttentionNavIndex;
+    }
 
     /// <summary>
     /// Nav index of Settings → Memories. Memories is about the user rather than what Lumi can do, so it
@@ -445,6 +455,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public ChatTagsViewModel ChatTagsVM { get; }
     public LibraryViewModel LibraryVM { get; }
+    public AttentionInboxViewModel AttentionVM { get; }
     public SettingsViewModel SettingsVM { get; }
 
     /// <summary>The welcome. Each replay from Settings swaps in a fresh one.</summary>
@@ -527,6 +538,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         _chatVM = AcquireDraftChatSurface(SelectedProjectFilter);
         _chatVM.AddDisplayHost();
+        AttentionVM = new AttentionInboxViewModel(dataStore, _chatSurfaceRegistry,
+            _chatSessionStore.ChatEvents, RevealChatAsync);
         if (backgroundJobService is null)
         {
             _backgroundJobService = new BackgroundJobService(dataStore, _chatSurfaceRegistry, _chatSessionStore);
@@ -1192,6 +1205,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
 
         _isDisposed = true;
+        AttentionVM.Dispose();
         SetupsVM.TryRequested -= StartSetupDraft;
         SetupsVM.ManageRequested -= ManageSetup;
         SetupsVM.Dispose();
@@ -2067,6 +2081,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void OpenAgentDebugHarness()
     {
 #if DEBUG
+        if (Program.OpenAttentionFixture)
+        {
+            _ = OpenAttentionFixtureAsync();
+            return;
+        }
         if (Program.OpenInteractiveControlsFixture)
         {
             var fixtures = InteractiveControlsFixture.Create(_dataStore);
