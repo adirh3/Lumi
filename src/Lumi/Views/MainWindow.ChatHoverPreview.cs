@@ -9,6 +9,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Models;
@@ -31,6 +32,7 @@ public partial class MainWindow
         ChatHoverReplyMeta = this.GetControl<Grid>(nameof(ChatHoverReplyMeta));
         ChatHoverReplyTime = this.GetControl<TextBlock>(nameof(ChatHoverReplyTime));
         ChatHoverReplyText = this.GetControl<TextBlock>(nameof(ChatHoverReplyText));
+        ChatHoverPreview.Closed += OnChatHoverPreviewClosed;
     }
 
     private void OnChatListHoverMoved(object? sender, PointerEventArgs e)
@@ -169,7 +171,21 @@ public partial class MainWindow
         _chatHoverRow = null;
         _chatHoverChat = null;
         ChatHoverPreview.IsOpen = false;
-        ChatHoverPreview.PlacementTarget = null;
-        ChatHoverReplyText.Text = null;
+    }
+
+    private void OnChatHoverPreviewClosed(object? sender, EventArgs e)
+    {
+        // Retargeting can close the old host while the next preview is being set up.
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (ChatHoverPreview.IsOpen || ChatHoverPreview.Child?.IsAttachedToVisualTree() == true)
+                return;
+
+            ChatHoverPreview.PlacementTarget = null;
+            ChatHoverTitle.Text = null;
+            ChatHoverStatus.Text = null;
+            ChatHoverReplyTime.Text = null;
+            ChatHoverReplyText.Text = null;
+        }, DispatcherPriority.Background);
     }
 }

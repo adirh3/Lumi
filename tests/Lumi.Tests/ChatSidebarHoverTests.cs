@@ -68,10 +68,12 @@ public sealed class ChatSidebarHoverTests
                 var excerpt = window.FindControl<TextBlock>("ChatHoverReplyText")!;
                 var status = window.FindControl<TextBlock>("ChatHoverStatus")!;
 
+                ListBoxItem RowFor(Chat chat) => window.GetVisualDescendants().OfType<ListBoxItem>()
+                    .Single(item => ReferenceEquals(item.DataContext, chat));
+
                 Point RowPoint(Chat chat)
                 {
-                    var row = window.GetVisualDescendants().OfType<ListBoxItem>()
-                        .Single(item => ReferenceEquals(item.DataContext, chat));
+                    var row = RowFor(chat);
                     return row.TranslatePoint(new Point(row.Bounds.Width / 2, row.Bounds.Height / 2), window)!.Value;
                 }
 
@@ -82,15 +84,26 @@ public sealed class ChatSidebarHoverTests
                         await Task.Delay(20, timeout.Token);
                 }
 
+                async Task RenderCardAsync()
+                {
+                    for (var frame = 0; frame < 2; frame++)
+                    {
+                        using var bitmap = window.CaptureRenderedFrame();
+                        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                    }
+                }
+
                 window.MouseMove(RowPoint(answered));
                 Assert.False(preview.IsOpen);
                 window.MouseMove(RowPoint(unanswered));
                 await WaitFor(() => preview.IsOpen);
                 Assert.Same(unanswered, preview.PlacementTarget!.DataContext);
                 Assert.Equal(noReply, excerpt.Text);
+                await RenderCardAsync();
 
                 window.MouseMove(RowPoint(answered));
                 Assert.False(preview.IsOpen);
+                Assert.True(card.IsAttachedToVisualTree(), "The previous preview has started fading.");
                 await WaitFor(() => preview.IsOpen);
                 Assert.Same(answered, preview.PlacementTarget!.DataContext);
                 Assert.Equal("DNS switched. Waiting for the certificate.", excerpt.Text);
@@ -110,8 +123,32 @@ public sealed class ChatSidebarHoverTests
                 Assert.True(preview.IsOpen);
                 Assert.False(status.IsVisible);
 
+                var anchor = Assert.IsAssignableFrom<Control>(preview.PlacementTarget);
+                await RenderCardAsync();
+                var position = card.PointToScreen(default);
+
                 window.MouseMove(new Point(window.Bounds.Width / 2, 60));
                 Assert.False(preview.IsOpen);
+                Assert.Same(anchor, preview.PlacementTarget);
+                Assert.Equal("The certificate is ready.", excerpt.Text);
+                using (window.CaptureRenderedFrame())
+                    await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                Assert.True(card.IsAttachedToVisualTree(), "The position is checked during the exit animation.");
+                Assert.Equal(position, card.PointToScreen(default));
+
+                // Reproduce a new hover being displayed before the previous host has finished fading.
+                var replacement = RowFor(unanswered);
+                excerpt.Text = noReply;
+                preview.PlacementTarget = replacement;
+                Assert.False(card.IsAttachedToVisualTree());
+                preview.IsOpen = true;
+                await RenderCardAsync();
+                Assert.Same(replacement, preview.PlacementTarget);
+                Assert.Equal(noReply, excerpt.Text);
+
+                preview.IsOpen = false;
+                await WaitFor(() => !card.IsAttachedToVisualTree() && preview.PlacementTarget is null);
+                Assert.Null(excerpt.Text);
             }
             finally
             {
