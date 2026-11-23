@@ -1228,7 +1228,7 @@ public sealed partial class DeferredSendQueueTests
             host.Chat.Messages.AddRange([launch, completed]);
             host.RebuildTranscript();
             host.ViewModel.RebuildTranscript();
-            host.TrackBackgroundShell(launch.ToolCallId!, "Start-Sleep -Seconds 300");
+            host.TrackBackgroundShell(launch.ToolCallId!);
             rpc.RunningShells.Add(launch.ToolCallId!);
             var card = host.TerminalCard(launch.ToolCallId!);
             Assert.True(card.IsRunningInBackground);
@@ -1807,6 +1807,46 @@ public sealed partial class DeferredSendQueueTests
             Assert.False(host.ViewModel.IsSessionActive);
             Assert.False(host.Chat.IsSessionActive);
             Assert.False(host.IsChatRuntimeActive());
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SessionIdle_ClosesBackgroundShellReseededByTranscriptRebuild()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.MarkTurnEndedWithBackgroundWorkPending();
+            host.Chat.Messages.AddRange([
+                new() { Role = "user", Content = "Check the build." },
+                new()
+                {
+                    Role = "tool", ToolName = "powershell", ToolCallId = "build",
+                    ToolStatus = "Completed", Content = """{"command":"build","mode":"async"}""",
+                },
+                new() { Role = "reasoning", Content = "Review the output." },
+                new() { Role = "assistant", Content = "The build was started.", IsProgress = false },
+            ]);
+            host.RebuildTranscript();
+            host.ViewModel.RebuildTranscript();
+            host.TrackBackgroundShell("build");
+
+            host.ViewModel.RebuildTranscriptAndHistory();
+            var terminal = host.TerminalCard("build");
+            Assert.True(terminal.IsRunningInBackground);
+            Assert.True(terminal.IsExpanded);
+
+            // Handle session.idle before the first task poll of the rebuilt transcript.
+            rpc.Emit(new SessionIdleEvent { Data = new SessionIdleData() });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(terminal.IsRunningInBackground);
+            Assert.False(terminal.IsExpanded);
+            var summary = Assert.Single(host.ViewModel.TranscriptTurns.SelectMany(turn => turn.Items).OfType<TurnSummaryItem>());
+            Assert.False(summary.IsExpanded);
         }, CancellationToken.None);
     }
 
@@ -3395,8 +3435,8 @@ public sealed partial class DeferredSendQueueTests
         public void PrepareFreshTurn()
             => Invoke("PreparePendingTurnTracking", Chat, 1, 0);
 
-        public void TrackBackgroundShell(string toolCallId, string command)
-            => Invoke("TrackBackgroundShell", toolCallId, command);
+        public void TrackBackgroundShell(string toolCallId)
+            => Invoke("TrackBackgroundShell", toolCallId);
 
         public TerminalPreviewItem TerminalCard(string toolCallId)
         {

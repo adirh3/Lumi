@@ -882,6 +882,9 @@ public partial class ReasoningItem : TranscriptItem
 
 public partial class ToolGroupItem : TranscriptItem
 {
+    private bool _hasRunningBackgroundShell;
+    private bool _isBackgroundExpanded;
+
     [ObservableProperty] private string _label;
     [ObservableProperty] private string? _meta;
     [ObservableProperty] private bool _isActive;
@@ -932,8 +935,9 @@ public partial class ToolGroupItem : TranscriptItem
                         IsExpanded = true;
                         tool.IsExpanded = true;
                         break;
-                    case TerminalPreviewItem { IsExpanded: true } terminal:
+                    case TerminalPreviewItem { IsExpanded: true, IsBackgroundExpanded: false } terminal:
                         IsExpanded = true;
+                        _isBackgroundExpanded = false;
                         terminal.IsExpanded = true;
                         break;
                 }
@@ -945,6 +949,7 @@ public partial class ToolGroupItem : TranscriptItem
 
     partial void OnIsExpandedChanged(bool value)
     {
+        _isBackgroundExpanded = false;
         if (!value || IsSingleTool)
             return;
 
@@ -962,6 +967,27 @@ public partial class ToolGroupItem : TranscriptItem
                     todo.IsExpanded = false;
                     break;
             }
+        }
+    }
+
+    internal void UpdateBackgroundExpansion(bool hasRunningBackgroundShell)
+    {
+        if (_hasRunningBackgroundShell == hasRunningBackgroundShell)
+            return;
+
+        // Only undo the opening we caused; a reader's toggle takes ownership of the card.
+        _hasRunningBackgroundShell = hasRunningBackgroundShell;
+        if (hasRunningBackgroundShell && !IsExpanded)
+        {
+            IsExpanded = true;
+            _isBackgroundExpanded = true;
+        }
+        else if (!hasRunningBackgroundShell && _isBackgroundExpanded)
+        {
+            _isBackgroundExpanded = false;
+            IsExpanded = ToolCalls.Any(static call => call is ToolCallItem { IsExpanded: true }
+                or TerminalPreviewItem { IsExpanded: true, IsBackgroundExpanded: false }
+                or TodoProgressItem { IsExpanded: true });
         }
     }
 
@@ -1851,7 +1877,24 @@ public partial class TerminalPreviewItem : ToolCallItemBase
 
     /// <summary>The command is named by the purpose the agent gave it rather than by how it ended.</summary>
     internal bool HasTitle { get; }
+    internal bool IsBackgroundExpanded { get; private set; }
 
+    internal void SetBackgroundExpansion(bool expanded)
+    {
+        if (expanded ? IsExpanded : !IsBackgroundExpanded)
+            return;
+
+        IsExpanded = expanded;
+        IsBackgroundExpanded = expanded;
+    }
+
+    internal void KeepExpanded()
+    {
+        IsExpanded = true;
+        IsBackgroundExpanded = false;
+    }
+
+    partial void OnIsExpandedChanged(bool value) => IsBackgroundExpanded = false;
     partial void OnStatusChanged(StrataAiToolCallStatus value) => UpdateToolName();
     partial void OnIsRunningInBackgroundChanged(bool value) => UpdateToolName();
 

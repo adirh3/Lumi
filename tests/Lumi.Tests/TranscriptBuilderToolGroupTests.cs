@@ -746,6 +746,57 @@ public sealed class TranscriptBuilderToolGroupTests
         Assert.True(Assert.IsType<ToolGroupItem>(turns[0].Items[2]).IsActive);
     }
 
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, true)]
+    public void BackgroundShellCompletion_ClosesOnlyAutomaticDisclosure(
+        bool finishesAfterReply, bool grouped, bool readerReopened)
+    {
+        Lumi.Localization.Loc.Load("en");
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(new ChatMessageViewModel(new ChatMessage
+        {
+            Role = "user",
+            Content = "Check the build.",
+            Timestamp = DateTimeOffset.UtcNow.AddSeconds(-10),
+        }));
+        builder.ProcessMessageToTranscript(CreateToolVm("shell", "powershell", "Completed", "{\"command\":\"build\"}"));
+        if (grouped)
+            builder.ProcessMessageToTranscript(CreateToolVm("read", "view", "Completed", "{}"));
+        builder.SetTerminalRunningInBackground("shell", true);
+        var group = Assert.IsType<ToolGroupItem>(turns[^1].Items[0]);
+        var terminal = Assert.Single(group.ToolCalls.OfType<TerminalPreviewItem>());
+        Assert.True(grouped ? group.IsExpanded : terminal.IsExpanded);
+        if (readerReopened)
+        {
+            terminal.IsExpanded = false;
+            terminal.IsExpanded = true;
+        }
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Evaluate the build output."));
+
+        if (!finishesAfterReply)
+            builder.SetTerminalRunningInBackground("shell", false, 1500);
+
+        builder.ProcessMessageToTranscript(CreateAssistantVm("The build is ready."));
+        builder.CloseCurrentToolGroup();
+        builder.CollapseCompletedBlocksInCurrentTurn();
+        if (finishesAfterReply)
+            builder.SetTerminalRunningInBackground("shell", false, 1500);
+
+        var summary = Assert.IsType<TurnSummaryItem>(turns[^1].Items[0]);
+        Assert.StartsWith("Worked for", summary.Label);
+        Assert.Equal(readerReopened, summary.IsExpanded);
+        Assert.Equal(readerReopened, terminal.IsExpanded);
+        if (grouped)
+            Assert.Equal(readerReopened, group.IsExpanded);
+    }
+
     [Fact]
     public void ProcessMessageToTranscript_SameMessageTwice_RendersOnce()
     {

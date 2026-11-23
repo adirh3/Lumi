@@ -907,7 +907,7 @@ public class TranscriptBuilder
             {
                 termPreview.IsRunningInBackground = true;
                 termPreview.RunningSince = knownStartedUtc;
-                termPreview.IsExpanded = true;
+                termPreview.SetBackgroundExpansion(true);
             }
             if (toolCallId is not null)
                 _terminalPreviewsByToolCallId[toolCallId] = termPreview;
@@ -2169,14 +2169,9 @@ public class TranscriptBuilder
             var hasRunningTool = _currentToolGroup.IsActive;
             // A terminal whose async shell is still running in the background must NOT flatten to a
             // "finished" pill — keep it in the tool group so it renders as a live terminal card.
-            var hasBackgroundShell = _currentToolGroup.ToolCalls.Any(static t => t is TerminalPreviewItem { IsRunningInBackground: true });
+            var hasBackgroundShell = ContainsRunningBackgroundShell(_currentToolGroup);
             var canFlattenSingleTool = _currentToolGroupCount == 1 && !hasRunningTool && !hasBackgroundShell
                 && _currentToolGroup.ToolCalls.Count == 1;
-
-            // A background-shell group must stay expanded so its live terminal card remains visible;
-            // collapsing here would hide the still-running process behind a static "Working…" pill and
-            // nothing would re-expand it (the monitor only refreshes the group when the flag flips).
-            _currentToolGroup.IsExpanded |= hasBackgroundShell;
 
             if (canFlattenSingleTool && target is not null)
             {
@@ -2306,6 +2301,8 @@ public class TranscriptBuilder
             return;
 
         var isCurrent = ReferenceEquals(group, _currentToolGroup);
+        var hasBackgroundShell = ContainsRunningBackgroundShell(group);
+        group.UpdateBackgroundExpansion(hasBackgroundShell);
 
         if (isCurrent && _currentTodoProgress is not null && _currentTodoProgress.Total > 0)
         {
@@ -2313,8 +2310,8 @@ public class TranscriptBuilder
 
             // The plan says how far the work has come; the group is at work while any of its steps runs, and
             // only then does its intent trail off.
-            group.IsActive = group.ToolCalls.Any(static call => GetStatus(call) == StrataAiToolCallStatus.InProgress
-                || call is TerminalPreviewItem { IsRunningInBackground: true });
+            group.IsActive = hasBackgroundShell
+                || group.ToolCalls.Any(static call => GetStatus(call) == StrataAiToolCallStatus.InProgress);
             group.Label = _currentIntentText is null ? Loc.ToolTodo_Title
                 : group.IsActive ? _currentIntentText + "…" : _currentIntentText;
             group.Meta = _currentTodoProgress.Failed > 0
@@ -2324,7 +2321,7 @@ public class TranscriptBuilder
             var progress = Math.Clamp((todoDone * 100d) / _currentTodoProgress.Total, 0d, 100d);
             group.ProgressValue = IsRebuildingTranscript && !group.IsActive ? -1 : progress;
             UpdateToolGroupActivityPreview(group);
-            if (!group.IsActive || IsRebuildingTranscript)
+            if (!hasBackgroundShell && (!group.IsActive || IsRebuildingTranscript))
                 group.IsExpanded = false;
             CompactEarlierActivity();
             return;
@@ -2349,7 +2346,6 @@ public class TranscriptBuilder
         // A terminal card whose async shell is still running in the background keeps the group
         // "active" even though the SDK tool call itself has completed — otherwise the group would
         // collapse and hide the live process behind a "Finished" pill.
-        var hasBackgroundShell = group.ToolCalls.Any(static t => t is TerminalPreviewItem { IsRunningInBackground: true });
         var allDone = !hasBackgroundShell && completedCount + failedCount == toolCount && toolCount > 0;
         if (allDone)
         {
@@ -2361,9 +2357,6 @@ public class TranscriptBuilder
             group.Meta = failedCount > 0
                 ? string.Format(Loc.ToolGroup_MetaFailed, completedCount, toolCount, failedCount)
                 : string.Format(Loc.ToolGroup_MetaDone, completedCount, toolCount);
-            if (IsRebuildingTranscript)
-                group.IsExpanded = false;
-
             if (!isCurrent && toolCount == 1 && group.ToolCalls.Count == 1 && !IsRebuildingTranscript)
             {
                 var turn = FindTurnContaining(group);
@@ -2388,10 +2381,6 @@ public class TranscriptBuilder
             group.Meta = runningCount > 0
                 ? string.Format(Loc.ToolGroup_MetaRunning, completedCount, toolCount, runningCount)
                 : string.Format(Loc.ToolGroup_MetaDone, completedCount, toolCount);
-            if (IsRebuildingTranscript)
-                group.IsExpanded = false;
-            else if (hasBackgroundShell)
-                group.IsExpanded = true;
         }
 
         var genericProgress = toolCount > 0
@@ -3355,6 +3344,8 @@ public class TranscriptBuilder
         var changed = card.IsRunningInBackground != running;
         var presentationChanged = changed;
         card.IsRunningInBackground = running;
+        if (changed)
+            card.SetBackgroundExpansion(running);
         if (finalStatus is not null)
         {
             var status = MapToolStatus(finalStatus);
@@ -3372,11 +3363,6 @@ public class TranscriptBuilder
                 presentationChanged |= card.RunningSince != s;
                 card.RunningSince = s;
             }
-
-            // Auto-expand only on the transition into "running in background" — NOT on every poll —
-            // so a manual collapse by the user is respected instead of springing back open each tick.
-            if (changed)
-                card.IsExpanded = true;
         }
         else if (finalDurationMs is > 0)
         {
@@ -3386,7 +3372,7 @@ public class TranscriptBuilder
 
         if (presentationChanged)
         {
-            RefreshOwningToolGroup(card);
+            RefreshOwningToolGroup(card, shellFinished: changed && !running);
             FindOwningSubagent(rootToolCallId)?.NotifyRunContentChanged();
         }
     }
@@ -3427,13 +3413,13 @@ public class TranscriptBuilder
     }
 
 
-    private void RefreshOwningToolGroup(ToolCallItemBase card)
+    private void RefreshOwningToolGroup(TerminalPreviewItem card, bool shellFinished)
     {
         var turns = GetTurnTarget();
         if (turns is null)
             return;
 
-        var running = card is TerminalPreviewItem { IsRunningInBackground: true };
+        var running = card.IsRunningInBackground;
 
         foreach (var turn in turns)
         {
@@ -3454,6 +3440,9 @@ public class TranscriptBuilder
                 {
                     case ToolGroupItem group when group.ToolCalls.Contains(card):
                         UpdateToolGroupState(group);
+                        // The reply may have settled while this shell was still visible on its own.
+                        if (shellFinished && turn.IsSettled)
+                            CollapseTurnBlocks(turn);
                         return;
 
                     // A single completed tool is flattened to a compact pill that renders its terminal
@@ -3463,10 +3452,11 @@ public class TranscriptBuilder
                     case SingleToolItem single when ReferenceEquals(single.Inner, card):
                         if (running)
                         {
+                            if (single.IsExpanded)
+                                card.KeepExpanded();
                             var promoted = new ToolGroupItem(Loc.ToolGroup_Working, $"tool-group:{card.StableId}")
                             {
                                 IsActive = true,
-                                IsExpanded = true,
                                 Source = single.Source,
                             };
                             promoted.ToolCalls.Add(card);

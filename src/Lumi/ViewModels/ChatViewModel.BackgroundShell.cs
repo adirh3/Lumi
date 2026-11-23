@@ -222,8 +222,7 @@ public partial class ChatViewModel
     private sealed class TrackedBackgroundShell
     {
         public required string RootToolCallId { get; init; }
-        public required string Command { get; init; }
-        public DateTime StartedUtc { get; set; } = DateTime.UtcNow;
+        public DateTime StartedUtc { get; init; } = DateTime.UtcNow;
 
         /// <summary>Authoritative Tasks-API shell identity, pinned on first correlation so identical-command
         /// siblings can never swap cards on a later poll. Null until the monitor first observes the shell.</summary>
@@ -271,18 +270,14 @@ public partial class ChatViewModel
 
     /// <summary>Immediately marks a terminal card as running-in-background (flicker-free, synchronous)
     /// and starts the live monitor. Called from the tool-complete handler for a detected async shell.</summary>
-    private void TrackBackgroundShell(string rootToolCallId, string command)
+    private void TrackBackgroundShell(string rootToolCallId)
     {
         if (string.IsNullOrEmpty(rootToolCallId))
             return;
 
         if (!_trackedBackgroundShells.TryGetValue(rootToolCallId, out var tracked))
         {
-            tracked = new TrackedBackgroundShell
-            {
-                RootToolCallId = rootToolCallId,
-                Command = command ?? string.Empty,
-            };
+            tracked = new TrackedBackgroundShell { RootToolCallId = rootToolCallId };
             _trackedBackgroundShells[rootToolCallId] = tracked;
         }
 
@@ -447,7 +442,6 @@ public partial class ChatViewModel
                         tracked = new TrackedBackgroundShell
                         {
                             RootToolCallId = toolCallId,
-                            Command = command,
                             StartedUtc = shell.StartedAt.UtcDateTime,
                         };
                         _trackedBackgroundShells[toolCallId] = tracked;
