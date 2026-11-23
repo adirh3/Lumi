@@ -702,6 +702,56 @@ public sealed class RemoteEndToEndTests
         });
     });
 
+    [Theory]
+    [InlineData(393, true)]
+    [InlineData(1000, false)]
+    public Task MobileReadActionsUpdateTheDesktopAndOnlyReopeningAcknowledgesAMark(
+        double width, bool returnsToList) => RunAsync(async rig =>
+    {
+        var shell = rig.Shell;
+        shell.UpdateLayout(width, 852);
+        await PairAsync(rig);
+
+        var chat = Assert.Single(rig.DataStore.Data.Chats);
+        await WaitAsync(() => shell.IsConnected && shell.ChatList.FindChat(chat.Id) is not null,
+            "the chat list to arrive");
+        var row = shell.ChatList.FindChat(chat.Id)!;
+        Assert.True(shell.SupportsChatReadState);
+        shell.ChatList.OpenChatCommand.Execute(row);
+        await WaitAsync(() => shell.ShowOpenChatReadStateAction && !shell.Chat.IsLoading,
+            "the open chat's read state to arrive");
+
+        shell.Chat.IsRunSettingsSheetOpen = true;
+        await shell.SetOpenChatReadStateCommand.ExecuteAsync(null);
+        await WaitAsync(() => row.HasUnreadMessages && shell.Chat.HasUnreadMessages == true,
+            "the mark to reach the phone and its chat list without a reload");
+        Assert.True(chat.HasUnreadMessages);
+        Assert.Same(chat, Assert.Single(rig.Main.UnreadChats).Chat);
+        Assert.Null(rig.Main.ActiveChatId);
+        Assert.Equal(returnsToList, shell.IsDrawerOverlay);
+
+        // Even uncovering the same transcript (instead of selecting a row) must not undo the mark.
+        shell.IsDrawerOpen = false;
+        await shell.RefreshTranscriptAsync();
+        await shell.RefreshTranscriptAsync();
+        Assert.True(chat.HasUnreadMessages);
+
+        shell.OpenChatActionsCommand.Execute(row);
+        await shell.SetActionChatReadStateCommand.ExecuteAsync(null);
+        await WaitAsync(() => !row.HasUnreadMessages && shell.Chat.HasUnreadMessages == false,
+            "the explicit read action to reach the phone");
+        Assert.Empty(rig.Main.UnreadChats);
+
+        shell.OpenChatActionsCommand.Execute(row);
+        await shell.SetActionChatReadStateCommand.ExecuteAsync(null);
+        await WaitAsync(() => row.HasUnreadMessages && chat.HasUnreadMessages,
+            "the drawer action to mark the chat unread");
+        shell.ChatList.OpenChatCommand.Execute(row);
+        await WaitAsync(() => !chat.HasUnreadMessages && !row.HasUnreadMessages,
+            "intentionally reopening the chat to acknowledge its mark");
+        Assert.Empty(rig.Main.UnreadChats);
+    }, seed: data => data.Chats.Add(new Chat { Title = "Read later" }));
+
     /// <summary>
     /// The reverse direction: configuration changed on the PC must show up on the phone. Without the
     /// hub subscriptions added for this, the phone's pickers kept whatever they were showing when the

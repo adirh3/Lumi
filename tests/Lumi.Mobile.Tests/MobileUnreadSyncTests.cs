@@ -313,6 +313,74 @@ public sealed class MobileUnreadSyncTests
         Assert.Contains(ReadCommands(desktop), command => command.Action == RemoteProtocol.Actions.OpenChat);
     }
 
+    [Fact]
+    public async Task OlderHostKeepsOpeningUnreadChatsWithoutOfferingManualActions()
+    {
+        var chatId = Guid.NewGuid();
+        await using var desktop = new FakeLumiDesktop
+        {
+            Snapshot = Snapshot(chatId, unread: true),
+            Transcript = Transcript(chatId, unread: true)
+        };
+        desktop.Start();
+        await using var shell = CreateShell();
+        await PairAsync(shell, desktop);
+        var row = Assert.Single(Assert.Single(shell.ChatList.Groups).Chats);
+        Assert.False(shell.SupportsChatReadState);
+        shell.OpenChatActionsCommand.Execute(row);
+        await shell.SetActionChatReadStateCommand.ExecuteAsync(null);
+        shell.CloseChatActionsCommand.Execute(null);
+
+        shell.ChatList.OpenChatCommand.Execute(row);
+        await WaitAsync(() => !row.HasUnreadMessages);
+        shell.Chat.IsRunSettingsSheetOpen = true;
+        Assert.False(shell.ShowOpenChatReadStateAction);
+        await shell.SetOpenChatReadStateCommand.ExecuteAsync(null);
+        Assert.DoesNotContain(ReadCommands(desktop), c => c.Action == RemoteProtocol.Actions.SetChatUnread);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AReopenedChatCanAcknowledgeTheSameMarkAfterCatchingUpButNotAReplacement(bool sameMark)
+    {
+        var chatId = Guid.NewGuid();
+        var mark = Guid.NewGuid();
+        await using var desktop = new FakeLumiDesktop
+        {
+            Snapshot = Snapshot(chatId, unread: true),
+            Transcript = Transcript(chatId, unread: true)
+        };
+        desktop.Transcript.Status.MobileUnreadMark = mark;
+        desktop.Capabilities.Add(RemoteProtocol.Capabilities.ChatReadStateV1);
+        desktop.CommandResultFactory = command => new RemoteCommandResult
+        {
+            Ok = true,
+            HasUnreadMessages = command?.GetInt("readThroughMessageCount") == 2
+        };
+        desktop.Start();
+        await using var shell = CreateShell();
+        await PairAsync(shell, desktop);
+        var row = Assert.Single(Assert.Single(shell.ChatList.Groups).Chats);
+        shell.ChatList.OpenChatCommand.Execute(row);
+        await WaitAsync(() => ReadCommands(desktop).Any(c => c.GetGuid("mobileUnreadMark") == mark));
+
+        var latest = Transcript(chatId, unread: true, revision: 2);
+        latest.Status.MobileUnreadMark = sameMark ? mark : Guid.NewGuid();
+        latest.TotalRawMessageCount = latest.WindowEndMessageIndex = 3;
+        desktop.Transcript = latest;
+        await shell.RefreshTranscriptAsync();
+        await WaitAsync(() => shell.Chat.TotalRawMessageCount == 3);
+
+        if (sameMark)
+            await WaitAsync(() => !row.HasUnreadMessages);
+        else
+        {
+            Assert.Equal(1, shell.Client.Stats.Snapshot().RequestsTo(RemoteProtocol.Routes.Command));
+            Assert.True(row.HasUnreadMessages);
+        }
+    }
+
     private static RemoteCommand[] ReadCommands(FakeLumiDesktop desktop)
     {
         lock (desktop.ReceivedCommands)

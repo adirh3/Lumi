@@ -835,6 +835,40 @@ public sealed class RemoteCommandRouterSurfaceTests
     });
 
     [Fact]
+    public Task AReadAcknowledgementCanOnlyClearTheMobileMarkItSaw() => RunAsync(async () =>
+    {
+        var chat = new Chat { Title = "Read later", MessageCount = 2, HasUnreadMessages = true };
+        var store = new DataStore(new AppData { Chats = [chat], Settings = TestSettings() });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(),
+            initializeCopilotOnStartup: false);
+        var router = new RemoteCommandRouter(store, main);
+        Task<RemoteCommandResult> Execute(RemoteCommand command) =>
+            router.ExecuteAsync(command, CancellationToken.None);
+        RemoteCommand SetUnread() => new RemoteCommand(RemoteProtocol.Actions.SetChatUnread)
+            .With("chatId", chat.Id.ToString()).With("isUnread", "true");
+        RemoteCommand OpenChat() => new RemoteCommand(RemoteProtocol.Actions.OpenChat)
+            .With("chatId", chat.Id.ToString()).With("readThroughMessageCount", "2");
+        RemoteCommand Acknowledge(Guid? mark = null) => OpenChat().With("mobileUnreadMark", mark?.ToString());
+
+        Assert.False((await Execute(new RemoteCommand(RemoteProtocol.Actions.SetChatUnread)
+            .With("isUnread", "true"))).Ok);
+        Assert.False((await Execute(SetUnread().With("isUnread", "invalid"))).Ok);
+        Assert.Null(chat.MobileUnreadMark);
+        Assert.True((await Execute(SetUnread())).Ok);
+        var firstMark = Assert.IsType<Guid>(chat.MobileUnreadMark);
+        Assert.False((await Execute(OpenChat())).Ok); // An older phone treats Ok as a cleared mark.
+        Assert.True((await Execute(Acknowledge())).HasUnreadMessages == true);
+        Assert.True(chat.HasUnreadMessages);
+
+        Assert.True((await Execute(SetUnread())).Ok);
+        var secondMark = Assert.IsType<Guid>(chat.MobileUnreadMark);
+        Assert.NotEqual(firstMark, secondMark);
+        Assert.True((await Execute(Acknowledge(firstMark))).HasUnreadMessages == true);
+        Assert.False((await Execute(Acknowledge(secondMark))).HasUnreadMessages);
+        Assert.False(chat.HasUnreadMessages);
+    });
+
+    [Fact]
     public Task StartedWorktreeChatRejectsRemoteProjectChanges() => RunAsync(async () =>
     {
         MainViewModel? main = null;

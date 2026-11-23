@@ -137,6 +137,8 @@ public sealed partial class MobileShellViewModel :
     private readonly object _transcriptRefreshSync = new();
     private readonly Stack<int> _newerTranscriptCursors = new();
     private readonly Dictionary<Guid, int> _readWatermarks = [];
+    // Null for a background refresh, Empty until a deliberate reopen sees its mark.
+    private Guid? _mobileUnreadToAcknowledge;
     private TranscriptRefreshRequest? _pendingTranscriptRefresh;
     private TranscriptRefreshRequest? _activeTranscriptRefreshRequest;
     private TranscriptRefreshRequest? _applyingTranscriptRefreshRequest;
@@ -222,6 +224,7 @@ public sealed partial class MobileShellViewModel :
     [NotifyPropertyChangedFor(nameof(ShowHeaderNewChat))]
     [NotifyPropertyChangedFor(nameof(ShowBackToChats))]
     [NotifyPropertyChangedFor(nameof(CanManageOpenChat))]
+    [NotifyPropertyChangedFor(nameof(ShowOpenChatReadStateAction))]
     [NotifyPropertyChangedFor(nameof(CanChangeProjectScope))]
     [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
     [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
@@ -380,6 +383,8 @@ public sealed partial class MobileShellViewModel :
                 OnPropertyChanged(nameof(CanManageOpenChat));
                 OnPropertyChanged(nameof(CanGoBack));
             }
+            if (e.PropertyName is nameof(MobileChatViewModel.ChatId) or nameof(MobileChatViewModel.HasUnreadMessages))
+                OnPropertyChanged(nameof(ShowOpenChatReadStateAction));
             if (e.PropertyName is nameof(MobileChatViewModel.ProjectName)
                 or nameof(MobileChatViewModel.ProjectValue)
                 or nameof(MobileChatViewModel.AgentName)
@@ -579,6 +584,7 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanManageActionChat))]
     [NotifyCanExecuteChangedFor(nameof(PinActionChatCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SetActionChatReadStateCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteActionChatCommand))]
     [NotifyCanExecuteChangedFor(nameof(RenameActionChatCommand))]
     private ChatListItemViewModel? _actionChat;
@@ -606,6 +612,7 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanManageActionChat))]
     [NotifyCanExecuteChangedFor(nameof(PinActionChatCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SetActionChatReadStateCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteActionChatCommand))]
     [NotifyCanExecuteChangedFor(nameof(RenameActionChatCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveChatNameCommand))]
@@ -657,6 +664,16 @@ public sealed partial class MobileShellViewModel :
         {
             IsChatActionsOpen = false;
         }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanManageActionChat))]
+    private async Task SetActionChatReadStateAsync()
+    {
+        if (!SupportsChatReadState || !IsConnected || ActionChat is not { } chat)
+            return;
+
+        if (await RunChatActionAsync(BuildReadStateCommand(chat.Id, !chat.HasUnreadMessages)))
+            IsChatActionsOpen = false;
     }
 
     [RelayCommand(CanExecute = nameof(CanManageActionChat))]
@@ -1126,6 +1143,11 @@ public sealed partial class MobileShellViewModel :
 
     public bool CanManageOpenChat => IsPaired && Chat.HasChat && Chat.ChatId != Guid.Empty;
 
+    public bool SupportsChatReadState => Client.SupportsChatReadState;
+
+    public bool ShowOpenChatReadStateAction =>
+        SupportsChatReadState && CanManageOpenChat && Chat.HasUnreadMessages.HasValue;
+
     /// <summary>Pinning is offered when the list knows whether the open chat is pinned.</summary>
     public bool CanPinOpenChat => CanManageOpenChat && ChatList.FindLoadedChat(Chat.ChatId) is not null;
 
@@ -1181,6 +1203,42 @@ public sealed partial class MobileShellViewModel :
         else if (Chat.ChatId == chatId)
             Chat.ErrorText = result.Error ?? Strings.Get("ActionIncomplete");
         OnPropertyChanged(nameof(OpenChatPinLabel));
+    }
+
+    [RelayCommand]
+    private async Task SetOpenChatReadStateAsync()
+    {
+        if (!ShowOpenChatReadStateAction || !IsConnected || Chat.HasUnreadMessages is not { } wasUnread)
+            return;
+
+        var chatId = Chat.ChatId;
+        var surface = _transcriptSurfaceGeneration;
+        var connection = Volatile.Read(ref _connectionGeneration);
+        var result = await SendCommandAsync(BuildReadStateCommand(chatId, !wasUnread));
+        if (connection != Volatile.Read(ref _connectionGeneration) || surface != _transcriptSurfaceGeneration
+            || Chat.ChatId != chatId || Page != MobilePage.Chat || !Chat.IsRunSettingsSheetOpen)
+            return;
+
+        Chat.IsRunSettingsSheetOpen = false;
+        if (!result.Ok)
+            Chat.ErrorText = result.Error ?? Strings.Get("ActionIncomplete");
+        else if (!wasUnread && !CanDockDrawer)
+            ShowHome();
+    }
+
+    private RemoteCommand BuildReadStateCommand(Guid chatId, bool isUnread)
+    {
+        if (isUnread && chatId == Chat.ChatId)
+            _mobileUnreadToAcknowledge = null;
+
+        return new RemoteCommand(RemoteProtocol.Actions.SetChatUnread)
+            .With("chatId", chatId.ToString()).With("isUnread", isUnread.ToString());
+    }
+
+    private void NotifyChatReadStateCapability()
+    {
+        OnPropertyChanged(nameof(SupportsChatReadState));
+        OnPropertyChanged(nameof(ShowOpenChatReadStateAction));
     }
 
     partial void OnUserNameChanged(string value)
@@ -2797,6 +2855,7 @@ public sealed partial class MobileShellViewModel :
 
     private void ApplySnapshot(RemoteSnapshot snapshot, SnapshotSource source)
     {
+        NotifyChatReadStateCapability();
         var shouldAdoptDesktopChat =
             _canAdoptDesktopActiveChat &&
             !Chat.HasChat &&
@@ -2994,6 +3053,7 @@ public sealed partial class MobileShellViewModel :
             UpdatedAt = DateTimeOffset.Now,
             IsRunning = true,
             IsSessionActive = true,
+            HasUnreadMessages = Chat.ChatId == chatId && Chat.HasUnreadMessages == true,
             LastModelUsed = Chat.Model
         }, isNewChat);
     }
@@ -3016,6 +3076,7 @@ public sealed partial class MobileShellViewModel :
         _canAdoptDesktopActiveChat = false;
         if (chatId != Guid.Empty && Chat.ChatId == chatId)
         {
+            _mobileUnreadToAcknowledge = Guid.Empty;
             Page = MobilePage.Chat;
             IsDrawerOpen = false;
             if (rememberPage)
@@ -3025,6 +3086,8 @@ public sealed partial class MobileShellViewModel :
         }
 
         ResetTranscriptNavigation();
+        if (chatId != Guid.Empty)
+            _mobileUnreadToAcknowledge = Guid.Empty;
         var activation = _transcriptSurfaceGeneration;
         var connection = Volatile.Read(ref _connectionGeneration);
         Chat.Reset(chatId, title, model, isLoading: chatId != Guid.Empty);
@@ -3076,8 +3139,20 @@ public sealed partial class MobileShellViewModel :
 
     private bool CanReadChatTranscript => IsChatTranscriptVisible && !Chat.IsLoading;
 
-    private async Task MarkChatReadAsync(Guid chatId, int messageCount, bool? hasUnreadMessages)
+    private async Task MarkChatReadAsync(RemoteChatStatus status, Guid chatId, int messageCount)
     {
+        var mark = status.MobileUnreadMark;
+        if (mark is null)
+            _mobileUnreadToAcknowledge = null;
+        else if (_mobileUnreadToAcknowledge == Guid.Empty)
+            _mobileUnreadToAcknowledge = mark;
+        else if (_mobileUnreadToAcknowledge != mark)
+        {
+            _mobileUnreadToAcknowledge = null;
+            return;
+        }
+
+        var hasUnreadMessages = status.HasUnreadMessages;
         if (hasUnreadMessages == false
             || (hasUnreadMessages is null
                 && _readWatermarks.TryGetValue(chatId, out var acknowledged)
@@ -3089,25 +3164,31 @@ public sealed partial class MobileShellViewModel :
         var statusVersion = Chat.StatusVersion;
         try
         {
-            var result = await SendCommandAsync(
-                new RemoteCommand(RemoteProtocol.Actions.OpenChat)
-                    .With("chatId", chatId.ToString())
-                    .With("readThroughMessageCount", messageCount.ToString(
-                        System.Globalization.CultureInfo.InvariantCulture)));
+            var command = new RemoteCommand(RemoteProtocol.Actions.OpenChat)
+                .With("chatId", chatId.ToString())
+                .With("readThroughMessageCount", messageCount.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture));
+            if (Client.SupportsChatReadState)
+                command.With("mobileUnreadMark", mark?.ToString());
+            var result = await SendCommandAsync(command);
             if (connection != Volatile.Read(ref _connectionGeneration)
                 || surface != _transcriptSurfaceGeneration || Chat.ChatId != chatId)
                 return;
 
             if (!result.Ok)
                 Trace.TraceWarning($"[Mobile] Could not mark chat {chatId} read: {result.Error}");
-            else
+            else if (result.HasUnreadMessages != true)
             {
+                if (_mobileUnreadToAcknowledge == mark)
+                    _mobileUnreadToAcknowledge = null;
                 if (hasUnreadMessages is null)
                     _readWatermarks[chatId] = messageCount;
                 // Do not clear a newer desktop read-state update that arrived during the request.
                 if (Chat.StatusVersion == statusVersion && CanReadChatTranscript
                     && Chat.IsLatestWindow && Chat.TotalRawMessageCount <= messageCount)
                 {
+                    if (result.HasUnreadMessages.HasValue)
+                        Chat.HasUnreadMessages = false;
                     ChatList.SetUnread(chatId, false);
                     SearchChatList.SetUnread(chatId, false);
                 }
@@ -3410,10 +3491,7 @@ public sealed partial class MobileShellViewModel :
                             && CanReadChatTranscript
                             && request.StatusVersion == Chat.StatusVersion)
                         {
-                            _ = MarkChatReadAsync(
-                                transcript.ChatId,
-                                Chat.TotalRawMessageCount,
-                                transcript.Status.HasUnreadMessages);
+                            _ = MarkChatReadAsync(transcript.Status, transcript.ChatId, Chat.TotalRawMessageCount);
                         }
 
                         ReplayHeldDeltas(request.ChatId, heldWatermark);
@@ -3427,10 +3505,7 @@ public sealed partial class MobileShellViewModel :
                             && request.StatusVersion == Chat.StatusVersion
                             && transcript.IsLatestWindow)
                         {
-                            _ = MarkChatReadAsync(
-                                transcript.ChatId,
-                                transcript.TotalRawMessageCount,
-                                transcript.Status.HasUnreadMessages);
+                            _ = MarkChatReadAsync(transcript.Status, transcript.ChatId, transcript.TotalRawMessageCount);
                         }
 
                         if (transcript.IsLatestWindow)
@@ -3614,6 +3689,7 @@ public sealed partial class MobileShellViewModel :
 
     private void ResetTranscriptNavigation()
     {
+        _mobileUnreadToAcknowledge = null;
         CancellationTokenSource? active;
         lock (_transcriptRefreshSync)
         {
@@ -3652,6 +3728,7 @@ public sealed partial class MobileShellViewModel :
         PostForConnection(generation, () =>
         {
             Chat.RefreshInteractiveCapabilities();
+            NotifyChatReadStateCapability();
             ConnectionMessage = message;
             IsGatewaySignInRequired = state == RemoteLinkState.GatewaySignInRequired;
 
@@ -3752,7 +3829,8 @@ public sealed partial class MobileShellViewModel :
                         {
                             ChatList.SetUnread(status.ChatId, unread);
                             SearchChatList.SetUnread(status.ChatId, unread);
-                            if (unread && status.ChatId == Chat.ChatId && IsChatTranscriptVisible)
+                            if (unread && status.ChatId == Chat.ChatId && IsChatTranscriptVisible
+                                && (status.MobileUnreadMark is null || _mobileUnreadToAcknowledge == Guid.Empty))
                                 QueueTranscriptRefresh();
                         }
                     });

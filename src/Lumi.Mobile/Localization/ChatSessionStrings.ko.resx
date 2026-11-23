@@ -88,6 +88,8 @@
   <data name="LaunchpadIdeas" xml:space="preserve"><value>아이디어</value></data>
   <data name="LongPressSetupActions" xml:space="preserve"><value>길게 눌러 이 설정을 유지하거나 변경</value></data>
   <data name="RenameChat" xml:space="preserve"><value>채팅 이름 바꾸기</value></data>
+  <data name="MarkAsUnread" xml:space="preserve"><value>읽지 않음으로 표시</value></data>
+  <data name="MarkAsRead" xml:space="preserve"><value>읽음으로 표시</value></data>
   <data name="DeleteChat" xml:space="preserve"><value>채팅 삭제</value></data>
   <data name="ChatName" xml:space="preserve"><value>채팅 이름</value></data>
   <data name="DeleteChatWarning" xml:space="preserve"><value>휴대폰과 컴퓨터에서 이 대화를 삭제해요. 되돌릴 수 없어요.</value></data>

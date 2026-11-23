@@ -92,6 +92,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isLoading;
     [ObservableProperty] private string? _statusText;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ReadStateActionLabel))]
+    private bool? _hasUnreadMessages;
+
+    public string ReadStateActionLabel => Strings.Get(HasUnreadMessages == true ? "MarkAsRead" : "MarkAsUnread");
+
     [ObservableProperty] private string? _errorText;
     [ObservableProperty] private string? _transcriptErrorText;
     [ObservableProperty] private long _contextCurrentTokens;
@@ -2141,6 +2147,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             ContextCurrentTokens = 0;
             ContextTokenLimit = 0;
             StatusText = null;
+            HasUnreadMessages = null;
             PlanContent = null;
             IsPlanOpen = false;
             IsRunSettingsSheetOpen = false;
@@ -2688,6 +2695,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsSessionActive = true;
 
         StatusText = status.StatusText;
+        if (status.HasUnreadMessages is { } unread)
+            HasUnreadMessages = unread;
         IsAwaitingInput = status.IsAwaitingInput;
         ContextCurrentTokens = status.ContextCurrentTokens;
         ContextTokenLimit = status.ContextTokenLimit;

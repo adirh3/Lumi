@@ -73,7 +73,8 @@ public sealed class ChatListIncrementalRealizationTests
                     {
                         Id = id,
                         Title = "Active chat",
-                        MessageCount = 12
+                        MessageCount = 12,
+                        HasUnreadMessages = true
                     }
                 ]
             }
@@ -93,6 +94,7 @@ public sealed class ChatListIncrementalRealizationTests
         Assert.Equal(id, promoted.Id);
         Assert.Equal("new message", promoted.Preview);
         Assert.True(promoted.IsRunning);
+        Assert.True(promoted.HasUnreadMessages);
         Assert.Equal(2, list.TotalChats);
     }
 

@@ -806,6 +806,14 @@ opening it. Closed/open envelope icons distinguish the two actions. Opening the
 chat or choosing **Mark all as read** also clears the mark. Like automatic unread
 indicators, these marks last for the current app session.
 
+On the Android app or mobile web app, press and hold a chat in the list or tap
+the title of an open chat to find the same actions. The mark updates the PC's
+unread inbox and the phone's list. **Mark as unread** from the open chat returns
+to the list on a phone-sized screen. The mark stays through background refreshes,
+even on a wide screen where the chat stays visible, and clears when you reopen
+the latest activity or mark it read. Older desktop hosts do not offer these
+actions, and older phone apps cannot clear a mark set by a newer phone.
+
 ### Resuming chats after backend history errors
 
 For `400 input item ID does not belong to this connection`, click **Try again** or send

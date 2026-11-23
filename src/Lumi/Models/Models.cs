@@ -1309,7 +1309,22 @@ public class Chat : INotifyPropertyChanged
     public bool HasUnreadMessages
     {
         get => _hasUnreadMessages;
-        set { if (_hasUnreadMessages == value) return; _hasUnreadMessages = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasUnreadMessages))); }
+        set => SetUnreadState(value, value ? MobileUnreadMark : null);
+    }
+
+    [JsonIgnore]
+    internal Guid? MobileUnreadMark { get; private set; }
+
+    internal void MarkUnreadFromMobile() => SetUnreadState(true, Guid.NewGuid());
+
+    private void SetUnreadState(bool unread, Guid? mobileUnreadMark)
+    {
+        if (_hasUnreadMessages == unread && MobileUnreadMark == mobileUnreadMark)
+            return;
+
+        _hasUnreadMessages = unread;
+        MobileUnreadMark = mobileUnreadMark;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasUnreadMessages)));
     }
 
     /// <summary>Runtime-only: whether the sidebar should show this chat's project folder badge (only in the "All projects" view).</summary>

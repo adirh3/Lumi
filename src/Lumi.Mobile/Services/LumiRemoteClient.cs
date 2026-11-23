@@ -169,6 +169,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         _capabilities.Contains(RemoteProtocol.Capabilities.ModelPinsV1);
     public bool SupportsMessageEditing =>
         _capabilities.Contains(RemoteProtocol.Capabilities.MessageEditingV1);
+    public bool SupportsChatReadState =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.ChatReadStateV1);
     public bool SupportsPhoneNotifications =>
         _capabilities.Contains(RemoteProtocol.Capabilities.PhoneNotificationsV1);
     public bool SupportsExplorerPictures =>

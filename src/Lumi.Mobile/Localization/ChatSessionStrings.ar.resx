@@ -233,6 +233,8 @@
   <data name="LongPressSetupActions" xml:space="preserve">
     <value>اضغط مطولاً للاحتفاظ بهذا الإعداد أو تغييره</value>
   </data>
+  <data name="MarkAsUnread" xml:space="preserve"><value>وضع علامة غير مقروء</value></data>
+  <data name="MarkAsRead" xml:space="preserve"><value>وضع علامة مقروء</value></data>
   <data name="RenameChat" xml:space="preserve">
     <value>إعادة تسمية المحادثة</value>
   </data>

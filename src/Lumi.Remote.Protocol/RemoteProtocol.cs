@@ -271,6 +271,7 @@ public static class RemoteProtocol
         public const string GitChangesV1 = "git-changes-v1";
         public const string InteractiveResponsesV1 = "interactive-responses-v1";
         public const string MessageEditingV1 = "message-editing-v1";
+        public const string ChatReadStateV1 = "chat-read-state-v1";
 
         /// <summary>
         /// A latest-window transcript request may carry the <see cref="RemoteTranscript.TranscriptVersion"/>
@@ -324,6 +325,7 @@ public static class RemoteProtocol
             ResumePingV1,
             ModelPinsV1,
             MessageEditingV1,
+            ChatReadStateV1,
             PhoneNotificationsV1,
             ExplorerPicturesV1,
             LaunchpadV2
@@ -400,10 +402,11 @@ public static class RemoteProtocol
     {
         public const string CreateChat = "create_chat";
         /// <summary>
-        /// Compatibility command for pre-1.1.3 clients. Browsing no longer activates the desktop
-        /// surface; the server only validates that the chat still exists.
+        /// Acknowledges a visible transcript without activating the desktop surface.
+        /// A deliberate reopen can acknowledge a matching <c>mobileUnreadMark</c>.
         /// </summary>
         public const string OpenChat = "open_chat";
+        public const string SetChatUnread = "set_chat_unread";
         public const string DeleteChat = "delete_chat";
         public const string RenameChat = "rename_chat";
         public const string PinChat = "pin_chat";
