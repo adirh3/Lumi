@@ -46,7 +46,7 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
     {
         var context = (parent as AndroidViewControlHandle)?.View.Context
                       ?? _activity;
-        var editor = new EditText(context)
+        var editor = new ComposerEditText(context)
         {
             Gravity = GravityFlags.Start | GravityFlags.CenterVertical,
             InputType = InputTypes.ClassText
@@ -85,6 +85,8 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         };
         state.KeyHandler = (_, args) =>
         {
+            // Android's managed key listener starts with Handled=true.
+            args.Handled = false;
             var key = args.Event;
             if (!host.SendWithEnter || key is null
                 || args.KeyCode is not (Keycode.Enter or Keycode.NumpadEnter)
@@ -102,10 +104,10 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         state.EditorActionHandler = (_, args) =>
         {
             var key = args.Event;
-            if (host.SendWithEnter && args.ActionId == ImeAction.Send
+            args.Handled = host.SendWithEnter && args.ActionId == ImeAction.Send
                 && (key is null || key.Action == KeyEventActions.Down
-                    && !key.IsShiftPressed && !IsComposing(editor)))
-                args.Handled = host.RequestEnterFromNative();
+                    && !key.IsShiftPressed && !IsComposing(editor))
+                && host.RequestEnterFromNative();
         };
         state.LayoutChangedHandler = (_, _) => QueueHeightUpdate(host, state);
         state.TouchHandler = (_, args) =>
@@ -452,6 +454,18 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         }
 
         return null;
+    }
+
+    private sealed class ComposerEditText(Context context) : EditText(context)
+    {
+        public override IInputConnection? OnCreateInputConnection(EditorInfo? outAttrs)
+        {
+            var connection = base.OnCreateInputConnection(outAttrs);
+            // TextView adds NoEnterAction for multiline inputs, even when the IME action is Send.
+            if (outAttrs is not null && (ImeOptions & ImeAction.ImeMaskAction) == ImeAction.Send)
+                outAttrs.ImeOptions &= ~ImeFlags.NoEnterAction;
+            return connection;
+        }
     }
 
     private sealed class EditorState(
