@@ -454,6 +454,16 @@ public sealed class MobileGitChangesTests
                 await PanAsync(scroll, new Vector(-160, -6));
                 Assert.True(scroll.Offset.X >= previousX + 140,
                     $"Horizontal pan at the bottom edge was blocked: {scroll.Offset}.");
+
+                scroll.Offset = default;
+                Assert.True(scroll.Focus(NavigationMethod.Tab));
+                window.KeyPress(Key.Right, RawInputModifiers.None, PhysicalKey.None, null);
+                window.KeyPress(Key.Down, RawInputModifiers.None, PhysicalKey.None, null);
+                Assert.True(scroll.Offset.X > 0);
+                Assert.True(scroll.Offset.Y > 0);
+                window.KeyPress(Key.Left, RawInputModifiers.None, PhysicalKey.None, null);
+                window.KeyPress(Key.Up, RawInputModifiers.None, PhysicalKey.None, null);
+                Assert.Equal(default, scroll.Offset);
                 Assert.Equal(files[0].Path, vm.SelectedGitFilePath);
             }
             finally { window.Close(); }

@@ -88,7 +88,7 @@ plugin configuration, resetting native history, or adding a custom recovery retr
 Official [Avalonia 12.1.4](https://github.com/AvaloniaUI/Avalonia/releases/tag/12.1.4)
 introduced both accepted text fixes: batched input-method selection notifications
 and empty bounds for zero-length text ranges. Lumi and Strata use the official
-12.1.6 packages without a custom core override, local feed mapping or runtime patch.
+12.2.0 packages without a custom core override, local feed mapping or runtime patch.
 `Avalonia.Controls.DataGrid` is released independently and remains pinned to its
 published `12.1.2` release in Lumi and Strata. The focused input and
 text-layout regression tests are retained.
@@ -880,8 +880,26 @@ The second publish bundles the first under a content-versioned path and emits a
 single asset inventory. Use its `wwwroot` as `LUMI_REMOTE_WEB_ROOT` in an isolated
 Debug desktop to exercise the shipped pairing, update and fallback paths. A
 publish without `LumiPwaWorkerRoot` only has the copy-free renderer. The bundled
-threaded renderer is pinned to .NET 11.0.0 and Avalonia 12.1.6: requalify the
-worker pool readiness and dispatcher ownership on Android before changing either.
+threaded renderer is pinned to .NET 11.0.0 and Avalonia 12.2.0: requalify worker
+pool readiness and dispatcher ownership before changing either. Avalonia 12.2
+owns the UI dispatcher and the separate canvas render worker. Lumi dispatches
+document callbacks to the UI worker in the threaded build; in the ordinary build,
+the final native editor update runs inline before Enter can send. Lumi keeps the
+worker only if it can open WebGL 2. The ordinary build uses Avalonia's default
+WebGL 2, WebGL 1 and software choices. The worker bridge reports canvas readiness and graphics
+failure so Lumi can fall back before startup, or ask before reloading an open
+chat. The older `workerframes=clock` fallback on Android Chromium is still
+single-threaded rendering; it changes frame scheduling and touch sampling,
+not the thread that renders the app.
+
+Avalonia's browser modules ship under `_content/Avalonia.Browser/` in both
+publishes, relative to each renderer's own entry page. Keep the .NET
+[worker-pool readiness workaround](https://github.com/dotnet/runtime/issues/136492)
+until a validated runtime no longer needs it: removing it on 11.0.0 leaves the
+threaded build stalled at startup even with Avalonia 12.2. Keep the SkiaSharp
+handle-lock override in the threaded build as well: startup alone passes with
+SkiaSharp's default lock, but the threaded scroll and popup fixture can stall
+when the override is removed.
 
 On macOS/Linux use `/` in those paths. Android Debug packages use development
 signing. Production signing is release-maintainer work; contributors do not need
@@ -894,9 +912,9 @@ does not change the glass, shadows, scroll gestures or keyboard animation.
 
 The browser SDK still defaults to Mono/WebAssembly, without Android's .NET/Java bridge.
 Keep its AOT, renderer and threading choices independent of the Android runtime configuration.
-The browser head pins matching SkiaSharp 4 managed/WebAssembly packages for .NET 11's Emscripten 6
-toolchain; the other heads retain Avalonia's default Skia dependencies. The linked .NET 11 module
-uses WebAssembly exception references (`exnref`), unlike the previous .NET 10 build. See the
+The browser head uses the matching SkiaSharp managed and native WebAssembly packages
+from Avalonia's .NET 11 browser target. The linked .NET 11 module uses WebAssembly
+exception references (`exnref`), unlike the previous .NET 10 build. See the
 [mobile browser requirements](user-guide.md#mobile-conversations) before changing this deployment baseline.
 
 Add `-p:LumiPreview=true` to build **Lumi Preview** (`com.lumi.mobile.preview`):

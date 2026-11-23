@@ -2,8 +2,8 @@
 
 ## Avalonia dependency
 
-Lumi now consumes official `Avalonia 12.1.4` from NuGet.org. That stable release
-includes both final accepted text fixes from
+Lumi consumes official `Avalonia 12.2.0` from NuGet.org. The stable packages
+include both text fixes accepted in 12.1.4:
 [AvaloniaUI/Avalonia#22343](https://github.com/AvaloniaUI/Avalonia/pull/22343) and
 [AvaloniaUI/Avalonia#22344](https://github.com/AvaloniaUI/Avalonia/pull/22344).
 The temporary Avalonia packages, rebuild inputs, checksum rows and exact local

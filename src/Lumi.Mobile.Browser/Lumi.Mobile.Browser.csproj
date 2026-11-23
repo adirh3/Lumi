@@ -26,15 +26,12 @@
 
   <Target Name="ValidateRenderWorker" BeforeTargets="PrepareForBuild"
           Condition="'$(LumiPwaRenderWorker)' == 'true'">
-    <Error Condition="'$(AvaloniaVersion)' != '12.1.6' Or '$(WasmEnableThreads)' != 'true'"
+    <Error Condition="'$(AvaloniaVersion)' != '12.2.0' Or '$(WasmEnableThreads)' != 'true'"
            Text="Requalify the render worker against a new Avalonia version or WebAssembly runtime." />
   </Target>
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Browser" Version="$(AvaloniaVersion)" />
-    <!-- .NET 11 needs Emscripten 6 native assets; keep the managed/native Skia pair browser-only. -->
-    <PackageReference Include="SkiaSharp" Version="4.156.1" />
-    <PackageReference Include="SkiaSharp.NativeAssets.WebAssembly" Version="4.156.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -93,7 +90,9 @@
     </PropertyGroup>
     <Error Condition="'$(WasmEnableThreads)' == 'true' Or
                       !Exists('$(_WorkerInventory)') Or !Exists('$(_WorkerRoot)\renderWorkerPlatform.js') Or
-                      !Exists('$(_WorkerRoot)\index.html') Or !Exists('$(_WorkerRoot)\_framework\dotnet.js')"
+                      !Exists('$(_WorkerRoot)\index.html') Or !Exists('$(_WorkerRoot)\_framework\dotnet.js') Or
+                      !Exists('$(_WorkerRoot)\_content\Avalonia.Browser\avalonia.js') Or
+                      !Exists('$(_WorkerRoot)\_content\Avalonia.Browser\storage.js')"
            Text="Bundle a separate threaded PWA publish into the non-threaded release shell." />
     <GetFileHash Files="$(_WorkerInventory)" Algorithm="SHA256">
       <Output TaskParameter="Hash" PropertyName="_WorkerFingerprint" />

@@ -10,19 +10,20 @@ namespace Lumi.Views.Controls;
 /// expresses as <c>grid-template-columns: repeat(auto-fill, minmax(MinItemWidth, 1fr))</c>, which a
 /// WrapPanel cannot do without leaving a ragged right edge.
 /// </summary>
-public sealed class AdaptiveGridPanel : Panel
+public sealed partial class AdaptiveGridPanel : Panel
 {
-    public static readonly StyledProperty<double> MinItemWidthProperty =
-        AvaloniaProperty.Register<AdaptiveGridPanel, double>(nameof(MinItemWidth), 240);
+    [GeneratedStyledProperty(DefaultValue = 240d)]
+    public partial double MinItemWidth { get; set; }
 
-    public static readonly StyledProperty<int> MaxColumnsProperty =
-        AvaloniaProperty.Register<AdaptiveGridPanel, int>(nameof(MaxColumns), 0);
+    /// <summary>Upper bound on the column count; 0 means no limit.</summary>
+    [GeneratedStyledProperty]
+    public partial int MaxColumns { get; set; }
 
-    public static readonly StyledProperty<double> ColumnSpacingProperty =
-        AvaloniaProperty.Register<AdaptiveGridPanel, double>(nameof(ColumnSpacing), 12);
+    [GeneratedStyledProperty(DefaultValue = 12d)]
+    public partial double ColumnSpacing { get; set; }
 
-    public static readonly StyledProperty<double> RowSpacingProperty =
-        AvaloniaProperty.Register<AdaptiveGridPanel, double>(nameof(RowSpacing), 12);
+    [GeneratedStyledProperty(DefaultValue = 12d)]
+    public partial double RowSpacing { get; set; }
 
     static AdaptiveGridPanel()
     {
@@ -31,31 +32,6 @@ public sealed class AdaptiveGridPanel : Panel
             MaxColumnsProperty,
             ColumnSpacingProperty,
             RowSpacingProperty);
-    }
-
-    public double MinItemWidth
-    {
-        get => GetValue(MinItemWidthProperty);
-        set => SetValue(MinItemWidthProperty, value);
-    }
-
-    /// <summary>Upper bound on the column count; 0 means no limit.</summary>
-    public int MaxColumns
-    {
-        get => GetValue(MaxColumnsProperty);
-        set => SetValue(MaxColumnsProperty, value);
-    }
-
-    public double ColumnSpacing
-    {
-        get => GetValue(ColumnSpacingProperty);
-        set => SetValue(ColumnSpacingProperty, value);
-    }
-
-    public double RowSpacing
-    {
-        get => GetValue(RowSpacingProperty);
-        set => SetValue(RowSpacingProperty, value);
     }
 
     internal static int ComputeColumns(double availableWidth, double minItemWidth, double spacing, int maxColumns, int itemCount)

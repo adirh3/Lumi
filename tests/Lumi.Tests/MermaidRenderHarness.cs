@@ -218,7 +218,7 @@ public sealed class MermaidRenderHarness
 
                     var cropped = AutoCrop(frame, Backdrop, margin: 16);
                     var path = Path.Combine(outDir, name + ".png");
-                    cropped.Save(path);
+                    cropped.Save(path, PngBitmapEncoderOptions.Default);
                     _out.WriteLine($"{name}: {cropped.PixelSize.Width}x{cropped.PixelSize.Height} -> {path}");
 
                     frame.Dispose();

@@ -527,7 +527,7 @@ function startup(failedModule, {
                 return { configureBrowserRecovery() {}, configureNativeTextInputs() {}, configureViewportInsets() {},
                     showBrowserRecovery: message => recoveriesShown.push(message),
                     configureFilePickerCancellation() { lifecycle.push('picker-prepared'); } };
-            if (name === './_framework/storage.js') {
+            if (name === './_content/Avalonia.Browser/storage.js') {
                 lifecycle.push('storage-loaded');
                 return { StorageProvider: {} };
             }
@@ -597,7 +597,7 @@ test('picker preparation requires the runtime, precedes app startup, and fails w
     assert.deepEqual(ready.lifecycle, ['runtime-created', 'storage-loaded', 'picker-prepared', 'app-start', 'notification-clicks']);
     assert.equal(ready.errors.length, 0);
     assert.equal(ready.warnings.length, 0);
-    const failed = startup('./_framework/storage.js');
+    const failed = startup('./_content/Avalonia.Browser/storage.js');
     await failed.ready;
     assert.equal(failed.started, true);
     assert.equal(failed.errors.length, 0);
@@ -2240,9 +2240,10 @@ test('published inventory covers final app/WASM bytes with stable content hashes
     vm.runInNewContext(content, { self });
     const assets = self.lumiAssets;
     assert.ok(assets.length > 5);
+    const avaloniaModules = ['_content/Avalonia.Browser/avalonia.js', '_content/Avalonia.Browser/storage.js'];
     for (const name of ['index.html', 'startup.js', 'main.js', 'browserHost.js', 'pwaHost.js',
         'manifest.webmanifest', 'service-worker.js', '_framework/dotnet.js',
-        'workerFrames.js', 'workerFramePresenter.js']) {
+        'workerFrames.js', 'workerFramePresenter.js', ...avaloniaModules]) {
         assert.ok(assets.some(asset => asset.url === name), `Missing ${name}`);
     }
     assert.ok(!assets.some(asset => asset.url.startsWith('cache-recovery.')));
@@ -2254,7 +2255,8 @@ test('published inventory covers final app/WASM bytes with stable content hashes
     assert.deepEqual(
         readFileSync(path.join(publishRoot, entry)),
         readFileSync(path.join(publishRoot, 'index.html')));
-    for (const name of ['renderWorkerRuntime.js', 'renderWorkerPlatform.js', 'main.js', '_framework/dotnet.js'])
+    for (const name of ['renderWorkerRuntime.js', 'renderWorkerPlatform.js', 'main.js',
+        '_framework/dotnet.js', ...avaloniaModules])
         assert.ok(assets.some(asset => asset.url === workerRoot + name), `Missing worker asset ${name}`);
     assert.ok(assets.some(asset => asset.url.startsWith(workerRoot + '_framework/') && asset.url.endsWith('.wasm')));
     assert.ok(!assets.some(asset => asset.url.startsWith(workerRoot + 'service-worker')));

@@ -180,7 +180,7 @@ async function start() {
 
     // Avalonia's storage module resolves managed exports when it loads, so the runtime must exist.
     try {
-        configureFilePickerCancellation(await import('./_framework/storage.js'));
+        configureFilePickerCancellation(await import('./_content/Avalonia.Browser/storage.js'));
     } catch (error) {
         console.warn('[Lumi PWA] The attachment picker could not be prepared.', error);
     }

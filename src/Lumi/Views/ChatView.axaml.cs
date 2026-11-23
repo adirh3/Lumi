@@ -1772,7 +1772,7 @@ public partial class ChatView : UserControl
                 Directory.CreateDirectory(ClipboardImagesDir);
                 var fileName = $"clipboard-{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{Guid.NewGuid():N}.png";
                 var filePath = Path.Combine(ClipboardImagesDir, fileName);
-                bitmap.Save(filePath);
+                bitmap.Save(filePath, PngBitmapEncoderOptions.Default);
 
                 vm.AddAttachment(filePath);
                 FocusComposer();

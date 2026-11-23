@@ -432,7 +432,7 @@ internal sealed class QaSmokeHarness
         Require(size.Width > 0 && size.Height > 0, "The real window has no rendered bounds.");
         using var bitmap = new RenderTargetBitmap(size, new Vector(96 * scale, 96 * scale));
         bitmap.Render(_window);
-        bitmap.Save(Path.Combine(_output, id + ".png"));
+        bitmap.Save(Path.Combine(_output, id + ".png"), PngBitmapEncoderOptions.Default);
     }
 
     private void WriteReport()

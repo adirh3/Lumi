@@ -528,11 +528,8 @@ internal static partial class BrowserInterop
     internal static partial Task<string> InstallWebApp();
 
     [JSExport]
-    internal static Task WebAppInstallationChanged()
-    {
-        (Application.Current as App)?.Shell?.NotifyWebAppInstallationChanged();
-        return Task.CompletedTask;
-    }
+    internal static Task WebAppInstallationChanged() =>
+        BrowserUiThread.InvokeAsync(() => (Application.Current as App)?.Shell?.NotifyWebAppInstallationChanged());
 
     [JSImport("expectTestPush", "./pwaHost.js")]
     [return: JSMarshalAs<JSType.Promise<JSType.Boolean>>]
@@ -555,21 +552,21 @@ internal static partial class BrowserInterop
 
     /// <summary>A notification was tapped: open the chat it was about.</summary>
     [JSExport]
-    internal static Task OpenChatFromNotification(string chatId, string title)
-    {
-        if (Guid.TryParse(chatId, out var id) && (Application.Current as App)?.Shell is { } shell)
-            shell.OpenChatFromNotification(id, title.Length > 0 ? title : null);
-        return Task.CompletedTask;
-    }
+    internal static Task OpenChatFromNotification(string chatId, string title) =>
+        BrowserUiThread.InvokeAsync(() =>
+        {
+            if (Guid.TryParse(chatId, out var id) && (Application.Current as App)?.Shell is { } shell)
+                shell.OpenChatFromNotification(id, title.Length > 0 ? title : null);
+        });
 
     /// <summary>A suggestion was picked in a notification: send it in its chat.</summary>
     [JSExport]
-    internal static Task SendFromNotification(string chatId, string text)
-    {
-        if (Guid.TryParse(chatId, out var id) && (Application.Current as App)?.Shell is { } shell)
-            shell.SendFromNotification(id, text);
-        return Task.CompletedTask;
-    }
+    internal static Task SendFromNotification(string chatId, string text) =>
+        BrowserUiThread.InvokeAsync(() =>
+        {
+            if (Guid.TryParse(chatId, out var id) && (Application.Current as App)?.Shell is { } shell)
+                shell.SendFromNotification(id, text);
+        });
 
     [JSImport("getOrigin", "./browserHost.js")]
     internal static partial string GetOrigin();
@@ -680,37 +677,33 @@ internal static partial class BrowserInterop
     internal static partial void BlurNativeTextInput(int id);
 
     [JSExport]
-    internal static Task SetApplicationActive(bool active)
-    {
-        if (Avalonia.Application.Current?.ApplicationLifetime
-            is not ISingleViewApplicationLifetime { MainView: MobileShellView shell })
+    internal static Task SetApplicationActive(bool active) =>
+        BrowserUiThread.InvokeAsync(() =>
         {
-            return Task.CompletedTask;
-        }
-
-        if (active)
-            shell.NotifyApplicationActivated();
-        else
-            shell.NotifyApplicationDeactivated();
-        return Task.CompletedTask;
-    }
+            if (Application.Current?.ApplicationLifetime
+                is not ISingleViewApplicationLifetime { MainView: MobileShellView shell })
+                return;
+            if (active)
+                shell.NotifyApplicationActivated();
+            else
+                shell.NotifyApplicationDeactivated();
+        });
 
     [JSExport]
     internal static Task<bool> CanApplyAppUpdate() =>
-        Task.FromResult((Application.Current as App)?.Shell?.CanApplyWebAppUpdate == true);
+        BrowserUiThread.InvokeAsync(() => (Application.Current as App)?.Shell?.CanApplyWebAppUpdate == true);
 
     [JSExport]
-    internal static Task SetAppUpdateState(string state)
-    {
-        if ((Application.Current as App)?.Shell is not { } shell)
-            return Task.CompletedTask;
-
-        if (Enum.TryParse<WebAppUpdateState>(state, ignoreCase: true, out var value))
-            shell.WebAppUpdateState = value;
-        else
-            System.Diagnostics.Trace.TraceWarning($"[Mobile] Unknown browser update state: {state}");
-        return Task.CompletedTask;
-    }
+    internal static Task SetAppUpdateState(string state) =>
+        BrowserUiThread.InvokeAsync(() =>
+        {
+            if ((Application.Current as App)?.Shell is not { } shell)
+                return;
+            if (Enum.TryParse<WebAppUpdateState>(state, ignoreCase: true, out var value))
+                shell.WebAppUpdateState = value;
+            else
+                System.Diagnostics.Trace.TraceWarning($"[Mobile] Unknown browser update state: {state}");
+        });
 
     [JSExport]
     internal static Task SetViewportInsets(
@@ -719,25 +712,19 @@ internal static partial class BrowserInterop
         double bottom,
         double left,
         double keyboardInset,
-        double viewportHeight)
-    {
-        if (Avalonia.Application.Current?.ApplicationLifetime
-            is ISingleViewApplicationLifetime { MainView: MobileShellView shell })
+        double viewportHeight) =>
+        BrowserUiThread.InvokeAsync(() =>
         {
-            shell.ApplyPlatformInsets(
-                new Avalonia.Thickness(left, top, right, bottom),
-                keyboardInset,
-                viewportHeight);
-        }
-        return Task.CompletedTask;
-    }
+            if (Application.Current?.ApplicationLifetime
+                is ISingleViewApplicationLifetime { MainView: MobileShellView shell })
+            {
+                shell.ApplyPlatformInsets(new Thickness(left, top, right, bottom), keyboardInset, viewportHeight);
+            }
+        });
 
     [JSExport]
-    internal static Task SetNativeTextInputText(int id, string text, int caretIndex, int revision)
-    {
-        NativeTextInputOverlayPresenter?.SetTextFromBrowser(id, text, caretIndex, revision);
-        return Task.CompletedTask;
-    }
+    internal static Task SetNativeTextInputText(int id, string text, int caretIndex, int revision) =>
+        BrowserUiThread.InvokeAsync(() => NativeTextInputOverlayPresenter?.SetTextFromBrowser(id, text, caretIndex, revision));
 
     [JSExport]
     internal static bool HandleNativeTextInputKey(
@@ -758,12 +745,9 @@ internal static partial class BrowserInterop
     [JSExport]
     internal static Task<bool> HandleNativeTextInputKeyAsync(
         int id, string key, bool control, bool alt, bool shift, bool meta) =>
-        Task.FromResult(HandleNativeTextInputKey(id, key, control, alt, shift, meta));
+        BrowserUiThread.InvokeAsync(() => HandleNativeTextInputKey(id, key, control, alt, shift, meta));
 
     [JSExport]
-    internal static Task SetNativeTextInputFocus(int id, bool focused)
-    {
-        NativeTextInputOverlayPresenter?.SetFocusFromBrowser(id, focused);
-        return Task.CompletedTask;
-    }
+    internal static Task SetNativeTextInputFocus(int id, bool focused) =>
+        BrowserUiThread.InvokeAsync(() => NativeTextInputOverlayPresenter?.SetFocusFromBrowser(id, focused));
 }
