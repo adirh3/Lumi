@@ -165,13 +165,13 @@
     </Style>
 
     <!-- Sidebar ListBox: transparent, borderless, blends in -->
-    <Style Selector="ListBox.sidebar-list">
+    <Style Selector="Border#SidebarBorder ListBox.sidebar-list, ListBox#ChatTagsList.sidebar-list">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Padding" Value="0" />
       <Setter Property="Margin" Value="0" />
     </Style>
-    <Style Selector="ListBox.sidebar-list ListBoxItem">
+    <Style Selector="Border#SidebarBorder ListBox.sidebar-list ListBoxItem, ListBox#ChatTagsList.sidebar-list ListBoxItem">
       <Setter Property="Padding" Value="12,7" />
       <Setter Property="Margin" Value="1,0" />
       <Setter Property="MinHeight" Value="0" />
@@ -539,7 +539,7 @@
       <Setter Property="Margin" Value="0,-2,-3,0" />
       <Setter Property="IsHitTestVisible" Value="False" />
     </Style>
-    <Style Selector="Button.project-pill">
+    <Style Selector="Border#SidebarBorder Button.project-pill">
       <Setter Property="Padding" Value="10,4" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -822,7 +822,7 @@
     </Style>
     <!-- The chevron before "Projects": the page is opened from the chat list's project switcher, so
          the way back sits where its title starts, as in Windows Settings. -->
-    <Style Selector="Button.sidebar-back">
+    <Style Selector="Border#SidebarBorder Button.sidebar-back">
       <Setter Property="Width" Value="26" />
       <Setter Property="Height" Value="26" />
       <Setter Property="Padding" Value="0" />
@@ -832,7 +832,7 @@
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.sidebar-back PathIcon">
+    <Style Selector="Border#SidebarBorder Button.sidebar-back PathIcon">
       <Setter Property="Width" Value="12" />
       <Setter Property="Height" Value="12" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
@@ -844,7 +844,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.sidebar-back:pointerover PathIcon">
+    <Style Selector="Border#SidebarBorder Button.sidebar-back:pointerover PathIcon">
       <Setter Property="RenderTransform" Value="translateX(-2px)" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>

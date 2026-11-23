@@ -49,26 +49,6 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.mobile-transport">
-      <Setter Property="Padding" Value="14" />
-      <Setter Property="MinHeight" Value="156" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-      <Setter Property="VerticalContentAlignment" Value="Stretch" />
-    </Style>
-    <Style Selector="Button.mobile-transport /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Mg.CardBackground}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
-    </Style>
-    <Style Selector="Button.mobile-transport.selected /template/ Border#PART_Surface, Button.mobile-experience.selected /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Mg.SelectedBackground}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-    <Style Selector="Button.mobile-transport.selected TextBlock.mobile-transport-title">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-    <Style Selector="Grid#MobileTransportChoices.stacked Button.mobile-transport">
-      <Setter Property="MinHeight" Value="0" />
-    </Style>
   </UserControl.Styles>
 
   <Panel>
@@ -255,6 +235,28 @@
     <ControlTemplate x:Key="PageMobile" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 2: Mobile ═══ -->
     <StackPanel x:Name="PageMobile" Classes="st-page motion-surface" IsVisible="False">
+      <StackPanel.Styles>
+        <Style Selector="Button.mobile-transport">
+          <Setter Property="Padding" Value="14" />
+          <Setter Property="MinHeight" Value="156" />
+          <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+          <Setter Property="VerticalContentAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="Button.mobile-transport /template/ Border#PART_Surface">
+          <Setter Property="Background" Value="{DynamicResource Mg.CardBackground}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+        </Style>
+        <Style Selector="Button.mobile-transport.selected /template/ Border#PART_Surface, Button.mobile-experience.selected /template/ Border#PART_Surface">
+          <Setter Property="Background" Value="{DynamicResource Mg.SelectedBackground}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+        </Style>
+        <Style Selector="Button.mobile-transport.selected TextBlock.mobile-transport-title">
+          <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+        </Style>
+        <Style Selector="Grid#MobileTransportChoices.stacked Button.mobile-transport">
+          <Setter Property="MinHeight" Value="0" />
+        </Style>
+      </StackPanel.Styles>
       <Grid Classes="st-header" ColumnDefinitions="Auto,*">
         <Border Classes="mg-tile st-header-tile">
           <PathIcon Data="{StaticResource St.Icon.Mobile}" Foreground="{DynamicResource St.Hue.Mobile}" />

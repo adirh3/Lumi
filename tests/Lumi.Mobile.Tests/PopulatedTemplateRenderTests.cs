@@ -889,4 +889,90 @@ public sealed class PopulatedTemplateRenderTests
                 Assert.IsType<ScrollViewer>(planSheet.Content);
             });
     }
+
+    [Fact]
+    public Task ScopedMobileStyles_StayWithTheirOwningViewsAndSheets() =>
+        Run(
+            shell =>
+            {
+                shell.IsPaired = true;
+                shell.Chat.Reset(Guid.NewGuid(), "Scope");
+                var activity = new ActivitySummaryItemViewModel(new RemoteTranscriptItem
+                {
+                    Id = "w1", Kind = RemoteProtocol.ItemKinds.Activity, ActionCount = 1
+                });
+                activity.ApplyDetails(new RemoteActivityDetails
+                {
+                    Tools = [new RemoteToolCall { Id = "t1", Name = "view", DisplayName = "Read file", Input = "a.cs" }]
+                });
+                activity.ToggleTechnicalDetailsCommand.Execute(null);
+                shell.Chat.SelectedActivity = activity;
+                shell.Chat.IsActivitySheetOpen = true;
+            },
+            shell =>
+            {
+                var view = new ChatDetailView { DataContext = shell };
+                // Put decoys for ChatDetailView-internal styles inside ChatDetailView itself (outside
+                // ActivitySheet and without #SourcesChip/#ActivityChip) so the assertions prove the tighter scope.
+                var chatRoot = view.FindControl<Panel>("ChatRoot")!;
+                chatRoot.Children.Add(new Border { Name = "ForeignWell", Classes = { "transcript-well" } });
+                chatRoot.Children.Add(new Button { Name = "ForeignTranscriptChip", Classes = { "transcript-chip" }, Content = "Other" });
+                return new StackPanel
+                {
+                    Children =
+                    {
+                        view,
+                        new Border { Name = "ForeignGroupCard", Classes = { "group-card" } },
+                        new Button { Name = "ForeignComposerModel", Classes = { "composer-model" }, Content = "Other" }
+                    }
+                };
+            },
+            (window, _) =>
+            {
+                var view = window.GetVisualDescendants().OfType<ChatDetailView>().Single();
+                var foreignCard = window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "ForeignGroupCard");
+                var foreignWell = view.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "ForeignWell");
+                var foreignModel = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ForeignComposerModel");
+                var foreignChip = view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ForeignTranscriptChip");
+
+                // Unrelated controls outside their owning view/sheet keep default styling.
+                Assert.Equal(default, foreignCard.CornerRadius);
+                Assert.Equal(default, foreignWell.CornerRadius);
+                Assert.Equal(default, foreignWell.Padding);
+                Assert.NotEqual(new Thickness(10, 0, 8, 0), foreignModel.Padding);
+                Assert.NotEqual(new CornerRadius(19), foreignChip.CornerRadius);
+
+                // Intended controls inside ChatDetailView and ActivitySheet keep their styling.
+                var modelBtn = view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ComposerModelButton");
+                Assert.Equal(new Thickness(10, 0, 8, 0), modelBtn.Padding);
+                var sheet = view.GetVisualDescendants().OfType<StrataTheme.Controls.StrataBottomSheet>()
+                    .Single(s => s.Name == "ActivitySheet");
+                var well = sheet.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("transcript-well"));
+                Assert.Equal(new CornerRadius(10), well.CornerRadius);
+                Assert.Equal(new Thickness(12, 10, 12, 11), well.Padding);
+            });
+
+    [Fact]
+    public Task LibraryActionsButton_KeepsFloatingGlassStyling() =>
+        Run(
+            shell =>
+            {
+                shell.Library.Section = LibrarySection.Jobs;
+                shell.Library.Apply(new RemoteLibrary
+                {
+                    Jobs = [new RemoteJob { Id = Guid.NewGuid(), Name = "Daily check", IsEnabled = true }]
+                });
+                shell.Library.OpenEntryCommand.Execute(shell.Library.Entries.Single());
+            },
+            shell => new LibraryView { DataContext = shell.Library },
+            (window, _) =>
+            {
+                var actionsBtn = window.GetVisualDescendants().OfType<Button>()
+                    .Single(b => b.Name == "LibraryViewerActionsButton");
+                Assert.True(actionsBtn.IsEffectivelyVisible);
+                Assert.Equal(new CornerRadius(22), actionsBtn.CornerRadius);
+                Assert.Equal(new Thickness(1), actionsBtn.BorderThickness);
+                Assert.True(actionsBtn.TryFindResource("Brush.FloatingGlass", actionsBtn.ActualThemeVariant, out var expectedBg));
+                Assert.Same(expectedBg, actionsBtn.Background);
+            });
 }

@@ -14,6 +14,34 @@
 
   <UserControl.Styles>
     <StyleInclude Source="avares://Lumi.Mobile/Styles/ConversationListStyles.axaml" />
+
+    <!--
+      The search page's field floats in its header over the results, so it is the floating glass: a pill
+      drawn 44 dp tall inside its 48 dp target, as the glass buttons beside it are, on a floating-frost
+      sibling of the same geometry, while the whole target still takes the tap. Only its height is inset:
+      the browser's native editor spans the whole field and places its text by the field's padding. Focus
+      brightens its rim, as it does the composer's.
+    -->
+    <Style Selector="TextBox#SearchField.mobile.list-filter.floating-field">
+      <Setter Property="CornerRadius" Value="22" />
+      <Setter Property="Padding" Value="10,10,16,10" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+    </Style>
+    <Style Selector="TextBox#SearchField.floating-field /template/ Panel">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="TextBox#SearchField.floating-field /template/ Border#PART_Border">
+      <Setter Property="Margin" Value="0,2" />
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
+    </Style>
+    <Style Selector="TextBox#SearchField.floating-field:focus-within /template/ Border#PART_Border,
+                     TextBox#SearchField.floating-field.native-input-focused /template/ Border#PART_Border">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRimStrong}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
+    </Style>
   </UserControl.Styles>
 
   <!--

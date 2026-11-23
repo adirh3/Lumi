@@ -116,7 +116,7 @@
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
     <!-- The bar only exists while something is filtering, so it slides down rather than popping. -->
-    <Style Selector="Border.filter-bar">
+    <Style Selector="Border#FilterBar.filter-bar">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="RenderTransform" Value="translateY(-6px)" />
       <Setter Property="Transitions">
@@ -126,7 +126,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Border.filter-bar[IsVisible=true]">
+    <Style Selector="Border#FilterBar.filter-bar[IsVisible=true]">
       <Setter Property="Opacity" Value="1" />
       <Setter Property="RenderTransform" Value="translateY(0)" />
     </Style>
@@ -278,7 +278,7 @@
       <Setter Property="BoxShadow" Value="0 10 30 -14 #73000000" />
     </Style>
     <!-- Slides in from the edge instead of appearing, so selecting a row feels like opening it. -->
-    <Style Selector="Panel.detail-host">
+    <Style Selector="Panel#DetailHost.detail-host">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="RenderTransform" Value="translateX(24px)" />
       <Setter Property="Transitions">
@@ -288,7 +288,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Panel.detail-host[IsVisible=true]">
+    <Style Selector="Panel#DetailHost.detail-host[IsVisible=true]">
       <Setter Property="Opacity" Value="1" />
       <Setter Property="RenderTransform" Value="translateX(0)" />
     </Style>
@@ -408,7 +408,7 @@
              Filters are set from three different places (rail, search box, time dropdown), so the
              only way to know what is narrowing the list is to state it next to the results. Every
              chip names its facet and removes exactly that one constraint. -->
-        <Border Classes="filter-bar"
+        <Border x:Name="FilterBar" Classes="filter-bar"
                 IsVisible="{Binding HasActiveFilters}"
                 Background="{DynamicResource Brush.Surface1}"
                 BorderThickness="1"
@@ -671,7 +671,7 @@
       </DockPanel>
 
       <!-- ══════════════════════ DETAIL ══════════════════════ -->
-      <Panel Grid.Column="1" Classes="detail-host" IsVisible="{Binding HasSelection}" ClipToBounds="True">
+      <Panel x:Name="DetailHost" Grid.Column="1" Classes="detail-host" IsVisible="{Binding HasSelection}" ClipToBounds="True">
         <Border Classes="library-detail" DataContext="{Binding SelectedItem}">
           <ScrollViewer x:Name="LibraryDetailScroll"
                         HorizontalScrollBarVisibility="Disabled"

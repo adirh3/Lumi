@@ -78,13 +78,347 @@
       <Setter Property="Opacity" Value="1" />
     </Style>
 
-    <Style Selector="Border.floating-status">
+    <Style Selector="Border#BackgroundSessionStatus.floating-status">
       <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="24" />
       <Setter Property="Padding" Value="16,0,4,0" />
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
+    </Style>
+
+    <!-- The desktop's sidebar toggle at touch size: a rounded frame holding the list's column, which
+         empties out while the chats are hidden. -->
+    <Style Selector="Panel#MenuSidebarIcon.sidebar-glyph">
+      <Setter Property="Width" Value="22" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Panel#MenuSidebarIcon.sidebar-glyph Border.sidebar-glyph-frame">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="BorderThickness" Value="1.7" />
+      <Setter Property="CornerRadius" Value="5" />
+    </Style>
+    <Style Selector="Panel#MenuSidebarIcon.sidebar-glyph Border.sidebar-glyph-column">
+      <Setter Property="Width" Value="6" />
+      <Setter Property="Margin" Value="1.7" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="CornerRadius" Value="3,0,0,3" />
+      <Setter Property="Background" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.24" Easing="CubicEaseOut" />
+          <DoubleTransition Property="Width" Duration="0:0:0.24" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Panel#MenuSidebarIcon.sidebar-glyph.collapsed Border.sidebar-glyph-column">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Width" Value="2" />
+    </Style>
+
+    <!-- The title pill fills the bar between its buttons, so the bar is symmetrical; on a wide screen it
+         stops at a comfortable width, centred between them. The chevron sits at its far end. -->
+    <Style Selector="Button#HeaderDetailsButton.chat-controls">
+      <Setter Property="Padding" Value="8,0,15,0" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MaxWidth" Value="600" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button#HeaderDetailsButton.chat-controls.no-mark">
+      <Setter Property="Padding" Value="16,0,14,0" />
+    </Style>
+    <Style Selector="TextBlock#HeaderTitleText.chat-header-title">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
+    </Style>
+    <Style Selector="TextBlock#HeaderProjectText.chat-header-project">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Margin" Value="8,1,0,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
+    </Style>
+
+    <!-- What the message carries: host context chips and attachments inside the composer. -->
+    <Style Selector="ScrollViewer#ComposerContextScroll.composer-context">
+      <Setter Property="Margin" Value="2,0,0,0" />
+    </Style>
+    <Style Selector="#ComposerContext Button.context-chip">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0,0,6,0" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="#ComposerContext Button.context-chip /template/ Border#PART_Surface,
+                     #ComposerContext Button.context-chip:pointerover /template/ Border#PART_Surface,
+                     #ComposerContext Button.context-chip:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="none" />
+      <Setter Property="RenderTransform" Value="none" />
+    </Style>
+    <Style Selector="#ComposerContext Border.context-chip-surface">
+      <Setter Property="Height" Value="32" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Padding" Value="4,0,11,0" />
+      <Setter Property="Background" Value="{DynamicResource Brush.ComposerChipFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.ComposerChipBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.12" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.14" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="#ComposerContext Button.context-chip:pressed Border.context-chip-surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
+      <Setter Property="RenderTransform" Value="scale(0.96)" />
+    </Style>
+    <Style Selector="#ComposerContext Border.context-chip-tile">
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="#ComposerContext Border.context-chip-tile sc|StrataLineIcon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="2.1" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="#ComposerContext Border.context-chip-tile TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Agent}" />
+    </Style>
+    <Style Selector="#ComposerContext Button.context-chip.project Border.context-chip-tile">
+      <Setter Property="Background" Value="{DynamicResource Brush.ComposerProjectTile}" />
+    </Style>
+    <Style Selector="#ComposerContext Button.context-chip.project sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Project}" />
+    </Style>
+    <Style Selector="#ComposerContext Button.context-chip.agent Border.context-chip-tile">
+      <Setter Property="Background" Value="{DynamicResource Brush.ComposerAgentTile}" />
+    </Style>
+    <Style Selector="#ComposerContext Button.context-chip.skill Border.context-chip-tile">
+      <Setter Property="Background" Value="{DynamicResource Brush.ComposerSkillTile}" />
+    </Style>
+    <Style Selector="#ComposerContext Button.context-chip.skill sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Skill}" />
+    </Style>
+    <Style Selector="#ComposerContext TextBlock.context-chip-name">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxWidth" Value="160" />
+    </Style>
+
+    <!-- The model, as on the desktop: quiet words and a chevron beside send, opening the model picker. -->
+    <Style Selector="Button#ComposerModelButton.composer-model">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="10,0,8,0" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button#ComposerModelButton.composer-model TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button#ComposerModelButton.composer-model sc|StrataLineIcon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button#ComposerModelButton.composer-model /template/ Border#PART_Surface,
+                     Button#ComposerModelButton.composer-model:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button#ComposerModelButton.composer-model:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
+    </Style>
+    <Style Selector="Button#ComposerModelButton.composer-model /template/ Border#PART_Aurora,
+                     Button#ComposerAttachButton.composer-add /template/ Border#PART_Aurora">
+      <Setter Property="Opacity" Value="0" />
+    </Style>
+
+    <!-- The desktop's +, on a quiet disc the size of the send orb across from it. The whole 48dp square
+         takes the tap; only the disc is drawn. -->
+    <Style Selector="Button#ComposerAttachButton.composer-add">
+      <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="19" />
+      <Setter Property="Background" Value="{DynamicResource Brush.ComposerOrbIdle}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button#ComposerAttachButton.composer-add /template/ Panel">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button#ComposerAttachButton.composer-add /template/ Border#PART_Surface,
+                     Button#ComposerAttachButton.composer-add:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Margin" Value="5" />
+      <Setter Property="Background" Value="{DynamicResource Brush.ComposerOrbIdle}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button#ComposerAttachButton.composer-add /template/ Border#PART_FocusRing">
+      <Setter Property="Margin" Value="3" />
+    </Style>
+    <Style Selector="Button#ComposerAttachButton.composer-add:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.ComposerOrbIdleHover}" />
+      <Setter Property="RenderTransform" Value="scale(0.94)" />
+    </Style>
+    <Style Selector="Button#ComposerAttachButton.composer-add sc|StrataLineIcon">
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="StrokeThickness" Value="2" />
+    </Style>
+
+    <!-- Attachment chips: a file staged for the next message, with its own removal target. -->
+    <Style Selector="#PendingAttachments Border.attachment-chip">
+      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="24" />
+      <Setter Property="Padding" Value="12,0,4,0" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    </Style>
+    <Style Selector="#ComposerLayer Button.chip-remove">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="24" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="#ComposerLayer Button.chip-remove:pressed">
+      <Setter Property="Background" Value="{DynamicResource Brush.ControlPressed}" />
+    </Style>
+
+    <!-- Long sheet content scrolls inside a bounded sheet; beside the chat it uses the full height. -->
+    <Style Selector="sc|StrataBottomSheet#PlanSheet ScrollViewer.plan-scroll">
+      <Setter Property="MaxHeight" Value="440" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet ScrollViewer.sheet-scroll">
+      <Setter Property="MaxHeight" Value="560" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet.side-panel ScrollViewer.plan-scroll,
+                     sc|StrataBottomSheet.side-panel ScrollViewer.sheet-scroll">
+      <Setter Property="MaxHeight" Value="Infinity" />
+    </Style>
+
+    <!--
+      A message's menu: the dim around the pressed message, and a compact card of actions in the popup
+      glass of the sheets. Rows keep the 48 dp target and one 24 dp icon column, so every glyph lines up.
+    -->
+    <Style Selector="Path#StarterDialScrim.message-menu-scrim, Path#MessageMenuScrim.message-menu-scrim">
+      <Setter Property="Fill" Value="{DynamicResource Brush.MessageMenuScrim}" />
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.16" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Path#StarterDialScrim.message-menu-scrim.shown, Path#MessageMenuScrim.message-menu-scrim.shown">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Panel#MessageMenuSurface.message-menu-surface">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="RenderTransform" Value="scale(0.92)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.14" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Panel#MessageMenuSurface.message-menu-surface.shown">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
+    </Style>
+    <Style Selector="Border#MessageMenu.message-menu">
+      <Setter Property="Background" Value="{DynamicResource Brush.SheetSurface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.SheetBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.MessageMenu}" />
+      <Setter Property="Padding" Value="6" />
+      <Setter Property="MinWidth" Value="208" />
+      <Setter Property="MaxWidth" Value="280" />
+    </Style>
+    <Style Selector="Border#MessageMenu.message-menu Button.message-menu-item">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="14,10" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border#MessageMenu.message-menu Button.message-menu-item /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="none" />
+    </Style>
+    <Style Selector="Border#MessageMenu.message-menu Button.message-menu-item:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SheetRowHover}" />
+      <Setter Property="BoxShadow" Value="none" />
+    </Style>
+    <Style Selector="Border#MessageMenu.message-menu Button.message-menu-item:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SheetRowPressed}" />
+      <Setter Property="BoxShadow" Value="none" />
+    </Style>
+    <Style Selector="Border#MessageMenu.message-menu Button.message-menu-item:disabled">
+      <Setter Property="Opacity" Value="0.45" />
+    </Style>
+    <Style Selector="Border#MessageMenu.message-menu Button.message-menu-item sc|StrataLineIcon">
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border#MessageMenu.message-menu Button.message-menu-item TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Border#MessageMenu.message-menu TextBlock.message-menu-caption">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
 
     <!-- The jump-to-latest control floats over moving history, so it is the floating glass with its own
@@ -758,7 +1092,7 @@
       <Setter Property="Margin" Value="16,8,16,12" />
     </Style>
 
-    <Style Selector="Button.transcript-nav">
+    <Style Selector="Button#EarlierActivityButton.transcript-nav, #NewerActivityControls Button.transcript-nav">
       <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
       <Setter Property="Padding" Value="14,8" />
       <Setter Property="HorizontalAlignment" Value="Center" />
@@ -858,7 +1192,7 @@
       step is, only live work takes the accent and only failures the danger colour. Chips are a
       38dp glass pill inside a 48dp touch band, text a step larger than the desktop's (14 for 12.5).
     -->
-    <Style Selector="Button.transcript-chip">
+    <Style Selector="Button#SourcesChip.transcript-chip, Button#ActivityChip.transcript-chip">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -873,43 +1207,52 @@
       <Setter Property="FontWeight" Value="Normal" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Button.transcript-chip /template/ Border#PART_Surface">
+    <Style Selector="Button#SourcesChip.transcript-chip /template/ Border#PART_Surface,
+                     Button#ActivityChip.transcript-chip /template/ Border#PART_Surface">
       <Setter Property="Margin" Value="0,5" />
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
     </Style>
-    <Style Selector="Button.transcript-chip /template/ Border#PART_Aurora">
+    <Style Selector="Button#SourcesChip.transcript-chip /template/ Border#PART_Aurora,
+                     Button#ActivityChip.transcript-chip /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Button.transcript-chip:pointerover /template/ Border#PART_Surface,
-                     Button.transcript-chip:pressed /template/ Border#PART_Surface">
+    <Style Selector="Button#SourcesChip.transcript-chip:pointerover /template/ Border#PART_Surface,
+                     Button#SourcesChip.transcript-chip:pressed /template/ Border#PART_Surface,
+                     Button#ActivityChip.transcript-chip:pointerover /template/ Border#PART_Surface,
+                     Button#ActivityChip.transcript-chip:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFillHover}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRimHover}" />
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
     </Style>
-    <Style Selector="Button.transcript-chip:pressed /template/ Border#PART_Surface">
+    <Style Selector="Button#SourcesChip.transcript-chip:pressed /template/ Border#PART_Surface,
+                     Button#ActivityChip.transcript-chip:pressed /template/ Border#PART_Surface">
       <Setter Property="RenderTransform" Value="scale(0.98)" />
     </Style>
     <!-- Strata styles every TextBlock as body text, so a chip's words take its size and colour here. -->
-    <Style Selector="Button.transcript-chip TextBlock">
+    <Style Selector="Button#SourcesChip.transcript-chip TextBlock,
+                     Button#ActivityChip.transcript-chip TextBlock">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="MaxLines" Value="1" />
     </Style>
-    <Style Selector="Button.transcript-chip TextBlock.chip-meta">
+    <Style Selector="Button#SourcesChip.transcript-chip TextBlock.chip-meta,
+                     Button#ActivityChip.transcript-chip TextBlock.chip-meta">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="Margin" Value="8,0,0,0" />
     </Style>
-    <Style Selector="Button.transcript-chip sc|StrataLineIcon.chip-icon">
+    <Style Selector="Button#SourcesChip.transcript-chip sc|StrataLineIcon.chip-icon,
+                     Button#ActivityChip.transcript-chip sc|StrataLineIcon.chip-icon">
       <Setter Property="Width" Value="16" />
       <Setter Property="Height" Value="16" />
       <Setter Property="Margin" Value="0,0,8,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Button.transcript-chip sc|StrataLineIcon.chip-chevron">
+    <Style Selector="Button#SourcesChip.transcript-chip sc|StrataLineIcon.chip-chevron,
+                     Button#ActivityChip.transcript-chip sc|StrataLineIcon.chip-chevron">
       <Setter Property="Width" Value="12" />
       <Setter Property="Height" Value="12" />
       <Setter Property="Margin" Value="7,0,0,0" />
@@ -919,16 +1262,16 @@
       <Setter Property="Opacity" Value="0.7" />
     </Style>
     <!-- Live work: the accent on its icon and words, and the Strata line under the chip. -->
-    <Style Selector="Button.transcript-chip.live sc|StrataLineIcon.chip-icon">
+    <Style Selector="Button#ActivityChip.transcript-chip.live sc|StrataLineIcon.chip-icon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Button.transcript-chip.live TextBlock.chip-label">
+    <Style Selector="Button#ActivityChip.transcript-chip.live TextBlock.chip-label">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="Button.transcript-chip.failed sc|StrataLineIcon.chip-icon">
+    <Style Selector="Button#ActivityChip.transcript-chip.failed sc|StrataLineIcon.chip-icon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
     </Style>
-    <Style Selector="Border.single-step-line">
+    <Style Selector="Border#SingleStepLine.single-step-line">
       <Setter Property="Height" Value="1.5" />
       <Setter Property="Margin" Value="14,0,14,5" />
       <Setter Property="CornerRadius" Value="1" />
@@ -1066,7 +1409,7 @@
     <Style Selector="sc|StrataChatMessage:user sc|StrataFileAttachment.transcript-file /template/ Border#PART_Root">
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="WrapPanel.transcript-files">
+    <Style Selector="#Transcript WrapPanel.transcript-files">
       <Setter Property="ItemSpacing" Value="8" />
       <Setter Property="LineSpacing" Value="8" />
     </Style>
@@ -1091,7 +1434,7 @@
     </Style>
 
     <!-- An error: the step's glass, the danger colour only on its icon. -->
-    <Style Selector="Border.transcript-error">
+    <Style Selector="#Transcript Border#TranscriptError.transcript-error">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -1102,7 +1445,7 @@
     </Style>
 
     <!-- A job that woke the chat: a glass card that opens what it brought. -->
-    <Style Selector="Button.transcript-card">
+    <Style Selector="Button#JobWakeEvent.transcript-card">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -1112,68 +1455,15 @@
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="Button.transcript-card /template/ Border#PART_Surface">
+    <Style Selector="Button#JobWakeEvent.transcript-card /template/ Border#PART_Surface">
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
     </Style>
-    <Style Selector="Button.transcript-card /template/ Border#PART_Aurora">
+    <Style Selector="Button#JobWakeEvent.transcript-card /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Button.transcript-card:pressed /template/ Border#PART_Surface">
+    <Style Selector="Button#JobWakeEvent.transcript-card:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFillHover}" />
       <Setter Property="RenderTransform" Value="scale(0.99)" />
-    </Style>
-
-    <!-- Rows in the work and sources sheets: flat until pressed, a line icon, title and detail. -->
-    <Style Selector="Border.transcript-row">
-      <Setter Property="CornerRadius" Value="12" />
-      <Setter Property="Padding" Value="10,9" />
-      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
-    </Style>
-    <Style Selector="sc|StrataLineIcon.row-icon">
-      <Setter Property="Width" Value="16" />
-      <Setter Property="Height" Value="16" />
-      <Setter Property="Margin" Value="0,0,12,0" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-    </Style>
-    <Style Selector="sc|StrataLineIcon.row-icon.live">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-    <Style Selector="sc|StrataLineIcon.row-icon.failed">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
-    </Style>
-    <Style Selector="TextBlock.step-title">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
-      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-      <Setter Property="MaxLines" Value="1" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="TextBlock.row-detail">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-      <Setter Property="MaxLines" Value="1" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="TextBlock.step-title.stopped">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-    </Style>
-    <!-- Details and console output, recessed into the sheet. -->
-    <Style Selector="Border.transcript-well">
-      <Setter Property="Background" Value="{DynamicResource Brush.GlassWell}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassDivider}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="10" />
-      <Setter Property="Padding" Value="12,10,12,11" />
-      <Setter Property="Margin" Value="28,4,0,4" />
-    </Style>
-    <Style Selector="TextBlock.console-text">
-      <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
-      <Setter Property="FontSize" Value="13.5" />
-      <Setter Property="LineHeight" Value="20" />
-      <Setter Property="TextWrapping" Value="Wrap" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
   </UserControl.Styles>
 
@@ -1532,7 +1822,7 @@
                        IsVisible="{Binding ChipMeta, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
           </DockPanel>
         </Button>
-        <Border Classes="single-step-line" IsVisible="{Binding IsRunning}" />
+        <Border x:Name="SingleStepLine" Classes="single-step-line" IsVisible="{Binding IsRunning}" />
       </Panel>
     </DataTemplate>
 
@@ -2497,6 +2787,60 @@
                           Classes.side-panel="{Binding Chat.UseSidePanels}"
                           IsOpen="{Binding Chat.IsActivitySheetOpen, Mode=TwoWay}"
                           Title="{loc:Str HowLumiWorked}">
+      <sc:StrataBottomSheet.Styles>
+        <!-- Rows in the work sheet: flat until pressed, a line icon, title and detail. -->
+        <Style Selector="Border.transcript-row">
+          <Setter Property="CornerRadius" Value="12" />
+          <Setter Property="Padding" Value="10,9" />
+          <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+        </Style>
+        <Style Selector="sc|StrataLineIcon.row-icon">
+          <Setter Property="Width" Value="16" />
+          <Setter Property="Height" Value="16" />
+          <Setter Property="Margin" Value="0,0,12,0" />
+          <Setter Property="VerticalAlignment" Value="Center" />
+          <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+        </Style>
+        <Style Selector="sc|StrataLineIcon.row-icon.live">
+          <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+        </Style>
+        <Style Selector="sc|StrataLineIcon.row-icon.failed">
+          <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+        </Style>
+        <Style Selector="TextBlock.step-title">
+          <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+          <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+          <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+          <Setter Property="MaxLines" Value="1" />
+          <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.row-detail">
+          <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+          <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+          <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+          <Setter Property="MaxLines" Value="1" />
+          <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.step-title.stopped">
+          <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+        </Style>
+        <!-- Details and console output, recessed into the sheet. -->
+        <Style Selector="Border.transcript-well">
+          <Setter Property="Background" Value="{DynamicResource Brush.GlassWell}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassDivider}" />
+          <Setter Property="BorderThickness" Value="1" />
+          <Setter Property="CornerRadius" Value="10" />
+          <Setter Property="Padding" Value="12,10,12,11" />
+          <Setter Property="Margin" Value="28,4,0,4" />
+        </Style>
+        <Style Selector="TextBlock.console-text">
+          <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+          <Setter Property="FontSize" Value="13.5" />
+          <Setter Property="LineHeight" Value="20" />
+          <Setter Property="TextWrapping" Value="Wrap" />
+          <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+        </Style>
+      </sc:StrataBottomSheet.Styles>
       <Border x:Name="ActivitySheetSideInset">
         <ContentControl Content="{Binding Chat.SelectedActivity}">
           <ContentControl.ContentTemplate>

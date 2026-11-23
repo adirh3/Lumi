@@ -34,30 +34,6 @@
       <Setter Property="ClipToBounds" Value="False" />
     </Style>
 
-    <!-- Workspace header buttons: quiet icons that light up on hover -->
-    <Style Selector="Button.ws-header-button">
-      <Setter Property="Width" Value="28" />
-      <Setter Property="Height" Value="28" />
-      <Setter Property="MinWidth" Value="0" />
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="Padding" Value="0" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="HorizontalContentAlignment" Value="Center" />
-      <Setter Property="VerticalContentAlignment" Value="Center" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
-      <!-- The page below can be a native view (an app, the browser, a preview) that covers in-window
-           popups, and the window's caption buttons sit above the header, so tips open beside it. -->
-      <Setter Property="ToolTip.Placement" Value="Left" />
-      <Setter Property="ToolTip.HorizontalOffset" Value="-6" />
-      <Setter Property="ToolTip.VerticalOffset" Value="0" />
-    </Style>
-    <Style Selector="Button.ws-header-button PathIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-    </Style>
-    <Style Selector="Button.ws-header-button:pointerover PathIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
-    </Style>
-
     <!-- The gutter between chat and workspace is the resize handle: invisible at rest, a soft
          accent hairline while hovered or dragged. -->
     <Style Selector="GridSplitter#WorkspaceSplitter">
@@ -145,6 +121,31 @@
              code), so two windows showing the same chat keep their own page headers. -->
         <StackPanel x:Name="WorkspaceHeaderBar" DockPanel.Dock="Top"
                     x:DataType="vm:WorkspaceHeader" DataContext="{x:Null}">
+          <StackPanel.Styles>
+            <!-- Workspace header buttons: quiet icons that light up on hover -->
+            <Style Selector="Button.ws-header-button">
+              <Setter Property="Width" Value="28" />
+              <Setter Property="Height" Value="28" />
+              <Setter Property="MinWidth" Value="0" />
+              <Setter Property="MinHeight" Value="0" />
+              <Setter Property="Padding" Value="0" />
+              <Setter Property="VerticalAlignment" Value="Center" />
+              <Setter Property="HorizontalContentAlignment" Value="Center" />
+              <Setter Property="VerticalContentAlignment" Value="Center" />
+              <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
+              <!-- The page below can be a native view (an app, the browser, a preview) that covers in-window
+                   popups, and the window's caption buttons sit above the header, so tips open beside it. -->
+              <Setter Property="ToolTip.Placement" Value="Left" />
+              <Setter Property="ToolTip.HorizontalOffset" Value="-6" />
+              <Setter Property="ToolTip.VerticalOffset" Value="0" />
+            </Style>
+            <Style Selector="Button.ws-header-button PathIcon">
+              <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+            </Style>
+            <Style Selector="Button.ws-header-button:pointerover PathIcon">
+              <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+            </Style>
+          </StackPanel.Styles>
           <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto"
                 MinHeight="36" Margin="10,10,8,9">
             <Button x:Name="WorkspaceBackButton" Grid.Column="0"

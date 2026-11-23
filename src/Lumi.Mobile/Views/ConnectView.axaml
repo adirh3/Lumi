@@ -9,6 +9,49 @@
              x:DataType="vm:ConnectViewModel"
              FlowDirection="{x:Static loc:ChatSessionStrings.UiFlowDirection}">
 
+  <UserControl.Styles>
+    <Style Selector="#HostList Button.setup-host-row">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Padding" Value="12,10" />
+      <Setter Property="Margin" Value="0,0,0,6" />
+      <Setter Property="MinHeight" Value="64" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="#HostList Button.setup-host-row:pressed">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
+    <Style Selector="#HostList Button.setup-host-row:pressed /template/ Border#PART_Surface">
+      <Setter Property="RenderTransform" Value="scale(0.99)" />
+    </Style>
+
+    <Style Selector="TextBox#PairingCodeBox.pairing-code">
+      <Setter Property="MinHeight" Value="64" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Padding" Value="14,10" />
+    </Style>
+
+    <Style Selector="#PairingStep Border.setup-pairing-panel">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+    </Style>
+
+    <Style Selector="#SetupProgress Border.setup-step">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="0,8" />
+    </Style>
+    <Style Selector="#SetupProgress Border.setup-step TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="#SetupProgress Border.setup-step.current TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+  </UserControl.Styles>
+
   <Grid>
     <Border x:Name="ConnectSafeAreaSidesProxy"
             Width="0" Height="0"
