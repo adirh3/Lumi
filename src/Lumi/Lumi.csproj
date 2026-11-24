@@ -65,6 +65,7 @@
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaVersion)" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Microsoft.Copilot.SDK" Version="2.0.1" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.5" />
     <!-- Override the transitive SQLitePCLRaw.bundle_e_sqlite3 2.1.10 (vulnerable SQLite < 3.50.2, CVE-2025-6965 / GHSA-2m69-gcr7-jv3q).
          3.0.x ships the patched native binary via SourceGear.sqlite3. -->

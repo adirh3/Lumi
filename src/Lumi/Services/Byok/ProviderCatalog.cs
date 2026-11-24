@@ -106,11 +106,16 @@ public static class ProviderCatalog
     public static ProviderProfile? Find(string? id)
         => All.FirstOrDefault(profile => string.Equals(profile.Id, id, StringComparison.Ordinal));
 
+    internal static bool IsFoundryAstra62(string modelId)
+        => modelId is "gpt-6.2-astra" or "gpt-6.2-astra-2026-11-17";
+
     // Foundry's v1 catalog omits effort levels. Only documented model identities are recognized:
     // https://learn.microsoft.com/azure/foundry/openai/how-to/reasoning
     internal static IReadOnlyList<string>? GetFoundryReasoningEfforts(string modelId, string wireApi)
         => modelId switch
         {
+            _ when IsFoundryAstra62(modelId)
+                => wireApi == "responses" ? ["low", "medium", "high", "xhigh", "max"] : [],
             "gpt-6-astra" or "gpt-6-astra-2026-09-03"
                 or "gpt-6-sol" or "gpt-6-sol-2026-09-22"
                 or "gpt-6-luna" or "gpt-6-luna-2026-09-22"

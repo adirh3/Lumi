@@ -45,7 +45,8 @@ public partial class EasyConnectViewModel
 
     public ObservableCollection<ImageModelChoice> ImageModels { get; } = [];
 
-    public bool CanCreateImages => SelectedProvider is { } provider && ImageGenerationRouting.IsImageProvider(provider.Id);
+    public bool CanCreateImages => !UsesFoundryIdentity && SelectedProvider is { } provider
+        && ImageGenerationRouting.IsImageProvider(provider.Id);
     public bool ShowImageSection => IsModelStage && CanCreateImages;
     public bool ShowChatModels => !IsImageSetup;
     public bool ShowImageToggle => !IsImageSetup;
@@ -100,6 +101,9 @@ public partial class EasyConnectViewModel
         OnPropertyChanged(nameof(ShowChatModels));
         OnPropertyChanged(nameof(ShowImageToggle));
         OnPropertyChanged(nameof(DialogTitle));
+        OnPropertyChanged(nameof(CanChooseFoundryAuth));
+        OnPropertyChanged(nameof(ShowReplaceKey));
+        OnPropertyChanged(nameof(ShowFoundryReconnect));
         NotifyImages();
     }
 

@@ -270,6 +270,39 @@ public sealed class SettingsViewModelCredentialStoreTests
     }
 
     [Fact]
+    public void DisablingAstraReasoningOverridesDefaultsAndSurvivesPersistence()
+    {
+        var data = new AppData();
+        var endpoint = new ByokEndpoint
+        {
+            Name = "Foundry", ConnectionProviderId = "foundry", ProviderType = "openai",
+            BaseUrl = "https://resource.openai.azure.com/openai/v1", WireApi = "responses"
+        };
+        var model = new ByokModel { EndpointId = endpoint.Id, ModelId = "gpt-6.2-astra" };
+        data.Settings.ByokEndpoints.Add(endpoint);
+        data.Settings.ByokModels.Add(model);
+        using var vm = CreateVm(data: data);
+        vm.SelectedByokModel = model;
+        var draft = vm.EditingByokModel!;
+        Assert.True(draft.SupportsReasoningEffort);
+        draft.SupportsReasoningEffort = false;
+        vm.EditingByokSupportedReasoningEffortsText = "";
+        vm.SaveByokModelCommand.Execute(null);
+
+        var saved = Assert.Single(AppDataSnapshotFactory.CreateIndexSnapshot(data).Settings.ByokModels);
+        Assert.True(saved.ReasoningEffortDisabled);
+        Assert.False(EasyConnectViewModel.ApplyDiscoveredReasoning(saved,
+            new("gpt-6.2-astra", "Astra", SupportedReasoningEfforts: ["low", "high"])));
+        Assert.False(ByokConfigHelper.WithFoundryModelDefaults(saved, endpoint).SupportsReasoningEffort);
+
+        vm.SelectedByokModel = model;
+        vm.EditingByokModel!.SupportsReasoningEffort = true;
+        vm.SaveByokModelCommand.Execute(null);
+        Assert.False(model.ReasoningEffortDisabled);
+        Assert.Contains("max", ByokConfigHelper.WithFoundryModelDefaults(model, endpoint).SupportedReasoningEfforts);
+    }
+
+    [Fact]
     public void AddByokModel_IsPersistedOnlyAfterSaveWithNormalizedCapabilities()
     {
         var data = new AppData();

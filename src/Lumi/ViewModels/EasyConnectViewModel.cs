@@ -105,6 +105,7 @@ public sealed class ProviderCard
     public string MethodLabel => Profile switch
     {
         { IsCopilot: true } => Loc.Get("EasyConnect_MethodGitHub"),
+        { IsFoundry: true } => Loc.Get("EasyConnect_MethodFoundry"),
         { HasBrowserSignIn: true } => Loc.Get("EasyConnect_MethodSignIn"),
         { IsLocal: true } => Loc.Get("EasyConnect_MethodLocal"),
         { IsCustom: true } => Loc.Get("EasyConnect_MethodCustom"),
@@ -232,6 +233,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     private string? _pendingKey;
     private DateTimeOffset? _expiresAt;
     private ChatGptSignIn? _chatGptSignIn;
+    private FoundryIdentity? _foundryIdentity;
     private bool _disposed;
     private bool _isCommitting;
     private bool _isCurrentDefaultEndpoint;
@@ -332,14 +334,16 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public bool ShowKeyAlternative => !IsChatGpt;
     public bool ShowGenericSignIn => ShowSignInChoice && !IsChatGpt;
     public bool ShowChatGptSignIn => ShowSignInChoice && IsChatGpt;
-    public bool ShowReplaceKey => HasKey && !IsChatGpt;
+    public bool ShowReplaceKey => HasKey && !IsChatGpt && (!IsFoundry || IsImageSetup);
     /// <summary>The "You're using your ChatGPT plan" confirmation OpenAI asks for after a first sign-in.</summary>
     public bool ShowPlanConfirmation => IsComplete && IsChatGpt && !IsManaging;
     public bool IsCustom => SelectedProvider?.IsCustom == true;
     public bool IsLocal => SelectedProvider?.IsLocal == true;
     public bool IsFoundry => SelectedProvider?.IsFoundry == true;
     public bool CanEditEndpoint => IsCustom || IsLocal || IsFoundry;
-    public bool HasKey => SelectedProvider is not null && RequiresApiKey && !IsCopilot;
+    public bool HasKey => IsFoundry
+        ? IsFoundryKey && (RequiresApiKey || _reconnecting?.FoundryIdentity is not null)
+        : SelectedProvider is not null && RequiresApiKey && !IsCopilot;
     public string SelectedName => SelectedProvider?.Name ?? "";
     public string SelectedDescription => SelectedProvider?.Description ?? "";
     public string SelectedBilling => SelectedProvider?.Billing ?? "";
@@ -358,6 +362,20 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _allowPlaintextStorage;
     [ObservableProperty] private bool _allowInsecureHttp;
     [ObservableProperty] private string _authorizationUrl = "";
+    [ObservableProperty] private string _foundryAuth = "key";
+    [ObservableProperty] private string _foundryTenantId = "";
+    [ObservableProperty] private string _foundryClientId = "";
+
+    public bool CanChooseFoundryAuth => IsFoundry && !IsImageSetup;
+    public bool IsFoundryKey => FoundryAuth == "key";
+    public bool IsFoundryBrowser => FoundryAuth == "browser";
+    public bool IsFoundryCli => FoundryAuth == "cli";
+    public bool UsesFoundryIdentity => IsFoundry && !IsFoundryKey;
+    public bool ShowFoundryBrowser => UsesFoundryIdentity && IsFoundryBrowser;
+    public bool ShowFoundryReconnect => IsFoundry && IsManaging && !IsImageSetup;
+    public string FoundryGuide => Loc.Get(IsFoundryBrowser ? "EasyConnect_FoundryBrowserGuide"
+        : IsFoundryCli ? "EasyConnect_FoundryCliGuide" : "EasyConnect_FoundryGuide");
+    public string ContinueText => Loc.Get(ShowFoundryBrowser ? "EasyConnect_FoundryBrowser" : "EasyConnect_Continue");
 
     public bool CanSignIn => SelectedProvider?.HasBrowserSignIn == true;
     public bool ShowSignInChoice => CanSignIn && HasKey && !UseKeyInstead && !IsWaitingForBrowser;
@@ -399,13 +417,15 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public bool IsOpenAiType => ProviderType == "openai";
     public bool IsAzureType => ProviderType == "azure";
     public bool IsAnthropicType => ProviderType == "anthropic";
-    public bool ShowWireChoice => (IsCustom || IsFoundry) && !IsAnthropicType;
+    public bool ShowWireChoice => (IsCustom || (IsFoundry && !IsManaging)) && !IsAnthropicType;
     public bool IsCompletionsWire => WireApi != "responses";
     public bool IsResponsesWire => WireApi == "responses";
     public bool CanDiscover => SelectedProvider is not null && !IsCopilot && !IsWorking && HasTransportConsent
         && (!IsFoundry || !string.IsNullOrWhiteSpace(BaseUrl))
+        && (!IsAccountStage || !ShowFoundryBrowser
+            || (Guid.TryParse(FoundryTenantId, out _) && Guid.TryParse(FoundryClientId, out _)))
         && (!HasKey || !string.IsNullOrWhiteSpace(ApiKey) || !string.IsNullOrEmpty(_pendingKey)
-            || _chatGptSignIn is not null || _reconnecting is not null);
+            || _chatGptSignIn is not null || _reconnecting is { FoundryIdentity: null });
 
     // ── Model step ──
     [ObservableProperty] private string _modelSearch = "";
@@ -565,6 +585,16 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     partial void OnStatusChanged(string value) => OnPropertyChanged(nameof(HasStatus));
     partial void OnAuthorizationUrlChanged(string value) => UpdateAccountState();
     partial void OnUseKeyInsteadChanged(bool value) => UpdateAccountState();
+    partial void OnFoundryAuthChanged(string value)
+    {
+        _foundryIdentity = null;
+        foreach (var name in new[] { nameof(IsFoundryKey), nameof(IsFoundryBrowser), nameof(IsFoundryCli), nameof(FoundryGuide) })
+            OnPropertyChanged(name);
+        UpdateAccountState();
+        NotifyImages();
+    }
+    partial void OnFoundryTenantIdChanged(string value) => UpdateActions();
+    partial void OnFoundryClientIdChanged(string value) => UpdateActions();
     partial void OnApiKeyChanged(string value)
     {
         if (!string.IsNullOrWhiteSpace(value))
@@ -627,7 +657,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     {
         foreach (var name in new[] { nameof(ShowStepper), nameof(DialogTitle), nameof(ModelCaption),
                      nameof(PrimaryActionText), nameof(HasUsageLink), nameof(DoneTitle), nameof(BackText),
-                     nameof(VerifyCostText), nameof(ShowPlanConfirmation), nameof(DoneActionText) })
+                     nameof(VerifyCostText), nameof(ShowPlanConfirmation), nameof(DoneActionText),
+                     nameof(CanChooseFoundryAuth), nameof(ShowFoundryReconnect), nameof(ShowWireChoice) })
             OnPropertyChanged(name);
     }
     partial void OnStageChanged(ConnectStage value)
@@ -642,6 +673,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
                      nameof(ShowPlanConfirmation), nameof(DoneTitle), nameof(DoneActionText) })
             OnPropertyChanged(name);
         NotifyImages();
+        UpdateActions();
     }
     partial void OnIsDialogOpenChanged(bool value)
     {
@@ -681,7 +713,9 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         foreach (var name in new[] { nameof(HasKey), nameof(ShowSignInChoice), nameof(ShowKeyEntry), nameof(ShowKeyGuide),
                      nameof(ShowSignInInstead), nameof(IsWaitingForBrowser), nameof(IsFindingModels), nameof(ShowContinue),
                      nameof(HasExistingKey), nameof(KeyPlaceholder), nameof(CanGoBack), nameof(HasAuthorizationUrl),
-                     nameof(ShowGenericSignIn), nameof(ShowChatGptSignIn), nameof(ShowReplaceKey) })
+                     nameof(ShowGenericSignIn), nameof(ShowChatGptSignIn), nameof(ShowReplaceKey),
+                     nameof(CanChooseFoundryAuth), nameof(UsesFoundryIdentity), nameof(ShowFoundryBrowser),
+                     nameof(ShowFoundryReconnect), nameof(ContinueText) })
             OnPropertyChanged(name);
         UpdateActions();
     }
@@ -747,6 +781,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     private void RefreshProviders()
     {
         var connected = _store.Data.Settings.ByokEndpoints
+            .Where(endpoint => !IsImageSetup || endpoint.FoundryIdentity is null)
             .Select(endpoint => ExistingProfile(endpoint)?.Id)
             .Where(id => id is not null)
             .ToHashSet(StringComparer.Ordinal);
@@ -827,6 +862,10 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         IsManaging = false;
         IsConfirmingRemove = false;
         UseKeyInstead = false;
+        FoundryAuth = "key";
+        FoundryTenantId = "";
+        FoundryClientId = "";
+        _foundryIdentity = null;
         IsSavingStage = false;
         SkipModelCheck = false;
         AllowPlaintextStorage = false;
@@ -858,7 +897,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         }
         // A connected provider opens its existing connection instead of creating a duplicate.
         if (!profile.IsCustom && _store.Data.Settings.ByokEndpoints.FirstOrDefault(endpoint =>
-                ExistingProfile(endpoint)?.Id == profile.Id) is { } existing)
+                ExistingProfile(endpoint)?.Id == profile.Id && (!IsImageSetup || endpoint.FoundryIdentity is null)) is { } existing)
         {
             Manage(existing);
             return;
@@ -884,6 +923,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         _reconnecting = endpoint;
         _expiresAt = endpoint.CredentialExpiresAt;
         IsManaging = true;
+        RestoreFoundryAuth(endpoint.FoundryIdentity);
         RequiresApiKey = endpoint.ApiKeyMode != ByokApiKeyMode.None;
         BaseUrl = endpoint.BaseUrl;
         ProviderType = endpoint.ProviderType;
@@ -932,12 +972,17 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         switch (Stage)
         {
             case ConnectStage.Account when IsManaging && !IsExpired(_reconnecting):
-                // Leaving "Replace key" keeps the saved key; a half-entered replacement is discarded.
+                // Back discards the replacement rather than applying a partially edited account.
                 ApiKey = "";
                 _pendingKey = null;
                 _expiresAt = _reconnecting!.CredentialExpiresAt;
                 UseKeyInstead = false;
                 Status = "";
+                if (IsFoundry)
+                {
+                    RestoreFoundryAuth(_reconnecting.FoundryIdentity);
+                    BaseUrl = _reconnecting.BaseUrl;
+                }
                 Stage = ConnectStage.Models;
                 break;
             case ConnectStage.Account when IsManaging:
@@ -958,6 +1003,31 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void ToggleKeyEntry() => UseKeyInstead = !UseKeyInstead;
+
+    [RelayCommand]
+    private void SetFoundryAuth(string value)
+    {
+        if (CanChooseFoundryAuth && !IsWorking && value is "key" or "cli" or "browser")
+            FoundryAuth = value;
+    }
+
+    private void RestoreFoundryAuth(FoundryIdentity? identity)
+    {
+        FoundryAuth = identity is null ? "key" : identity.ClientId is null ? "cli" : "browser";
+        FoundryTenantId = identity?.TenantId ?? "";
+        FoundryClientId = identity?.ClientId ?? "";
+        _foundryIdentity = identity;
+    }
+
+    [RelayCommand]
+    private void ReconnectFoundry()
+    {
+        if (ShowFoundryReconnect && !IsWorking)
+        {
+            Error = "";
+            Stage = ConnectStage.Account;
+        }
+    }
 
     [RelayCommand]
     private void ReplaceKey()
@@ -1223,7 +1293,9 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     {
         var headers = _reconnecting?.Headers is { } savedHeaders
             ? new Dictionary<string, string>(savedHeaders, StringComparer.OrdinalIgnoreCase) : [];
-        if (IsFoundry)
+        if (UsesFoundryIdentity)
+            headers.Clear();
+        else if (IsFoundry)
             headers.TryAdd("api-key", ByokConfigHelper.ApiKeyHeaderToken);
         return new()
         {
@@ -1233,11 +1305,12 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
             Account = _chatGptSignIn is { Account: var account }
                 ? new ByokAccount { ClientId = account.ClientId, Subject = account.Subject, Email = account.Email }
                 : _reconnecting?.Account?.Clone(),
-            BaseUrl = IsFoundry ? ProviderConnectionService.NormalizeFoundryBaseUrl(BaseUrl.Trim()) : BaseUrl.Trim(),
-            ProviderType = ProviderType,
+            FoundryIdentity = UsesFoundryIdentity ? _foundryIdentity : null,
+            BaseUrl = IsFoundry ? ProviderConnectionService.ParseFoundryAddress(BaseUrl.Trim()).BaseUrl : BaseUrl.Trim(),
+            ProviderType = UsesFoundryIdentity ? "openai" : ProviderType,
             WireApi = WireApi,
-            AzureApiVersion = ProviderType == "azure" ? AzureApiVersion : null,
-            ApiKeyEnvVar = _reconnecting?.ApiKeyEnvVar,
+            AzureApiVersion = !UsesFoundryIdentity && ProviderType == "azure" ? AzureApiVersion : null,
+            ApiKeyEnvVar = UsesFoundryIdentity ? null : _reconnecting?.ApiKeyEnvVar,
             Headers = headers,
             IsEnabled = true,
             CredentialExpiresAt = _expiresAt
@@ -1284,11 +1357,26 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         string discoveryNotice = "";
         var allowInsecureHttp = AllowInsecureHttp;
         ByokEndpoint? discoveredEndpoint = null;
+        string? pastedDeployment = null;
         string? accountKey = null;
         if (IsChatGpt)
             models = await DiscoverChatGptModelsAsync(ct);
         else
         {
+            if (IsFoundry && IsAccountStage)
+            {
+                var address = ProviderConnectionService.ParseFoundryAddress(BaseUrl.Trim());
+                pastedDeployment = address.Deployment;
+                if (UsesFoundryIdentity)
+                {
+                    if (!FoundryEntraCredential.IsAllowedEndpoint(address.BaseUrl))
+                        throw new ProviderConnectionException(Loc.Get("EasyConnect_FoundryIdentityEndpoint"));
+                    _foundryIdentity = await FoundryEntraCredential.ConnectAsync(DraftEndpointId,
+                        IsFoundryBrowser ? Guid.Parse(FoundryTenantId).ToString() : null,
+                        IsFoundryBrowser ? Guid.Parse(FoundryClientId).ToString() : null,
+                        _reconnecting?.FoundryIdentity, ct);
+                }
+            }
             discoveredEndpoint = DraftEndpoint();
             var needsKey = HasKey;
             accountKey = needsKey ? await CurrentKeyAsync() : null;
@@ -1298,7 +1386,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
             {
                 models = await _connections.DiscoverAsync(discoveredEndpoint, accountKey, ct, allowInsecureHttp);
             }
-            catch (ProviderConnectionException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
+            catch (ProviderConnectionException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed
+                || (UsesFoundryIdentity && ex.StatusCode == HttpStatusCode.Forbidden))
             {
                 models = [];
                 discoveryNotice = IsFoundry ? Loc.Get("EasyConnect_FoundryNoModelDiscovery") : ex.Message;
@@ -1320,7 +1409,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
                     : discovered;
             }).ToArray();
         // A metadata-only refresh updates configured models without reconnecting or changing the chosen models.
-        if (_reconnecting is { } endpoint)
+        if (_reconnecting is { } endpoint && (!IsFoundry || IsModelStage))
         {
             var changed = false;
             foreach (var savedModel in _store.Data.Settings.ByokModels.Where(model => model.EndpointId == endpoint.Id))
@@ -1339,10 +1428,12 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         var selectAll = IsChatGpt && !IsManaging && previous.Count == 0;
         Models.Clear();
         foreach (var model in models)
-            AddChoice(model, selectAll || selectedIds.Contains(model.Id));
+            AddChoice(model, selectAll || model.Id == pastedDeployment || selectedIds.Contains(model.Id));
         // Keep chosen models a provider no longer lists (e.g. ones added by ID).
         foreach (var model in previous.Where(model => Models.All(choice => choice.Id != model.Id)))
             AddChoice(model, true);
+        if (pastedDeployment is not null && Models.All(choice => choice.Id != pastedDeployment))
+            AddChoice(new(pastedDeployment, pastedDeployment), true);
         Status = discoveryNotice;
         Stage = ConnectStage.Models;
         NotifyModels();
@@ -1414,7 +1505,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
 
     internal static bool ApplyDiscoveredReasoning(ByokModel model, ProviderModel discovered)
     {
-        if (discovered.SupportedReasoningEfforts is not { } efforts)
+        if (model.ReasoningEffortDisabled || discovered.SupportedReasoningEfforts is not { } efforts)
             return false;
 
         var preferredDefault = efforts.FirstOrDefault(effort =>
@@ -1448,6 +1539,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         await RunAsync(async ct =>
         {
             var endpoint = DraftEndpoint();
+            if (UsesFoundryIdentity && endpoint.FoundryIdentity is null)
+                throw new ProviderConnectionException(Loc.Get("EasyConnect_FoundryWrongAccount"));
             ProviderConnectionService.BuildModelsUri(endpoint, allowInsecureHttp: AllowInsecureHttp);
             var isChatGpt = IsChatGpt;
             var key = HasKey && !isChatGpt ? await CurrentKeyAsync() : null;

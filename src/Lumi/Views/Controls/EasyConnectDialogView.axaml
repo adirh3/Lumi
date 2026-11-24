@@ -435,7 +435,7 @@
 
         <Border Classes="mg-inset" Padding="12,10" IsVisible="{Binding IsFoundry}">
           <StackPanel Spacing="8">
-            <TextBlock Classes="ec-hint" Text="{loc:Str EasyConnect_FoundryGuide}" />
+            <TextBlock Classes="ec-hint" Text="{Binding FoundryGuide}" />
             <Button Classes="mg-button" HorizontalAlignment="Left" Command="{Binding OpenKeyPageCommand}">
               <StackPanel Orientation="Horizontal" Spacing="6">
                 <TextBlock Text="{loc:Str EasyConnect_OpenFoundry}" />
@@ -464,6 +464,25 @@
             <TextBlock Classes="ec-label" Text="{Binding ServerAddressLabel}" />
             <TextBox x:Name="ConnectBaseUrl" Classes="mg-field mono" Text="{Binding BaseUrl}"
                      PlaceholderText="{Binding ServerAddressPlaceholder}" />
+          </StackPanel>
+          <WrapPanel IsVisible="{Binding CanChooseFoundryAuth}">
+            <Button x:Name="FoundryUseApiKey" Classes="mg-segment" Classes.selected="{Binding IsFoundryKey}"
+                    Command="{Binding SetFoundryAuthCommand}" CommandParameter="key"
+                    Content="{loc:Str EasyConnect_ApiKey}" />
+            <Button x:Name="FoundryUseMicrosoft" Classes="mg-segment" Classes.selected="{Binding IsFoundryBrowser}"
+                    Command="{Binding SetFoundryAuthCommand}" CommandParameter="browser"
+                    Content="{loc:Str EasyConnect_FoundryBrowser}" />
+            <Button x:Name="FoundryUseAzureCli" Classes="mg-segment" Classes.selected="{Binding IsFoundryCli}"
+                    Command="{Binding SetFoundryAuthCommand}" CommandParameter="cli"
+                    Content="{loc:Str EasyConnect_FoundryCli}" />
+          </WrapPanel>
+          <StackPanel Spacing="6" IsVisible="{Binding ShowFoundryBrowser}">
+            <TextBlock Classes="ec-label" Text="{loc:Str EasyConnect_FoundryTenant}" />
+            <TextBox x:Name="FoundryTenant" Classes="mg-field mono" Text="{Binding FoundryTenantId}"
+                     AutomationProperties.Name="{loc:Str EasyConnect_FoundryTenant}" />
+            <TextBlock Classes="ec-label" Text="{loc:Str EasyConnect_FoundryClient}" />
+            <TextBox x:Name="FoundryClient" Classes="mg-field mono" Text="{Binding FoundryClientId}"
+                     AutomationProperties.Name="{loc:Str EasyConnect_FoundryClient}" />
           </StackPanel>
           <StackPanel Spacing="6" IsVisible="{Binding ShowWireChoice}">
             <TextBlock Classes="ec-label" Text="{loc:Str EasyConnect_WireFormat}" />
@@ -547,6 +566,8 @@
             <Button Classes="mg-text-button" Command="{Binding ReplaceKeyCommand}" IsVisible="{Binding ShowReplaceKey}">
               <TextBlock Text="{loc:Str EasyConnect_ReplaceKey}" />
             </Button>
+            <Button Classes="mg-text-button" Command="{Binding ReconnectFoundryCommand}"
+                    IsVisible="{Binding ShowFoundryReconnect}" Content="{loc:Str EasyConnect_FoundryReconnect}" />
           </StackPanel>
           <StackPanel Spacing="2">
             <TextBlock Classes="mg-section-title" Text="{loc:Str EasyConnect_ModelTitle}" />

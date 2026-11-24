@@ -612,6 +612,8 @@ public sealed class ByokAccount
     public ByokAccount Clone() => new() { ClientId = ClientId, Subject = Subject, Email = Email };
 }
 
+public sealed record FoundryIdentity(string TenantId, string UserId, string? ClientId = null, string? BrowserAccount = null);
+
 /// <summary>
 /// BYOK endpoint: a reusable connection configuration (URL, provider type, auth) shared by one
 /// or more <see cref="ByokModel"/> entries. The <see cref="Id"/> is the stable identity that
@@ -644,6 +646,7 @@ public sealed class ByokEndpoint : INotifyPropertyChanged
 
     /// <summary>The account an OAuth sign-in connected (ChatGPT). Null for key-based endpoints.</summary>
     public ByokAccount? Account { get; set; }
+    public FoundryIdentity? FoundryIdentity { get; set; }
 
     public string Name
     {
@@ -794,6 +797,10 @@ public sealed class ByokModel : INotifyPropertyChanged
         get => _supportsReasoningEffort;
         set { if (_supportsReasoningEffort != value) { _supportsReasoningEffort = value; OnPropertyChanged(nameof(SupportsReasoningEffort)); } }
     }
+
+    /// <summary>An explicit opt-out from reasoning controls on models with provider defaults.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ReasoningEffortDisabled { get; set; }
 
     public List<string> SupportedReasoningEfforts
     {

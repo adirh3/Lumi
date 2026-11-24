@@ -584,6 +584,7 @@ public sealed class LightweightSessionOptions
             BaseUrl = provider.BaseUrl,
             ApiKey = provider.ApiKey,
             BearerToken = provider.BearerToken,
+            BearerTokenProvider = provider.BearerTokenProvider,
             Azure = provider.Azure,
             Headers = provider.Headers
         };

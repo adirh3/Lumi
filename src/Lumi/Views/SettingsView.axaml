@@ -1622,6 +1622,7 @@
                         <StackPanel Orientation="Horizontal" Spacing="8" DockPanel.Dock="Right">
                           <Button Content="{loc:Str Settings_Byok_DuplicateEndpoint}" Padding="8,3" MinHeight="0"
                                   Classes="subtle motion-action"
+                                  IsVisible="{Binding !IsSelectedByokEntra}"
                                   Command="{Binding DuplicateByokEndpointCommand}" />
                           <Button Content="{loc:Str Settings_Byok_DeleteEndpoint}" Padding="8,3" MinHeight="0"
                                   Classes="danger subtle motion-action"
@@ -1669,7 +1670,7 @@
                                  PlaceholderText="{loc:Str Settings_Byok_AzureApiVersionPlaceholder}" />
                       </StackPanel>
 
-                      <StackPanel Spacing="4">
+                      <StackPanel Spacing="4" IsVisible="{Binding !IsSelectedByokEntra}">
                         <TextBlock Text="{loc:Str Settings_Byok_ApiKeyMode}" FontSize="{DynamicResource Font.SizeCaption}"
                                    Foreground="{DynamicResource Brush.TextSecondary}" />
                         <ComboBox Name="ByokApiKeyModePicker"
@@ -1678,6 +1679,8 @@
                                   SelectionChanged="OnByokApiKeyModeSelectionChanged"
                                   HorizontalAlignment="Stretch" />
                       </StackPanel>
+                      <TextBlock Text="{Binding SelectedByokEntraLabel}" IsVisible="{Binding IsSelectedByokEntra}"
+                                 FontSize="{DynamicResource Font.SizeCaption}" Foreground="{DynamicResource Brush.TextSecondary}" />
 
                       <StackPanel Spacing="4" IsVisible="{Binding UsesEnvVarApiKey}">
                         <TextBlock Text="{loc:Str Settings_Byok_ApiKeyEnvVar}" FontSize="{DynamicResource Font.SizeCaption}"
