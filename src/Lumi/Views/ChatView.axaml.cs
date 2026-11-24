@@ -407,13 +407,10 @@ public partial class ChatView : UserControl
             vm.ComposerFillInRequested += OnComposerFillInRequested;
             vm.WorkspaceJumpToTurnRequested += OnWorkspaceJumpToTurnRequested;
             vm.ReplySourceJumpRequested += OnReplySourceJumpRequested;
-            vm.PendingInputJumpRequested += OnPendingInputJumpRequested;
             vm.SubagentRunShowRequested += OnSubagentRunShowRequested;
             SubscribeToMountedTurns(vm.MountedTranscriptTurns);
             Dispatcher.UIThread.Post(EnsureTranscriptScrollViewer, DispatcherPriority.Loaded);
             QueueInitialTranscriptTailSyncIfNeeded(vm);
-            if (vm.PendingInputTarget is { } request)
-                Dispatcher.UIThread.Post(() => OnPendingInputJumpRequested(request), DispatcherPriority.Loaded);
             // Match the transcript's materialize state to the new surface: if it's already loading or
             // about to realize, start hidden so it composes in rather than flashing placeholders.
             SetTranscriptMaterialized(!vm.IsChatSurfaceLoading);
@@ -491,7 +488,6 @@ public partial class ChatView : UserControl
         _subscribedVm.ComposerFillInRequested -= OnComposerFillInRequested;
         _subscribedVm.WorkspaceJumpToTurnRequested -= OnWorkspaceJumpToTurnRequested;
         _subscribedVm.ReplySourceJumpRequested -= OnReplySourceJumpRequested;
-        _subscribedVm.PendingInputJumpRequested -= OnPendingInputJumpRequested;
         _subscribedVm.SubagentRunShowRequested -= OnSubagentRunShowRequested;
         // Clear the realizing gate so a view detach mid-open can't leave the overlay stuck up on the VM:
         // a suspended OpenTranscriptAtLatestAsync won't reach its gate-clearing finally once _subscribedVm

@@ -225,13 +225,14 @@ internal static partial class LaunchpadPlanner
     }
 
     /// <summary>
-    /// The chats waiting for input. Unread-only replies keep their separate inbox.
+    /// The chats waiting on the user, most urgent first: a question to answer, then a reply not read yet. Chats that
+    /// are only working are left out: the new chat is about starting something, and the sidebar shows them.
     /// </summary>
     internal static List<(Chat Chat, LaunchpadChatState State)> SelectNeedsYou(IEnumerable<Chat> chats, int limit, out int total)
     {
         var waiting = chats
             .Select(chat => (Chat: chat, State: ClassifyActive(chat)))
-            .Where(static entry => entry.State is LaunchpadChatState.Waiting)
+            .Where(static entry => entry.State is LaunchpadChatState.Waiting or LaunchpadChatState.Reply)
             .OrderBy(static entry => entry.State!.Value)
             .ThenByDescending(static entry => entry.Chat.UpdatedAt)
             .Select(static entry => (entry.Chat, entry.State!.Value))

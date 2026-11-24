@@ -1,81 +1,56 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics;
-using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
-using Microsoft.Data.Sqlite;
 
 namespace Lumi.ViewModels;
 
 public partial class MainViewModel
 {
-    public AttentionInboxViewModel AttentionVM => _chatSessionStore.Attention;
-    public ObservableCollection<AttentionRequestViewModel> NeedsYouRequests { get; } = [];
-    public bool HasNeedsYouChats => NeedsYouRequests.Count > 0;
-    public bool HasChatInbox => HasNeedsYouChats || HasUnreadChats;
-    public string NeedsYouSummaryText
+    private readonly AttentionInboxViewModel _attentionInbox;
+    internal AttentionInboxViewModel AttentionInbox => _attentionInbox;
+    public ObservableCollection<UnreadChatEntry> NotificationChats { get; } = [];
+    public bool HasPendingNotifications => _attentionInbox.Requests.Count > 0;
+    public bool HasNotifications => HasPendingNotifications || HasUnreadChats;
+    public string NotificationSummaryText
     {
         get
         {
-            var count = NeedsYouRequests.Select(entry => entry.ChatId).Distinct().Count();
-            return count == 1 ? Loc.Get("NeedsYou_CountOne") : Loc.Get("NeedsYou_Count", count);
+            var count = _attentionInbox.Requests.Select(entry => entry.ChatId).Distinct().Count();
+            if (count == 0)
+                return UnreadSummaryText;
+            var pending = count == 1 ? Loc.Get("NeedsYou_CountOne") : Loc.Get("NeedsYou_Count", count);
+            return HasUnreadChats ? pending + " · " + Loc.Get("NeedsYou_Unread", UnreadChatCount) : pending;
         }
     }
-    public string UnreadCapsuleText => Loc.Get("NeedsYou_Unread", UnreadChatCount);
-    [ObservableProperty] private bool _isNeedsYouPanelOpen;
+    public string NotificationTooltipText => HasPendingNotifications
+        ? $"{Loc.Get("NeedsYou_Description")} ({Loc.AdaptKeyboardHint("Ctrl+Shift+I")})"
+        : UnreadTooltipText;
 
-    private void RefreshNeedsYouState()
+    private void RefreshNotifications()
     {
         if (_isDisposed)
             return;
-        var visibleChat = SelectedNavIndex == 0 ? ActiveChatId : null;
-        var desired = AttentionVM.Requests.Where(entry => entry.ChatId != visibleChat).ToList();
-        SynchronizeCollection(NeedsYouRequests, desired);
-        OnPropertyChanged(nameof(HasNeedsYouChats));
-        OnPropertyChanged(nameof(HasChatInbox));
-        OnPropertyChanged(nameof(NeedsYouSummaryText));
-        if (!HasNeedsYouChats)
-            IsNeedsYouPanelOpen = false;
-    }
 
-    [RelayCommand]
-    private void ToggleNeedsYouPanel()
-    {
-        AttentionVM.Refresh();
-        IsNeedsYouPanelOpen = HasNeedsYouChats && !IsNeedsYouPanelOpen;
-        if (IsNeedsYouPanelOpen)
+        var pendingChats = _attentionInbox.Requests.DistinctBy(entry => entry.ChatId).ToList();
+        var desired = new List<UnreadChatEntry>();
+        foreach (var request in pendingChats)
+        {
+            var project = GetProjectName(request.Chat.ProjectId);
+            var previous = NotificationChats.FirstOrDefault(entry => ReferenceEquals(entry.PendingRequest, request)
+                && entry.Title == request.ChatTitle && entry.ProjectName == project && entry.TimeLabel == request.TimeLabel);
+            desired.Add(previous ?? new UnreadChatEntry
+            {
+                Chat = request.Chat, Title = request.ChatTitle, ProjectName = project,
+                TimeLabel = request.TimeLabel, PendingRequest = request
+            });
+        }
+        var pendingIds = pendingChats.Select(entry => entry.ChatId).ToHashSet();
+        desired.AddRange(UnreadChats.Where(entry => !pendingIds.Contains(entry.Chat.Id)));
+        SynchronizeCollection(NotificationChats, desired);
+        OnPropertyChanged(nameof(HasPendingNotifications));
+        OnPropertyChanged(nameof(HasNotifications));
+        OnPropertyChanged(nameof(NotificationSummaryText));
+        OnPropertyChanged(nameof(NotificationTooltipText));
+        if (!HasNotifications)
             IsUnreadPanelOpen = false;
-    }
-
-    [RelayCommand]
-    private void OpenNeedsYouFromRail()
-    {
-        SelectedNavIndex = 0;
-        AttentionVM.Refresh();
-        if (!HasNeedsYouChats)
-            return;
-        if (IsSidebarCollapsed)
-            IsSidebarCollapsed = false;
-        IsNeedsYouPanelOpen = HasNeedsYouChats;
-        IsUnreadPanelOpen = false;
-    }
-
-    [RelayCommand]
-    private async Task OpenPendingInput(AttentionRequestViewModel? request)
-    {
-        if (request is null || !AttentionVM.Requests.Contains(request))
-            return;
-        IsNeedsYouPanelOpen = false;
-        IsUnreadPanelOpen = false;
-        try
-        {
-            if (await RevealChatAsync(request.Chat) && AttentionVM.Requests.Contains(request))
-                request.Source.Owner.RevealPendingInput(request.ItemId);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or SqliteException)
-        {
-            Trace.TraceWarning("[NeedsYou] Could not open request in chat {0}: {1}", request.ChatId, error);
-            ChatVM.StatusText = Loc.Get("NeedsYou_OpenFailed");
-        }
     }
 }

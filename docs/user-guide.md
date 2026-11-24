@@ -818,22 +818,16 @@ If Lumi finishes a reply while the card is open, the card updates in place.
 
 ### Needs you
 
-Below the project selector, one split capsule keeps **Needs you** in amber and **Unread** in
-the accent colour. Needs you lists live questions, forms and approval requests from every
-project, even when the chat list is filtered. It leaves out the chat already on screen.
-Each compact row shows the chat, actual ask, project, request kind and age, oldest request first.
+The existing notification area below the project selector has one list: **Needs you** requests
+come first, followed by unread replies. Pending rows use an amber question icon and show the actual
+ask, project, kind and age. They cover every project, even when the chat list is filtered.
+A chat with both a pending request and an unread reply appears once, as Needs you.
 
-Open a request to land on its highlighted original card in the conversation, on the transcript's
-reading line. Answer there with the full conversation in view. The waiting bar above the composer
-also covers questions and forms, says how many other chats need you, and offers **Next** to
-continue through their requests. Opening a chat or marking it read clears Unread, not its request:
-only an answer, cancellation or expiry clears Needs you, including when handled on a phone or
-in another window. Approval request times are shared across windows.
-
-With the sidebar collapsed, an amber **?** marker on the existing Chats button opens the same
-list. The launchpad capsule and the phone's waiting sheet list the same pending chats in the same
-order; unread-only replies remain in Unread. There is no separate answering page or AI recap.
-After handling requests, New Chat or navigation history restores your unsent prompt as usual.
+Open a row to continue in its original chat and answer with the conversation in view.
+Opening or reading a chat clears its unread state, not its pending request. Only an answer,
+cancellation or expiry clears Needs you, including when handled in another window or on a phone.
+Approval request times are shared across windows. Returning through navigation history restores
+your unsent prompt and project as usual.
 
 ### Unread chats
 

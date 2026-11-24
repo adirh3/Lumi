@@ -35,6 +35,10 @@ public sealed class UnreadChatEntry
     public bool IsOutsideActiveFilter { get; init; }
 
     public required string TimeLabel { get; init; }
+    public AttentionRequestViewModel? PendingRequest { get; init; }
+    public bool NeedsInput => PendingRequest is not null;
+    public string? Ask => PendingRequest?.Ask;
+    public string? RequestMeta => PendingRequest?.Meta;
 
     /// <summary>
     /// Hover text. For a chat the active filter is hiding it spells out *why* the chat is not in the
@@ -92,8 +96,7 @@ public partial class MainViewModel
 
     partial void OnHasUnreadChatsChanged(bool value)
     {
-        OnPropertyChanged(nameof(HasChatInbox));
-        if (!value)
+        if (!value && !HasPendingNotifications)
             IsUnreadPanelOpen = false;
     }
 
@@ -154,7 +157,6 @@ public partial class MainViewModel
             : "";
 
         UnreadChatCount = unread.Count;
-        OnPropertyChanged(nameof(UnreadCapsuleText));
         UnreadOutsideFilterCount = outsideCount;
         HasUnreadOutsideFilter = outsideCount > 0;
         UnreadBadgeText = unread.Count > 9 ? Loc.Unread_BadgeOverflow : unread.Count.ToString(Loc.Culture);
@@ -164,6 +166,7 @@ public partial class MainViewModel
             : Loc.Unread_OpenTooltip;
         UnreadTooltipText = $"{unreadTooltip} ({Loc.AdaptKeyboardHint("Ctrl+Shift+I")})";
         HasUnreadChats = unread.Count > 0;
+        RefreshNotifications();
 
         UnreadStateChanged?.Invoke();
     }
@@ -202,18 +205,19 @@ public partial class MainViewModel
     [RelayCommand]
     private void ToggleUnreadPanel()
     {
-        if (!HasUnreadChats)
+        if (!HasNotifications)
         {
             IsUnreadPanelOpen = false;
             return;
         }
 
         if (!IsUnreadPanelOpen)
+        {
+            _attentionInbox.Refresh();
             RefreshUnreadState();
+        }
 
         IsUnreadPanelOpen = !IsUnreadPanelOpen;
-        if (IsUnreadPanelOpen)
-            IsNeedsYouPanelOpen = false;
     }
 
     [RelayCommand]

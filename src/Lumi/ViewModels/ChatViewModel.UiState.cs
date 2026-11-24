@@ -1316,7 +1316,6 @@ public partial class ChatViewModel
 
     partial void OnCurrentChatChanged(Chat? value)
     {
-        RefreshPendingInputNavigation();
         CancelVoice();
         OnPropertyChanged(nameof(IsPreparingEditedResend));
         if (value is null)

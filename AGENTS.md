@@ -252,8 +252,8 @@ Lumi has an Avalonia MCP server configured in `.vscode/mcp.json`. This gives you
 #### Debug-only agent harnesses
 
 - `--debug-needs-you` shows synthetic live questions, a form and an approval across chats, plus an
-  unsent draft. No model call or approved command runs. `#NeedsYouToggle` opens the split capsule's
-  pending list; rows land original cards, and `#NextPendingInputButton` continues in the chats.
+  unsent draft. No model call or approved command runs. `#UnreadInboxToggle` opens the single
+  `#NotificationList`: pending requests first, then unread replies. Rows open their original chats.
 
 Lumi includes focused Debug-only harnesses for coding agents:
 

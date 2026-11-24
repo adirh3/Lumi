@@ -8,7 +8,7 @@ using Lumi.Services;
 namespace Lumi.ViewModels;
 
 internal sealed record PendingChatInput(
-    ChatViewModel Owner, Chat Chat, string RequestId, ChatMessage? Message, PermissionRequestViewModel? Approval)
+    Chat Chat, string RequestId, ChatMessage? Message, PermissionRequestViewModel? Approval)
 {
     public string ItemId => Approval is { } approval
         ? $"approval:{approval.SessionId}:{RequestId}"
@@ -33,7 +33,7 @@ public sealed class AttentionRequestViewModel : ObservableObject, IDisposable
         : Source.Message?.ToolName == "ask_input" ? "NeedsYou_Form" : "NeedsYou_Question");
     public string Ask => LaunchpadPlanner.CleanPreview(Source.Message?.QuestionText
         ?? (Source.Approval!.Title + (Source.Approval.Subject is { Length: > 0 } subject ? " · " + subject : "")));
-    public string Meta => ProjectName + " · " + Kind;
+    public string Meta => Loc.Get("NeedsYou_Title") + " · " + ProjectName + " · " + Kind;
     public string TimeLabel => LibraryViewModel.FormatRelativeTime(RequestedAt);
 
     internal AttentionRequestViewModel(PendingChatInput source, DataStore store)
@@ -107,13 +107,6 @@ public sealed class AttentionInboxViewModel : IDisposable
             }
         }
         Changed?.Invoke();
-    }
-
-    internal List<(Chat Chat, LaunchpadChatState State)> SelectChats(int limit, out int total)
-    {
-        var chats = Requests.DistinctBy(entry => entry.ChatId).Select(entry => (entry.Chat, LaunchpadChatState.Waiting)).ToList();
-        total = chats.Count;
-        return chats.Take(limit).ToList();
     }
 
     private void OnAttentionRaised(ChatAttention attention)

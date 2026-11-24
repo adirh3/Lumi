@@ -20,7 +20,7 @@ public partial class MainViewModel
             question.Messages.Add(new()
             {
                 Role = "assistant",
-                Content = "The amber Needs you half lists requests across projects. Opening one lands on its original question so you can answer with the conversation in view."
+                Content = "The notification list puts waiting requests above unread replies. Open a row to answer in its original conversation."
             });
             var form = new Chat { Title = "Weekend plans" };
             form.Messages.Add(new() { Role = "user", Content = "Find a quiet weekend stay with a good breakfast. Do not book anything." });
@@ -43,7 +43,9 @@ public partial class MainViewModel
                     CommandIdentifiers = ["git status"], CanOfferSessionApproval = true
                 }, false, (_, _, _) => Task.FromResult(true));
             _chatSessionStore.Release(approvalOwner);
-            question.HasUnreadMessages = true;
+            var reply = new Chat { Title = "Unread summary", HasUnreadMessages = true };
+            reply.Messages.Add(new() { Role = "assistant", Content = "The synthetic summary is ready to read. No input is needed." });
+            _dataStore.Data.Chats.Add(reply);
             RefreshChatList();
             SelectedNavIndex = 0;
             ChatVM.PromptText = "Keep this draft while I answer the waiting chats.";

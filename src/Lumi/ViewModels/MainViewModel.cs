@@ -150,7 +150,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         OnPropertyChanged(nameof(IsGlobalUpdateBannerVisible));
         OnPropertyChanged(nameof(AgentDebugCurrentPage));
-        RefreshNeedsYouState();
         NotifyCustomizeState();
         if (IsCustomizeIndex(value))
         {
@@ -529,8 +528,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         _chatVM = AcquireDraftChatSurface(SelectedProjectFilter);
         _chatVM.AddDisplayHost();
-        AttentionVM.Changed += RefreshNeedsYouState;
-        RefreshNeedsYouState();
+        _attentionInbox = new AttentionInboxViewModel(dataStore, _chatSurfaceRegistry, _chatSessionStore.ChatEvents);
+        _attentionInbox.Changed += RefreshNotifications;
+        RefreshNotifications();
         if (backgroundJobService is null)
         {
             _backgroundJobService = new BackgroundJobService(dataStore, _chatSurfaceRegistry, _chatSessionStore);
@@ -923,13 +923,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void OnChatRevealChatRequested(Guid chatId)
     {
-        if ((AttentionVM.Requests.FirstOrDefault(entry => entry.ChatId == chatId
-                && entry.ItemId == entry.Source.Owner.PendingInputTarget)
-            ?? AttentionVM.Requests.FirstOrDefault(entry => entry.ChatId == chatId)) is { } request)
-        {
-            _ = OpenPendingInput(request);
-            return;
-        }
         var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
         if (chat is not null)
             _ = RevealChatAsync(chat);
@@ -1008,7 +1001,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
             if (surface.CurrentChat is { } chat)
                 chat.HasUnreadMessages = false;
             ActiveChatId = surface.CurrentChat?.Id;
-            RefreshNeedsYouState();
             return;
         }
 
@@ -1071,11 +1063,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
 
         if (args.PropertyName == nameof(ChatViewModel.CurrentChat))
-        {
             ActiveChatId = ChatVM.CurrentChat?.Id;
-            ChatVM.RefreshPendingInputNavigation();
-            RefreshNeedsYouState();
-        }
         else if (args.PropertyName == nameof(ChatViewModel.IsBusy))
             RefreshProjectRunningState();
     }
@@ -1219,7 +1207,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
 
         _isDisposed = true;
-        AttentionVM.Changed -= RefreshNeedsYouState;
+        _attentionInbox.Changed -= RefreshNotifications;
+        _attentionInbox.Dispose();
         SetupsVM.TryRequested -= StartSetupDraft;
         SetupsVM.ManageRequested -= ManageSetup;
         SetupsVM.Dispose();
@@ -2994,7 +2983,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnActiveChatIdChanged(Guid? value)
     {
-        RefreshNeedsYouState();
         if (SelectedNavIndex == 0)
             QueueNavigationRecord();
     }

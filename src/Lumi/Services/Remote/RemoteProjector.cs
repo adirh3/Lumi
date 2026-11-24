@@ -445,9 +445,7 @@ internal static class RemoteProjector
         var agents = data.Agents.ToArray().ToDictionary(static agent => agent.Id);
         var row = LaunchpadViewModel.BuildSetupChoices(dataStore, owner, now);
         var places = LaunchpadViewModel.BuildPlaces(dataStore, MaxLaunchpadPlaceProjects, MaxLaunchpadPlaceAgents);
-        var needsYou = owner.AttentionInbox is { } inbox
-            ? inbox.SelectChats(MaxLaunchpadNeedsYouChats, out var waiting)
-            : LaunchpadPlanner.SelectNeedsYou(chats, MaxLaunchpadNeedsYouChats, out waiting);
+        var needsYou = LaunchpadPlanner.SelectNeedsYou(chats, MaxLaunchpadNeedsYouChats, out var waiting);
         var plain = LaunchpadViewModel.PlainSetupFor(dataStore, owner);
 
         return new RemoteNewChatExperience
@@ -534,21 +532,19 @@ internal static class RemoteProjector
             {
                 var (chat, state) = entry;
                 var projectName = chat.ProjectId is { } projectId ? projects.GetValueOrDefault(projectId)?.Name ?? "" : "";
-                var request = owner.AttentionInbox?.Requests.FirstOrDefault(entry => entry.ChatId == chat.Id);
-                var preview = request?.Ask ?? (state == LaunchpadChatState.Waiting && LaunchpadViewModel.FindPendingQuestion(chat) is { } question
+                var preview = state == LaunchpadChatState.Waiting && LaunchpadViewModel.FindPendingQuestion(chat) is { } question
                     ? LaunchpadPlanner.CleanPreview(question)
-                    : LaunchpadPlanner.CleanPreview(chat.Preview));
+                    : LaunchpadPlanner.CleanPreview(chat.Preview);
                 return new RemoteLaunchpadChat
                 {
                     ChatId = chat.Id,
                     Title = BoundRequired(string.IsNullOrWhiteSpace(chat.Title) ? Loc.Library_UntitledChat : chat.Title,
                         RemoteProtocol.MobileMetadataTextLimit),
                     IsWaiting = state == LaunchpadChatState.Waiting,
-                    StateLabel = state == LaunchpadChatState.Waiting ? Loc.Get("NeedsYou_Title") : Loc.Launchpad_StateReply,
-                    Meta = BoundRequired(request is not null ? request.Meta + " · " + preview
-                        : projectName.Length > 0 && preview.Length > 0 ? projectName + " · " + preview : projectName + preview,
+                    StateLabel = state == LaunchpadChatState.Waiting ? Loc.Launchpad_StateWaiting : Loc.Launchpad_StateReply,
+                    Meta = BoundRequired(projectName.Length > 0 && preview.Length > 0 ? projectName + " · " + preview : projectName + preview,
                         RemoteProtocol.MobileMetadataTextLimit),
-                    TimeLabel = request?.TimeLabel ?? LibraryViewModel.FormatRelativeTime(chat.UpdatedAt)
+                    TimeLabel = LibraryViewModel.FormatRelativeTime(chat.UpdatedAt)
                 };
             }).ToList()
         };

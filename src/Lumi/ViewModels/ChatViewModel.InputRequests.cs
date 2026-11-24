@@ -133,7 +133,6 @@ public partial class ChatViewModel
         chat.IsAwaitingApproval = HasPendingPermissionRequest(chat.Id);
         if (CurrentChat?.Id != chat.Id) return;
         OnPropertyChanged(nameof(IsAwaitingInput));
-        RefreshPendingInputNavigation();
         if (IsAwaitingInput)
             _transcriptBuilder.HideTypingIndicator();
         else if (IsBusy && !IsPaused)

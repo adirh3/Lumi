@@ -1,7 +1,5 @@
 using Lumi.Models;
 using Lumi.Services;
-using CommunityToolkit.Mvvm.Input;
-using Lumi.Localization;
 
 namespace Lumi.ViewModels;
 
@@ -23,77 +21,16 @@ public partial class ChatViewModel
                 var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
                 var message = chat?.Messages.LastOrDefault(candidate => candidate.QuestionId == id);
                 if (chat is not null && message is not null)
-                    requests.Add(new(this, chat, id, message, null));
+                    requests.Add(new(chat, id, message, null));
             }
         }
         foreach (var approval in _permissionRequests.Values.Where(request => request.IsPending))
         {
             var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == approval.ChatId);
             if (chat is not null)
-                requests.Add(new(this, chat, approval.RequestId, null, approval));
+                requests.Add(new(chat, approval.RequestId, null, approval));
         }
         return requests;
-    }
-
-    internal AttentionInboxViewModel? AttentionInbox { get; set; }
-    public string? PendingInputTarget { get; private set; }
-    public event Action<string>? PendingInputJumpRequested;
-    private IReadOnlyList<AttentionRequestViewModel> PendingInputs => AttentionInbox?.Requests.ToList() ?? [];
-    private int CurrentPendingInputCount => AttentionInbox is null
-        ? GetPendingInputs().Count(entry => entry.Chat.Id == CurrentChat?.Id)
-        : PendingInputs.Count(entry => entry.ChatId == CurrentChat?.Id);
-    public int OtherPendingChatCount => PendingInputs.Where(entry => entry.ChatId != CurrentChat?.Id).Select(entry => entry.ChatId).Distinct().Count();
-    public bool ShowPendingInputBar => CurrentPendingInputCount > 0 || (PendingInputTarget is not null && OtherPendingChatCount > 0);
-    public string PendingInputWaitingText => CurrentPendingInputCount > 0
-        ? Loc.Get("NeedsYou_ThisChat") : Loc.Get("NeedsYou_Answered");
-    public string PendingInputElsewhereText => Loc.Get("NeedsYou_Elsewhere", OtherPendingChatCount);
-    public bool HasOtherPendingChats => OtherPendingChatCount > 0;
-    public bool HasCurrentPendingInputs => CurrentPendingInputCount > 0;
-    public bool HasNextPendingInput => NextPendingInput() is not null;
-
-    internal void RefreshPendingInputNavigation()
-    {
-        OnPropertyChanged(nameof(ShowPendingInputBar));
-        OnPropertyChanged(nameof(PendingInputWaitingText));
-        OnPropertyChanged(nameof(PendingInputElsewhereText));
-        OnPropertyChanged(nameof(HasOtherPendingChats));
-        OnPropertyChanged(nameof(HasCurrentPendingInputs));
-        OnPropertyChanged(nameof(HasNextPendingInput));
-        OnPropertyChanged(nameof(OtherPendingChatCount));
-    }
-
-    internal void RevealPendingInput(string itemId)
-    {
-        PendingInputTarget = itemId;
-        RefreshPendingInputNavigation();
-        PendingInputJumpRequested?.Invoke(itemId);
-    }
-
-    private AttentionRequestViewModel? NextPendingInput()
-    {
-        var pending = PendingInputs;
-        var current = PendingInputTarget ?? pending.FirstOrDefault(entry => entry.ChatId == CurrentChat?.Id)?.ItemId;
-        return pending.FirstOrDefault(entry => entry.ChatId == CurrentChat?.Id && entry.ItemId != current)
-            ?? pending.FirstOrDefault(entry => entry.ChatId != CurrentChat?.Id);
-    }
-
-    [RelayCommand]
-    private void ReviewPendingInput()
-    {
-        var target = PendingInputs.FirstOrDefault(entry => entry.ChatId == CurrentChat?.Id)?.ItemId
-            ?? GetPendingInputs().FirstOrDefault(entry => entry.Chat.Id == CurrentChat?.Id)?.ItemId;
-        if (target is not null)
-            RevealPendingInput(target);
-    }
-
-    [RelayCommand]
-    private void NextPendingInputInChats()
-    {
-        if (NextPendingInput() is not { } next)
-            return;
-        next.Source.Owner.RevealPendingInput(next.ItemId);
-        if (next.ChatId != CurrentChat?.Id)
-            RequestRevealChat(next.ChatId);
     }
 
 #if DEBUG

@@ -5758,31 +5758,23 @@
 
       <!-- Lumi is waiting on the user: one line above the composer, even when the card scrolled away. -->
       <Border x:Name="ApprovalsWaitingBar"
-              IsVisible="{Binding ShowPendingInputBar}"
+              IsVisible="{Binding HasPendingPermissionRequests}"
               Margin="4,0,4,8" Padding="12,6,8,6"
               CornerRadius="14"
               Background="{DynamicResource Brush.GlassFill}"
               BorderBrush="{DynamicResource Brush.GlassRim}"
               BorderThickness="1"
               BoxShadow="{DynamicResource Shadow.GlassChip}">
-        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
           <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.8"
-                             Data="{x:Static sc:StrataIcons.Question}"
+                             Data="{x:Static sc:StrataIcons.Shield}"
                              Foreground="{DynamicResource Brush.WarningDefault}"
                              VerticalAlignment="Center" />
-          <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-            <TextBlock Text="{Binding PendingInputWaitingText}" FontSize="12.5"
-                       TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Brush.TextSecondary}" />
-            <TextBlock Text="{Binding PendingInputElsewhereText}" IsVisible="{Binding HasOtherPendingChats}"
-                       FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}" />
-          </StackPanel>
+          <TextBlock Grid.Column="1" Text="{Binding ApprovalsWaitingText}"
+                     FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                     Foreground="{DynamicResource Brush.TextSecondary}" />
           <Button x:Name="ApprovalsReviewButton" Grid.Column="2" Classes="subtle"
-                  Content="{loc:Str Approval_Review}" Command="{Binding ReviewPendingInputCommand}"
-                  IsVisible="{Binding HasCurrentPendingInputs}"
-                  Padding="10,4" MinHeight="0" CornerRadius="9" FontSize="12" />
-          <Button x:Name="NextPendingInputButton" Grid.Column="4" Classes="subtle"
-                  Content="{loc:Str NeedsYou_Next}" Command="{Binding NextPendingInputInChatsCommand}"
-                  IsVisible="{Binding HasNextPendingInput}"
+                  Content="{loc:Str Approval_Review}" Command="{Binding ReviewPendingApprovalsCommand}"
                   Padding="10,4" MinHeight="0" CornerRadius="9" FontSize="12" />
           <Button x:Name="ApprovalsAllowAllButton" Grid.Column="3" Classes="accent"
                   Content="{Binding AllowAllApprovalsLabel}" Command="{Binding AllowAllPendingApprovalsCommand}"

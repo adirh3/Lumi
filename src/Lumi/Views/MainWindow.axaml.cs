@@ -525,6 +525,7 @@ public partial class MainWindow : Window
             HideToTray();
             return;
         }
+
         if (IsPrimaryWindow)
         {
             foreach (var chatWindow in GetDesktopWindows().OfType<ChatWindow>().ToList())
@@ -880,27 +881,18 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (vm.IsNeedsYouPanelOpen && e.Key == Key.Escape && noMods)
-        {
-            vm.IsNeedsYouPanelOpen = false;
-            this.FindControl<Button>("NeedsYouToggle")?.Focus(NavigationMethod.Tab);
-            e.Handled = true;
-            return;
-        }
-
         if (_isUnreadPanelOpen && e.Key == Key.Escape && noMods)
         {
             if (IsWithinUnreadInbox(e.Source))
                 _unreadInboxToggle?.Focus(NavigationMethod.Tab);
             vm.CloseUnreadPanelCommand.Execute(null);
-            vm.IsNeedsYouPanelOpen = false;
             e.Handled = true;
             return;
         }
 
         if (CanNavigateChatsWithKeyboard && CanHandleHistoryNavigationInput(vm, e.Source))
         {
-            if (ctrl && shift && !alt && e.Key == Key.I && vm.HasUnreadChats)
+            if (ctrl && shift && !alt && e.Key == Key.I && vm.HasNotifications)
             {
                 if (vm.IsSidebarCollapsed)
                     vm.ToggleSidebarCommand.Execute(null);
@@ -1092,12 +1084,11 @@ public partial class MainWindow : Window
             SetProjectSwitcherOpen(false);
         }
 
-        if ((_isUnreadPanelOpen || vm.IsNeedsYouPanelOpen)
+        if (_isUnreadPanelOpen
             && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
             && !IsWithinUnreadInbox(e.Source))
         {
             vm.CloseUnreadPanelCommand.Execute(null);
-            vm.IsNeedsYouPanelOpen = false;
         }
 
         var point = e.GetCurrentPoint(this);
@@ -1297,11 +1288,6 @@ public partial class MainWindow : Window
                 else if (args.PropertyName == nameof(MainViewModel.IsUnreadPanelOpen))
                 {
                     SetUnreadPanelOpen(vm.IsUnreadPanelOpen);
-                }
-                else if (args.PropertyName == nameof(MainViewModel.IsNeedsYouPanelOpen)
-                         && vm.IsNeedsYouPanelOpen && _isProjectSwitcherOpen)
-                {
-                    SetProjectSwitcherOpen(false);
                 }
                 else if (args.PropertyName == nameof(MainViewModel.IsSidebarCollapsed))
                 {
@@ -2641,8 +2627,6 @@ public partial class MainWindow : Window
         // Only one sidebar drawer at a time — see SetUnreadPanelOpen.
         if (isOpen && _isUnreadPanelOpen && DataContext is MainViewModel unreadVm)
             unreadVm.CloseUnreadPanelCommand.Execute(null);
-        if (isOpen && DataContext is MainViewModel attentionVm)
-            attentionVm.IsNeedsYouPanelOpen = false;
 
         if (_isProjectSwitcherOpen == isOpen && _projectSwitchRevealHost.IsVisible == isOpen)
         {
