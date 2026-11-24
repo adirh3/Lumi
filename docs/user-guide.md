@@ -818,20 +818,22 @@ If Lumi finishes a reply while the card is open, the card updates in place.
 
 ### Needs you
 
-The red **Needs you** banner, between the project selector and **Unread chats**, counts live
-questions, forms and approval requests from every project, even when the chat list is filtered.
-Click it to open the answering page. With the sidebar collapsed, the red **!** button opens the
-same page.
+Below the project selector, one split capsule keeps **Needs you** in amber and **Unread** in
+the accent colour. Needs you lists live questions, forms and approval requests from every
+project, even when the chat list is filtered. It leaves out the chat already on screen.
+Each compact row shows the chat, actual ask, project, request kind and age, oldest request first.
 
-Each request shows its original answer controls, its chat and project, a short **What led here**
-recap, and expandable **More context**. The recap uses bounded excerpts from the recent conversation,
-not another AI call. Open the chat for the full history or to answer there instead.
-Answering resumes the original waiting task; it does not send a new chat message. A request disappears
-when answered, canceled or expired, including when answered in another window or on a phone.
-Opening it or marking the chat as read does not dismiss it. These are live requests: expired
-questions from previous sessions are not offered as if they could still resume their old tasks.
-The sidebar's selected chat opens normally from this page, with a click or Enter. Approval request
-times are shared across windows, so opening another window does not make an old request look new.
+Open a request to land on its highlighted original card in the conversation, on the transcript's
+reading line. Answer there with the full conversation in view. The waiting bar above the composer
+also covers questions and forms, says how many other chats need you, and offers **Next** to
+continue through their requests. Opening a chat or marking it read clears Unread, not its request:
+only an answer, cancellation or expiry clears Needs you, including when handled on a phone or
+in another window. Approval request times are shared across windows.
+
+With the sidebar collapsed, an amber **?** marker on the existing Chats button opens the same
+list. The launchpad capsule and the phone's waiting sheet list the same pending chats in the same
+order; unread-only replies remain in Unread. There is no separate answering page or AI recap.
+After handling requests, New Chat or navigation history restores your unsent prompt as usual.
 
 ### Unread chats
 

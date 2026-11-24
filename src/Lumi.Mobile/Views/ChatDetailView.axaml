@@ -518,7 +518,7 @@
       <Setter Property="Height" Value="7" />
       <Setter Property="CornerRadius" Value="3.5" />
       <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
     <Style Selector="Grid#NoChatPlaceholder TextBlock.welcome-needs-you-label">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
@@ -964,6 +964,12 @@
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadNeedsYouSheet Button.waiting Border.row-tile">
+      <Setter Property="Background" Value="{DynamicResource Brush.WarningSubtle}" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet#LaunchpadNeedsYouSheet Button.waiting sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
     <Style Selector="sc|StrataBottomSheet#LaunchpadSetupSheet TextBlock.launchpad-sheet-heading">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeSubtitle}" />
@@ -3450,7 +3456,7 @@
           <ItemsControl x:Name="LaunchpadNeedsYouList" ItemsSource="{Binding NeedsYouChats}" Margin="0,0,0,8">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:LaunchpadChat">
-                <Button Classes="sheet-item"
+                <Button Classes="sheet-item" Classes.waiting="{Binding IsWaiting}"
                         AutomationProperties.Name="{Binding Title}"
                         AutomationProperties.HelpText="{Binding StateLabel}"
                         Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).OpenNeedsYouChatCommand}"

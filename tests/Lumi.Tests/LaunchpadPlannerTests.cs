@@ -62,7 +62,7 @@ public sealed class LaunchpadPlannerTests
     }
 
     [Fact]
-    public void NeedsYou_ListsQuestionsThenUnreadReplies_AndLeavesWorkInProgressOut()
+    public void NeedsYou_ListsOnlyPendingInput_AndLeavesUnreadAndWorkInProgressOut()
     {
         var recent = NewChat("Recent", Now.AddMinutes(-5));
         var working = NewChat("Working", Now.AddHours(-6));
@@ -78,9 +78,9 @@ public sealed class LaunchpadPlannerTests
 
         var picked = LaunchpadPlanner.SelectNeedsYou([recent, working, background, reply, olderReply, waiting], 2, out var total);
 
-        Assert.Equal(3, total);
-        Assert.Equal(["Waiting", "Reply"], picked.Select(entry => entry.Chat.Title));
-        Assert.Equal([LaunchpadChatState.Waiting, LaunchpadChatState.Reply], picked.Select(entry => entry.State));
+        Assert.Equal(1, total);
+        Assert.Equal(["Waiting"], picked.Select(entry => entry.Chat.Title));
+        Assert.Equal([LaunchpadChatState.Waiting], picked.Select(entry => entry.State));
     }
 
     [Fact]

@@ -120,7 +120,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         7 => "7 Settings (#PageSettings)",
         8 => "8 Library (#PageLibrary)",
         9 => "9 Discover (#PageDiscover)",
-        10 => "10 Needs you (#PageAttention)",
         _ => $"{index} Unknown"
     };
 
@@ -151,6 +150,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         OnPropertyChanged(nameof(IsGlobalUpdateBannerVisible));
         OnPropertyChanged(nameof(AgentDebugCurrentPage));
+        RefreshNeedsYouState();
         NotifyCustomizeState();
         if (IsCustomizeIndex(value))
         {
@@ -185,15 +185,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>Nav index of Customize → Discover. The other Customize sections keep their page indices.</summary>
     public const int DiscoverNavIndex = 9;
-
-    public const int AttentionNavIndex = 10;
-
-    [RelayCommand]
-    private void OpenAttentionInbox()
-    {
-        AttentionVM.Refresh();
-        SelectedNavIndex = AttentionNavIndex;
-    }
 
     /// <summary>
     /// Nav index of Settings → Memories. Memories is about the user rather than what Lumi can do, so it
@@ -456,7 +447,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public ChatTagsViewModel ChatTagsVM { get; }
     public LibraryViewModel LibraryVM { get; }
-    public AttentionInboxViewModel AttentionVM { get; }
     public SettingsViewModel SettingsVM { get; }
 
     /// <summary>The welcome. Each replay from Settings swaps in a fresh one.</summary>
@@ -539,8 +529,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         _chatVM = AcquireDraftChatSurface(SelectedProjectFilter);
         _chatVM.AddDisplayHost();
-        AttentionVM = new AttentionInboxViewModel(dataStore, _chatSurfaceRegistry,
-            _chatSessionStore.ChatEvents, RevealChatAsync);
+        AttentionVM.Changed += RefreshNeedsYouState;
+        RefreshNeedsYouState();
         if (backgroundJobService is null)
         {
             _backgroundJobService = new BackgroundJobService(dataStore, _chatSurfaceRegistry, _chatSessionStore);
@@ -933,6 +923,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void OnChatRevealChatRequested(Guid chatId)
     {
+        if ((AttentionVM.Requests.FirstOrDefault(entry => entry.ChatId == chatId
+                && entry.ItemId == entry.Source.Owner.PendingInputTarget)
+            ?? AttentionVM.Requests.FirstOrDefault(entry => entry.ChatId == chatId)) is { } request)
+        {
+            _ = OpenPendingInput(request);
+            return;
+        }
         var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
         if (chat is not null)
             _ = RevealChatAsync(chat);
@@ -1011,6 +1008,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             if (surface.CurrentChat is { } chat)
                 chat.HasUnreadMessages = false;
             ActiveChatId = surface.CurrentChat?.Id;
+            RefreshNeedsYouState();
             return;
         }
 
@@ -1073,7 +1071,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
 
         if (args.PropertyName == nameof(ChatViewModel.CurrentChat))
+        {
             ActiveChatId = ChatVM.CurrentChat?.Id;
+            ChatVM.RefreshPendingInputNavigation();
+            RefreshNeedsYouState();
+        }
         else if (args.PropertyName == nameof(ChatViewModel.IsBusy))
             RefreshProjectRunningState();
     }
@@ -1217,7 +1219,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
 
         _isDisposed = true;
-        AttentionVM.Dispose();
+        AttentionVM.Changed -= RefreshNeedsYouState;
         SetupsVM.TryRequested -= StartSetupDraft;
         SetupsVM.ManageRequested -= ManageSetup;
         SetupsVM.Dispose();
@@ -2992,6 +2994,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnActiveChatIdChanged(Guid? value)
     {
+        RefreshNeedsYouState();
         if (SelectedNavIndex == 0)
             QueueNavigationRecord();
     }

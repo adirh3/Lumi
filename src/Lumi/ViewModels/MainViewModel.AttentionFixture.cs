@@ -20,7 +20,7 @@ public partial class MainViewModel
             question.Messages.Add(new()
             {
                 Role = "assistant",
-                Content = "The pending requests already have live owners. I can put a red banner above Unread chats and keep answers connected to their original tasks. One scope decision remains before I continue."
+                Content = "The amber Needs you half lists requests across projects. Opening one lands on its original question so you can answer with the conversation in view."
             });
             var form = new Chat { Title = "Weekend plans" };
             form.Messages.Add(new() { Role = "user", Content = "Find a quiet weekend stay with a good breakfast. Do not book anything." });
@@ -46,6 +46,7 @@ public partial class MainViewModel
             question.HasUnreadMessages = true;
             RefreshChatList();
             SelectedNavIndex = 0;
+            ChatVM.PromptText = "Keep this draft while I answer the waiting chats.";
         }
         catch (Exception error)
         {

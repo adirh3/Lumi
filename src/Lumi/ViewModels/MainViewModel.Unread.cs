@@ -92,6 +92,7 @@ public partial class MainViewModel
 
     partial void OnHasUnreadChatsChanged(bool value)
     {
+        OnPropertyChanged(nameof(HasChatInbox));
         if (!value)
             IsUnreadPanelOpen = false;
     }
@@ -153,6 +154,7 @@ public partial class MainViewModel
             : "";
 
         UnreadChatCount = unread.Count;
+        OnPropertyChanged(nameof(UnreadCapsuleText));
         UnreadOutsideFilterCount = outsideCount;
         HasUnreadOutsideFilter = outsideCount > 0;
         UnreadBadgeText = unread.Count > 9 ? Loc.Unread_BadgeOverflow : unread.Count.ToString(Loc.Culture);
@@ -210,6 +212,8 @@ public partial class MainViewModel
             RefreshUnreadState();
 
         IsUnreadPanelOpen = !IsUnreadPanelOpen;
+        if (IsUnreadPanelOpen)
+            IsNeedsYouPanelOpen = false;
     }
 
     [RelayCommand]

@@ -2,13 +2,12 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Headless;
-using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Remote;
 using Lumi.ViewModels;
 using Lumi.Views;
 using Microsoft.Copilot;
@@ -23,311 +22,224 @@ public sealed class AttentionInboxTests
 {
     private const string Form = """{"id":"trip","title":"Trip preferences","fields":[{"id":"city","label":"City","required":true}]}""";
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public Task SelectedSidebarChatReturnsFromNeedsYouWithoutOpeningAnotherWindow(bool useKeyboard) => Run(async () =>
-    {
-        var chat = new Chat { Title = "Selected chat" };
-        var store = Store(chat);
-        store.Data.Settings.IsOnboarded = true;
-        store.Data.Settings.ShowAnimations = false;
-        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), startBackgroundJobs: false);
-        var detached = 0;
-        main.OpenChatWindowRequested += _ => detached++;
-        var window = new MainWindow { DataContext = main, Width = 1100, Height = 850 };
-        window.Show();
-        try
-        {
-            Assert.True(await main.OpenChatByIdAsync(chat.Id));
-            await Settle();
-            main.OpenAttentionInboxCommand.Execute(null);
-            await Settle();
-            window.UpdateLayout();
-            var row = window.GetVisualDescendants().OfType<ListBoxItem>()
-                .Single(item => ReferenceEquals(item.DataContext, chat));
-            Assert.True(row.IsSelected);
-            if (useKeyboard)
-            {
-                Assert.True(row.Focus(NavigationMethod.Tab));
-                window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.None, null);
-            }
-            else
-            {
-                var point = row.TranslatePoint(new Point(row.Bounds.Width / 2, row.Bounds.Height / 2), window)!.Value;
-                window.MouseDown(point, MouseButton.Left);
-                window.MouseUp(point, MouseButton.Left);
-            }
-            await Settle();
-            Assert.Equal(0, main.SelectedNavIndex);
-            Assert.Equal(chat.Id, main.ActiveChatId);
-            Assert.Equal(0, detached);
-        }
-        finally { window.Close(); }
-    });
-
     [Fact]
-    public Task ApprovalRequestTimeAndContextStayTheSameWhenAnotherWindowOpensLater() => Run(async () =>
+    public Task CrossProjectRequestsOpenInTheirChatThenNextAndRestoreTheUnsentDraft() => Run(async () =>
     {
-        var chat = new Chat { ApprovalMode = ApprovalMode.AskFirst };
-        var store = Store(chat);
-        var events = new ChatEventHub();
+        var firstProject = new Project { Name = "Draft project" };
+        var otherProject = new Project { Name = "Other project" };
+        var questionChat = new Chat { Title = "Question", ProjectId = otherProject.Id };
+        var formChat = new Chat { Title = "Form", ProjectId = otherProject.Id };
+        var data = Data(questionChat, formChat);
+        data.Projects.AddRange([firstProject, otherProject]);
+        var store = new DataStore(data);
         using var registry = new ChatSurfaceRegistry();
-        using var owner = new ChatViewModel(store, TestCopilot.Shared, chatEvents: events) { CurrentChat = chat };
-        registry.Attach(owner);
-        using var first = new AttentionInboxViewModel(store, registry, events, _ => Task.FromResult(true));
-        var approval = owner.PresentPermissionRequest(chat, "session", "approval-time",
-            new PermissionPromptRequestCommands
-            {
-                FullCommandText = "git status", Intention = "Inspect changes",
-                CommandIdentifiers = ["git status"], CanOfferSessionApproval = true
-            }, false, (_, _, _) => Task.FromResult(true))!;
-        var original = Assert.Single(first.Requests);
-        await original.ContextReady;
-        chat.Messages.Add(new()
-        {
-            Role = "assistant", Content = "This happened after the approval was requested.",
-            Timestamp = approval.RequestedAt.AddMinutes(1)
-        });
-        await Task.Delay(10);
-        using var second = new AttentionInboxViewModel(store, registry, events, _ => Task.FromResult(true));
-        var later = Assert.Single(second.Requests);
-        await later.ContextReady;
-        Assert.True(DateTimeOffset.UtcNow > approval.RequestedAt);
-        Assert.Equal(approval.RequestedAt, original.RequestedAt);
-        Assert.Equal(original.RequestedAt, later.RequestedAt);
-        Assert.Equal(original.AskedAt, later.AskedAt);
-        Assert.DoesNotContain(later.Context, entry => entry.Text.Contains("after the approval"));
-        owner.CancelPermissionRequests(chat.Id);
+        using var sessions = new ChatSessionStore(store, TestCopilot.Shared, registry);
+        using var main = Main(store, registry, sessions);
+        main.SelectedProjectFilter = firstProject.Id;
+        await Settle();
+        main.NewChatCommand.Execute(null);
+        const string draft = "Keep this exact unsent project draft.";
+        main.ChatVM.PromptText = draft;
+        var questionOwner = await sessions.AcquireChatAsync(questionChat);
+        var formOwner = await sessions.AcquireChatAsync(formChat);
+        var question = Ask(questionOwner, questionChat, "Which option?");
+        var form = formOwner.AskInputAsync(formChat.Id, "form", Form, CancellationToken.None);
+        await Settle();
+        Assert.Equal(2, main.NeedsYouRequests.Count);
+        var entry = main.NeedsYouRequests.Single(item => item.ChatId == questionChat.Id);
+        await main.OpenPendingInputCommand.ExecuteAsync(entry);
+        Assert.Equal(questionChat.Id, main.ActiveChatId);
+        Assert.Equal(otherProject.Id, main.SelectedProjectFilter);
+        Assert.Equal(entry.ItemId, main.ChatVM.PendingInputTarget);
+        Assert.Single(main.NeedsYouRequests);
+        Assert.Equal(2, main.AttentionVM.Requests.Count);
+        questionOwner.SubmitQuestionAnswer(entry.RequestId, "Yes");
+        Assert.Contains("Yes", (await question)?.ToString());
+        await Settle();
+        Assert.True(questionOwner.ShowPendingInputBar);
+        Assert.True(questionOwner.HasNextPendingInput);
+        questionOwner.NextPendingInputInChatsCommand.Execute(null);
+        await Until(() => main.ActiveChatId == formChat.Id);
+        Assert.Equal(formChat.Id, main.ActiveChatId);
+        var message = formChat.Messages.Single(item => item.ToolName == "ask_input");
+        Assert.Equal(InputRequestItem.StableIdFor(message.Id), main.ChatVM.PendingInputTarget);
+        Assert.False((await formOwner.RequestInputInteractionAsync(formChat, message, "trip", "{}", "submit")).Accepted);
+        Assert.Single(main.AttentionVM.Requests);
+        Assert.True((await formOwner.RequestInputInteractionAsync(formChat, message, "trip",
+            new InteractiveState { Values = { ["city"] = "Osaka" } }.ToJson(), "submit")).Accepted);
+        Assert.Contains("Osaka", await form);
+        await Settle();
+        Assert.Empty(main.AttentionVM.Requests);
+        Assert.DoesNotContain(questionChat.Messages, item => item.Role == "user");
+        Assert.DoesNotContain(formChat.Messages, item => item.Role == "user");
+        Assert.True(await main.TryNavigateHistoryAsync(-1));
+        await Settle();
+        Assert.True(await main.TryNavigateHistoryAsync(-1));
+        await Settle();
+        Assert.Null(main.ChatVM.CurrentChat);
+        Assert.Equal(firstProject.Id, main.SelectedProjectFilter);
+        Assert.Equal(draft, main.ChatVM.PromptText);
+        sessions.Release(questionOwner);
+        sessions.Release(formOwner);
     });
 
     [Theory]
     [InlineData("en")]
     [InlineData("he")]
-    public Task BannerOpensTheInteractivePageAndTheNativeCardClearsIt(string language) => Run(async () =>
+    public Task SplitCapsuleOpensOriginalQuestionAndNoAnsweringPageExists(string language) => Run(async () =>
     {
         Loc.Load(language);
-        var chat = new Chat { Title = "Question owner", HasUnreadMessages = true };
-        var store = Store(chat);
-        store.Data.Settings.Language = language;
-        store.Data.Settings.IsOnboarded = true;
-        store.Data.Settings.ShowAnimations = false;
-        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), startBackgroundJobs: false);
-        main.ChatVM.CurrentChat = chat;
+        var chat = new Chat { Title = "Waiting chat", HasUnreadMessages = true };
+        var data = Data(chat);
+        data.Settings.Language = language;
+        var store = new DataStore(data);
+        using var registry = new ChatSurfaceRegistry();
+        using var sessions = new ChatSessionStore(store, TestCopilot.Shared, registry);
+        using var main = Main(store, registry, sessions);
+        var owner = await sessions.AcquireChatAsync(chat);
+        chat.HasUnreadMessages = true;
+        var waiting = Ask(owner, chat, "Keep every project visible?");
+        await Settle();
         var window = new MainWindow { DataContext = main, Width = 1100, Height = 850 };
         window.Show();
         try
         {
-            var waiting = Ask(main.ChatVM, chat, "Keep every project visible?");
             await Settle();
             window.UpdateLayout();
-            var banner = window.FindControl<Button>("NeedsYouBanner")!;
-            var unread = window.FindControl<Border>("UnreadInboxRoot")!;
-            Assert.True(banner.IsEffectivelyVisible);
-            Assert.Equal(Loc.Get("NeedsYou_Banner", 1), main.AttentionVM.BannerText);
-            Assert.True(Application.Current!.TryGetResource("Brush.DangerDefault", window.ActualThemeVariant, out var danger));
-            Assert.Equal(danger, banner.Foreground);
-            Assert.True(banner.TranslatePoint(default, window)!.Value.Y < unread.TranslatePoint(default, window)!.Value.Y);
-
-            banner.Command!.Execute(null);
+            var needs = window.FindControl<Button>("NeedsYouToggle")!;
+            var unread = window.FindControl<Button>("UnreadInboxToggle")!;
+            Assert.True(needs.IsEffectivelyVisible);
+            Assert.True(Application.Current!.TryGetResource("Brush.WarningDefault", window.ActualThemeVariant, out var amber));
+            Assert.Equal(amber, needs.Foreground);
+            Assert.Equal(needs.TranslatePoint(default, window)!.Value.Y, unread.TranslatePoint(default, window)!.Value.Y, 1);
+            Assert.Null(window.FindControl<Control>("PageAttention"));
+            Assert.Null(window.FindControl<Control>("RailNeedsYou"));
+            needs.Command!.Execute(null);
+            Assert.True(main.IsNeedsYouPanelOpen);
+            main.ToggleUnreadPanelCommand.Execute(null);
+            Assert.False(main.IsNeedsYouPanelOpen);
+            Assert.True(main.IsUnreadPanelOpen);
+            needs.Command.Execute(null);
+            Assert.False(main.IsUnreadPanelOpen);
+            var request = Assert.Single(main.NeedsYouRequests);
+            await main.OpenPendingInputCommand.ExecuteAsync(request);
             await Settle();
             window.UpdateLayout();
-            Assert.Equal(MainViewModel.AttentionNavIndex, main.SelectedNavIndex);
-            Assert.Equal(0, MainWindow.SidebarForPage(main.SelectedNavIndex));
-            var page = window.GetVisualDescendants().OfType<AttentionInboxView>().Single();
-            var card = page.GetVisualDescendants().OfType<StrataQuestionCard>().Single();
+            Assert.Equal(0, main.SelectedNavIndex);
+            Assert.Equal(chat.Id, main.ActiveChatId);
+            Assert.Empty(main.NeedsYouRequests);
+            Assert.Single(main.AttentionVM.Requests);
+            var card = window.GetVisualDescendants().OfType<StrataQuestionCard>().Single();
             Assert.True(card.IsEffectivelyVisible);
             Assert.Equal("Keep every project visible?", card.Question);
+            await Until(() => card.Classes.Contains("reply-flash"));
+            var shell = window.GetVisualDescendants().OfType<StrataChatShell>().Single();
+            var scroller = shell.GetVisualDescendants().OfType<ScrollViewer>().Single(item => item.Name == "PART_TranscriptScroll");
+            await Until(() =>
+            {
+                var difference = card.TranslatePoint(default, scroller)!.Value.Y - shell.ReadingLineInset;
+                var maxOffset = Math.Max(0, scroller.Extent.Height - scroller.Viewport.Height);
+                return Math.Abs(difference) <= 2
+                    || (difference < 0 && scroller.Offset.Y <= 1)
+                    || (difference > 0 && Math.Abs(scroller.Offset.Y - maxOffset) <= 1);
+            });
+            Assert.InRange(card.TranslatePoint(default, scroller)!.Value.Y, 0, scroller.Viewport.Height - 1);
+            Assert.True(window.GetVisualDescendants().OfType<Border>().Single(item => item.Name == "ApprovalsWaitingBar").IsVisible);
             card.SelectedAnswer = "Yes";
             card.IsAnswered = true;
             await waiting;
             await Settle();
-            window.UpdateLayout();
             Assert.Empty(main.AttentionVM.Requests);
-            Assert.False(banner.IsVisible);
-            Assert.True(page.FindControl<StackPanel>("NeedsYouEmpty")!.IsEffectivelyVisible);
-            Assert.True(await main.TryNavigateHistoryAsync(-1));
-            Assert.Equal(0, main.SelectedNavIndex);
         }
-        finally
-        {
-            window.Close();
-            Loc.Load("en");
-        }
+        finally { window.Close(); Loc.Load("en"); sessions.Release(owner); }
     });
 
     [Fact]
-    public Task QuestionsFromOtherChatsAreAnsweredOnceWithoutMovingOrSendingANewMessage() => Run(async () =>
+    public Task RequestsStayDistinctFromUnreadAndCancelAcrossWindows() => Run(async () =>
     {
-        var first = new Chat { Title = "First", ProjectId = Guid.NewGuid(), HasUnreadMessages = true };
-        var second = new Chat { Title = "Second", ProjectId = Guid.NewGuid() };
-        var store = Store(first, second);
+        var first = new Chat { Title = "First", HasUnreadMessages = true };
+        var second = new Chat { Title = "Second" };
+        var store = new DataStore(Data(first, second));
         var events = new ChatEventHub();
         using var registry = new ChatSurfaceRegistry();
         using var owner = new ChatViewModel(store, TestCopilot.Shared, chatEvents: events) { CurrentChat = first };
         registry.Attach(owner);
-        using var inbox = new AttentionInboxViewModel(store, registry, events, _ => Task.FromResult(true));
-        var a = Ask(owner, first, "First question?");
-        var b = Ask(owner, second, "Second question?");
-        await Settle();
-
-        Assert.Equal(2, inbox.Requests.Count);
-        events.PublishAttention(new(first.Id, ChatAttentionKind.Reply, "Unread reply"));
-        first.HasUnreadMessages = false;
-        inbox.Refresh();
-        Assert.Equal(2, inbox.Requests.Count);
-        var target = inbox.Requests.Single(request => request.ChatId == second.Id);
-        var question = Assert.IsType<QuestionItem>(target.Item);
-        question.Submit("Yes");
-        Assert.Contains("Yes", (await b)?.ToString());
-        await Settle();
-
-        Assert.Single(inbox.Requests);
-        Assert.False(a.IsCompleted);
-        Assert.Same(first, owner.CurrentChat);
-        Assert.DoesNotContain(second.Messages, message => message.Role == "user");
-        Assert.False(owner.TryAnswerPendingInput(first.Id, question.QuestionId, "No"));
-        Assert.False(owner.TryAnswerPendingInput(second.Id, question.QuestionId, "No"));
-        Assert.IsType<QuestionItem>(inbox.Requests[0].Item).Submit("No");
-        await a;
-        await Settle();
-        Assert.False(inbox.HasRequests);
-    });
-
-    [Fact]
-    public Task FormValidationPauseAndCancellationUseTheOriginalRequest() => Run(async () =>
-    {
-        var chat = new Chat();
-        var store = Store(chat);
-        var events = new ChatEventHub();
-        using var registry = new ChatSurfaceRegistry();
-        using var owner = new ChatViewModel(store, TestCopilot.Shared, chatEvents: events) { CurrentChat = chat };
-        registry.Attach(owner);
+        using var inbox = new AttentionInboxViewModel(store, registry, events);
         using var cancellation = new CancellationTokenSource();
-        var waiting = owner.AskInputAsync(chat.Id, "form", Form, cancellation.Token);
+        var question = Ask(owner, first, "First?", cancellation.Token);
+        var form = owner.AskInputAsync(second.Id, "form", Form, cancellation.Token);
         await Settle();
-        // A window opened after the event must still see the live request.
-        using var inbox = new AttentionInboxViewModel(store, registry, events, _ => Task.FromResult(true));
-        var request = Assert.Single(inbox.Requests);
-        Assert.False((await request.RequestInteractionAsync("trip", "{}", "submit")).Accepted);
-        Assert.False(waiting.IsCompleted);
-        var state = new InteractiveState { Values = { ["city"] = "Osaka" } }.ToJson();
-        chat.IsPaused = true;
-        Assert.False(request.CanAnswer);
-        Assert.False((await request.RequestInteractionAsync("trip", state, "submit")).Accepted);
-        chat.IsPaused = false;
-        Assert.True((await request.RequestInteractionAsync("trip", state, null)).Accepted);
-        Assert.Single(inbox.Requests);
-        cancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await waiting);
-        await Settle();
-        Assert.Empty(inbox.Requests);
-        Assert.False((await request.RequestInteractionAsync("trip", state, "submit")).Accepted);
-    });
-
-    [Fact]
-    public Task SubmissionAndAnsweringInTheChatRemoveTheRequestFromEveryInbox() => Run(async () =>
-    {
-        var chat = new Chat();
-        var store = Store(chat);
-        var events = new ChatEventHub();
-        using var registry = new ChatSurfaceRegistry();
-        using var owner = new ChatViewModel(store, TestCopilot.Shared, chatEvents: events) { CurrentChat = chat };
-        registry.Attach(owner);
-        using var first = new AttentionInboxViewModel(store, registry, events, _ => Task.FromResult(true));
-        using var second = new AttentionInboxViewModel(store, registry, events, _ => Task.FromResult(true));
-        var form = owner.AskInputAsync(chat.Id, "form", Form, CancellationToken.None);
-        await Settle();
-        var request = Assert.Single(first.Requests);
-        Assert.Single(second.Requests);
-        Assert.True((await request.RequestInteractionAsync("trip",
-            new InteractiveState { Values = { ["city"] = "Osaka" } }.ToJson(), "submit")).Accepted);
-        Assert.Contains("Osaka", await form);
-        await Settle();
-        Assert.Empty(first.Requests);
-        Assert.Empty(second.Requests);
-
-        var question = Ask(owner, chat, "Continue?");
-        await Settle();
-        owner.SubmitQuestionAnswer(first.Requests[0].RequestId, "Yes");
+        using var later = new AttentionInboxViewModel(store, registry, events);
+        Assert.Equal(2, inbox.Requests.Count);
+        Assert.Equal(2, later.Requests.Count);
+        first.HasUnreadMessages = false;
+        events.PublishAttention(new(first.Id, ChatAttentionKind.Reply, "Not a pending request"));
+        Assert.Equal(2, inbox.Requests.Count);
+        owner.SubmitQuestionAnswer(inbox.Requests.Single(item => item.ChatId == first.Id).RequestId, "Yes");
         await question;
         await Settle();
-        Assert.Empty(first.Requests);
-        Assert.Empty(second.Requests);
-    });
-
-    [Fact]
-    public Task ContextDescribesOnlyTheLeadInAndOpeningTheChatDoesNotDismissTheQuestion() => Run(async () =>
-    {
-        var chat = new Chat { Title = "Trip" };
-        chat.Messages.Add(new() { Role = "user", Content = "Find a quiet place in Osaka." });
-        chat.Messages.Add(new() { Role = "assistant", Content = "I found two stays, but need your dates." });
-        chat.Messages.Add(new() { Role = "reasoning", Content = "PRIVATE_REASONING" });
-        chat.Messages.Add(new()
-        {
-            Role = "tool", ToolName = "powershell", ToolStatus = "Completed",
-            Content = """{"description":"Compare nightly prices","command":"fixture"}""",
-            ToolOutput = "PRIVATE_TOOL_OUTPUT"
-        });
-        var store = Store(chat);
-        var events = new ChatEventHub();
-        using var registry = new ChatSurfaceRegistry();
-        using var owner = new ChatViewModel(store, TestCopilot.Shared, chatEvents: events) { CurrentChat = chat };
-        registry.Attach(owner);
-        Chat? opened = null;
-        using var inbox = new AttentionInboxViewModel(store, registry, events,
-            target => { opened = target; return Task.FromResult(true); });
-        var waiting = Ask(owner, chat, "Which dates?");
-        await Settle();
-        var request = Assert.Single(inbox.Requests);
-        await request.ContextReady;
-        Assert.Contains("quiet place in Osaka", request.Summary);
-        Assert.Contains("two stays", request.Summary);
-        Assert.Contains("Compare nightly prices", request.Summary);
-        Assert.DoesNotContain(request.Context, entry => entry.Text.Contains("PRIVATE_REASONING"));
-        Assert.DoesNotContain(request.Context, entry => entry.Text.Contains("PRIVATE_TOOL_OUTPUT"));
-        chat.Messages.Add(new() { Role = "assistant", Content = "AFTER_QUESTION", Timestamp = DateTimeOffset.UtcNow.AddMinutes(1) });
-        await request.LoadContextCommand.ExecuteAsync(null);
-        Assert.DoesNotContain(request.Context, entry => entry.Text.Contains("AFTER_QUESTION"));
-        await request.OpenChatCommand.ExecuteAsync(null);
-        Assert.Same(chat, opened);
         Assert.Single(inbox.Requests);
-        Assert.IsType<QuestionItem>(request.Item).Submit("Yes");
-        await waiting;
+        Assert.Single(later.Requests);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await form);
+        await Settle();
+        Assert.Empty(inbox.Requests);
+        Assert.Empty(later.Requests);
     });
 
     [Fact]
-    public Task ApprovalDecisionsStayWithTheirOwnerAndOnlyRemoveTheSettledRequest() => Run(async () =>
+    public Task ApprovalTimestampOrderAndPhoneProjectionUseTheSameLiveRequests() => Run(async () =>
     {
-        var first = new Chat { ApprovalMode = ApprovalMode.AskFirst };
-        var second = new Chat { ApprovalMode = ApprovalMode.AskFirst };
-        var store = Store(first, second);
-        var events = new ChatEventHub();
+        var questionChat = new Chat { Title = "Oldest question", UpdatedAt = DateTimeOffset.UtcNow };
+        var approvalChat = new Chat { Title = "Newer approval", ApprovalMode = ApprovalMode.AskFirst, UpdatedAt = DateTimeOffset.UtcNow.AddDays(-1) };
+        var unreadChat = new Chat { Title = "Unread only", HasUnreadMessages = true };
+        var store = new DataStore(Data(questionChat, approvalChat, unreadChat));
         using var registry = new ChatSurfaceRegistry();
-        using var owner = new ChatViewModel(store, TestCopilot.Shared, chatEvents: events) { CurrentChat = first };
-        registry.Attach(owner);
-        using var inbox = new AttentionInboxViewModel(store, registry, events, _ => Task.FromResult(true));
-        var answers = 0;
-        var prompt = new PermissionPromptRequestCommands
-        {
-            FullCommandText = "git status", Intention = "Check the worktree", CommandIdentifiers = ["git status"],
-            CanOfferSessionApproval = true
-        };
-        var a = owner.PresentPermissionRequest(first, "session", "same-id", prompt, false,
-            (_, _, _) => { answers++; return Task.FromResult(true); })!;
-        owner.PresentPermissionRequest(second, "session", "same-id", prompt, false,
-            (_, _, _) => throw new InvalidOperationException("Wrong owner."));
-        Assert.Equal(2, inbox.Requests.Count);
-        await Assert.IsType<ApprovalItem>(inbox.Requests.Single(entry => entry.ChatId == first.Id).Item)
-            .Request.AllowOnceCommand.ExecuteAsync(null);
-        Assert.Equal(1, answers);
-        Assert.Equal(ApprovalOutcome.Allowed, a.Outcome);
-        Assert.Equal(second.Id, Assert.Single(inbox.Requests).ChatId);
-        owner.CancelPermissionRequests(second.Id);
-        Assert.Empty(inbox.Requests);
+        using var sessions = new ChatSessionStore(store, TestCopilot.Shared, registry);
+        using var main = Main(store, registry, sessions);
+        var questionOwner = await sessions.AcquireChatAsync(questionChat);
+        var approvalOwner = await sessions.AcquireChatAsync(approvalChat);
+        var waiting = Ask(questionOwner, questionChat, "An actual question?");
+        await Settle();
+        var approval = approvalOwner.PresentPermissionRequest(approvalChat, "session", "same-id",
+            new PermissionPromptRequestCommands
+            {
+                FullCommandText = "git status", Intention = "Inspect changes",
+                CommandIdentifiers = ["git status"], CanOfferSessionApproval = true
+            }, false, (_, _, _) => Task.FromResult(true))!;
+        var first = main.AttentionVM.Requests.Single(item => item.ChatId == approvalChat.Id);
+        using var anotherWindow = new AttentionInboxViewModel(store, registry, sessions.ChatEvents);
+        using var anotherMainWindow = Main(store, registry, sessions);
+        Assert.Equal(2, anotherMainWindow.NeedsYouRequests.Count);
+        Assert.Equal(approval.RequestedAt, first.RequestedAt);
+        Assert.Equal(first.RequestedAt, anotherWindow.Requests.Single(item => item.ChatId == approvalChat.Id).RequestedAt);
+        Assert.Equal(["Oldest question", "Newer approval"], main.AttentionVM.Requests.Select(item => item.ChatTitle));
+        var phone = RemoteProjector.BuildNewChatExperience(store, main.ChatVM);
+        Assert.Equal(main.AttentionVM.Requests.Select(item => item.ChatId), phone.NeedsYouChats.Select(item => item.ChatId));
+        Assert.Equal(2, phone.NeedsYouCount);
+        Assert.All(phone.NeedsYouChats, item => Assert.True(item.IsWaiting));
+        Assert.Contains("An actual question?", phone.NeedsYouChats[0].Meta);
+        Assert.Contains("git status", phone.NeedsYouChats[1].Meta);
+        await main.OpenPendingInputCommand.ExecuteAsync(first);
+        Assert.Equal(approvalChat.Id, main.ActiveChatId);
+        Assert.Equal(first.ItemId, approvalOwner.PendingInputTarget);
+        Assert.True(approval.IsPending);
+        await approval.DenyCommand.ExecuteAsync(null);
+        Assert.Single(main.AttentionVM.Requests);
+        Assert.Single(anotherWindow.Requests);
+        questionOwner.SubmitQuestionAnswer(main.AttentionVM.Requests[0].RequestId, "Yes");
+        await waiting;
+        await Settle();
+        Assert.Empty(main.AttentionVM.Requests);
+        sessions.Release(questionOwner);
+        sessions.Release(approvalOwner);
     });
 
-    private static Task<object?> Ask(ChatViewModel owner, Chat chat, string question)
+    private static MainViewModel Main(DataStore store, ChatSurfaceRegistry registry, ChatSessionStore sessions)
+        => new(store, TestCopilot.Shared, new UpdateService(), startBackgroundJobs: false,
+            chatSurfaceRegistry: registry, chatSessionStore: sessions);
+
+    private static Task<object?> Ask(ChatViewModel owner, Chat chat, string question, CancellationToken token = default)
     {
         var tool = (AIFunction)typeof(ChatViewModel).GetMethod("BuildAskQuestionTool",
             BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(owner, [chat.Id])!;
@@ -335,14 +247,25 @@ public sealed class AttentionInboxTests
         {
             ["question"] = question, ["options"] = new[] { "Yes", "No" },
             ["allowFreeText"] = true, ["allowMultiSelect"] = false
-        }).AsTask();
+        }, token).AsTask();
     }
 
-    private static DataStore Store(params Chat[] chats) => new(new AppData
+    private static AppData Data(params Chat[] chats) => new()
     {
-        Chats = [.. chats],
-        Settings = new() { Language = "en", AutoSaveChats = false, NotificationsEnabled = false, EnableMemoryAutoSave = false }
-    });
+        Chats = [.. chats], Settings = new()
+        {
+            Language = "en", IsOnboarded = true, ShowAnimations = false,
+            AutoSaveChats = false, NotificationsEnabled = false, EnableMemoryAutoSave = false
+        }
+    };
+
+    private static async Task Until(Func<bool> ready)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!ready())
+            await Task.Delay(10, timeout.Token);
+        await Settle();
+    }
 
     private static async Task Settle()
     {

@@ -20,6 +20,17 @@ namespace Lumi.Views;
 /// </summary>
 public partial class ChatView
 {
+    private async void OnPendingInputJumpRequested(string itemId)
+    {
+        var vm = _subscribedVm;
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+        if (vm is null || !ReferenceEquals(vm, _subscribedVm) || vm.PendingInputTarget != itemId)
+            return;
+        EnsureTranscriptScrollViewer();
+        if (FindRailInput(vm.TranscriptTurns, itemId) is { } target)
+            await JumpToRailInputAsync(target.Turn, itemId);
+    }
+
     private void AttachTranscriptRail()
     {
         if (_chatShell is null)

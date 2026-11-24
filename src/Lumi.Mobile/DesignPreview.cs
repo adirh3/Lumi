@@ -321,8 +321,8 @@ public static class DesignPreview
             NeedsYou = "2 chats need you",
             NeedsYouChats =
             [
-                new() { ChatId = Guid.NewGuid(), Title = "Crash triage: indexer timeout", IsWaiting = true, StateLabel = "Asked you something", Meta = "Fluent Search · Which build should I bisect from?", TimeLabel = "2h ago" },
-                new() { ChatId = Guid.NewGuid(), Title = "Lisbon weekend itinerary", StateLabel = "Replied", Meta = "Travel · Day 1: Alfama walk, then dinner by the river", TimeLabel = "5h ago" }
+                new() { ChatId = Guid.NewGuid(), Title = "Crash triage: indexer timeout", IsWaiting = true, StateLabel = "Needs you", Meta = "Fluent Search · Question · Which build should I bisect from?", TimeLabel = "2h ago" },
+                new() { ChatId = Guid.NewGuid(), Title = "Lisbon weekend itinerary", IsWaiting = true, StateLabel = "Needs you", Meta = "Travel · Input · Which dates should I plan for?", TimeLabel = "5h ago" }
             ]
         });
         shell.Chat.Reset(open.Id, open.Title, "gpt-6.1-sol");

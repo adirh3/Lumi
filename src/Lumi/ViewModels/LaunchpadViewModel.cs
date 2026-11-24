@@ -71,6 +71,7 @@ public sealed partial class LaunchpadChatItem : ObservableObject
 
     [ObservableProperty] private string _title = "";
     [ObservableProperty] private string _projectName = "";
+    [ObservableProperty] private string _requestKind = "";
     [ObservableProperty] private string _stateLabel = "";
     [ObservableProperty] private string _preview = "";
     [ObservableProperty] private string _timeLabel = "";
@@ -84,12 +85,11 @@ public sealed partial class LaunchpadChatItem : ObservableObject
     public bool IsReply => State == LaunchpadChatState.Reply;
 
     /// <summary>The quiet second line: the chat's project and what it asks or said last.</summary>
-    public string Meta => ProjectName.Length > 0 && Preview.Length > 0
-        ? ProjectName + " · " + Preview
-        : ProjectName + Preview;
+    public string Meta => string.Join(" · ", new[] { ProjectName, RequestKind, Preview }.Where(part => part.Length > 0));
 
     partial void OnProjectNameChanged(string value) => OnPropertyChanged(nameof(Meta));
     partial void OnPreviewChanged(string value) => OnPropertyChanged(nameof(Meta));
+    partial void OnRequestKindChanged(string value) => OnPropertyChanged(nameof(Meta));
 
     [RelayCommand]
     private void Open() => _open(this);
@@ -850,6 +850,8 @@ public sealed partial class LaunchpadViewModel : ObservableObject
         // A new chat starts on For you.
         SelectedCategory = null;
         _chatEvents.EventPublished += OnChatEventPublished;
+        if (_owner.AttentionInbox is { } inbox)
+            inbox.Changed += QueueRefresh;
         _dataStore.IndexSaved += OnIndexSaved;
         _owner.PropertyChanged += OnOwnerPropertyChanged;
         _owner.AvailableModels.CollectionChanged += OnAvailableModelsChanged;
@@ -864,6 +866,8 @@ public sealed partial class LaunchpadViewModel : ObservableObject
             return;
 
         _chatEvents.EventPublished -= OnChatEventPublished;
+        if (_owner.AttentionInbox is { } inbox)
+            inbox.Changed -= QueueRefresh;
         _dataStore.IndexSaved -= OnIndexSaved;
         _owner.PropertyChanged -= OnOwnerPropertyChanged;
         _owner.AvailableModels.CollectionChanged -= OnAvailableModelsChanged;
@@ -1272,7 +1276,9 @@ public sealed partial class LaunchpadViewModel : ObservableObject
         GreetingTrail = greeting.Trail;
         _hasHistory = chats.Any(LaunchpadPlanner.HasContent);
 
-        var needsYou = LaunchpadPlanner.SelectNeedsYou(chats, LaunchpadPlanner.MaxNeedsYouItems, out var waiting);
+        var needsYou = _owner.AttentionInbox is { } inbox
+            ? inbox.SelectChats(LaunchpadPlanner.MaxNeedsYouItems, out var waiting)
+            : LaunchpadPlanner.SelectNeedsYou(chats, LaunchpadPlanner.MaxNeedsYouItems, out waiting);
         SyncNeedsYou(needsYou);
         NeedsYouLabel = waiting == 1 ? Loc.Launchpad_NeedsYouOne : string.Format(Loc.Culture, Loc.Launchpad_NeedsYouMany, waiting);
         HasNeedsYou = waiting > 0;
@@ -1434,11 +1440,13 @@ public sealed partial class LaunchpadViewModel : ObservableObject
                 ? projects.FirstOrDefault(candidate => candidate.Id == projectId)?.Name ?? ""
                 : "";
             item.State = state;
-            item.StateLabel = state == LaunchpadChatState.Waiting ? Loc.Launchpad_StateWaiting : Loc.Launchpad_StateReply;
-            item.Preview = state == LaunchpadChatState.Waiting && FindPendingQuestion(chat) is { } question
+            item.StateLabel = state == LaunchpadChatState.Waiting ? Loc.Get("NeedsYou_Title") : Loc.Launchpad_StateReply;
+            var request = _owner.AttentionInbox?.Requests.FirstOrDefault(entry => entry.ChatId == chat.Id);
+            item.RequestKind = request?.Kind ?? "";
+            item.Preview = request?.Ask ?? (state == LaunchpadChatState.Waiting && FindPendingQuestion(chat) is { } question
                 ? LaunchpadPlanner.CleanPreview(question)
-                : LaunchpadPlanner.CleanPreview(chat.Preview);
-            item.TimeLabel = LibraryViewModel.FormatRelativeTime(chat.UpdatedAt);
+                : LaunchpadPlanner.CleanPreview(chat.Preview));
+            item.TimeLabel = request?.TimeLabel ?? LibraryViewModel.FormatRelativeTime(chat.UpdatedAt);
         }
 
         while (NeedsYouItems.Count > desired.Count)

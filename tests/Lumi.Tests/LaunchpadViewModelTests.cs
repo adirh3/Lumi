@@ -120,12 +120,9 @@ public sealed class LaunchpadViewModelTests
                 Assert.False(projected.Places.Single(place => place.Id == agent.Id).IsProject);
                 Assert.Equal(Loc.Launchpad_CategoryForYou, projected.Labels!.ForYou);
                 Assert.Equal(Loc.Launchpad_NewStarter, projected.Labels.NewStarter);
-                Assert.Equal(1, projected.NeedsYouCount);
-                Assert.Equal(Loc.Launchpad_NeedsYouOne, projected.NeedsYou);
-                var waiting = Assert.Single(projected.NeedsYouChats);
-                Assert.Equal("Default chat 0", waiting.Title);
-                Assert.False(waiting.IsWaiting);
-                Assert.Equal(Loc.Launchpad_StateReply, waiting.StateLabel);
+                Assert.Equal(0, projected.NeedsYouCount);
+                Assert.Null(projected.NeedsYou);
+                Assert.Empty(projected.NeedsYouChats);
 
                 var json = JsonSerializer.Serialize(projected, RemoteJsonContext.Default.RemoteNewChatExperience);
                 Assert.DoesNotContain(first.WorktreePath!, json);
@@ -547,7 +544,7 @@ public sealed class LaunchpadViewModelTests
             });
             var reply = new Chat { Title = "Budget", MessageCount = 4, UpdatedAt = now.AddMinutes(-30), HasUnreadMessages = true, Preview = "Here's the summary." };
             var trip = new Chat { Title = "Trip", MessageCount = 2, UpdatedAt = now.AddMinutes(-5), Preview = "Booked.", IsRunning = true };
-            replyId = reply.Id;
+            replyId = waiting.Id;
 
             var data = NewData();
             data.Chats.AddRange([waiting, reply, trip]);
@@ -565,7 +562,7 @@ public sealed class LaunchpadViewModelTests
                 waitingState = launchpad.NeedsYouItems[0].StateLabel;
                 waitingMeta = launchpad.NeedsYouItems[0].Meta;
 
-                launchpad.NeedsYouItems[1].OpenCommand.Execute(null);
+                launchpad.NeedsYouItems[0].OpenCommand.Execute(null);
 
                 // A chat that was only working finishes with a reply the user hasn't read.
                 trip.IsRunning = false;
@@ -581,15 +578,15 @@ public sealed class LaunchpadViewModelTests
         }, CancellationToken.None);
 
         // Work in progress isn't something to answer: the new chat leaves it to the sidebar.
-        Assert.Equal(["Release notes", "Budget"], titles);
+        Assert.Equal(["Release notes"], titles);
         Assert.True(hasNeedsYou);
-        Assert.Equal("2 chats need you", label);
-        Assert.Equal("Needs your answer", waitingState);
+        Assert.Equal("1 chat needs you", label);
+        Assert.Equal("Needs you", waitingState);
         Assert.Equal("Which branch should I ship?", waitingMeta);
         Assert.True(openingRaised);
         Assert.Equal(replyId, revealed);
-        Assert.Equal(["Release notes", "Trip", "Budget"], titlesAfterReply);
-        Assert.Equal("3 chats need you", labelAfterReply);
+        Assert.Equal(["Release notes"], titlesAfterReply);
+        Assert.Equal("1 chat needs you", labelAfterReply);
     }
 
     [Fact]

@@ -98,6 +98,8 @@ public sealed class ChatSessionStore : IDisposable
         _secureKeyStore = secureKeyStore;
         _byokRateLimiter = copilotService.ByokRateLimiter;
         _chatEvents = chatEvents ?? new ChatEventHub();
+        Attention = new AttentionInboxViewModel(dataStore, registry, _chatEvents);
+        Attention.Changed += OnPendingInputsChanged;
         _ownsCapabilityCatalog = capabilityCatalog is null;
         _capabilityCatalog = capabilityCatalog ?? CapabilityCatalog.CreateDefault(dataStore, copilotService);
         _loadChatAsync = loadChatAsync;
@@ -133,6 +135,10 @@ public sealed class ChatSessionStore : IDisposable
     /// </summary>
     public ChatOrchestrationService OrchestrationService { get; set; }
     internal ChatEventHub ChatEvents => _chatEvents;
+    public AttentionInboxViewModel Attention { get; }
+
+    private void OnPendingInputsChanged()
+        => ApplyToSurfaces(surface => surface.RefreshPendingInputNavigation());
 
     /// <summary>The capability catalog every surface reads; Customize lists external items from it too.</summary>
     internal CapabilityCatalog CapabilityCatalog => _capabilityCatalog;
@@ -340,6 +346,8 @@ public sealed class ChatSessionStore : IDisposable
             return;
 
         _isDisposed = true;
+        Attention.Changed -= OnPendingInputsChanged;
+        Attention.Dispose();
         _idleSessionTimer.Stop();
         _idleSessionTimer.Tick -= OnIdleSessionTimer;
         _copilotService.Reconnected -= OnCopilotReconnected;
@@ -375,7 +383,8 @@ public sealed class ChatSessionStore : IDisposable
             _capabilityCatalog)
         {
             SendWithEnter = _dataStore.Data.Settings.SendWithEnter,
-            OrchestrationService = OrchestrationService
+            OrchestrationService = OrchestrationService,
+            AttentionInbox = Attention
         };
         // Seed the model catalog from an already-populated surface. Surfaces acquired without a
         // MainViewModel configure callback — notably background orchestration executors resolved by

@@ -1051,20 +1051,20 @@
          Chats stream in several projects at once, so a reply can land in a project the sidebar is
          filtered away from. This pill sits directly above the chat list as the one filter-independent
          "you have new replies" surface, and opens into a card that jumps straight to any of them. -->
-    <Style Selector="Button.needs-you-banner">
-      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.DangerDefault}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="9,5" />
-      <Setter Property="MinHeight" Value="34" />
+    <Style Selector="Button#NeedsYouToggle">
+      <Setter Property="Background" Value="{DynamicResource Brush.WarningSubtle}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="7,4" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Height" Value="32" />
       <Setter Property="MinWidth" Value="0" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+      <Setter Property="CornerRadius" Value="0" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="Button.needs-you-banner:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.DangerHover}" />
+    <Style Selector="Button#NeedsYouToggle:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.WarningSubtle}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
     <Style Selector="Border#UnreadPanel.unread-panel">
       <Setter Property="Padding" Value="0" />
@@ -1081,7 +1081,7 @@
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="Height" Value="32" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+      <Setter Property="CornerRadius" Value="0" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
@@ -1713,37 +1713,31 @@
 
                 <!-- Everything else starts under the closed switcher (6 above it, 36 tall), which opens over it. -->
                 <DockPanel Margin="0,42,0,0">
-                  <Button x:Name="NeedsYouBanner"
-                          DockPanel.Dock="Top"
-                          Classes="needs-you-banner"
-                          Margin="14,6,14,0"
-                          IsVisible="{Binding AttentionVM.HasRequests}"
-                          Command="{Binding OpenAttentionInboxCommand}"
-                          ToolTip.Tip="{loc:Str NeedsYou_Description}"
-                          AutomationProperties.Name="{Binding AttentionVM.BannerText}">
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                      <Border Width="18" Height="18" CornerRadius="9"
-                              Background="{DynamicResource Brush.DangerDefault}" VerticalAlignment="Center">
-                        <TextBlock Text="!" FontWeight="Bold" FontSize="13"
-                                   Foreground="{DynamicResource Brush.TextOnDanger}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                      </Border>
-                      <TextBlock Grid.Column="1" Text="{Binding AttentionVM.BannerText}"
-                                 FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                                 Foreground="{DynamicResource Brush.DangerDefault}" VerticalAlignment="Center" />
-                      <PathIcon Grid.Column="2" Data="{StaticResource Icon.ChevronRight}"
-                                Width="11" Height="11" VerticalAlignment="Center"
-                                Foreground="{DynamicResource Brush.DangerDefault}" />
-                    </Grid>
-                  </Button>
                   <!-- ── Unread inbox: the one place unread replies stay visible regardless of the
                            active project filter, and the fastest route back to them. ── -->
                   <Border x:Name="UnreadInboxRoot"
                           DockPanel.Dock="Top"
                           Margin="14,6,14,0"
-                          IsVisible="{Binding HasUnreadChats}">
+                          IsVisible="{Binding HasChatInbox}">
                     <StackPanel>
-                      <Button x:Name="UnreadInboxToggle"
+                      <Border CornerRadius="{DynamicResource Radius.Interactive}" ClipToBounds="True"
+                              BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1">
+                        <Grid ColumnDefinitions="*,Auto,*">
+                          <Button x:Name="NeedsYouToggle" Command="{Binding ToggleNeedsYouPanelCommand}"
+                                  IsEnabled="{Binding HasNeedsYouChats}" Classes.open="{Binding IsNeedsYouPanelOpen}"
+                                  ToolTip.Tip="{loc:Str NeedsYou_Description}" ToolTip.Placement="Bottom"
+                                  AutomationProperties.Name="{Binding NeedsYouSummaryText}">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="5">
+                              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Question}" Width="13" Height="13"
+                                                Foreground="{DynamicResource Brush.WarningDefault}" VerticalAlignment="Center" />
+                              <TextBlock Grid.Column="1" Text="{Binding NeedsYouSummaryText}" FontSize="11"
+                                         FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                              <PathIcon Grid.Column="2" Data="{StaticResource Icon.ChevronDown}" Width="9" Height="9"
+                                        Foreground="{DynamicResource Brush.WarningDefault}" VerticalAlignment="Center" />
+                            </Grid>
+                          </Button>
+                          <Border Grid.Column="1" Width="1" Background="{DynamicResource Brush.BorderSubtle}" />
+                      <Button x:Name="UnreadInboxToggle" Grid.Column="2" IsEnabled="{Binding HasUnreadChats}"
                               Classes="unread-toggle"
                               Command="{Binding ToggleUnreadPanelCommand}"
                               ToolTip.Tip="{Binding UnreadTooltipText}"
@@ -1752,8 +1746,8 @@
                           <Border Grid.Column="0" Classes="unread-dot" />
                           <TextBlock Grid.Column="1"
                                      x:Name="UnreadSummaryLabel"
-                                     Text="{Binding UnreadSummaryText}"
-                                     FontSize="11.5"
+                                     Text="{Binding UnreadCapsuleText}"
+                                     FontSize="11"
                                      FontWeight="SemiBold"
                                      Foreground="{DynamicResource Brush.AccentDefault}"
                                      VerticalAlignment="Center"
@@ -1766,6 +1760,38 @@
                                     Foreground="{DynamicResource Brush.AccentDefault}" />
                         </Grid>
                       </Button>
+                        </Grid>
+                      </Border>
+
+                      <Border x:Name="NeedsYouPanel" Classes="unread-panel" IsVisible="{Binding IsNeedsYouPanelOpen}"
+                              CornerRadius="12" BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
+                              Background="{DynamicResource Brush.Surface0}" Margin="0,4,0,0">
+                        <ScrollViewer MaxHeight="300" HorizontalScrollBarVisibility="Disabled" Margin="6"
+                                      VerticalScrollBarVisibility="Auto" Classes="hover-scroll">
+                          <ItemsControl x:Name="NeedsYouList" ItemsSource="{Binding NeedsYouRequests}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="vm:AttentionRequestViewModel">
+                                <Button x:Name="NeedsYouRequestRow" Classes="unread-row"
+                                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenPendingInputCommand}"
+                                        CommandParameter="{Binding}" AutomationProperties.Name="{Binding Ask}">
+                                  <StackPanel Spacing="3">
+                                    <TextBlock Text="{Binding ChatTitle}" FontSize="11.5" FontWeight="Medium"
+                                               Foreground="{DynamicResource Brush.TextPrimary}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Ask}" TextWrapping="Wrap" MaxLines="2" FontSize="11.5"
+                                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                      <TextBlock Text="{Binding Meta}" FontSize="10" TextTrimming="CharacterEllipsis"
+                                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                                      <TextBlock Grid.Column="1" Text="{Binding TimeLabel}" FontSize="10"
+                                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                                    </Grid>
+                                  </StackPanel>
+                                </Button>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </ScrollViewer>
+                      </Border>
 
                       <Border x:Name="UnreadRevealHost"
                               Height="0"
@@ -2992,6 +3018,13 @@
                                 IsVisible="{Binding HasUnreadChats}">
                           <TextBlock Text="{Binding UnreadBadgeText}" />
                         </Border>
+                        <Border x:Name="NavChatNeedsYouMarker" IsVisible="{Binding HasNeedsYouChats}"
+                                Background="{DynamicResource Brush.WarningDefault}" CornerRadius="8"
+                                Width="13" Height="13" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                Margin="0,0,-6,-5" AutomationProperties.Name="{Binding NeedsYouSummaryText}">
+                          <TextBlock Text="?" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource Brush.TextOnAccent}"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
                       </Panel>
                       <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Chats}" />
                     </StackPanel>
@@ -3198,13 +3231,6 @@
                 BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
           <ContentControl x:Name="PageDiscoverHost" />
         </Border>
-        <Border x:Name="PageAttention" IsVisible="False"
-                CornerRadius="{DynamicResource Radius.Overlay}"
-                Background="{DynamicResource Brush.SurfaceCard}"
-                BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
-                BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
-          <ContentControl x:Name="PageAttentionHost" />
-        </Border>
 
         <!-- "Copied for chat", and "a Lumi code is on your clipboard": centred over the page, just
              below its header row so the buttons that triggered it stay visible. -->
@@ -3282,22 +3308,9 @@
                 Margin="13,84,0,0"
                 IsVisible="{Binding ShowSidebarRail}"
                 ZIndex="29">
-      <Button x:Name="RailNeedsYou" Classes="subtle rail-nav-icon"
-              IsVisible="{Binding AttentionVM.HasRequests}" Command="{Binding OpenAttentionInboxCommand}"
-              ToolTip.Tip="{Binding AttentionVM.BannerText}"
-              AutomationProperties.Name="{Binding AttentionVM.BannerText}">
-        <Panel>
-          <TextBlock Text="!" FontSize="20" FontWeight="Bold"
-                     Foreground="{DynamicResource Brush.DangerDefault}" HorizontalAlignment="Center" />
-          <Border Classes="unread-nav-badge" Margin="0,-4,-6,0"
-                  Background="{DynamicResource Brush.DangerDefault}">
-            <TextBlock Text="{Binding AttentionVM.CountText}" Foreground="{DynamicResource Brush.TextOnDanger}" />
-          </Border>
-        </Panel>
-      </Button>
       <Button Classes="subtle rail-nav-icon" x:Name="RailChat"
-              Command="{Binding SetNavCommand}" CommandParameter="0"
-              ToolTip.Tip="{loc:Str NavTip_Chats}">
+              Command="{Binding OpenNeedsYouFromRailCommand}"
+              ToolTip.Tip="{loc:Str NavTip_Chats}" AutomationProperties.HelpText="{Binding NeedsYouSummaryText}">
         <Panel>
           <PathIcon Classes="nav-chat" Data="{StaticResource Icon.Chat}" Width="17" Height="17" />
           <Border x:Name="RailChatUnreadBadge"
@@ -3305,6 +3318,12 @@
                   Margin="0,-4,-6,0"
                   IsVisible="{Binding HasUnreadChats}">
             <TextBlock Text="{Binding UnreadBadgeText}" />
+          </Border>
+          <Border x:Name="RailChatNeedsYouMarker" Background="{DynamicResource Brush.WarningDefault}"
+                  IsVisible="{Binding HasNeedsYouChats}" CornerRadius="8" Width="13" Height="13"
+                  HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-6,-5">
+            <TextBlock Text="?" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource Brush.TextOnAccent}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
         </Panel>
       </Button>
