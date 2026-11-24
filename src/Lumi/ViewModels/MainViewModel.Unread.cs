@@ -247,13 +247,16 @@ public partial class MainViewModel
     [RelayCommand]
     private void MarkChatRead(Chat? chat) => SetChatUnread(chat, false);
 
-    private void SetChatUnread(Chat? chat, bool isUnread)
+    internal void SetChatUnread(Chat? chat, bool isUnread, bool fromMobile = false)
     {
         if (chat is null)
             return;
 
         SubscribeChatRunningState();
-        chat.HasUnreadMessages = isUnread;
+        if (fromMobile && isUnread)
+            chat.MarkUnreadFromMobile();
+        else
+            chat.HasUnreadMessages = isUnread;
     }
 
     [RelayCommand]

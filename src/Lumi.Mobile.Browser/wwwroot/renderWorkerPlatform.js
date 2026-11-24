@@ -1,14 +1,11 @@
-import { TimerHelper, WebRenderTargetRegistry } from './_framework/avalonia.js';
+import { WebRenderTargetRegistry } from './_content/Avalonia.Browser/avalonia.js';
 
-export * from './_framework/avalonia.js';
+export * from './_content/Avalonia.Browser/avalonia.js';
+
+// Avalonia imports this same wrapper in the render worker using the resolved module URL.
+export const getModuleUrl = () => import.meta.url;
 
 if (typeof document === 'undefined') {
-    // A render-side Dispatcher.Post must wake this worker's owning document, not its own JS realm.
-    TimerHelper.setTimeout = delay => {
-        self.postMessage({ lumiRenderWorker: 'wake', delay });
-        return 0;
-    };
-
     const initialize = WebRenderTargetRegistry.initializeWorker;
     WebRenderTargetRegistry.initializeWorker = function () {
         initialize.call(this);
@@ -46,9 +43,7 @@ if (typeof document === 'undefined') {
                 worker.addEventListener('error', event =>
                     window.dispatchEvent(new CustomEvent('lumi-render-worker-error', { detail: event.message })));
                 worker.addEventListener('message', ({ data }) => {
-                    if (data?.lumiRenderWorker === 'wake' && Number.isFinite(data.delay))
-                        TimerHelper.setTimeout(data.delay);
-                    else if (data?.lumiRenderWorker === 'canvas')
+                    if (data?.lumiRenderWorker === 'canvas')
                         window.dispatchEvent(new CustomEvent('lumi-render-worker-canvas', { detail: data.kind }));
                     else if (data?.lumiRenderWorker === 'context-lost')
                         window.dispatchEvent(new Event('lumi-render-worker-context-lost'));

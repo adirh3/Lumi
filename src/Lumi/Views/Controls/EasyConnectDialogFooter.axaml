@@ -50,7 +50,7 @@
         <Button x:Name="ConnectBack" Classes="mg-button" Command="{Binding BackCommand}" IsEnabled="{Binding CanGoBack}"
                 Content="{Binding BackText}" />
         <Button x:Name="FindProviderModels" Classes="accent mg-button" Command="{Binding DiscoverCommand}"
-                IsVisible="{Binding ShowContinue}" IsEnabled="{Binding CanDiscover}" Content="{loc:Str EasyConnect_Continue}" />
+                IsVisible="{Binding ShowContinue}" IsEnabled="{Binding CanDiscover}" Content="{Binding ContinueText}" />
       </StackPanel>
       <Panel />
     </DockPanel>

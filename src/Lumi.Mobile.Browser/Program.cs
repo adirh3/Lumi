@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using System.Runtime.InteropServices.JavaScript;
@@ -118,25 +119,25 @@ internal static class Program
                 new BrowserPlatformOptions
                 {
 #if LUMI_PWA_RENDER_WORKER
-                    PreferManagedThreadDispatcher = false,
                     FrameworkAssetPathResolver = name => name == "avalonia.js"
                         ? assets + "renderWorkerPlatform.js"
-                        : assets + "_framework/" + name,
+                        : assets + "_content/Avalonia.Browser/" + name,
+                    // The worker is used only with WebGL 2; the ordinary build keeps Avalonia's defaults.
+                    RenderingMode = [BrowserRenderingMode.WebGL2],
 #endif
-                    RenderingMode =
-                    [
-                        BrowserRenderingMode.WebGL2,
-                        BrowserRenderingMode.WebGL1,
-                        BrowserRenderingMode.Software2D
-                    ],
                     RegisterAvaloniaServiceWorker = false,
                     PreferFileDialogPolyfill = true
                 });
 #if DEBUG || LUMI_MOBILE_SMOOTHNESS
         if (smoothness)
-            BrowserSmoothness.Initialize();
+            await Dispatcher.UIThread.InvokeAsync(BrowserSmoothness.Initialize);
 #endif
 
+        await Dispatcher.UIThread.InvokeAsync(PrepareAttachmentPickerAsync);
+    }
+
+    private static async Task PrepareAttachmentPickerAsync()
+    {
         // Resolve Avalonia's lazy storage import before a tap; no folder is opened or permission requested.
         if (Application.Current?.ApplicationLifetime is ISingleViewApplicationLifetime { MainView: { } view }
             && TopLevel.GetTopLevel(view)?.StorageProvider is { } storage)

@@ -92,6 +92,8 @@
   <data name="LaunchpadIdeas" xml:space="preserve"><value>Ideas</value></data>
   <data name="LongPressSetupActions" xml:space="preserve"><value>Long press to keep or change this setup</value></data>
   <data name="RenameChat" xml:space="preserve"><value>Rename chat</value></data>
+  <data name="MarkAsUnread" xml:space="preserve"><value>Mark as unread</value></data>
+  <data name="MarkAsRead" xml:space="preserve"><value>Mark as read</value></data>
   <data name="DeleteChat" xml:space="preserve"><value>Delete chat</value></data>
   <data name="ChatName" xml:space="preserve"><value>Chat name</value></data>
   <data name="DeleteChatWarning" xml:space="preserve"><value>This conversation will be deleted from your phone and computer. This can't be undone.</value></data>

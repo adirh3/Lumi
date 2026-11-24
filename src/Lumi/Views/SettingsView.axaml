@@ -49,26 +49,6 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.mobile-transport">
-      <Setter Property="Padding" Value="14" />
-      <Setter Property="MinHeight" Value="156" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-      <Setter Property="VerticalContentAlignment" Value="Stretch" />
-    </Style>
-    <Style Selector="Button.mobile-transport /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Mg.CardBackground}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
-    </Style>
-    <Style Selector="Button.mobile-transport.selected /template/ Border#PART_Surface, Button.mobile-experience.selected /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Mg.SelectedBackground}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-    <Style Selector="Button.mobile-transport.selected TextBlock.mobile-transport-title">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-    <Style Selector="Grid#MobileTransportChoices.stacked Button.mobile-transport">
-      <Setter Property="MinHeight" Value="0" />
-    </Style>
   </UserControl.Styles>
 
   <Panel>
@@ -255,6 +235,28 @@
     <ControlTemplate x:Key="PageMobile" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 2: Mobile ═══ -->
     <StackPanel x:Name="PageMobile" Classes="st-page motion-surface" IsVisible="False">
+      <StackPanel.Styles>
+        <Style Selector="Button.mobile-transport">
+          <Setter Property="Padding" Value="14" />
+          <Setter Property="MinHeight" Value="156" />
+          <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+          <Setter Property="VerticalContentAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="Button.mobile-transport /template/ Border#PART_Surface">
+          <Setter Property="Background" Value="{DynamicResource Mg.CardBackground}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+        </Style>
+        <Style Selector="Button.mobile-transport.selected /template/ Border#PART_Surface, Button.mobile-experience.selected /template/ Border#PART_Surface">
+          <Setter Property="Background" Value="{DynamicResource Mg.SelectedBackground}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+        </Style>
+        <Style Selector="Button.mobile-transport.selected TextBlock.mobile-transport-title">
+          <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+        </Style>
+        <Style Selector="Grid#MobileTransportChoices.stacked Button.mobile-transport">
+          <Setter Property="MinHeight" Value="0" />
+        </Style>
+      </StackPanel.Styles>
       <Grid Classes="st-header" ColumnDefinitions="Auto,*">
         <Border Classes="mg-tile st-header-tile">
           <PathIcon Data="{StaticResource St.Icon.Mobile}" Foreground="{DynamicResource St.Hue.Mobile}" />
@@ -1620,6 +1622,7 @@
                         <StackPanel Orientation="Horizontal" Spacing="8" DockPanel.Dock="Right">
                           <Button Content="{loc:Str Settings_Byok_DuplicateEndpoint}" Padding="8,3" MinHeight="0"
                                   Classes="subtle motion-action"
+                                  IsVisible="{Binding !IsSelectedByokEntra}"
                                   Command="{Binding DuplicateByokEndpointCommand}" />
                           <Button Content="{loc:Str Settings_Byok_DeleteEndpoint}" Padding="8,3" MinHeight="0"
                                   Classes="danger subtle motion-action"
@@ -1667,7 +1670,7 @@
                                  PlaceholderText="{loc:Str Settings_Byok_AzureApiVersionPlaceholder}" />
                       </StackPanel>
 
-                      <StackPanel Spacing="4">
+                      <StackPanel Spacing="4" IsVisible="{Binding !IsSelectedByokEntra}">
                         <TextBlock Text="{loc:Str Settings_Byok_ApiKeyMode}" FontSize="{DynamicResource Font.SizeCaption}"
                                    Foreground="{DynamicResource Brush.TextSecondary}" />
                         <ComboBox Name="ByokApiKeyModePicker"
@@ -1676,6 +1679,8 @@
                                   SelectionChanged="OnByokApiKeyModeSelectionChanged"
                                   HorizontalAlignment="Stretch" />
                       </StackPanel>
+                      <TextBlock Text="{Binding SelectedByokEntraLabel}" IsVisible="{Binding IsSelectedByokEntra}"
+                                 FontSize="{DynamicResource Font.SizeCaption}" Foreground="{DynamicResource Brush.TextSecondary}" />
 
                       <StackPanel Spacing="4" IsVisible="{Binding UsesEnvVarApiKey}">
                         <TextBlock Text="{loc:Str Settings_Byok_ApiKeyEnvVar}" FontSize="{DynamicResource Font.SizeCaption}"

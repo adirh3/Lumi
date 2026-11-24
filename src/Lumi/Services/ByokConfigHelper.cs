@@ -219,6 +219,14 @@ public static class ByokConfigHelper
         if (urlError is not null)
             return urlError;
 
+        if (endpoint.FoundryIdentity is { } identity
+            && (endpoint.ConnectionProviderId != "foundry" || endpoint.ProviderType != "openai"
+                || !FoundryEntraCredential.IsAllowedEndpoint(endpoint.BaseUrl)
+                || !Guid.TryParse(identity.TenantId, out _) || !Guid.TryParse(identity.UserId, out _)
+                || (identity.ClientId is not null
+                    && (!Guid.TryParse(identity.ClientId, out _) || string.IsNullOrWhiteSpace(identity.BrowserAccount)))))
+            return Loc.Get("EasyConnect_FoundryIdentityEndpoint");
+
         // wireApi applies only to openai/azure providers; anthropic omits it entirely.
         if (endpoint.ProviderType != "anthropic" && string.IsNullOrWhiteSpace(endpoint.WireApi))
             return Loc.Byok_ApiFormatRequired;
@@ -369,7 +377,7 @@ public static class ByokConfigHelper
             var endpoint = validEndpoints.FirstOrDefault(e => e.Id == candidate.EndpointId);
             if (endpoint is null) continue;
             if (ValidateModel(candidate, endpoint) is not null) continue;
-            list.Add(m);
+            list.Add(WithFoundryModelDefaults(m, endpoint));
         }
         return list;
     }
@@ -412,7 +420,8 @@ public static class ByokConfigHelper
         // pc.ApiKey (the SDK sends the latter as 'Authorization: Bearer'). Resolving twice would
         // re-read the environment and could, in principle, race if the env var changed between
         // the two calls — leaving the Authorization header and the api-key header disagreeing.
-        var resolvedKey = ResolveApiKey(endpoint, keyStore);
+        var identity = endpoint.FoundryIdentity is not null ? FoundryEntraCredential.For(endpoint) : null;
+        var resolvedKey = identity is null ? ResolveApiKey(endpoint, keyStore) : null;
 
         // Coerce the model's advanced limits through the same normalizer so a stray <=0 value
         // (e.g. from a hand-edited data.json) never reaches the SDK as an invalid cap.
@@ -424,6 +433,7 @@ public static class ByokConfigHelper
             Type = string.IsNullOrWhiteSpace(endpoint.ProviderType) ? "openai" : endpoint.ProviderType,
             BaseUrl = endpoint.BaseUrl,
             ApiKey = resolvedKey,
+            BearerTokenProvider = identity is null ? null : identity.GetProviderTokenAsync,
             // Token limits: null = inherit provider/SDK default (no cap sent). Verified to reach
             // the provider via ProviderConfig.MaxPromptTokens / MaxOutputTokens (SDK 1.0.1).
             MaxOutputTokens = maxOutputTokens,
@@ -451,7 +461,7 @@ public static class ByokConfigHelper
         //   ${env:MY_VAR_NAME}           -> process environment variable value
         //
         // Unresolved dynamic placeholders are skipped (instead of being sent literally).
-        if (endpoint.Headers is { Count: > 0 })
+        if (identity is null && endpoint.Headers is { Count: > 0 })
         {
             var resolvedHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (name, rawValue) in endpoint.Headers)
@@ -527,6 +537,7 @@ public static class ByokConfigHelper
             ConnectionProviderId = endpoint.ConnectionProviderId,
             CredentialExpiresAt = endpoint.CredentialExpiresAt,
             Account = endpoint.Account?.Clone(),
+            FoundryIdentity = endpoint.FoundryIdentity,
             Name = endpoint.Name,
             ProviderType = endpoint.ProviderType,
             BaseUrl = endpoint.BaseUrl,
@@ -550,6 +561,7 @@ public static class ByokConfigHelper
             DisplayName = model.DisplayName,
             IsEnabled = model.IsEnabled,
             SupportsReasoningEffort = model.SupportsReasoningEffort,
+            ReasoningEffortDisabled = model.ReasoningEffortDisabled,
             SupportedReasoningEfforts = model.SupportedReasoningEfforts?.ToList() ?? [],
             DefaultReasoningEffort = model.DefaultReasoningEffort,
             DefaultContextWindowTokens = model.DefaultContextWindowTokens,
@@ -558,6 +570,36 @@ public static class ByokConfigHelper
             MaxPromptTokens = model.MaxPromptTokens,
             MaxRequestsPerMinute = model.MaxRequestsPerMinute,
         };
+
+    internal static ByokModel WithFoundryModelDefaults(ByokModel model, ByokEndpoint? endpoint)
+    {
+        if (endpoint is not { ConnectionProviderId: "foundry", WireApi: "responses" }
+            || !ProviderCatalog.IsFoundryAstra62(model.ModelId.Trim()))
+            return model;
+
+        var efforts = !model.ReasoningEffortDisabled && model.SupportedReasoningEfforts is not { Count: > 0 }
+            ? ProviderCatalog.GetFoundryReasoningEfforts(model.ModelId.Trim(), endpoint.WireApi)
+            : null;
+
+        // These are input budgets: stay in short-context pricing by default, or allow the
+        // full documented input limit while leaving the model's output budget available.
+        const int shortContext = 272_000;
+        const int longContext = 922_000;
+        var defaultTokens = model.DefaultContextWindowTokens ?? shortContext;
+        var longTokens = model.LongContextWindowTokens ?? (defaultTokens < longContext ? (int?)longContext : null);
+        if (efforts is null && defaultTokens == model.DefaultContextWindowTokens && longTokens == model.LongContextWindowTokens)
+            return model;
+
+        var effective = CloneModel(model);
+        if (efforts is not null)
+        {
+            effective.SupportsReasoningEffort = true;
+            effective.SupportedReasoningEfforts = efforts.ToList();
+        }
+        effective.DefaultContextWindowTokens = defaultTokens;
+        effective.LongContextWindowTokens = longTokens;
+        return effective;
+    }
 
     private static ByokModel NormalizeModelCopy(ByokModel model)
     {
@@ -670,7 +712,7 @@ public static class ByokConfigHelper
         // bound to another provider: the bridge route's connection id stands in for both.
         var bridged = ChatGptPlanBridge.TryGetBridgedEndpoint(provider.BaseUrl, out var bridgedEndpoint);
         var apiKeyHash = bridged ? "" : HashOpaqueSecret(provider.ApiKey);
-        var bearerTokenHash = HashOpaqueSecret(provider.BearerToken);
+        var bearerTokenHash = BearerSignature(provider.BearerToken, provider.BearerTokenProvider);
         var azureApiVersion = provider.Azure?.ApiVersion?.Trim() ?? "";
         var headers = provider.Headers is null
             ? ""
@@ -748,7 +790,7 @@ public static class ByokConfigHelper
             provider.BaseUrl?.Trim() ?? "",
             provider.WireApi?.Trim() ?? "",
             HashOpaqueSecret(provider.ApiKey),
-            HashOpaqueSecret(provider.BearerToken),
+            BearerSignature(provider.BearerToken, provider.BearerTokenProvider),
             provider.Azure?.ApiVersion?.Trim() ?? "",
             headers,
             model?.Id,
@@ -806,7 +848,7 @@ public static class ByokConfigHelper
         if (ValidateModel(foundModel, foundEndpoint) is not null)
             return false;
 
-        model = foundModel;
+        model = WithFoundryModelDefaults(foundModel, foundEndpoint);
         endpoint = foundEndpoint;
         actualModelId = foundModel.ModelId;
         return true;
@@ -894,7 +936,7 @@ public static class ByokConfigHelper
             if (ValidateEndpoint(endpoint) is not null || ValidateModel(model, endpoint) is not null)
                 continue;
 
-            candidates.Add((model, BuildProviderConfig(endpoint, model, keyStore)));
+            candidates.Add((WithFoundryModelDefaults(model, endpoint), BuildProviderConfig(endpoint, model, keyStore)));
         }
 
         if (candidates.Count != 1
@@ -1006,6 +1048,11 @@ public static class ByokConfigHelper
     /// or header value). Used by <see cref="BuildProviderSignature"/> so the signature
     /// stays stable across key edits and is safe to log.
     /// </summary>
+    private static string BearerSignature(string? token, Func<ProviderTokenArgs, Task<string>>? callback)
+        => callback?.Target is FoundryEntraCredential foundry
+            ? "foundry:" + HashOpaqueSecret(foundry.RoutingIdentity)
+            : callback is null ? HashOpaqueSecret(token) : "bearer-callback";
+
     private static string HashOpaqueSecret(string? secret)
     {
         if (string.IsNullOrEmpty(secret)) return "";

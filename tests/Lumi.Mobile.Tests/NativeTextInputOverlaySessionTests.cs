@@ -3,6 +3,7 @@ using System.Runtime.ExceptionServices;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using Lumi.Mobile.Behaviors;
+using Lumi.Mobile.Browser;
 using StrataTheme.Controls;
 using Xunit;
 
@@ -10,6 +11,20 @@ namespace Lumi.Mobile.Tests;
 
 public sealed class NativeTextInputOverlaySessionTests
 {
+    [Fact]
+    public async Task SingleThreadedBrowserDeliversTheLastEditBeforeTheSynchronousEnter()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var draft = "before autocorrect";
+            var edit = BrowserUiThread.InvokeAsync(() => { draft = "after autocorrect"; });
+            var draftSeenByEnter = draft;
+            await edit;
+            Assert.Equal("after autocorrect", draftSeenByEnter);
+        }, CancellationToken.None);
+    }
+
     /// <summary>
     /// Every headless test session runs on its own UI thread (a later one may or may not reuse an
     /// earlier one's). A sheet another session opened belongs to that session's thread, so a session

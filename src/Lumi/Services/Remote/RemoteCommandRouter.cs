@@ -62,6 +62,7 @@ internal sealed class RemoteCommandRouter
         {
             RemoteProtocol.Actions.CreateChat => await CreateChatAsync(command),
             RemoteProtocol.Actions.OpenChat => await MarkChatReadAsync(command),
+            RemoteProtocol.Actions.SetChatUnread => SetChatUnread(command),
             RemoteProtocol.Actions.DeleteChat => await DeleteChatAsync(command),
             RemoteProtocol.Actions.RenameChat => await RenameChatAsync(command),
             RemoteProtocol.Actions.PinChat => await PinChatAsync(command),
@@ -194,20 +195,45 @@ internal sealed class RemoteCommandRouter
         if (ResolveExplicitChat(command) is not { } chat)
             return Fail(Loc.Remote_ChatNotFound);
 
-        if (!chat.HasUnreadMessages)
-            return Success(Loc.Remote_ChatAvailable, chat.Id);
-
-        if (command.GetInt("readThroughMessageCount") is { } readThroughMessageCount &&
-            RemoteProjector.GetEffectiveMessageCount(chat) > readThroughMessageCount)
+        RemoteCommandResult Result(string message) => new()
         {
-            return Success(Loc.Remote_NewerActivityUnread, chat.Id);
+            Ok = true,
+            Message = message,
+            ChatId = chat.Id,
+            HasUnreadMessages = chat.HasUnreadMessages
+        };
+
+        if (!chat.HasUnreadMessages)
+            return Result(Loc.Remote_ChatAvailable);
+
+        // Older phones treat any successful acknowledgement as read, even if the mark remains.
+        if (chat.MobileUnreadMark.HasValue && !command.Arguments.ContainsKey("mobileUnreadMark"))
+            return Fail(Loc.Remote_NewerActivityUnread, chat.Id);
+
+        // A refresh (including one already in flight) cannot undo a deliberate mark.
+        if (chat.MobileUnreadMark != command.GetGuid("mobileUnreadMark")
+            || (command.GetInt("readThroughMessageCount") is { } readThroughMessageCount
+                && RemoteProjector.GetEffectiveMessageCount(chat) > readThroughMessageCount))
+        {
+            return Result(Loc.Remote_NewerActivityUnread);
         }
 
         chat.HasUnreadMessages = false;
         _dataStore.MarkChatChanged(chat);
         await _dataStore.SaveAsync().ConfigureAwait(true);
         _main.RefreshChatList();
-        return Success(Loc.Remote_ChatMarkedRead, chat.Id);
+        return Result(Loc.Remote_ChatMarkedRead);
+    }
+
+    private RemoteCommandResult SetChatUnread(RemoteCommand command)
+    {
+        if (ResolveExplicitChat(command) is not { } chat)
+            return Fail(Loc.Remote_ChatNotFound);
+        if (command.GetBool("isUnread") is not { } isUnread)
+            return Fail(Loc.Get("Remote_ArgumentRequired", "isUnread"), chat.Id);
+
+        _main.SetChatUnread(chat, isUnread, fromMobile: true);
+        return new RemoteCommandResult { Ok = true, ChatId = chat.Id };
     }
 
     private async Task<RemoteCommandResult> DeleteChatAsync(RemoteCommand command)

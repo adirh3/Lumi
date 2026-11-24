@@ -84,6 +84,7 @@ public static class ImageGenerationRouting
     /// <summary>An enabled OpenAI-compatible account whose provider isn't known to lack the Images API.</summary>
     internal static bool CanCreateImages(ByokEndpoint endpoint)
         => endpoint.IsEnabled
+           && endpoint.FoundryIdentity is null
            && !ByokConfigHelper.IsChatGptEndpoint(endpoint)
            && (string.IsNullOrWhiteSpace(endpoint.ProviderType) || endpoint.ProviderType == "openai")
            && !KnownTextOnlyProviders.Contains(ProviderId(endpoint));

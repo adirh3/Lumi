@@ -266,6 +266,7 @@ internal static class RemoteProjector
                               || isActive && (chatVm.IsSessionActive || chatVm.IsBusy || chatVm.IsStreaming),
             HasUnreadMessages = chat.HasUnreadMessages,
             StatusText = isActive ? chatVm.StatusText : null,
+            MobileUnreadMark = chat.MobileUnreadMark,
             Model = model,
             ContextCurrentTokens = isActive ? chatVm.ContextCurrentTokens : 0,
             ContextTokenLimit = isActive ? chatVm.ContextTokenLimit : 0,
@@ -2368,6 +2369,7 @@ internal static class RemoteProjector
             IsAwaitingInput = transcript.Status.IsAwaitingInput,
             IsSessionActive = transcript.Status.IsSessionActive,
             HasUnreadMessages = transcript.Status.HasUnreadMessages,
+            MobileUnreadMark = transcript.Status.MobileUnreadMark,
             ContextCurrentTokens = transcript.Status.ContextCurrentTokens,
             ContextTokenLimit = transcript.Status.ContextTokenLimit,
             UsesWorktree = transcript.Status.UsesWorktree
@@ -2680,6 +2682,7 @@ internal static class RemoteProjector
             IsAwaitingInput = status.IsAwaitingInput,
             IsSessionActive = status.IsSessionActive,
             HasUnreadMessages = status.HasUnreadMessages,
+            MobileUnreadMark = status.MobileUnreadMark,
             StatusText = BoundOptional(status.StatusText, RemoteProtocol.MobileStatusTextLimit),
             Model = BoundOptional(status.Model, RemoteProtocol.MobileStatusValueLimit),
             ContextCurrentTokens = status.ContextCurrentTokens,

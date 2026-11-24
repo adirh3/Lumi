@@ -185,7 +185,7 @@ public sealed class PresenceMotionCaptureHarness
                     centroidsY.Add(pcy);
                     coresY.Add(pcore);
                     times.Add(double.NaN); // resting pre-move frames have no move-relative time
-                    pbmp.Save(Path.Combine(outDir, $"frame{frameIdx:D2}.png"));
+                    pbmp.Save(Path.Combine(outDir, $"frame{frameIdx:D2}.png"), PngBitmapEncoderOptions.Default);
                     frameIdx++;
                     pbmp.Dispose();
                 }
@@ -236,7 +236,7 @@ public sealed class PresenceMotionCaptureHarness
                     centroidsY.Add(cy);
                     coresY.Add(core);
                     times.Add(moveClock.Elapsed.TotalMilliseconds);
-                    bmp.Save(Path.Combine(outDir, $"frame{frameIdx:D2}.png"));
+                    bmp.Save(Path.Combine(outDir, $"frame{frameIdx:D2}.png"), PngBitmapEncoderOptions.Default);
                     frameIdx++;
                     bmp.Dispose();
                 }
@@ -424,6 +424,6 @@ public sealed class PresenceMotionCaptureHarness
                 }
             }
         }
-        bmp.Save(path);
+        bmp.Save(path, PngBitmapEncoderOptions.Default);
     }
 }

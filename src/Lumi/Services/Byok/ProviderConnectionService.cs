@@ -47,7 +47,14 @@ public sealed class ProviderConnectionService : IDisposable
         if (isGemini)
             uri = new Uri("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000");
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-        if (!string.IsNullOrEmpty(key))
+        if (endpoint.FoundryIdentity is not null)
+        {
+            if (!FoundryEntraCredential.IsAllowedEndpoint(endpoint.BaseUrl))
+                throw new ProviderConnectionException(Loc.Get("EasyConnect_FoundryIdentityEndpoint"));
+            var token = await FoundryEntraCredential.For(endpoint).GetTokenAsync(cancellationToken);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+        else if (!string.IsNullOrEmpty(key))
         {
             if (isGemini)
                 request.Headers.Add("x-goog-api-key", key);
@@ -61,13 +68,16 @@ public sealed class ProviderConnectionService : IDisposable
             else
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
         }
-        foreach (var (name, value) in endpoint.Headers)
+        if (endpoint.FoundryIdentity is null)
         {
-            if (!ByokConfigHelper.TryResolveHeaderValue(value, key, out var resolved))
-                continue;
-            request.Headers.Remove(name);
-            if (!request.Headers.TryAddWithoutValidation(name, resolved))
-                throw new ProviderConnectionException(Loc.Get("EasyConnect_InvalidHeader"));
+            foreach (var (name, value) in endpoint.Headers)
+            {
+                if (!ByokConfigHelper.TryResolveHeaderValue(value, key, out var resolved))
+                    continue;
+                request.Headers.Remove(name);
+                if (!request.Headers.TryAddWithoutValidation(name, resolved))
+                    throw new ProviderConnectionException(Loc.Get("EasyConnect_InvalidHeader"));
+            }
         }
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
@@ -117,6 +127,21 @@ public sealed class ProviderConnectionService : IDisposable
         if (path != "/openai/v1")
             throw new ProviderConnectionException(Loc.Get("EasyConnect_FoundryInvalidEndpoint"));
         return uri.GetLeftPart(UriPartial.Path).TrimEnd('/');
+    }
+
+    internal static (string BaseUrl, string? Deployment) ParseFoundryAddress(string input)
+    {
+        if (Uri.TryCreate(input, UriKind.Absolute, out var uri) && FoundryEntraCredential.IsFoundryHost(uri)
+            && uri.UserInfo.Length == 0 && uri.Fragment.Length == 0
+            && (uri.Query.Length == 0 || System.Text.RegularExpressions.Regex.IsMatch(
+                uri.Query, @"^\?api-version=\d{4}-\d{2}-\d{2}(?:-preview)?$")))
+        {
+            var path = System.Text.RegularExpressions.Regex.Match(uri.AbsolutePath,
+                @"^/openai/deployments/([A-Za-z0-9_.-]+)/chat/completions/?$");
+            if (path.Success)
+                return (uri.GetLeftPart(UriPartial.Authority) + "/openai/v1", path.Groups[1].Value);
+        }
+        return (NormalizeFoundryBaseUrl(input), null);
     }
 
     internal static bool IsNonLoopbackHttp(string baseUrl)

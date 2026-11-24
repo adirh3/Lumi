@@ -63,6 +63,9 @@ public sealed class RemoteChatStatus
     public bool IsSessionActive { get; set; }
     /// <summary>Desktop-owned read state. Null when connected to a host predating read-state status.</summary>
     public bool? HasUnreadMessages { get; set; }
+    /// <summary>An explicit mobile mark that a background transcript refresh must not acknowledge.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? MobileUnreadMark { get; set; }
     public string? StatusText { get; set; }
     public string? Model { get; set; }
     public long ContextCurrentTokens { get; set; }

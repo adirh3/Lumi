@@ -92,6 +92,8 @@
   <data name="LaunchpadIdeas" xml:space="preserve"><value>灵感</value></data>
   <data name="LongPressSetupActions" xml:space="preserve"><value>长按可保留或更改此设置</value></data>
   <data name="RenameChat" xml:space="preserve"><value>重命名聊天</value></data>
+  <data name="MarkAsUnread" xml:space="preserve"><value>标为未读</value></data>
+  <data name="MarkAsRead" xml:space="preserve"><value>标为已读</value></data>
   <data name="DeleteChat" xml:space="preserve"><value>删除聊天</value></data>
   <data name="ChatName" xml:space="preserve"><value>聊天名称</value></data>
   <data name="DeleteChatWarning" xml:space="preserve"><value>此对话将从手机和计算机中删除。此操作无法撤销。</value></data>

@@ -644,6 +644,38 @@ public sealed class ChatStyleScopeTests
         }
     });
 
+    [Fact]
+    public Task WorkspaceHeaderAndSidebarStyles_StayWithTheirNamedOwners() => WithWindow((window, chat) =>
+    {
+        // Sidebar ListBox styling stays inside Border#SidebarBorder and does not style unrelated ListBoxes in ChatView.
+        var foreignList = new ListBox { Classes = { "sidebar-list" } };
+        var foreignWsButton = new Button { Content = "Other", Classes = { "ws-header-button" } };
+        chat.FindControl<Panel>("ChatPanel")!.Children.Add(foreignList);
+        chat.FindControl<Panel>("ChatPanel")!.Children.Add(foreignWsButton);
+        Pump(window);
+
+        var sidebarList = window.FindControl<Border>("SidebarBorder")!
+            .GetVisualDescendants().OfType<ListBox>().First(lb => lb.Classes.Contains("sidebar-list"));
+        Assert.Equal(new Thickness(0), sidebarList.BorderThickness);
+        Assert.NotEqual(new Thickness(0), foreignList.BorderThickness);
+
+        // ChatTagsList in the separate Chat Tags dialog also keeps its compact sidebar-list padding/item spacing.
+        var tagsList = window.FindControl<ListBox>("ChatTagsList")!;
+        var main = Assert.IsType<MainViewModel>(window.DataContext);
+        main.ChatTagsVM.IsDialogOpen = true;
+        Pump(window);
+        Assert.Equal(new Thickness(0), tagsList.Padding);
+        var tagRow = tagsList.GetVisualDescendants().OfType<ListBoxItem>().First();
+        Assert.Equal(new Thickness(12, 7), tagRow.Padding);
+        Assert.Equal(new Thickness(1, 0), tagRow.Margin);
+
+        var workspace = window.GetVisualDescendants().OfType<ChatWorkspaceView>().Single();
+        var closeBtn = workspace.FindControl<Button>("WorkspaceCloseButton")!;
+        Assert.Equal(28, closeBtn.Width);
+        Assert.Equal(28, closeBtn.Height);
+        Assert.True(double.IsNaN(foreignWsButton.Width));
+    }, data => data.ChatTags.Add(new ChatTag { Name = "Work" }));
+
     private static async Task WithWindow(Action<MainWindow, ChatView> check, Action<AppData>? seed = null)
     {
         using var session = HeadlessTestSession.Start();

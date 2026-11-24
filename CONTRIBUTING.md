@@ -4,6 +4,9 @@ Focused fixes, documentation improvements, translations and small features are
 welcome. Start with an existing [issue](https://github.com/adirh3/Lumi/issues), or
 open one describing the problem. Discuss larger features, architectural changes
 and new dependencies before implementing them so the scope can be agreed first.
+Changes to navigation, new pages or surfaces, or a significant change to how an
+existing flow looks or works also need a UX design review: open an issue with a
+sketch or mockup and wait for the design to be agreed before writing code.
 For suspected vulnerabilities, use [private security reporting](SECURITY.md)
 instead of a public issue or pull request.
 

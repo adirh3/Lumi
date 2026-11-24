@@ -82,6 +82,31 @@
     <Style Selector="ScrollViewer.ws-chips.fade-start.fade-end">
       <Setter Property="OpacityMask" Value="{StaticResource Ws.ChipFadeBoth}" />
     </Style>
+    <Style Selector="Button#WsFilePreviewButton.file-preview-action">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="Button#WsFilePreviewButton.file-preview-action /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button#WsFilePreviewButton.file-preview-action /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button#WsFilePreviewButton.file-preview-action:pointerover, Button#WsFilePreviewButton.file-preview-action:focus-visible">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button#WsFilePreviewButton.file-preview-action:pointerover /template/ Border#PART_Surface, Button#WsFilePreviewButton.file-preview-action:focus-visible /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button#WsFilePreviewButton.file-preview-action:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
     <Style Selector="Button.ws-chip">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderBrush" Value="{StaticResource Ws.ChipRim}" />

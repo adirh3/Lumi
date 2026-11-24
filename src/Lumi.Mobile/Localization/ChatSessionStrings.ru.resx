@@ -92,6 +92,8 @@
   <data name="LaunchpadIdeas" xml:space="preserve"><value>Идеи</value></data>
   <data name="LongPressSetupActions" xml:space="preserve"><value>Долгое нажатие, чтобы сохранить или изменить эту настройку</value></data>
   <data name="RenameChat" xml:space="preserve"><value>Переименовать чат</value></data>
+  <data name="MarkAsUnread" xml:space="preserve"><value>Пометить как непрочитанное</value></data>
+  <data name="MarkAsRead" xml:space="preserve"><value>Пометить как прочитанное</value></data>
   <data name="DeleteChat" xml:space="preserve"><value>Удалить чат</value></data>
   <data name="ChatName" xml:space="preserve"><value>Название чата</value></data>
   <data name="DeleteChatWarning" xml:space="preserve"><value>Эта беседа будет удалена с вашего телефона и компьютера. Это действие нельзя отменить.</value></data>

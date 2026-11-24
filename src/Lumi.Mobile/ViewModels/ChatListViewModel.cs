@@ -29,6 +29,7 @@ public sealed partial class ChatListItemViewModel : ObservableObject
     private bool _isSessionActive;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(AccessibilityName))]
+    [NotifyPropertyChangedFor(nameof(ReadStateActionLabel))]
     private bool _hasUnreadMessages;
     [ObservableProperty] private bool _isSelected;
     [ObservableProperty] private int _messageCount;
@@ -42,6 +43,8 @@ public sealed partial class ChatListItemViewModel : ObservableObject
     public bool HasAgent => !string.IsNullOrWhiteSpace(AgentName);
 
     public bool HasBackgroundActivity => IsSessionActive && !IsRunning;
+
+    public string ReadStateActionLabel => Strings.Get(HasUnreadMessages ? "MarkAsRead" : "MarkAsUnread");
 
     public string AccessibilityName => Title
         + (IsRunning ? Strings.Get("RunningSuffix") : "")
@@ -493,7 +496,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
             IsPinned = existing?.IsPinned ?? incoming.IsPinned,
             IsRunning = incoming.IsRunning,
             IsSessionActive = incoming.IsSessionActive || incoming.IsRunning,
-            HasUnreadMessages = false,
+            HasUnreadMessages = existing?.HasUnreadMessages ?? incoming.HasUnreadMessages,
             LastModelUsed = incoming.LastModelUsed ?? existing?.LastModelUsed
         };
 

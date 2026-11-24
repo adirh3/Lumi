@@ -294,6 +294,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         => ByokApiKeyModeOptions.FirstOrDefault(option => option.Value == SelectedByokEndpoint?.ApiKeyMode);
 
     public bool IsByokEndpointSelected => SelectedByokEndpoint is not null;
+    public bool IsSelectedByokEntra => SelectedByokEndpoint?.FoundryIdentity is not null;
+    public string SelectedByokEntraLabel => Loc.Get(SelectedByokEndpoint?.FoundryIdentity?.ClientId is null
+        ? "EasyConnect_FoundryCli" : "EasyConnect_FoundryBrowser");
     public bool IsSelectedByokAzure => SelectedByokEndpoint?.ProviderType == "azure";
 
     /// <summary>
@@ -1648,7 +1651,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private void DuplicateByokEndpoint()
     {
         var source = SelectedByokEndpoint;
-        if (source is null) return;
+        if (source is null || source.FoundryIdentity is not null) return;
 
         var copy = new ByokEndpoint
         {
@@ -1769,6 +1772,12 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             return;
 
         draft.SupportedReasoningEfforts = ParseReasoningEfforts(EditingByokSupportedReasoningEffortsText);
+        var endpoint = ByokConfigHelper.FindEndpoint(_dataStore.Data.Settings, draft.EndpointId);
+        draft.ReasoningEffortDisabled = !draft.SupportsReasoningEffort
+            && endpoint is { ConnectionProviderId: "foundry" }
+            && Lumi.Services.Byok.ProviderCatalog.IsFoundryAstra62(draft.ModelId.Trim())
+            && (draft.ReasoningEffortDisabled || (IsEditingExistingByokModel && SelectedByokModel is { } original
+                && ByokConfigHelper.WithFoundryModelDefaults(original, endpoint).SupportsReasoningEffort));
         ByokConfigHelper.NormalizeModel(draft);
 
         if (IsEditingExistingByokModel
@@ -1808,7 +1817,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     private void BeginByokModelEdit(ByokModel model, bool isNew)
     {
-        EditingByokModel = CloneByokModel(model);
+        EditingByokModel = CloneByokModel(ByokConfigHelper.WithFoundryModelDefaults(
+            model, ByokConfigHelper.FindEndpoint(_dataStore.Data.Settings, model.EndpointId)));
         IsEditingExistingByokModel = !isNew;
         EditingByokSupportedReasoningEffortsText = string.Join(", ", EditingByokModel.SupportedReasoningEfforts);
         SelectedByokEndpoint = null;
@@ -1868,6 +1878,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             DisplayName = model.DisplayName,
             IsEnabled = model.IsEnabled,
             SupportsReasoningEffort = model.SupportsReasoningEffort,
+            ReasoningEffortDisabled = model.ReasoningEffortDisabled,
             SupportedReasoningEfforts = model.SupportedReasoningEfforts?.ToList() ?? [],
             DefaultReasoningEffort = model.DefaultReasoningEffort,
             DefaultContextWindowTokens = model.DefaultContextWindowTokens,
@@ -1884,6 +1895,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         target.DisplayName = source.DisplayName;
         target.IsEnabled = source.IsEnabled;
         target.SupportsReasoningEffort = source.SupportsReasoningEffort;
+        target.ReasoningEffortDisabled = source.ReasoningEffortDisabled;
         target.SupportedReasoningEfforts = source.SupportedReasoningEfforts.ToList();
         target.DefaultReasoningEffort = source.DefaultReasoningEffort;
         target.DefaultContextWindowTokens = source.DefaultContextWindowTokens;
@@ -1956,6 +1968,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private void RaiseByokEndpointVisibilityFlags()
     {
         OnPropertyChanged(nameof(IsSelectedByokAzure));
+        OnPropertyChanged(nameof(IsSelectedByokEntra));
+        OnPropertyChanged(nameof(SelectedByokEntraLabel));
         OnPropertyChanged(nameof(IsSelectedByokWireApiVisible));
         OnPropertyChanged(nameof(UsesEnvVarApiKey));
         OnPropertyChanged(nameof(UsesStoredApiKey));
@@ -1968,7 +1982,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private async Task ChangeByokApiKeyModeAsync(ByokApiKeyModeOption? option)
     {
         var endpoint = SelectedByokEndpoint;
-        if (endpoint is null || option is null || endpoint.ApiKeyMode == option.Value)
+        if (endpoint is null || endpoint.FoundryIdentity is not null || option is null || endpoint.ApiKeyMode == option.Value)
             return;
 
         if (option.Value == ByokApiKeyMode.CredentialStore

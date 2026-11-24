@@ -62,37 +62,37 @@ test('the pinned runtime only marks a pooled worker ready after its own load com
     assert.equal(workers[0].loaded, true);
 });
 
-test('a render wakeup goes only to the document that owns that canvas', () => {
+test('render status goes only to the document that owns that canvas', () => {
     const code = source('renderWorkerPlatform.js').replace(/^(?:import|export).*$/gm, '');
     const init = () => {
-        const timerCalls = [];
+        const events = [];
         class RenderWorker {
             constructor() { return eventTarget(this); }
         }
         const worker = new RenderWorker();
         const registry = { create: () => 42 };
         vm.runInNewContext(code, {
-            TimerHelper: { setTimeout: delay => timerCalls.push(delay) },
             WebRenderTargetRegistry: registry,
             getDotnetRuntime: () => ({ Module: { PThread: { pthreads: { 7: worker } } } }),
-            document: {}, Worker: RenderWorker
+            document: {}, Worker: RenderWorker,
+            window: { dispatchEvent: event => events.push([event.type, event.detail]) },
+            CustomEvent: class { constructor(type, { detail }) { Object.assign(this, { type, detail }); } }
         });
-        return { timerCalls, worker, registry };
+        return { events, worker, registry };
     };
 
     const first = init(), second = init();
     assert.equal(first.registry.create(7), 42);
     first.registry.create(7);
     second.registry.create(7);
-    first.worker.dispatch('message', { data: { lumiRenderWorker: 'wake', delay: 1 } });
-    first.worker.dispatch('message', { data: { cmd: 'unrelated', delay: 2 } });
-    assert.deepEqual(first.timerCalls, [1]);
-    assert.deepEqual(second.timerCalls, []);
+    first.worker.dispatch('message', { data: { lumiRenderWorker: 'canvas', kind: 'webgl2' } });
+    first.worker.dispatch('message', { data: { cmd: 'unrelated' } });
+    assert.deepEqual(first.events, [['lumi-render-worker-canvas', 'webgl2']]);
+    assert.deepEqual(second.events, []);
 });
 
-test('the render worker forwards wakeups and observes the canvas before Avalonia opens it', () => {
+test('the render worker observes the canvas before Avalonia opens it', () => {
     const code = source('renderWorkerPlatform.js').replace(/^(?:import|export).*$/gm, '');
-    const TimerHelper = { setTimeout() { throw new Error('render worker drained the UI queue'); } };
     const messages = [];
     class Canvas {
         constructor() { return eventTarget(this); }
@@ -105,17 +105,16 @@ test('the render worker forwards wakeups and observes the canvas before Avalonia
         }
     };
     vm.runInNewContext(code, {
-        TimerHelper, WebRenderTargetRegistry: registry, OffscreenCanvas: Canvas, self: worker
+        WebRenderTargetRegistry: registry, OffscreenCanvas: Canvas, self: worker
     });
 
-    TimerHelper.setTimeout(1);
     registry.initializeWorker();
     const canvas = new Canvas();
     worker.onmessage({ data: { avaloniaCmd: 'registerCanvas', canvas } });
     canvas.getContext('webgl2');
     canvas.dispatch('webglcontextlost');
-    assert.deepEqual(messages.map(message => [message.lumiRenderWorker, message.delay ?? message.kind]),
-        [['wake', 1], ['canvas', 'webgl2'], ['context-lost', undefined]]);
+    assert.deepEqual(messages.map(message => [message.lumiRenderWorker, message.kind]),
+        [['canvas', 'webgl2'], ['context-lost', undefined]]);
 });
 
 function host({

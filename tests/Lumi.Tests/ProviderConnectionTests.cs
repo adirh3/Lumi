@@ -58,6 +58,74 @@ public sealed class ProviderConnectionTests
     public void FoundryNormalizesOnlyTheSupportedV1ResourceEndpoint(string input, string expected)
         => Assert.Equal(expected, ProviderConnectionService.NormalizeFoundryBaseUrl(input));
 
+    [Fact]
+    public void FoundryImportsDeploymentUrlWithoutSendingItsLegacyApiVersion()
+    {
+        var address = ProviderConnectionService.ParseFoundryAddress(
+            "https://resource.openai.azure.com/openai/deployments/gpt-6.2-astra/chat/completions?api-version=2025-01-01-preview");
+        Assert.Equal(("https://resource.openai.azure.com/openai/v1", "gpt-6.2-astra"), address);
+    }
+
+    [Theory]
+    [InlineData("https://resource.openai.azure.com.evil.example/openai/v1")]
+    [InlineData("https://resource.openai.azure.com@evil.example/openai/v1")]
+    [InlineData("http://localhost/openai/v1")]
+    [InlineData("https://resource.openai.azure.com:8443/openai/v1")]
+    public void FoundryIdentityNeverBuildsABearerProviderForAnUntrustedEndpoint(string url)
+        => Assert.Throws<InvalidOperationException>(() => ByokConfigHelper.BuildProviderConfig(EntraEndpoint(url)));
+
+    [Fact]
+    public void FoundryIdentityReachesNamedSessionRoutingWithoutStaticSecrets()
+    {
+        var endpoint = EntraEndpoint("https://resource.openai.azure.com/openai/v1");
+        endpoint.ApiKey = "ignored";
+        endpoint.ApiKeyMode = ByokApiKeyMode.Stored;
+        endpoint.Headers["api-key"] = "ignored";
+        var provider = ByokConfigHelper.BuildProviderConfig(endpoint);
+        var session = new Microsoft.Copilot.CreateSessionOptions();
+        SessionConfigBuilder.ApplyProviderRouting(session, "my-deployment", provider, null, null);
+
+        var routed = Assert.Single(session.Inference.Providers!);
+        Assert.NotNull(routed.BearerTokenProvider);
+        Assert.Null(routed.ApiKey);
+        Assert.Null(routed.BearerToken);
+        Assert.Null(routed.Headers);
+        Assert.NotEqual(ByokConfigHelper.BuildProviderSignature(provider),
+            ByokConfigHelper.BuildProviderSignature(new Microsoft.Copilot.ProviderConfig
+                { Type = provider.Type, BaseUrl = provider.BaseUrl, WireApi = provider.WireApi }));
+        Assert.Equal(ByokConfigHelper.BuildProviderSignature(provider),
+            ByokConfigHelper.BuildProviderSignature(ByokConfigHelper.BuildProviderConfig(endpoint)));
+        endpoint.FoundryIdentity = endpoint.FoundryIdentity! with { UserId = Guid.NewGuid().ToString() };
+        Assert.NotEqual(ByokConfigHelper.BuildProviderSignature(provider),
+            ByokConfigHelper.BuildProviderSignature(ByokConfigHelper.BuildProviderConfig(endpoint)));
+    }
+
+    [Fact]
+    public void FoundryIdentityRejectsAppOnlyTokensAndChangesToTheSignedInUser()
+    {
+        var expected = EntraEndpoint("https://resource.openai.azure.com/openai/v1").FoundryIdentity!;
+        Azure.Core.AccessToken Token(string user, bool delegated)
+        {
+            var claims = JsonSerializer.SerializeToUtf8Bytes(new { oid = user, tid = expected.TenantId, scp = delegated ? "user_impersonation" : "" });
+            return new("header." + Convert.ToBase64String(claims).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+                + ".signature", DateTimeOffset.UtcNow.AddHours(1));
+        }
+
+        Assert.Equal(expected, FoundryEntraCredential.Identify(Token(expected.UserId, true), expected));
+        Assert.Throws<ProviderConnectionException>(() => FoundryEntraCredential.Identify(Token(expected.UserId, false), null));
+        Assert.Throws<ProviderConnectionException>(() => FoundryEntraCredential.Identify(Token(Guid.NewGuid().ToString(), true), expected));
+    }
+
+    private static ByokEndpoint EntraEndpoint(string url) => new()
+    {
+        Name = "Foundry",
+        ConnectionProviderId = "foundry",
+        ProviderType = "openai",
+        WireApi = "completions",
+        BaseUrl = url,
+        FoundryIdentity = new(Guid.NewGuid().ToString(), Guid.NewGuid().ToString())
+    };
+
     [Theory]
     [InlineData("https://resource.services.ai.azure.com/api/projects/project")]
     [InlineData("https://resource.services.ai.azure.com/openai/deployments/deployment")]
@@ -79,8 +147,10 @@ public sealed class ProviderConnectionTests
     public void FoundryInferenceRecognizesV1HostsWithoutConvertingLegacyAzureConnections(string url, bool expected)
         => Assert.Equal(expected, ProviderCatalog.FromUrl(url)?.IsFoundry == true);
 
-    [Fact]
-    public async Task FoundryDiscoveryUsesTheResourceKeyAndPreservesReturnedModelIds()
+    [Theory]
+    [InlineData("https://resource.services.ai.azure.com/", false)]
+    [InlineData("https://resource.services.ai.azure.com/openai/deployments/my-deployment/chat/completions?api-version=2025-01-01-preview", true)]
+    public async Task FoundryDiscoveryUsesTheResourceKeyAndPreservesReturnedModelIds(string url, bool pastedDeployment)
     {
         using var http = new HttpClient(new StubHandler(request =>
         {
@@ -99,7 +169,7 @@ public sealed class ProviderConnectionTests
         vm.Providers.Single(card => card.Profile.IsFoundry).OpenCommand.Execute(null);
         vm.ApiKey = "test-key";
         Assert.False(vm.CanDiscover);
-        vm.BaseUrl = "https://resource.services.ai.azure.com/";
+        vm.BaseUrl = url;
         Assert.True(vm.CanDiscover);
         await vm.DiscoverCommand.ExecuteAsync(null);
 
@@ -108,7 +178,10 @@ public sealed class ProviderConnectionTests
         Assert.True(vm.IsModelStage);
         Assert.False(vm.MakeDefault);
         Assert.True(vm.CanToggleDefault);
-        Assert.Equal("my-deployment", Assert.Single(vm.Models).Id);
+        var model = Assert.Single(vm.Models);
+        Assert.Equal("my-deployment", model.Id);
+        Assert.Equal(pastedDeployment, model.IsSelected);
+        Assert.Equal("responses", vm.WireApi);
         Assert.Empty(data.Settings.ByokEndpoints);
         Assert.Empty(data.Settings.ByokModels);
     }
@@ -173,6 +246,9 @@ public sealed class ProviderConnectionTests
     [InlineData("gpt-6-luna", "responses", "low,medium,high,xhigh,max")]
     [InlineData("gpt-6-luna-2026-09-22", "responses", "low,medium,high,xhigh,max")]
     [InlineData("gpt-6-luna", "completions", "")]
+    [InlineData("gpt-6.2-astra", "responses", "low,medium,high,xhigh,max")]
+    [InlineData("gpt-6.2-astra-2026-11-17", "responses", "low,medium,high,xhigh,max")]
+    [InlineData("gpt-6.2-astra", "completions", "")]
     [InlineData("gpt-5.4-mini", "responses", "low,medium,high,xhigh")]
     [InlineData("gpt-5.1", "completions", "low,medium,high")]
     [InlineData("gpt-5", "responses", "minimal,low,medium,high")]
@@ -195,6 +271,64 @@ public sealed class ProviderConnectionTests
         Assert.Same(reported, ProviderConnectionService.WithFoundryReasoning(reported, "responses"));
         var disabled = new ProviderModel("gpt-6-luna", "GPT-6 Luna", SupportedReasoningEfforts: []);
         Assert.Same(disabled, ProviderConnectionService.WithFoundryReasoning(disabled, "responses"));
+    }
+
+    [Fact]
+    public void SavedKeylessAstraPopulatesBothPickersAndSessionLimitsWithoutReconnecting()
+    {
+        var endpoint = EntraEndpoint("https://resource.openai.azure.com/openai/v1");
+        endpoint.WireApi = "responses";
+        endpoint.ApiKeyMode = ByokApiKeyMode.None;
+        var model = new ByokModel { EndpointId = endpoint.Id, ModelId = "gpt-6.2-astra", DisplayName = "Astra" };
+        var token = ByokConfigHelper.BuildModelToken(model);
+        var data = new AppData
+        {
+            Settings = new() { ByokEndpoints = [endpoint], ByokModels = [model], PreferredModel = token }
+        };
+
+        var reopened = JsonSerializer.Deserialize<AppData>(
+            JsonSerializer.Serialize(AppDataSnapshotFactory.CreateIndexSnapshot(data)))!;
+        using var main = new MainViewModel(new DataStore(reopened), TestCopilot.Shared, new UpdateService());
+        typeof(MainViewModel).GetMethod("InjectByokModels",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(main, []);
+
+        Assert.Equal(token, main.ChatVM.SelectedModel);
+        Assert.Equal(["Low", "Medium", "High", "X-High", "Max"], Assert.IsType<string[]>(main.ChatVM.QualityLevels));
+        Assert.Equal(["Default", "Long"], main.ChatVM.ContextWindowTiers!);
+        Assert.Equal(["Default", "Long"], main.SettingsVM.ContextWindowTiers!);
+
+        var route = ByokConfigHelper.ResolveSessionModelRoute(reopened.Settings, token);
+        Assert.Equal("gpt-6.2-astra", route.WireModelId);
+        Assert.NotNull(route.Provider!.BearerTokenProvider);
+        Assert.Null(route.Provider.ApiKey);
+        Assert.Equal(endpoint.FoundryIdentity, Assert.Single(reopened.Settings.ByokEndpoints).FoundryIdentity);
+        Assert.Null(Assert.Single(reopened.Settings.ByokModels).LongContextWindowTokens);
+        var standard = ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, ModelContextWindowTiers.Default)!;
+        var expanded = ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, ModelContextWindowTiers.LongContext)!;
+        Assert.True(standard.Supports!.ReasoningEffort);
+        Assert.Equal(272_000, standard.Limits!.MaxContextWindowTokens);
+        Assert.Equal(922_000, expanded.Limits!.MaxContextWindowTokens);
+    }
+
+    [Fact]
+    public void FoundryAstraDefaultsLeaveExplicitCapabilitiesAndOtherRoutesAlone()
+    {
+        var endpoint = EntraEndpoint("https://resource.openai.azure.com/openai/v1");
+        var model = new ByokModel
+        {
+            ModelId = "gpt-6.2-astra-2026-11-17",
+            SupportedReasoningEfforts = ["low"],
+            DefaultContextWindowTokens = 120_000,
+            LongContextWindowTokens = 240_000
+        };
+        Assert.Same(model, ByokConfigHelper.WithFoundryModelDefaults(model, endpoint));
+        endpoint.WireApi = "responses";
+        Assert.Same(model, ByokConfigHelper.WithFoundryModelDefaults(model, endpoint));
+        Assert.False(model.SupportsReasoningEffort);
+
+        endpoint.ConnectionProviderId = "custom";
+        model.LongContextWindowTokens = null;
+        Assert.Same(model, ByokConfigHelper.WithFoundryModelDefaults(model, endpoint));
     }
 
     [Fact]
@@ -733,6 +867,45 @@ public sealed class ProviderConnectionTests
         vm.BackCommand.Execute(null);
         Assert.True(vm.IsModelStage);
         Assert.Empty(vm.ApiKey);
+    }
+
+    [Theory]
+    [InlineData(false, "cli")]
+    [InlineData(true, "key")]
+    public void FoundryReconnectCanChangeAuthAndBackRestoresTheSavedConnection(bool startsKeyless, string newMode)
+    {
+        var endpoint = EntraEndpoint("https://resource.openai.azure.com/openai/v1");
+        if (!startsKeyless)
+        {
+            endpoint.FoundryIdentity = null;
+            endpoint.ApiKeyMode = ByokApiKeyMode.Stored;
+            endpoint.ApiKey = "test-key";
+        }
+        else
+            endpoint.ApiKeyMode = ByokApiKeyMode.None;
+
+        var data = new AppData();
+        data.Settings.ByokEndpoints.Add(endpoint);
+        data.Settings.ByokModels.Add(new() { EndpointId = endpoint.Id, ModelId = "gpt-6.2-astra" });
+        using var vm = new EasyConnectViewModel(new DataStore(data), TestCopilot.Shared, new FakeSecureKeyStore(), () => { });
+        Assert.Single(vm.Connections).ManageCommand.Execute(null);
+
+        Assert.True(vm.ShowFoundryReconnect);
+        vm.ReconnectFoundryCommand.Execute(null);
+        vm.SetFoundryAuthCommand.Execute(newMode);
+        vm.BaseUrl = "https://other.openai.azure.com/openai/v1";
+        Assert.Equal(!startsKeyless, vm.UsesFoundryIdentity);
+        Assert.Equal(startsKeyless, vm.ShowKeyEntry);
+        if (startsKeyless)
+            Assert.False(vm.CanDiscover);
+
+        vm.BackCommand.Execute(null);
+
+        Assert.True(vm.IsModelStage);
+        Assert.Equal(startsKeyless, vm.UsesFoundryIdentity);
+        Assert.Equal(endpoint.BaseUrl, vm.BaseUrl);
+        Assert.Same(endpoint, Assert.Single(data.Settings.ByokEndpoints));
+        Assert.Equal(endpoint.Id, Assert.Single(data.Settings.ByokModels).EndpointId);
     }
 
     [Fact]

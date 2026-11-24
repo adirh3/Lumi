@@ -300,12 +300,26 @@ final response from the streamed items, and explains plan errors such as a reach
 usage limit. An expired sign-in asks you to continue with ChatGPT again; **Disconnect**
 also revokes the sign-in at OpenAI.
 
-**Microsoft Foundry** has its own API-key option in both onboarding and Settings.
-Paste the Foundry/Azure OpenAI resource endpoint and resource API key. Resource
-root URLs are normalized to `/openai/v1`; full `/openai/v1` URLs also work.
-Lumi configures the `api-key` header, tries the v1 model list, and shows models
-under the account's provider group. You can enter the exact deployment name when
-listing is unavailable or catalog IDs differ from deployment names. The selected
+**Microsoft Foundry** supports a resource API key or keyless Microsoft Entra ID
+for chat models in onboarding and Settings. Paste the Foundry/Azure OpenAI
+resource endpoint, its `/openai/v1` URL, or an Azure chat-completions deployment
+URL. Lumi normalizes the address to `/openai/v1` and selects the deployment
+when the URL names one. A pasted Chat Completions URL does not change the request
+format: newer models can require Responses for tool calls.
+
+For **Sign in with Microsoft**, enter the resource tenant ID and the client ID of
+an approved Entra public-client desktop app configured with the `http://localhost`
+redirect URI and delegated access for Foundry inference. Or select **Use Azure CLI
+account** after `az login` in the resource's tenant. Personal and work accounts
+both work when they are recognized in that tenant and have the resource's Azure
+inference role. No API key is needed or saved. Use **Reconnect** to renew sign-in
+or switch an existing Foundry connection from an API key to Entra ID without
+removing its models. Lumi won't silently use a different account. Browser tokens are cached in
+OS-protected storage; Azure CLI manages its own sign-in.
+
+Lumi tries the v1 model list and shows models under the account's provider group.
+You can enter the exact deployment name when listing is unavailable or catalog IDs
+differ from deployment names. The selected
 model/deployment is tool-call checked unless you explicitly skip verification.
 Responses is the default for new Foundry connections, supporting tool calls with
 reasoning on newer GPT deployments. Chat Completions remains available for other
@@ -318,7 +332,12 @@ configured effort lists take precedence. Arbitrary deployment aliases and unknow
 models need their capabilities configured in **AI accounts → Endpoints & models**.
 For an older connection, **Refresh list** or save it again to add known reasoning
 metadata; this does not require a GitHub subscription.
-Entra sign-in, Azure resource browsing, Foundry Agent Service and legacy model
+GPT-6.2 Astra on Responses also gets its picker defaults on already connected
+accounts: Low through Max reasoning and **Default** (272K input tokens) or
+**Long context** (922K input tokens). Long requests can cost more; explicit
+model limits and configured effort lists take precedence.
+Entra connections are for chat inference. Foundry image generation still uses a
+resource key. Azure resource browsing, Foundry Agent Service and legacy model
 inference endpoints are outside this preset; existing manual BYOK remains available.
 
 Keys are stored in Windows Credential Manager, macOS Keychain, or Linux's
@@ -822,6 +841,14 @@ instead offers **Mark as read**, which clears only that chat's mark without
 opening it. Closed/open envelope icons distinguish the two actions. Opening the
 chat or choosing **Mark all as read** also clears the mark. Like automatic unread
 indicators, these marks last for the current app session.
+
+On the Android app or mobile web app, press and hold a chat in the list or tap
+the title of an open chat to find the same actions. The mark updates the PC's
+unread inbox and the phone's list. **Mark as unread** from the open chat returns
+to the list on a phone-sized screen. The mark stays through background refreshes,
+even on a wide screen where the chat stays visible, and clears when you reopen
+the latest activity or mark it read. Older desktop hosts do not offer these
+actions, and older phone apps cannot clear a mark set by a newer phone.
 
 ### Resuming chats after backend history errors
 

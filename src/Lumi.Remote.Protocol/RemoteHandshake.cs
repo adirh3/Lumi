@@ -186,6 +186,9 @@ public sealed class RemoteCommandResult
     public bool IsOutcomeUnknown { get; set; }
     /// <summary>Set when the command created or targeted a chat.</summary>
     public Guid? ChatId { get; set; }
+    /// <summary>The resulting state of a read acknowledgement, including when it leaves a chat unread.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasUnreadMessages { get; set; }
 }
 
 /// <summary>Where an uploaded file landed on the PC, so a message can point Lumi at it.</summary>
