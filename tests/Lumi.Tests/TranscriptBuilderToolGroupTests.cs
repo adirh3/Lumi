@@ -1330,6 +1330,54 @@ public sealed class TranscriptBuilderToolGroupTests
     }
 
     [Fact]
+    public void RebuiltFileEdit_CompletionShowsTheRecordedEditWithoutInventingABeforeSnapshot()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            var builder = CreateBuilder();
+            var edit = CreateToolVm("edit", "edit", "InProgress",
+                JsonSerializer.Serialize(new { filePath = path, oldString = "before", newString = "after" }));
+            File.WriteAllText(path, "unchanged\nbefore");
+            var turns = builder.Rebuild([edit], forkOrigin: null, isWorking: true);
+            var group = Assert.IsType<ToolGroupItem>(Assert.Single(turns[0].Items));
+            var tool = Assert.IsType<ToolCallItem>(group.SingleTool);
+
+            File.WriteAllText(path, "unchanged\nafter");
+            edit.Message.ToolStatus = "Completed";
+            edit.NotifyToolStatusChanged();
+            FileChangeItem? opened = null;
+            tool.ShowFileChangeAction = change => opened = change;
+            tool.ShowDiffCommand.Execute(null);
+
+            Assert.NotNull(opened);
+            Assert.False(opened.HasSnapshots);
+            Assert.Equal(("before", "after"), Assert.Single(opened.ReadEdits()));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RebuiltFileEdit_FailureKeepsAnEarlierSuccessfulEditOfTheSameFile()
+    {
+        var builder = CreateBuilder();
+        var first = CreateToolVm("first", "edit", "Completed",
+            """{"filePath":"Widget.cs","oldString":"old","newString":"saved"}""");
+        var next = CreateToolVm("next", "edit", "InProgress",
+            """{"filePath":"Widget.cs","oldString":"saved","newString":"not applied"}""");
+        var turns = builder.Rebuild([first, next], forkOrigin: null, isWorking: true);
+        next.Message.ToolStatus = "Failed";
+        next.NotifyToolStatusChanged();
+        builder.FlushPendingFileEdits();
+
+        var changes = Assert.Single(turns[0].Items.OfType<FileChangesSummaryItem>());
+        Assert.Equal(("old", "saved"), Assert.Single(Assert.Single(changes.FileChanges).ReadEdits()));
+    }
+
+    [Fact]
     public void FileSnapshots_ShareUnchangedRevisionAcrossToolSummaryAndNextEdit()
     {
         var filePath = Path.Combine(Path.GetTempPath(), $"lumi-snapshots-{Guid.NewGuid():N}.txt");

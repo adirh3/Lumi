@@ -13,6 +13,8 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Lumi.Models;
+using Lumi.Services;
 using Lumi.ViewModels;
 using Lumi.Views;
 using StrataTheme.Controls;
@@ -285,6 +287,57 @@ public sealed class TranscriptCollapsibleToggleTests
             get => _isExpanded;
             set => SetProperty(ref _isExpanded, value);
         }
+    }
+
+    [Fact]
+    public async Task ReturningToATurnWhoseRebuiltCommandFinishedOffscreen_ShowsCollapsedWork()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var builder = new TranscriptBuilder(new DataStore(new AppData()),
+                _ => { }, (_, _) => { }, _ => { }, (_, _) => Task.CompletedTask, () => null);
+            var command = new ChatMessageViewModel(new ChatMessage
+            {
+                Role = "tool", ToolName = "powershell", ToolCallId = "shell", ToolStatus = "InProgress",
+                Content = """{"command":"hostname"}"""
+            });
+            var user = new ChatMessageViewModel(new ChatMessage { Role = "user", Content = "Check the host." });
+            var turns = builder.Rebuild([user, command], forkOrigin: null, isWorking: true);
+            var view = new TranscriptTurnControl { Turn = turns[^1] };
+            foreach (var template in new ChatView().DataTemplates)
+                view.DataTemplates.Add(template);
+            var window = new Window { Width = 700, Height = 480, Content = view };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                window.UpdateLayout();
+                var terminal = Assert.Single(view.GetVisualDescendants().OfType<StrataTerminalPreview>());
+                builder.SetTerminalRunningInBackground("shell", true);
+                Assert.True(terminal.IsExpanded);
+
+                window.Content = null;
+                command.Message.ToolStatus = "Completed";
+                command.NotifyToolStatusChanged();
+                builder.ProcessMessageToTranscript(new(new ChatMessage { Role = "reasoning", Content = "Checked." }));
+                builder.ProcessMessageToTranscript(new(new ChatMessage { Role = "assistant", Content = "Done." }));
+                builder.CollapseCompletedBlocksInCurrentTurn();
+                builder.SetTerminalRunningInBackground("shell", false);
+                window.Content = view;
+                await PumpAsync();
+                window.UpdateLayout();
+
+                var work = Assert.Single(view.GetVisualDescendants().OfType<StrataTurnSummary>());
+                Assert.StartsWith("Worked for", work.Label);
+                Assert.False(work.IsExpanded);
+                Assert.Null(work.DisplayedContent);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
     }
 
     [Fact]

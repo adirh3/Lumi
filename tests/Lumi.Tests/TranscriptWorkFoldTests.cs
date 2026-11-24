@@ -704,7 +704,7 @@ public sealed class TranscriptWorkFoldTests
     {
         var summary = new TurnSummaryItem("Plan");
 
-        summary.SetAutoExpanded(true);
+        summary.OpenAutomatically();
         Assert.True(summary.IsExpanded);
         Assert.True(summary.IsAutoExpanded);
 
@@ -712,6 +712,48 @@ public sealed class TranscriptWorkFoldTests
         Assert.False(summary.IsAutoExpanded);
         summary.IsExpanded = true;
         Assert.False(summary.IsAutoExpanded);
+    }
+
+    [Theory]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, false, false)]
+    [InlineData(false, false, true)]
+    public void FinishingPlanWork_ClosesOnlyAutomaticDisclosure(bool separatePlanCard, bool readerReopened, bool inspectedStep)
+    {
+        var (builder, turns) = CreateLiveBuilder();
+        builder.ProcessMessageToTranscript(User("Check the task plan.", AskedAt));
+        if (!separatePlanCard)
+            StreamAssistant(builder, "I'll check the plan.", isProgress: true, AskedAt.AddSeconds(1));
+        builder.ProcessMessageToTranscript(new(new ChatMessage
+        {
+            Role = "tool", ToolName = "sql", ToolCallId = "plan", ToolStatus = "Completed",
+            Content = """{"description":"Read task plan","query":"SELECT * FROM todos"}"""
+        }));
+        builder.ProcessMessageToTranscript(Tool("read", "Completed"));
+        builder.ProcessMessageToTranscript(Reasoning("Checking the steps."));
+        StreamAssistant(builder, "Ready to proceed.", isProgress: true, AskedAt.AddSeconds(10));
+        var row = Assert.Single(turns[^1].Items.OfType<TurnSummaryItem>());
+        Assert.True(row.IsExpanded);
+        if (readerReopened)
+        {
+            row.IsExpanded = false;
+            row.IsExpanded = true;
+        }
+        if (inspectedStep)
+            Assert.Single(row.InnerItems.OfType<ReasoningItem>()).IsExpanded = true;
+        if (separatePlanCard)
+            builder.SetPendingPlanCard("The plan", () => { });
+        StreamAssistant(builder, "Starting the work.", isProgress: true, AskedAt.AddSeconds(20));
+        StreamAssistant(builder, "All done.", isProgress: false, AskedAt.AddSeconds(30));
+        builder.CollapseCompletedBlocksInCurrentTurn();
+        var finished = Assert.IsType<TurnSummaryItem>(turns[^1].Items[0]);
+        if (separatePlanCard)
+            Assert.Same(row, finished);
+        else
+            Assert.StartsWith("Worked for", finished.Label);
+        Assert.Equal(readerReopened || inspectedStep, finished.IsExpanded);
     }
 
     [Fact]

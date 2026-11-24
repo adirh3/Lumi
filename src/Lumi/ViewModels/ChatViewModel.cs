@@ -1922,7 +1922,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             Messages,
             hasHistory ? null : GetCurrentForkOrigin(),
             isWorking: IsBusy,
-            seed: hasHistory ? _history.SeedForTail() : null);
+            seed: hasHistory ? _history.SeedForTail() : null,
+            hasBackgroundWork: IsSessionActive && !IsBusy);
         if (hasHistory)
             _history.InsertInto(TranscriptTurns);
         UpdateUserMessageEditState();

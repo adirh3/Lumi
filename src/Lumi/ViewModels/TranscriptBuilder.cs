@@ -102,11 +102,12 @@ public class TranscriptBuilder
     private readonly HashSet<string> _deferredFileEditSubscriptions = new(StringComparer.Ordinal);
     private readonly List<(ChatMessageViewModel Vm, PropertyChangedEventHandler Handler)> _pendingToolHandlers = [];
     public List<FileAttachmentItem> PendingToolFileChips => _fileChipTurn.Pending;
-    public List<(string FilePath, string ToolName, string? OldText, string? NewText)> PendingFileEdits { get; } = [];
+    public List<(string FilePath, string ToolName, string? OldText, string? NewText, string ToolCallKey)> PendingFileEdits { get; } = [];
     private readonly Dictionary<string, string?> _pendingFileOriginalContents = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, WeakReference<string>> _lastFileSnapshots = new(FilePathComparer);
     private readonly Dictionary<string, bool> _pendingWorkspaceFileChanges = new(StringComparer.OrdinalIgnoreCase);
     private IList<TranscriptTurn>? _rebuildTarget;
+    private bool _rebuildingLiveSession;
     public bool IsRebuildingTranscript { get; set; }
 
     /// <summary>
@@ -253,13 +254,16 @@ public class TranscriptBuilder
     /// </summary>
     /// <param name="isWorking">Lumi is still working on the chat's latest turn.</param>
     /// <param name="seed">What earlier exchanges that are not part of this build already showed.</param>
+    /// <param name="hasBackgroundWork">Tools can still finish after the assistant's reply.</param>
     public ObservableCollection<TranscriptTurn> Rebuild(
         IEnumerable<ChatMessageViewModel> messages,
         ForkOrigin? forkOrigin,
         bool isWorking = false,
-        TranscriptSeed? seed = null)
+        TranscriptSeed? seed = null,
+        bool hasBackgroundWork = false)
     {
         BeginRebuild(forkOrigin, seed);
+        _rebuildingLiveSession = isWorking || hasBackgroundWork;
         foreach (var msg in messages)
             ProcessMessageToTranscript(msg);
         return EndRebuild(isWorking);
@@ -272,6 +276,7 @@ public class TranscriptBuilder
     public void BeginRebuild(ForkOrigin? forkOrigin, TranscriptSeed? seed = null)
     {
         IsRebuildingTranscript = true;
+        _rebuildingLiveSession = false;
         _rebuildTarget = new List<TranscriptTurn>();
         ResetState();
         ApplySeed(seed);
@@ -613,6 +618,10 @@ public class TranscriptBuilder
     private static bool IsTerminalToolStatus(string? status)
         => status is "Completed" or "Failed" or "Stopped";
 
+    // A rebuilt live card still needs its completion; a stored exchange is only a snapshot.
+    private bool FollowsToolUpdates(StrataAiToolCallStatus status)
+        => !IsRebuildingTranscript || (_rebuildingLiveSession && status == StrataAiToolCallStatus.InProgress);
+
     /// <summary>A stored <c>ask_question</c> call as its card shows it.</summary>
     /// <param name="Id">The card's question id (see <see cref="QuestionItem.StableIdFor"/>).</param>
     internal readonly record struct StoredQuestion(string Id, string Question, string? Answer, bool IsAnswered, bool IsExpired);
@@ -923,7 +932,7 @@ public class TranscriptBuilder
                 capturedTermGroup.Source ??= msgVm;
             }
 
-            if (!IsRebuildingTranscript)
+            if (FollowsToolUpdates(initialStatus))
             {
                 PropertyChangedEventHandler? handler = null;
                 handler = (_, args) =>
@@ -1010,7 +1019,7 @@ public class TranscriptBuilder
             capturedToolGroup.Source ??= msgVm;
         }
 
-        if (!IsRebuildingTranscript)
+        if (FollowsToolUpdates(initialStatus))
         {
             PropertyChangedEventHandler? handler = null;
             handler = (_, args) =>
@@ -1030,7 +1039,8 @@ public class TranscriptBuilder
                 if (toolCall.Status is not StrataAiToolCallStatus.InProgress)
                     toolCall.DurationMs = msgVm.Message.ToolDurationMs ?? 0;
 
-                if (toolCall.Status == StrataAiToolCallStatus.Completed && toolCall.HasDiff && toolCall.DiffFilePath is not null && !IsRebuildingTranscript)
+                // Without the pre-edit snapshot (e.g. after a reload), Show diff uses the recorded edits.
+                if (toolCall.Status == StrataAiToolCallStatus.Completed && toolCall.DiffOriginalContent is not null && toolCall.DiffFilePath is not null)
                     toolCall.DiffCurrentContent = ReadFileContentOrEmpty(toolCall.DiffFilePath);
 
                 if (toolCall.Status == StrataAiToolCallStatus.Failed && ToolDisplayHelper.IsFileEditTool(toolName))
@@ -1304,7 +1314,7 @@ public class TranscriptBuilder
         foreach (var diff in diffs)
         {
             RemovePendingWorkspaceFileChange(diff.FilePath);
-            PendingFileEdits.Add((diff.FilePath, toolName, diff.OldText, diff.NewText));
+            PendingFileEdits.Add((diff.FilePath, toolName, diff.OldText, diff.NewText, trackingKey));
             if (captureLiveSnapshot)
                 CapturePendingOriginalSnapshot(diff.FilePath, IsCreateDiff(toolName, diff.OldText));
         }
@@ -1382,8 +1392,12 @@ public class TranscriptBuilder
         var trackingKey = FileEditToolTrackingKey(msgVm);
         if (_trackedFileEditFilesByToolCall.Remove(trackingKey, out var filePaths))
         {
+            PendingFileEdits.RemoveAll(edit => edit.ToolCallKey == trackingKey);
             foreach (var filePath in filePaths)
-                RemovePendingFileEdits(filePath);
+            {
+                if (!PendingFileEdits.Any(edit => string.Equals(edit.FilePath, filePath, StringComparison.OrdinalIgnoreCase)))
+                    _pendingFileOriginalContents.Remove(filePath);
+            }
         }
 
         _trackedFileEditToolCalls.Remove(trackingKey);
@@ -1413,7 +1427,7 @@ public class TranscriptBuilder
         SubagentRuns.Add(subagent);
         _subagentRunsChanged?.Invoke();
 
-        if (!IsRebuildingTranscript)
+        if (FollowsToolUpdates(initialStatus))
         {
             PropertyChangedEventHandler? handler = null;
             handler = (_, args) =>
@@ -2024,7 +2038,7 @@ public class TranscriptBuilder
     private List<FileChangeItem> GroupFileEdits()
     {
         var grouped = new Dictionary<string, FileChangeItem>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (filePath, toolName, oldText, newText) in PendingFileEdits)
+        foreach (var (filePath, toolName, oldText, newText, _) in PendingFileEdits)
         {
             if (!grouped.TryGetValue(filePath, out var item))
             {
@@ -2070,13 +2084,6 @@ public class TranscriptBuilder
         var content = ReadFileContentOrEmpty(filePath, isCreate);
         _pendingFileOriginalContents[filePath] = content;
         return content;
-    }
-
-    private void RemovePendingFileEdits(string filePath)
-    {
-        PendingFileEdits.RemoveAll(fe => string.Equals(fe.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
-        if (!PendingFileEdits.Any(fe => string.Equals(fe.FilePath, filePath, StringComparison.OrdinalIgnoreCase)))
-            _pendingFileOriginalContents.Remove(filePath);
     }
 
     private void RemovePendingWorkspaceFileChange(string filePath)
@@ -2230,6 +2237,10 @@ public class TranscriptBuilder
             CollapseCompletedTurnBlocks(turn, answers[i], turnFinished: true);
 
         CollapseActivityOnlyBlocks(turn, settled: true);
+        // A plan card or a stopped turn can leave an automatically opened row outside the answer's fold.
+        foreach (var item in turn.Items)
+            if (item is TurnSummaryItem summary)
+                ReleaseAutoExpansion(summary);
         turn.IsSettled = true;
     }
 
@@ -2495,7 +2506,7 @@ public class TranscriptBuilder
         }
 
         // A finished call (a rebuild, or a plan read back after its query ended) has nothing more to report.
-        if (IsRebuildingTranscript || IsTerminalToolStatus(msgVm.ToolStatus))
+        if (!FollowsToolUpdates(initialStatus) || IsTerminalToolStatus(msgVm.ToolStatus))
             return;
 
         var capturedGroup = todoSubagent is null ? _currentToolGroup : null;
@@ -2814,11 +2825,18 @@ public class TranscriptBuilder
         => item switch
         {
             ToolGroupItem group => group.HasExpandedContent,
-            ReasoningItem reasoning => reasoning.IsExpanded,
+            ReasoningItem reasoning => reasoning.IsReaderExpanded,
             SingleToolItem single => single.IsExpanded,
-            TurnSummaryItem summary => summary.IsExpanded && !summary.IsAutoExpanded,
+            TurnSummaryItem summary => summary.IsExpanded
+                && (!summary.IsAutoExpanded || summary.InnerItems.Any(IsExpandedActivity)),
             _ => false,
         };
+
+    private static void ReleaseAutoExpansion(TurnSummaryItem summary)
+    {
+        if (summary.IsAutoExpanded)
+            summary.EndAutoExpansion(keepOpen: summary.InnerItems.Any(IsExpandedActivity));
+    }
 
     private static void UnfoldHistoryContaining(TranscriptTurn turn, Func<TranscriptItem, bool> matches)
     {
@@ -3013,11 +3031,12 @@ public class TranscriptBuilder
         {
             summary.Label = label;
             summary.HasFailures = failedCount > 0;
-            if (answer is not null && summary.IsAutoExpanded)
-                summary.SetAutoExpanded(false);
-            summary.IsExpanded |= blocksToMerge.Skip(1).Any(IsExpandedActivity);
-            if (!summary.IsExpanded && isLiveWork && blocksToMerge.Skip(1).Any(IsHeldOpen))
-                summary.SetAutoExpanded(true);
+            if (blocksToMerge.Skip(1).Any(IsExpandedActivity))
+                summary.EndAutoExpansion(keepOpen: true);
+            else if (answer is not null)
+                ReleaseAutoExpansion(summary);
+            else if (!summary.IsExpanded && isLiveWork && blocksToMerge.Skip(1).Any(IsHeldOpen))
+                summary.OpenAutomatically();
             foreach (var block in flattenedBlocks.Skip(summary.InnerItems.Count))
                 summary.InnerItems.Add(block);
             foreach (var block in blocksToMerge.Skip(1))
@@ -3031,7 +3050,7 @@ public class TranscriptBuilder
                 HasFailures = failedCount > 0,
             };
             if (!summary.IsExpanded && isLiveWork && (hasTodoProgress || blocksToMerge.Any(IsHeldOpen)))
-                summary.SetAutoExpanded(true);
+                summary.OpenAutomatically();
             foreach (var block in flattenedBlocks)
                 summary.InnerItems.Add(block);
             foreach (var block in blocksToMerge)
