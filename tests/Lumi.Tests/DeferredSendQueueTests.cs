@@ -2556,6 +2556,53 @@ public sealed partial class DeferredSendQueueTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ReloadingDuringReasoning_SettlesTheVisibleRowWithoutLosingAReadersChoice(bool readerReopened)
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            host.ApplyDisplayedRuntimeState();
+            var vm = host.ViewModel;
+            var appeared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            vm.Messages.CollectionChanged += (_, _) =>
+            {
+                if (vm.Messages.Any(message => message.Role == "reasoning"))
+                    appeared.TrySetResult();
+            };
+            rpc.Emit(new AssistantReasoningDeltaEvent
+            {
+                Data = new AssistantReasoningDeltaData { ReasoningId = "thinking", DeltaContent = "Checking" }
+            });
+            await appeared.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await vm.LoadChatAsync(host.Chat);
+            var reasoning = Assert.Single(vm.TranscriptTurns.SelectMany(turn => turn.Items).OfType<ReasoningItem>());
+            Assert.True(reasoning.IsExpanded);
+            if (readerReopened)
+            {
+                reasoning.IsExpanded = false;
+                reasoning.IsExpanded = true;
+            }
+            rpc.Emit(new AssistantReasoningEvent
+            {
+                Data = new AssistantReasoningData { ReasoningId = "thinking", Content = "Checked the result." }
+            });
+            rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(vm.IsBusy);
+            Assert.Equal(readerReopened, reasoning.IsExpanded);
+            Assert.False(reasoning.IsActive);
+            Assert.Equal("Checked the result.", reasoning.Content);
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task AssistantIdle_LateReasoningPrecedesItsAnswerWithoutChangingStoredOrder(bool deltasOnly)
     {
         using var ui = HeadlessTestSession.Start();

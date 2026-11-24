@@ -765,6 +765,7 @@ public partial class ReasoningItem : TranscriptItem
     private readonly List<string> _parts = [];
     private readonly Dictionary<ChatMessageViewModel, int> _streamingSources = [];
     private readonly bool _expandWhileStreaming;
+    private bool _openedForStreaming;
 
     public ReasoningItem(ChatMessageViewModel source, bool expandWhileStreaming)
         : base($"message:reasoning:{source.Message.Id}")
@@ -776,10 +777,15 @@ public partial class ReasoningItem : TranscriptItem
 
     /// <summary>The first reasoning message the block shows.</summary>
     internal Guid MessageId { get; }
+    internal bool IsReaderExpanded => IsExpanded && !_openedForStreaming;
 
     partial void OnIsActiveChanged(bool value) => RefreshSummary();
 
-    partial void OnIsExpandedChanged(bool value) => RefreshSummary();
+    partial void OnIsExpandedChanged(bool value)
+    {
+        _openedForStreaming = false;
+        RefreshSummary();
+    }
 
     public void AppendSource(ChatMessageViewModel source)
     {
@@ -788,8 +794,11 @@ public partial class ReasoningItem : TranscriptItem
         {
             _streamingSources.Add(source, _parts.Count - 1);
             source.PropertyChanged += OnSourcePropertyChanged;
-            if (!IsActive && _expandWhileStreaming)
+            if (!IsActive && _expandWhileStreaming && !IsExpanded)
+            {
                 IsExpanded = true;
+                _openedForStreaming = true;
+            }
             IsActive = true;
         }
 
@@ -812,7 +821,7 @@ public partial class ReasoningItem : TranscriptItem
             source.PropertyChanged -= OnSourcePropertyChanged;
             _streamingSources.Remove(source);
             IsActive = _streamingSources.Count > 0;
-            if (!IsActive && _expandWhileStreaming)
+            if (!IsActive && _openedForStreaming)
                 IsExpanded = false;
         }
     }
@@ -909,10 +918,10 @@ public partial class ToolGroupItem : TranscriptItem
         ? SingleTool switch
         {
             ToolCallItem tool => tool.IsExpanded,
-            TerminalPreviewItem terminal => terminal.IsExpanded,
+            TerminalPreviewItem terminal => terminal.IsExpanded && !terminal.IsBackgroundExpanded,
             _ => false,
         }
-        : IsExpanded;
+        : IsExpanded && !_isBackgroundExpanded;
     public bool HasActivityPreview => ActivityPreview.Count > 0;
     public string? AdditionalActivityLabel => AdditionalActivityCount > 0
         ? string.Format(Loc.ToolGroup_MoreRunning, AdditionalActivityCount)
@@ -2088,8 +2097,6 @@ public partial class TypingIndicatorItem : TranscriptItem
 
 public partial class TurnSummaryItem : TranscriptItem
 {
-    private bool _isSettingAutoExpanded;
-
     [ObservableProperty] private string _label;
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _hasFailures;
@@ -2110,12 +2117,16 @@ public partial class TurnSummaryItem : TranscriptItem
         _label = label;
     }
 
-    internal void SetAutoExpanded(bool expanded)
+    internal void OpenAutomatically()
     {
-        _isSettingAutoExpanded = true;
-        IsExpanded = expanded;
-        _isSettingAutoExpanded = false;
-        IsAutoExpanded = expanded;
+        IsExpanded = true;
+        IsAutoExpanded = true;
+    }
+
+    internal void EndAutoExpansion(bool keepOpen)
+    {
+        IsAutoExpanded = false;
+        IsExpanded = keepOpen;
     }
 
     /// <summary>
@@ -2157,8 +2168,7 @@ public partial class TurnSummaryItem : TranscriptItem
 
     partial void OnIsExpandedChanged(bool value)
     {
-        if (!_isSettingAutoExpanded)
-            IsAutoExpanded = false;
+        IsAutoExpanded = false;
         if (value && _deferredItemsLoader is { } loader)
             loader(this);
     }

@@ -406,8 +406,6 @@ public partial class ChatViewModel
         // Per-session streaming state — captured by closure, independent per subscription
         ChatMessage? streamingMsg = null;
         ChatMessage? reasoningMsg = null;
-        ChatMessageViewModel? streamingVm = null;
-        ChatMessageViewModel? reasoningVm = null;
         string? turnModelId = null;
         var agentName = chat.AgentId.HasValue
             ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)?.Name ?? Loc.Author_Lumi
@@ -581,6 +579,19 @@ public partial class ChatViewModel
 
         bool IsDisplayedSession() => CurrentChat?.Id == chat.Id && _activeSession == session;
 
+        // A reload can replace the displayed message while its SDK stream continues.
+        ChatMessageViewModel? DisplayedStream(ChatMessage? message)
+        {
+            if (message is null)
+                return null;
+            for (var i = Messages.Count - 1; i >= 0; i--)
+            {
+                if (ReferenceEquals(Messages[i].Message, message))
+                    return Messages[i];
+            }
+            return null;
+        }
+
         bool IsAuthoritativeSession()
             => _dataStore.Data.Chats.Contains(chat)
                && _sessionCache.TryGetValue(chat.Id, out var cachedSession)
@@ -620,15 +631,14 @@ public partial class ChatViewModel
                     if (FinalizeTerminalAssistantMessage(chat, streamingMsg))
                     {
                         if (shouldUpdateDisplayedChatUi)
-                            streamingVm?.NotifyStreamingEnded();
+                            DisplayedStream(streamingMsg)?.NotifyStreamingEnded();
                     }
-                    else if (shouldUpdateDisplayedChatUi && streamingVm is not null)
+                    else if (shouldUpdateDisplayedChatUi && DisplayedStream(streamingMsg) is { } streamingVm)
                     {
                         Messages.Remove(streamingVm);
                     }
 
                     streamingMsg = null;
-                    streamingVm = null;
                 }
                 assistantStream?.Clear();
 
@@ -636,9 +646,8 @@ public partial class ChatViewModel
                 {
                     reasoningMsg.IsStreaming = false;
                     if (shouldUpdateDisplayedChatUi)
-                        reasoningVm?.NotifyStreamingEnded();
+                        DisplayedStream(reasoningMsg)?.NotifyStreamingEnded();
                     reasoningMsg = null;
-                    reasoningVm = null;
                 }
                 reasoningStream?.Clear();
 
@@ -983,8 +992,7 @@ public partial class ChatViewModel
                 _inProgressMessages[chat.Id] = streamingMsg;
                 if (IsDisplayedSession())
                 {
-                    streamingVm = new ChatMessageViewModel(streamingMsg);
-                    Messages.Add(streamingVm);
+                    Messages.Add(new ChatMessageViewModel(streamingMsg));
                     StatusText = runtime.StatusText;
                     ScrollToEndRequested?.Invoke();
                 }
@@ -998,7 +1006,7 @@ public partial class ChatViewModel
             streamingMsg.Content = currentContent;
             if (IsDisplayedSession())
             {
-                streamingVm?.NotifyContentChanged();
+                DisplayedStream(streamingMsg)?.NotifyContentChanged();
                 StatusText = runtime.StatusText;
                 ScrollToEndRequested?.Invoke();
             }
@@ -1023,8 +1031,7 @@ public partial class ChatViewModel
                 chat.Messages.Add(reasoningMsg);
                 if (IsDisplayedSession())
                 {
-                    reasoningVm = new ChatMessageViewModel(reasoningMsg);
-                    Messages.Add(reasoningVm);
+                    Messages.Add(new ChatMessageViewModel(reasoningMsg));
                     StatusText = runtime.StatusText;
                     ScrollToEndRequested?.Invoke();
                 }
@@ -1038,7 +1045,7 @@ public partial class ChatViewModel
             reasoningMsg.Content = currentReasoning;
             if (IsDisplayedSession())
             {
-                reasoningVm?.NotifyContentChanged();
+                DisplayedStream(reasoningMsg)?.NotifyContentChanged();
                 StatusText = runtime.StatusText;
                 ScrollToEndRequested?.Invoke();
             }
@@ -1054,15 +1061,14 @@ public partial class ChatViewModel
                 if (FinalizeTerminalAssistantMessage(chat, streamingMsg))
                 {
                     if (shouldUpdateDisplayedChatUi)
-                        streamingVm?.NotifyStreamingEnded();
+                        DisplayedStream(streamingMsg)?.NotifyStreamingEnded();
                 }
-                else if (shouldUpdateDisplayedChatUi && streamingVm is not null)
+                else if (shouldUpdateDisplayedChatUi && DisplayedStream(streamingMsg) is { } streamingVm)
                 {
                     Messages.Remove(streamingVm);
                 }
 
                 streamingMsg = null;
-                streamingVm = null;
             }
             assistantStream.Clear();
 
@@ -1071,10 +1077,9 @@ public partial class ChatViewModel
             {
                 FinalizeTerminalReasoningMessage(reasoningMsg);
                 if (shouldUpdateDisplayedChatUi)
-                    reasoningVm?.NotifyStreamingEnded();
+                    DisplayedStream(reasoningMsg)?.NotifyStreamingEnded();
 
                 reasoningMsg = null;
-                reasoningVm = null;
             }
             reasoningStream.Clear();
         }
@@ -1316,7 +1321,7 @@ public partial class ChatViewModel
                             streamingMsg?.Content);
                         if (string.IsNullOrWhiteSpace(finalContent))
                         {
-                            if (IsDisplayedSession() && streamingVm is not null)
+                            if (IsDisplayedSession() && DisplayedStream(streamingMsg) is { } streamingVm)
                                 Messages.Remove(streamingVm);
                         }
                         else if (streamingMsg is null)
@@ -1358,12 +1363,11 @@ public partial class ChatViewModel
                             }
                             chat.Messages.Add(streamingMsg);
                             if (IsDisplayedSession())
-                                streamingVm?.NotifyStreamingEnded();
+                                DisplayedStream(streamingMsg)?.NotifyStreamingEnded();
                         }
 
                         _inProgressMessages.Remove(chat.Id);
                         streamingMsg = null;
-                        streamingVm = null;
                         assistantStream?.Clear();
                     });
                     break;
@@ -1444,11 +1448,10 @@ public partial class ChatViewModel
                             reasoningMsg.IsStreaming = false;
                             if (IsDisplayedSession())
                             {
-                                reasoningVm?.NotifyStreamingEnded();
+                                DisplayedStream(reasoningMsg)?.NotifyStreamingEnded();
                             }
                         }
                         reasoningMsg = null;
-                        reasoningVm = null;
                         reasoningStream.Clear();
                     });
                     break;
@@ -2080,12 +2083,9 @@ public partial class ChatViewModel
                         if (streamingMsg is not null)
                         {
                             _inProgressMessages.Remove(chat.Id);
-                            if (shouldUpdateDisplayedChatUi)
-                            {
-                                if (streamingVm is not null) Messages.Remove(streamingVm);
-                            }
+                            if (shouldUpdateDisplayedChatUi && DisplayedStream(streamingMsg) is { } streamingVm)
+                                Messages.Remove(streamingVm);
                             streamingMsg = null;
-                            streamingVm = null;
                         }
                         assistantStream.Clear();
                         if (reasoningMsg is not null)
@@ -2093,10 +2093,9 @@ public partial class ChatViewModel
                             reasoningMsg.IsStreaming = false;
                             if (shouldUpdateDisplayedChatUi)
                             {
-                                reasoningVm?.NotifyStreamingEnded();
+                                DisplayedStream(reasoningMsg)?.NotifyStreamingEnded();
                             }
                             reasoningMsg = null;
-                            reasoningVm = null;
                         }
                         reasoningStream.Clear();
 
@@ -2266,18 +2265,15 @@ public partial class ChatViewModel
                                 chat.Messages.Add(streamingMsg);
                                 if (shouldUpdateDisplayedChatUi)
                                 {
-                                    streamingVm?.NotifyStreamingEnded();
+                                    DisplayedStream(streamingMsg)?.NotifyStreamingEnded();
                                 }
                             }
                             else
                             {
-                                if (shouldUpdateDisplayedChatUi)
-                                {
-                                    if (streamingVm is not null) Messages.Remove(streamingVm);
-                                }
+                                if (shouldUpdateDisplayedChatUi && DisplayedStream(streamingMsg) is { } streamingVm)
+                                    Messages.Remove(streamingVm);
                             }
                             streamingMsg = null;
-                            streamingVm = null;
                         }
                         assistantStream.Clear();
                         if (reasoningMsg is not null)
@@ -2285,10 +2281,9 @@ public partial class ChatViewModel
                             reasoningMsg.IsStreaming = false;
                             if (shouldUpdateDisplayedChatUi)
                             {
-                                reasoningVm?.NotifyStreamingEnded();
+                                DisplayedStream(reasoningMsg)?.NotifyStreamingEnded();
                             }
                             reasoningMsg = null;
-                            reasoningVm = null;
                         }
                         reasoningStream.Clear();
                         if (wasUserStopRequested && IsAuthoritativeSession())
@@ -2351,19 +2346,17 @@ public partial class ChatViewModel
                         if (streamingMsg is not null)
                         {
                             _inProgressMessages.Remove(chat.Id);
-                            if (shouldUpdateDisplayedChatUi && streamingVm is not null)
+                            if (shouldUpdateDisplayedChatUi && DisplayedStream(streamingMsg) is { } streamingVm)
                                 Messages.Remove(streamingVm);
                             streamingMsg = null;
-                            streamingVm = null;
                         }
                         assistantStream.Clear();
                         if (reasoningMsg is not null)
                         {
                             reasoningMsg.IsStreaming = false;
                             if (shouldUpdateDisplayedChatUi)
-                                reasoningVm?.NotifyStreamingEnded();
+                                DisplayedStream(reasoningMsg)?.NotifyStreamingEnded();
                             reasoningMsg = null;
-                            reasoningVm = null;
                         }
                         reasoningStream.Clear();
 
