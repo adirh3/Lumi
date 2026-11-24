@@ -1,5 +1,6 @@
 {
   "NeedsYou_Title": "응답이 필요해요",
+  "NeedsYou_UnreadReply": "읽지 않은 답변",
   "NeedsYou_CountOne": "1개 응답 대기",
   "NeedsYou_Count": "{0}개 응답 대기",
   "NeedsYou_Unread": "{0}개 읽지 않음",

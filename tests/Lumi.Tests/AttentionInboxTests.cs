@@ -1,7 +1,9 @@
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Localization;
@@ -98,7 +100,8 @@ public sealed class AttentionInboxTests
             var toggle = window.FindControl<Button>("UnreadInboxToggle")!;
             Assert.True(toggle.IsEffectivelyVisible);
             Assert.Contains("unread-toggle", toggle.Classes);
-            Assert.Contains("needs-input", toggle.Classes);
+            Assert.True(Application.Current!.TryGetResource("Brush.Surface0", window.ActualThemeVariant, out var surface));
+            Assert.Equal(surface, toggle.Background);
             Assert.Null(window.FindControl<Control>("NeedsYouToggle"));
             Assert.Null(window.FindControl<Control>("PageAttention"));
             Assert.Null(window.FindControl<Control>("NextPendingInputButton"));
@@ -188,7 +191,8 @@ public sealed class AttentionInboxTests
         var request = main.NotificationChats[1];
         Assert.Equal(approval.RequestedAt, request.PendingRequest!.RequestedAt);
         Assert.Equal(approval.RequestedAt, anotherWindow.NotificationChats[1].PendingRequest!.RequestedAt);
-        Assert.Contains("git status", request.Ask);
+        Assert.Equal(approval.Title, request.Ask);
+        Assert.DoesNotContain("git status", request.Ask);
         await main.OpenUnreadChatCommand.ExecuteAsync(request);
         Assert.Equal(0, decisions);
         Assert.True(approval.IsPending);
@@ -203,6 +207,184 @@ public sealed class AttentionInboxTests
         Assert.Empty(main.NotificationChats);
         sessions.Release(questionOwner);
         sessions.Release(approvalOwner);
+    });
+
+    [Theory]
+    [InlineData(9, 0)]
+    [InlineData(10, 1)]
+    public Task UnreadOnlyCapAndFooterAreAppliedAfterPendingChatsAreExcluded(int totalUnread, int overflow) => Run(async () =>
+    {
+        var now = DateTimeOffset.UtcNow;
+        var chats = Enumerable.Range(0, totalUnread).Select(index => new Chat
+        {
+            Title = $"Reply {index}", HasUnreadMessages = true, UpdatedAt = now.AddMinutes(-index)
+        }).ToArray();
+        var store = new DataStore(Data(chats));
+        using var registry = new ChatSurfaceRegistry();
+        using var sessions = new ChatSessionStore(store, TestCopilot.Shared, registry);
+        using var main = Main(store, registry, sessions);
+        var owner = await sessions.AcquireChatAsync(chats[0]);
+        var waiting = Ask(owner, chats[0], "One question overlaps the newest replies.");
+        await Settle();
+        chats[0].HasUnreadMessages = true;
+        main.RefreshUnreadState();
+
+        Assert.Equal(totalUnread, main.UnreadChatCount);
+        Assert.Equal(totalUnread > 9 ? "9+" : "9", main.UnreadBadgeText);
+        Assert.Equal(8, main.UnreadChats.Count);
+        Assert.Equal(9, main.NotificationChats.Count);
+        Assert.True(main.NotificationChats[0].NeedsInput);
+        Assert.Equal(chats.Skip(1).Take(8).Select(chat => chat.Id), main.UnreadChats.Select(entry => entry.Chat.Id));
+        Assert.Equal(overflow > 0, main.HasUnreadOverflow);
+        Assert.Equal(overflow > 0 ? Loc.Get("Unread_MoreChats", overflow) : "", main.UnreadOverflowText);
+        Assert.True(main.UnreadChats[0].StartsUnreadSection);
+        Assert.Single(main.NotificationChats, entry => entry.StartsUnreadSection);
+
+        owner.SubmitQuestionAnswer(main.NotificationChats[0].PendingRequest!.RequestId, "Yes");
+        await waiting;
+        await Settle();
+        Assert.Equal(totalUnread, main.UnreadChatCount);
+        Assert.Equal(8, main.NotificationChats.Count);
+        Assert.Equal(chats[0].Id, main.NotificationChats[0].Chat.Id);
+        Assert.DoesNotContain(main.NotificationChats, entry => entry.StartsUnreadSection);
+        Assert.Equal(Loc.Get("Unread_MoreChats", totalUnread - 8), main.UnreadOverflowText);
+        sessions.Release(owner);
+    });
+
+    [Fact]
+    public Task PendingMetadataRefreshReusesSnapshotsAndPreservesAccessibleProjectDetails() => Run(async () =>
+    {
+        var project = new Project { Name = "Other project" };
+        var filter = new Project { Name = "Draft project" };
+        var chat = new Chat { Title = "Shared title", ProjectId = project.Id };
+        var sameName = new Chat { Title = chat.Title, ProjectId = filter.Id };
+        var data = Data(chat, sameName);
+        data.Projects.AddRange([project, filter]);
+        var store = new DataStore(data);
+        using var registry = new ChatSurfaceRegistry();
+        using var sessions = new ChatSessionStore(store, TestCopilot.Shared, registry);
+        using var main = Main(store, registry, sessions);
+        var owner = await sessions.AcquireChatAsync(chat);
+        var waiting = Ask(owner, chat, "Which option should I choose?");
+        await Settle();
+        main.SelectedProjectFilter = filter.Id;
+        await Settle();
+        var entry = Assert.Single(main.NotificationChats);
+        Assert.Contains(project.Name, entry.AskHint);
+        Assert.Contains(Loc.Get("NeedsYou_Title"), entry.AccessibleName);
+        Assert.Contains(project.Name, entry.AccessibleDetails);
+        Assert.Contains(entry.TooltipText, entry.AccessibleDetails);
+        Assert.Contains("hidden", entry.AccessibleDetails);
+        Assert.Contains(entry.Ask!, entry.AccessibleDetails);
+        var changes = 0;
+        main.NotificationChats.CollectionChanged += (_, _) => changes++;
+
+        main.AttentionInbox.Refresh();
+        main.RefreshUnreadState();
+        Assert.Same(entry, Assert.Single(main.NotificationChats));
+        Assert.Equal(0, changes);
+        chat.Title = "Updated full title";
+        Assert.Equal(chat.Title, Assert.Single(main.NotificationChats).Title);
+        project.Name = "Updated project";
+        main.RefreshUnreadState();
+        Assert.Contains(project.Name, Assert.Single(main.NotificationChats).AccessibleDetails);
+
+        owner.SubmitQuestionAnswer(entry.PendingRequest!.RequestId, "Yes");
+        await waiting;
+        sessions.Release(owner);
+    });
+
+    [Theory]
+    [InlineData("en", true, true)]
+    [InlineData("en", true, false)]
+    [InlineData("en", false, true)]
+    [InlineData("en", false, false)]
+    [InlineData("he", true, true)]
+    [InlineData("he", true, false)]
+    [InlineData("he", false, true)]
+    [InlineData("he", false, false)]
+    public Task NarrowSidebarKeepsRowsCompactAccessibleAndInOneViewport(string language, bool pending, bool unread) => Run(async () =>
+    {
+        Loc.Load(language);
+        var project = new Project { Name = "Project for accessible details" };
+        var chats = Enumerable.Range(0, 3).Select(index => new Chat
+        {
+            Title = $"Waiting conversation {index} with a long title", ProjectId = project.Id
+        }).ToArray();
+        var reply = new Chat { Title = "Unread conversation with a long title", ProjectId = project.Id, HasUnreadMessages = unread };
+        var data = Data([.. chats, reply]);
+        data.Projects.Add(project);
+        data.Settings.Language = language;
+        data.Settings.SidebarWidth = 240;
+        var store = new DataStore(data);
+        using var registry = new ChatSurfaceRegistry();
+        using var sessions = new ChatSessionStore(store, TestCopilot.Shared, registry);
+        using var main = Main(store, registry, sessions);
+        var owners = new List<ChatViewModel>();
+        var waiting = new List<Task<object?>>();
+        if (pending)
+        {
+            foreach (var chat in chats)
+            {
+                var owner = await sessions.AcquireChatAsync(chat);
+                owners.Add(owner);
+                waiting.Add(Ask(owner, chat, "Which option should I choose? This longer ask must stay on one secondary line."));
+            }
+        }
+        await Settle();
+        var window = new MainWindow { DataContext = main, Width = 900, Height = 800 };
+        window.Show();
+        try
+        {
+            await Settle();
+            window.UpdateLayout();
+            var root = window.FindControl<Border>("UnreadInboxRoot")!;
+            var toggle = window.FindControl<Button>("UnreadInboxToggle")!;
+            Assert.Equal(pending || unread, root.IsEffectivelyVisible);
+            Assert.True(Application.Current!.TryGetResource("Brush.Surface0", window.ActualThemeVariant, out var surface));
+            Assert.Equal(surface, toggle.Background);
+            if (pending || unread)
+            {
+                var dot = window.FindControl<Border>("NotificationStatusDot")!;
+                Assert.True(Application.Current.TryGetResource(pending ? "Brush.WarningDefault" : "Brush.AccentDefault",
+                    window.ActualThemeVariant, out var expectedDot));
+                Assert.Equal(expectedDot, dot.Background);
+                toggle.Command!.Execute(null);
+                await Settle();
+                window.UpdateLayout();
+                var list = window.FindControl<ItemsControl>("NotificationList")!;
+                var scroller = list.FindAncestorOfType<ScrollViewer>()!;
+                var rows = list.GetVisualDescendants().OfType<Button>().Where(button => button.Name == "NotificationRow").ToArray();
+                Assert.Equal((pending ? 3 : 0) + (unread ? 1 : 0), rows.Length);
+                Assert.True(list.Bounds.Height <= scroller.Viewport.Height + 1,
+                    $"Notification content {list.Bounds.Height} exceeds viewport {scroller.Viewport.Height}.");
+                foreach (var row in rows)
+                {
+                    var entry = Assert.IsType<UnreadChatEntry>(row.DataContext);
+                    Assert.InRange(row.Bounds.Height, 28, 46);
+                    Assert.Contains(entry.Title, AutomationProperties.GetName(row));
+                    Assert.Contains(entry.StateLabel, AutomationProperties.GetName(row));
+                    Assert.Contains(project.Name, AutomationProperties.GetHelpText(row));
+                    Assert.Equal(entry.AccessibleDetails, AutomationProperties.GetHelpText(row));
+                    var hint = row.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Name == "NotificationAskHint");
+                    Assert.Equal(TextWrapping.NoWrap, hint.TextWrapping);
+                    Assert.Equal(1, hint.MaxLines);
+                }
+                Assert.Equal(pending && unread ? 1 : 0, list.GetVisualDescendants().OfType<Border>()
+                    .Count(border => border.Name == "NotificationSectionDivider" && border.IsEffectivelyVisible));
+            }
+        }
+        finally
+        {
+            window.Close();
+            foreach (var owner in owners)
+                foreach (var request in owner.GetPendingInputs())
+                    owner.SubmitQuestionAnswer(request.RequestId, "Yes");
+            await Task.WhenAll(waiting);
+            foreach (var owner in owners)
+                sessions.Release(owner);
+            Loc.Load("en");
+        }
     });
 
     private static MainViewModel Main(DataStore store, ChatSurfaceRegistry registry, ChatSessionStore sessions)

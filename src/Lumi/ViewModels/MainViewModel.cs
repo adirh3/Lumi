@@ -528,9 +528,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         _chatVM = AcquireDraftChatSurface(SelectedProjectFilter);
         _chatVM.AddDisplayHost();
-        _attentionInbox = new AttentionInboxViewModel(dataStore, _chatSurfaceRegistry, _chatSessionStore.ChatEvents);
-        _attentionInbox.Changed += RefreshNotifications;
-        RefreshNotifications();
+        _attentionInbox = new AttentionInboxViewModel(_chatSurfaceRegistry, _chatSessionStore.ChatEvents);
+        _attentionInbox.Changed += RefreshUnreadState;
+        RefreshUnreadState();
         if (backgroundJobService is null)
         {
             _backgroundJobService = new BackgroundJobService(dataStore, _chatSurfaceRegistry, _chatSessionStore);
@@ -1207,7 +1207,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
 
         _isDisposed = true;
-        _attentionInbox.Changed -= RefreshNotifications;
+        _attentionInbox.Changed -= RefreshUnreadState;
         _attentionInbox.Dispose();
         SetupsVM.TryRequested -= StartSetupDraft;
         SetupsVM.ManageRequested -= ManageSetup;
@@ -1788,7 +1788,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         if (e.PropertyName is nameof(Chat.IsRunning) or nameof(Chat.IsPaused))
             RefreshProjectRunningState();
-        else if (e.PropertyName == nameof(Chat.HasUnreadMessages))
+        else if (e.PropertyName is nameof(Chat.HasUnreadMessages) or nameof(Chat.Title))
             RefreshUnreadState();
         else if (e.PropertyName is not (nameof(Chat.IsSessionActive)
             or nameof(Chat.IsPaused) or nameof(Chat.IsPausePending)))

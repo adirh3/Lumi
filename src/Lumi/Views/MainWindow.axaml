@@ -1060,8 +1060,8 @@
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
     <Style Selector="Button#UnreadInboxToggle.unread-toggle">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface0}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
       <Setter Property="Padding" Value="8,4" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -1071,8 +1071,8 @@
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
     <Style Selector="Button#UnreadInboxToggle.unread-toggle:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
       <Setter Property="BoxShadow" Value="0 4 14 0 #14000000" />
     </Style>
     <Style Selector="Button#UnreadInboxToggle.unread-toggle:pointerover /template/ Border#PART_Aurora">
@@ -1091,24 +1091,10 @@
       <Setter Property="RenderTransform" Value="rotate(180deg)" />
     </Style>
     <Style Selector="Button#UnreadInboxToggle TextBlock#UnreadSummaryLabel">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
     <Style Selector="Button#UnreadInboxToggle PathIcon#UnreadChevron">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-    <Style Selector="Button#UnreadInboxToggle.needs-input">
-      <Setter Property="Background" Value="{DynamicResource Brush.WarningSubtle}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.WarningSubtle}" />
-    </Style>
-    <Style Selector="Button#UnreadInboxToggle.needs-input TextBlock#UnreadSummaryLabel">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
-    </Style>
-    <Style Selector="Button#UnreadInboxToggle.needs-input PathIcon#UnreadChevron">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
-    </Style>
-    <Style Selector="Button#UnreadInboxToggle.needs-input:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Brush.WarningSubtle}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.WarningDefault}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
     <!-- The dot breathes so a reply arriving while the user is elsewhere draws the eye. -->
     <Style Selector="Border#SidebarBorder Border.unread-dot">
@@ -1122,6 +1108,9 @@
       <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.5" />
       <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="Border#UnreadInboxRoot Border.unread-dot.pending">
+      <Setter Property="Background" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
     <Style Selector="Border#SidebarBorder Border.unread-nav-badge, #SidebarRail Border.unread-nav-badge">
       <Setter Property="MinWidth" Value="15" />
@@ -1727,16 +1716,12 @@
                     <StackPanel>
                       <Button x:Name="UnreadInboxToggle"
                               Classes="unread-toggle"
-                              Classes.needs-input="{Binding HasPendingNotifications}"
                               Command="{Binding ToggleUnreadPanelCommand}"
                               ToolTip.Tip="{Binding NotificationTooltipText}"
                               AutomationProperties.Name="{Binding NotificationSummaryText}">
                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
-                          <Border Grid.Column="0" Classes="unread-dot" IsVisible="{Binding !HasPendingNotifications}" />
-                          <sc:StrataLineIcon Grid.Column="0" Data="{x:Static sc:StrataIcons.Question}"
-                                            Width="13" Height="13" VerticalAlignment="Center"
-                                            Foreground="{DynamicResource Brush.WarningDefault}"
-                                            IsVisible="{Binding HasPendingNotifications}" />
+                          <Border x:Name="NotificationStatusDot" Grid.Column="0" Classes="unread-dot"
+                                  Classes.pending="{Binding HasPendingNotifications}" />
                           <TextBlock Grid.Column="1"
                                      x:Name="UnreadSummaryLabel"
                                      Text="{Binding NotificationSummaryText}"
@@ -1748,8 +1733,7 @@
                                     x:Name="UnreadChevron"
                                     Data="{StaticResource Icon.ChevronDown}"
                                     Width="11" Height="11"
-                                    VerticalAlignment="Center"
-                                    />
+                                    VerticalAlignment="Center" />
                         </Grid>
                       </Button>
 
@@ -1768,33 +1752,27 @@
                               <ItemsControl x:Name="NotificationList" ItemsSource="{Binding NotificationChats}">
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:UnreadChatEntry">
+                                    <StackPanel>
+                                      <Border x:Name="NotificationSectionDivider" Height="1" Margin="4,5"
+                                              Background="{DynamicResource Brush.BorderSubtle}"
+                                              IsVisible="{Binding StartsUnreadSection}" />
                                     <Button x:Name="NotificationRow" Classes="unread-row"
                                             Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenUnreadChatCommand}"
                                             CommandParameter="{Binding}"
-                                            AutomationProperties.Name="{Binding Title}"
-                                            AutomationProperties.HelpText="{Binding Ask}">
+                                            AutomationProperties.Name="{Binding AccessibleName}"
+                                            AutomationProperties.HelpText="{Binding AccessibleDetails}">
                                       <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
-                                        <Panel Grid.Column="0" Width="13" VerticalAlignment="Center">
-                                        <Border IsVisible="{Binding !NeedsInput}"
-                                                Width="6" Height="6" CornerRadius="3"
-                                                VerticalAlignment="Center"
-                                                Background="{DynamicResource Brush.AccentDefault}" />
-                                        <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Question}" Width="13" Height="13"
-                                                          IsVisible="{Binding NeedsInput}"
-                                                          Foreground="{DynamicResource Brush.WarningDefault}" />
-                                        </Panel>
+                                        <Border Grid.Column="0" Classes="unread-dot"
+                                                Classes.pending="{Binding NeedsInput}" />
                                         <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
                                           <TextBlock Text="{Binding Title}"
                                                      FontSize="11.5"
                                                      FontWeight="Medium"
                                                      Foreground="{DynamicResource Brush.TextPrimary}"
                                                      TextTrimming="CharacterEllipsis" />
-                                          <TextBlock Text="{Binding Ask}" IsVisible="{Binding NeedsInput}"
-                                                     TextWrapping="Wrap" MaxLines="2" FontSize="11.5"
+                                          <TextBlock x:Name="NotificationAskHint" Text="{Binding AskHint}" IsVisible="{Binding NeedsInput}"
+                                                     TextTrimming="CharacterEllipsis" MaxLines="1" FontSize="10.5"
                                                      Foreground="{DynamicResource Brush.TextSecondary}" />
-                                          <TextBlock Text="{Binding RequestMeta}" IsVisible="{Binding NeedsInput}"
-                                                     FontSize="10" TextTrimming="CharacterEllipsis"
-                                                     Foreground="{DynamicResource Brush.TextTertiary}" />
                                           <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding !NeedsInput}">
                                             <PathIcon Data="{StaticResource Icon.Folder}"
                                                       Width="9" Height="9"
@@ -1818,10 +1796,13 @@
                                         <TextBlock Grid.Column="2"
                                                    Text="{Binding TimeLabel}"
                                                    FontSize="9.8"
+                                                   MaxWidth="48"
+                                                   TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center"
                                                    Foreground="{DynamicResource Brush.TextTertiary}" />
                                       </Grid>
                                     </Button>
+                                    </StackPanel>
                                   </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
