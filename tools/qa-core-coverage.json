@@ -141,7 +141,7 @@
     "Lumi.Tests.DeferredSendQueueTests.ChildActivity_AfterAssistantIdle_DoesNotRestartTheAssistantSpinner",
     "Lumi.Tests.DeferredSendQueueTests.EditAndRegenerate_PreserveHistoryAndDoNotSendWhenInterruptionFails",
     "Lumi.Tests.DeferredSendQueueTests.ReadySession_AdmitsANewTurnWithoutCancelingItsBackgroundLifetime",
-    "Lumi.Tests.DeferredSendQueueTests.StopSession_CancelsAttachedShellsInsteadOfOnlyAbortingTheAssistant",
+    "Lumi.Tests.DeferredSendQueueTests.StopSession_CancelsRunningShellsInsteadOfOnlyAbortingTheAssistant",
     "Lumi.Tests.DeferredSendQueueTests.StopSession_RejectedTaskCancellation_PreservesBackgroundActivityAndReportsFailure",
     "Lumi.Tests.HeadlessTestSessionTests.AsyncDispatch_WaitsForTheBodyAndPropagatesItsException",
     "Lumi.Tests.HeadlessTestSessionTests.DefaultSessions_ReuseTheUiThreadButIsolateApplications",
