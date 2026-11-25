@@ -64,7 +64,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private bool _isRefreshingCopilotState;
     private bool _wasExternalOnly;
     private bool _isSyncingDefaultModelSelectionFromChat;
-    private string? _parkedNewChatPrompt;
+    private (string? Prompt, Guid? ProjectId)? _parkedNewChat;
 
     private const int ChatPageSize = 50;
     private int _chatLoadLimit = ChatPageSize;
@@ -367,7 +367,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>A setup's "Try it": a new chat with the prompt ready to review. Nothing is sent.</summary>
     private void StartSetupDraft(string prompt)
     {
-        NewChat();
+        OpenNewChat(restoreDraftProject: false);
         ChatVM.PromptText = prompt;
     }
 
@@ -1004,15 +1004,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // The unhosted new-chat surface is disposed; only its unsent text needs to outlive it.
+        // The unhosted new-chat surface is disposed. Keep its text and any project picked independently
+        // of the sidebar. A specific sidebar filter still supplies the project when the draft returns.
         if (surface.CurrentChat is null)
         {
-            surface.PromptText = _parkedNewChatPrompt;
-            _parkedNewChatPrompt = null;
+            surface.PromptText = _parkedNewChat?.Prompt;
+            _parkedNewChat = null;
         }
         else if (previous.CurrentChat is null)
         {
-            _parkedNewChatPrompt = previous.PromptText is { Length: > 0 } prompt ? prompt : null;
+            var prompt = previous.PromptText is { Length: > 0 } text ? text : null;
+            var projectId = SelectedProjectFilter is null ? previous.GetCurrentProject()?.Id : null;
+            _parkedNewChat = prompt is not null || projectId.HasValue ? (prompt, projectId) : null;
         }
 
         DetachChatViewModel(previous);
@@ -1163,6 +1166,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void OnComposerProjectFilterRequested(Guid? projectId)
     {
         if (projectId == SelectedProjectFilter)
+            return;
+
+        if (SelectedProjectFilter is null && (ChatVM.CurrentChat is not { } chat || !ChatHasContent(chat)))
             return;
 
         if (!projectId.HasValue)
@@ -1604,15 +1610,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == agentId) is not { } agent)
             return;
 
-        NewChatCommand.Execute(null);
+        OpenNewChat(restoreDraftProject: false);
         ChatVM.SelectedSdkAgentName = null;
         ChatVM.SetActiveAgent(agent);
     }
 
     private void StartChatWithSharedPrompt(PromptUseRequest request)
     {
-        ClearMainChatSurface();
-        SetDraftChatProjectContext(SelectedProjectFilter);
+        ClearMainChatSurface(restoreDraftProject: false);
         ChatVM.PromptText = request.Text;
         foreach (var path in request.Attachments)
             ChatVM.AddAttachment(path);
@@ -2009,9 +2014,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
         return false;
     }
 
-    private void ClearMainChatSurface()
+    private void ClearMainChatSurface(bool restoreDraftProject = true)
     {
-        ShowChatSurface(AcquireDraftChatSurface(SelectedProjectFilter));
+        var projectId = SelectedProjectFilter;
+        if (projectId is null && restoreDraftProject && _parkedNewChat?.ProjectId is { } parkedProjectId
+            && _dataStore.Data.Projects.Any(project => project.Id == parkedProjectId))
+            projectId = parkedProjectId;
+
+        ShowChatSurface(AcquireDraftChatSurface(projectId));
     }
 
     public async Task<bool> OpenChatByIdAsync(Guid chatId)
@@ -2040,7 +2050,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (entry.ChatId is not Guid chatId)
         {
             ClearMainChatSurface();
-            SetDraftChatProjectContext(entry.ProjectFilterId);
             SelectedNavIndex = 0;
             return true;
         }
@@ -2053,10 +2062,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private void NewChat()
+    private void NewChat() => OpenNewChat(restoreDraftProject: true);
+
+    private void OpenNewChat(bool restoreDraftProject)
     {
-        // Reuse an empty chat unless there's a separate new-chat prompt to come back to.
-        if (_parkedNewChatPrompt is null
+        // Reuse an empty chat unless there's a separate draft to come back to.
+        if (_parkedNewChat is null
             && ChatVM.CurrentChat is not null
             && ChatVM.CurrentChat.Messages.Count == 0
             && !ChatVM.OwnsAnyLiveChat())
@@ -2067,10 +2078,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        ClearMainChatSurface();
-
-        // Auto-assign the active project filter to new chats
-        SetDraftChatProjectContext(SelectedProjectFilter);
+        ClearMainChatSurface(restoreDraftProject);
         SelectedNavIndex = 0;
     }
 
@@ -2898,7 +2906,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private void StartFirstChat(string prompt, Guid? projectId)
     {
-        NewChat();
+        OpenNewChat(restoreDraftProject: false);
         // With the new chat still empty, choosing the project only moves it there.
         if (projectId is { } id && _dataStore.Data.Projects.Any(project => project.Id == id))
             SelectedProjectFilter = id;

@@ -536,6 +536,8 @@ window-wide default. Chip and selection fills still provide contrast independent
   the list to a project, shown by its initial in its own color; while it shows every chat it says how
   many projects you have, and each chat names its project beside a folder in that color.
   Opened, it grows over the chat list into a searchable list of projects.
+  If the sidebar is on **All projects**, choosing a project in the new-chat composer sets the
+  project for that chat without narrowing the list.
   Projects are set up in **Customize → Projects**: in that list the project you're in keeps its gear in
   view and every other project shows one on hover, and its **New project** and **Manage projects** open
   the section too.
