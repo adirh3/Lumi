@@ -591,6 +591,18 @@ public partial class ChatDetailView : UserControl
         }
     }
 
+    /// <summary>
+    /// A turned-down queue request came back ahead of the draft. The browser's editor keeps its caret
+    /// where it was, now inside the returned text, so the caret moves to the end; it reaches the
+    /// browser only while the composer has focus, so this never raises the keyboard. Android's editor
+    /// already puts the caret after text the model sets.
+    /// </summary>
+    private void OnComposerCaretToEndRequested()
+    {
+        if (_nativeComposerEditor is null && _sharedComposerInput is { } input)
+            input.CaretIndex = input.Text?.Length ?? 0;
+    }
+
     /// <summary>New suggestions rise onto the composer from its start, as a finished reply settles.</summary>
     private void OnFollowUpSuggestionsChanged()
     {
@@ -1409,6 +1421,7 @@ public partial class ChatDetailView : UserControl
         shell.Chat.TranscriptApplied += OnTranscriptApplied;
         shell.Chat.AttachmentPickRequested += OnPickAttachment;
         shell.Chat.ComposerFocusRequested += OnComposerFocusRequested;
+        shell.Chat.ComposerCaretToEndRequested += OnComposerCaretToEndRequested;
         shell.StarterApplied += OnStarterApplied;
         shell.StarterNameFocusRequested += OnStarterNameFocusRequested;
         SynchronizeObservers();
@@ -1428,6 +1441,7 @@ public partial class ChatDetailView : UserControl
         _shell.Chat.TranscriptApplied -= OnTranscriptApplied;
         _shell.Chat.AttachmentPickRequested -= OnPickAttachment;
         _shell.Chat.ComposerFocusRequested -= OnComposerFocusRequested;
+        _shell.Chat.ComposerCaretToEndRequested -= OnComposerCaretToEndRequested;
         _shell.StarterApplied -= OnStarterApplied;
         _shell.StarterNameFocusRequested -= OnStarterNameFocusRequested;
         _shell.PropertyChanged -= OnShellPropertyChanged;

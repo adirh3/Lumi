@@ -1663,6 +1663,114 @@ public sealed class MobileShellViewTests
         }
     }
 
+    /// <summary>
+    /// A queue request the PC turns down comes back ahead of what was typed meanwhile. The browser's
+    /// editor keeps its caret where it was, so the caret goes to the end of both: typing carries on
+    /// after the newer draft instead of inside the returned text, and a composer without focus stays down.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BrowserComposerKeepsTypingAfterARejectedQueueReturnsItsDraft(bool focused)
+    {
+        await using var desktop = new FakeLumiDesktop();
+        desktop.Start();
+        var requested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reject = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        desktop.CommandResponseFactory = async command =>
+        {
+            if (command?.Action != RemoteProtocol.Actions.QueueMessage)
+                return new RemoteCommandResult { Ok = true, Message = "ok" };
+            requested.TrySetResult();
+            await reject.Task;
+            return new RemoteCommandResult { Ok = false, Error = "This chat is paused." };
+        };
+        var presenter = new RecordingNativeTextInputOverlayPresenter();
+        MobilePlatformServices.TextInputOverlayPresenter = presenter;
+        try
+        {
+            await RunAsync(async (shell, window) =>
+            {
+                shell.Connect.ManualAddress = desktop.BaseUrl;
+                await shell.Connect.ConnectManuallyCommand.ExecuteAsync(null);
+                shell.Connect.PairingCode = "123456";
+                await shell.Connect.SubmitCodeCommand.ExecuteAsync(null);
+                Assert.True(shell.IsPaired);
+                var deadline = DateTime.UtcNow.AddSeconds(10);
+                while (shell.BootstrapSnapshotCount == 0 && DateTime.UtcNow < deadline)
+                    await Task.Delay(25);
+                Assert.True(shell.BootstrapSnapshotCount > 0);
+
+                var chatId = Guid.NewGuid();
+                shell.Chat.Reset(chatId, "Queue test");
+                shell.Page = MobilePage.Chat;
+                shell.IsDrawerOpen = false;
+                Layout(window, shell, 412, 892);
+                await Task.Delay(360);
+                Pump(window);
+                shell.Chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, QueuedMessageCount = 0 });
+                Pump(window);
+
+                var composer = window.GetVisualDescendants().OfType<StrataChatComposer>().Single();
+                var input = composer.GetVisualDescendants().OfType<TextBox>()
+                    .Single(control => control.Name == "PART_Input");
+                var native = Assert.Single(presenter.Sessions,
+                    session => session.IsShown && session.Options.Placeholder == input.PlaceholderText);
+                native.FocusAt(0);
+                native.SimulateText("first");
+                Pump(window);
+
+                Assert.True(shell.Chat.QueueSendCommand.CanExecute(null));
+                var queue = shell.Chat.QueueSendCommand.ExecuteAsync(null);
+                await requested.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                Pump(window);
+                Assert.Equal("", native.Value);
+
+                // The user keeps typing while the PC decides, then (in one case) leaves the composer.
+                native.SimulateText("second");
+                Pump(window);
+                if (!focused)
+                {
+                    native.Blur();
+                    Pump(window);
+                }
+                var focusRequests = native.FocusRequestCount;
+
+                reject.SetResult();
+                await queue.WaitAsync(TimeSpan.FromSeconds(10));
+                Pump(window);
+
+                const string returned = "first\n\nsecond";
+                Assert.Equal(returned, shell.Chat.PromptText);
+                Assert.Equal(returned, input.Text);
+                Assert.Equal(returned, native.Value);
+                Assert.Equal(returned.Length, input.CaretIndex);
+                if (focused)
+                {
+                    Assert.True(native.FocusRequested);
+                    Assert.Equal(focusRequests + 1, native.FocusRequestCount);
+                    Assert.Equal(returned.Length, native.CaretIndex);
+                }
+                else
+                {
+                    Assert.False(native.FocusRequested);
+                    Assert.Equal(focusRequests, native.FocusRequestCount);
+                }
+                Assert.Equal("This chat is paused.", shell.Chat.ErrorText);
+                lock (desktop.ReceivedCommands)
+                {
+                    var queued = Assert.Single(desktop.ReceivedCommands,
+                        command => command.Action == RemoteProtocol.Actions.QueueMessage);
+                    Assert.Equal("first", queued.Get("message"));
+                }
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.ResetTextInputOverlayPresenter(presenter);
+        }
+    }
+
     [Fact]
     public async Task TranscriptSelectionUsesNativeActionsWithoutPersistentCopyButtons()
     {

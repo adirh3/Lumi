@@ -73,6 +73,12 @@ public sealed partial class MobileChatViewModel
     /// <summary>Edit put a queued message back in the composer, so the caret should follow it.</summary>
     public event Action? ComposerFocusRequested;
 
+    /// <summary>
+    /// A queue request the PC turned down put its text back ahead of the draft, so typing should go on
+    /// after it, without focusing the composer.
+    /// </summary>
+    public event Action? ComposerCaretToEndRequested;
+
     private void OnQueuedMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         OnPropertyChanged(nameof(HasQueuedMessageItems));

@@ -1742,6 +1742,8 @@ public sealed class MobileStateCorrectnessTests
         var queuedFile = new PendingAttachment("first.txt", @"C:\uploads\first.txt");
         chat.PromptText = "first";
         chat.Attachments.Add(queuedFile);
+        var caretMoves = 0;
+        chat.ComposerCaretToEndRequested += () => caretMoves++;
 
         var queue = chat.QueueSendCommand.ExecuteAsync(null);
         var request = await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
@@ -1756,6 +1758,7 @@ public sealed class MobileStateCorrectnessTests
         Assert.Equal("first\n\nsecond", chat.PromptText);
         Assert.Equal([newerFile, queuedFile], chat.Attachments);
         Assert.Equal("This chat is paused.", chat.ErrorText);
+        Assert.Equal(1, caretMoves);
         Assert.True(chat.IsBusy);
         Assert.Empty(chat.Turns);
     }

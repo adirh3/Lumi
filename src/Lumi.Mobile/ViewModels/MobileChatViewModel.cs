@@ -3703,6 +3703,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
             return;
 
         ApplyDraft(restored, restoreSelections: true);
+        if (mode == SendMode.Queue && !preserveRequestIdentity)
+            ComposerCaretToEndRequested?.Invoke();
         if (isOriginalActivation && echo is not null)
         {
             ResetVisibleActivityProgress();
