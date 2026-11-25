@@ -1409,7 +1409,8 @@ Search, Jobs and Customize return to the screen that opened them, including an o
 the chat list remains the app's home. Library editors still confirm before discarding a draft.
 Deleted conversations are skipped when returning through Back history.
 Pinch and move your fingers to zoom and pan photos and diagrams in one gesture. Once zoomed in,
-lift one finger to keep dragging with the other. In chat, use two fingers on an inline diagram
+lift one finger to keep dragging with the other. Zoomed photos can still be repositioned when
+they fit across the width or height of the viewer. In chat, use two fingers on an inline diagram
 so one-finger swipes still scroll the conversation. Double-tap an image to zoom or fit it;
 double-tap a diagram, or use **Fit**, to reset its view. Viewer actions have
 48-DIP touch targets and stay clear of the system bars, and native text editors step aside
