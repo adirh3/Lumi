@@ -1270,11 +1270,11 @@ Island elevation uses Skia's rounded-shadow masks instead of filtering a pane-si
 avoiding large temporary textures on wide, high-DPI screens such as an unfolded Fold.
 The rounded content clip and rim remain; switching places also keeps the hidden chat's
 geometry until it is shown again rather than flattening and rebuilding it.
-Native Android uses a 128 MiB Skia GPU-resource-cache budget for large chats; the browser,
-desktop and mobile simulator use 64 MiB. This lets high-DPI surfaces and glass-filter
-intermediates be reused without repeatedly allocating textures while scrolling. These are
-soft cache budgets, not upfront allocations or hard caps on total graphics memory: resources
-still in use and buffers outside the cache can exceed them. Rendering resolution and quality are unchanged.
+Lumi uses a 128 MiB Skia resource-cache budget per GPU context on desktop, native Android,
+both browser renderers and the mobile simulator. This gives high-DPI surfaces and glass-filter
+intermediates more room to be reused. It is not an upfront allocation or a hard cap on total
+graphics memory: resources still in use and buffers outside the cache can exceed it. Rendering
+resolution and quality are unchanged.
 
 On compatible Android Chromium browsers, Lumi uses Avalonia's WebGL 2 render
 worker to draw directly into the visible canvas. Layout and browser input no

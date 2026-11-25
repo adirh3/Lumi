@@ -6,6 +6,7 @@ using Avalonia.Headless;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Rendering.Composition;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -742,6 +743,80 @@ public sealed class BackdropBlurRenderTests
         }
     }
 
+    [Fact]
+    public async Task ClippedFrostMatchesFreshCaptureAfterMovingAndReturning()
+    {
+        using var session = HeadlessUnitTestSession.StartNew(
+            typeof(MobileMotionRenderApp), AvaloniaTestIsolationLevel.PerTest);
+        await session.Dispatch<bool>(async () =>
+        {
+            var plate = new Panel();
+            for (var row = 0; row < 3; row++)
+            for (var column = 0; column < 12; column++)
+            {
+                var cell = (column + row) % 3;
+                if (cell != 1)
+                    plate.Children.Add(new Border
+                    {
+                        Width = 20, Height = 48, Margin = new Thickness(column * 20, row * 48, 0, 0),
+                        HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+                        Background = cell == 0 ? Brushes.Gold : Brushes.Purple
+                    });
+            }
+            var frost = new CountingBackdropBlur
+            {
+                Width = 150, Height = 100, Margin = new Thickness(32, 24, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+                CornerRadius = new CornerRadius(8, 24, 12, 0), BlurRadius = 9, Saturation = 1.5, Opacity = .47,
+                Fade = StrataBackdropFade.Top, FadeLength = 47, HorizontalFadeLength = 25,
+                SamplesBeyondEdges = true
+            };
+            plate.Children.Add(frost);
+            var window = new Window
+            {
+                Width = 240, Height = 140, Background = Brushes.Transparent, Content = plate
+            };
+            try
+            {
+                window.Show();
+                foreach (var fallback in window.GetVisualDescendants().OfType<Border>()
+                             .Where(border => border.Name == "PART_TransparencyFallback"))
+                    fallback.IsVisible = false;
+                await PumpAsync(TimeSpan.FromMilliseconds(64));
+                var visual = ElementComposition.GetElementVisual(frost)!;
+                double[] offsets = [112, 84.4, 33.25, 0, -62.25, 52.75, 84.4];
+                var renders = frost.Renders;
+                var moving = Render(recapture: false);
+                Assert.Equal(renders, frost.Renders);
+                var fresh = Render(recapture: true);
+                Assert.False(moving[0].SequenceEqual(moving[3]), "The clip must change the rendered glass.");
+                for (var i = 0; i < offsets.Length; i++)
+                    Assert.Equal(fresh[i], moving[i]);
+
+                return true;
+
+                byte[][] Render(bool recapture)
+                {
+                    var shots = new byte[offsets.Length][];
+                    for (var i = 0; i < offsets.Length; i++)
+                    {
+                        visual.Translation = new Vector3D(0, offsets[i], 0);
+                        if (recapture)
+                            frost.InvalidateVisual();
+                        Dispatcher.UIThread.RunJobs();
+                        using var frame = window.CaptureRenderedFrame()!;
+                        shots[i] = ReadPixels(frame);
+                    }
+                    return shots;
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     private sealed class CountingBackdropBlur : StrataBackdropBlur
     {
         public int Renders { get; private set; }
@@ -814,6 +889,20 @@ public sealed class BackdropBlurRenderTests
     private static byte[,] Luma(Bitmap bitmap)
     {
         var size = bitmap.PixelSize;
+        var bytes = ReadPixels(bitmap);
+        var luma = new byte[size.Width, size.Height];
+        for (var y = 0; y < size.Height; y++)
+        for (var x = 0; x < size.Width; x++)
+        {
+            var index = (y * size.Width + x) * 4;
+            luma[x, y] = (byte)((bytes[index] + bytes[index + 1] + bytes[index + 2]) / 3);
+        }
+        return luma;
+    }
+
+    private static byte[] ReadPixels(Bitmap bitmap)
+    {
+        var size = bitmap.PixelSize;
         var stride = size.Width * 4;
         var bytes = new byte[stride * size.Height];
         var buffer = Marshal.AllocHGlobal(bytes.Length);
@@ -827,14 +916,7 @@ public sealed class BackdropBlurRenderTests
             Marshal.FreeHGlobal(buffer);
         }
 
-        var luma = new byte[size.Width, size.Height];
-        for (var y = 0; y < size.Height; y++)
-        for (var x = 0; x < size.Width; x++)
-        {
-            var index = y * stride + x * 4;
-            luma[x, y] = (byte)((bytes[index] + bytes[index + 1] + bytes[index + 2]) / 3);
-        }
-        return luma;
+        return bytes;
     }
 
     private static (byte Min, byte Max) Range(byte[,] pixels, int x, int y, int width, int height)
