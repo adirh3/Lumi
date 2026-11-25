@@ -290,7 +290,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public bool CanChangeProjectSelection =>
         !HasPendingReplay &&
         !IsCurrentBlankSendInFlight &&
-        (ChatId != Guid.Empty || (!IsBusy && !IsStreaming)) &&
+        (HasChat || !IsWorking) &&
         !(ChatId != Guid.Empty &&
           UseWorktree &&
           _hasAuthoritativeTranscript &&
@@ -2199,6 +2199,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         OnPropertyChanged(nameof(IsEmpty));
         OnPropertyChanged(nameof(IsInitialLoading));
+        OnPropertyChanged(nameof(CanChangeProjectSelection));
         OnPropertyChanged(nameof(CanChooseWorktree));
         OnPropertyChanged(nameof(ShowThinking));
         OnPropertyChanged(nameof(HasQualityLevels));
