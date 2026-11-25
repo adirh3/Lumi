@@ -21,6 +21,44 @@ namespace Lumi.Tests;
 [Trait("Category", "Integration")]
 public sealed class NativeSkillProviderIntegrationTests
 {
+    [Fact]
+    public async Task WorkspaceDiscoveryUsesProjectScopesInsteadOfExplicitRoots()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(TestProfile.Root, $"workspace-discovery-{Guid.NewGuid():N}")).FullName;
+        var project = Directory.CreateDirectory(Path.Combine(root, "project")).FullName;
+        var projectAgents = Directory.CreateDirectory(Path.Combine(project, ".github", "agents")).FullName;
+        var archive = Directory.CreateDirectory(Path.Combine(project, "archive")).FullName;
+        var projectSkills = Directory.CreateDirectory(Path.Combine(project, ".github", "skills")).FullName;
+        var workspaceAgent = Path.Combine(projectAgents, "workspace-discovery.agent.md");
+        var archivedAgent = Path.Combine(archive, "archived-discovery.agent.md");
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        var ct = deadline.Token;
+        await File.WriteAllTextAsync(workspaceAgent,
+            "---\nname: workspace-discovery\ndescription: A workspace agent.\n---\n\nWorkspace agent.", ct);
+        await File.WriteAllTextAsync(archivedAgent,
+            "---\nname: archived-discovery\ndescription: An unrelated agent file.\n---\n\nArchived agent.", ct);
+
+        var runtimeHome = Path.Combine(root, "runtime");
+        var runtime = RuntimeConnection.ForSpawnedStdio(TestCopilot.BundledRuntimePath);
+        runtime.BaseDirectory = runtimeHome;
+        runtime.WorkingDirectory = root;
+        await using var client = new CopilotClient(new CopilotClientOptions
+        {
+            Mode = CopilotClientMode.CodingAgent,
+            Runtime = runtime,
+            GitHub = new ClientGitHubOptions { UseLoggedInUser = false },
+        });
+        await client.StartAsync(ct);
+        var discovered = await new CopilotSdkCapabilityProvider(() => client, () => runtimeHome)
+            .LoadAsync(new CapabilityQuery([project]), ct);
+
+        Assert.True(discovered.IsAvailable);
+        var agents = discovered.Capabilities.Where(item => item.Kind == CapabilityKind.Agent).ToArray();
+        Assert.Contains(agents, item => CapabilityQuery.DirectoryComparer.Equals(item.SourcePath, workspaceAgent));
+        Assert.DoesNotContain(agents, item => CapabilityQuery.DirectoryComparer.Equals(item.SourcePath, archivedAgent));
+        Assert.Contains(projectSkills, discovered.SessionSkillRoots!, CapabilityQuery.DirectoryComparer);
+    }
+
     [Theory]
     [Trait("Category", "CoreQA")]
     [InlineData(false, "keep")]

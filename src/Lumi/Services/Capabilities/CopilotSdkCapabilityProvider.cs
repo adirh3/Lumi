@@ -191,7 +191,7 @@ public sealed class CopilotSdkCapabilityProvider : ICapabilityProvider
         CancellationToken cancellationToken)
     {
         var result = await client.Rpc.Skills
-            .GetDiscoveryPathsAsync(projectPaths, excludeHostSkills: null, cancellationToken: cancellationToken)
+            .GetDiscoveryPathsAsync(projectPaths: projectPaths, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         var nativeRoots = result?.Paths?
@@ -258,7 +258,7 @@ public sealed class CopilotSdkCapabilityProvider : ICapabilityProvider
         CancellationToken cancellationToken)
     {
         var result = await client.Rpc.Agents
-            .DiscoverAsync(projectPaths, excludeHostAgents: null, cancellationToken: cancellationToken)
+            .DiscoverAsync(projectPaths: projectPaths, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         if (result?.Agents is not { Count: > 0 } discovered)
