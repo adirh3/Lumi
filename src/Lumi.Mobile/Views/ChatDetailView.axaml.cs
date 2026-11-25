@@ -2041,16 +2041,17 @@ public partial class ChatDetailView : UserControl
         }
     }
 
-    /// <summary>A file Lumi made opens in its preview, which offers another app from there.</summary>
-    private void OnProducedFileOpenRequested(object? sender, RoutedEventArgs e)
+    /// <summary>Downloadable files open in their preview, scoped to this attachment list.</summary>
+    private void OnAttachmentOpenRequested(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Control { DataContext: RemoteAttachment { MessageId: not null, FileName.Length: > 0 } file }
+        if (sender is not Control { DataContext: RemoteAttachment { MessageId: not null, FileName.Length: > 0 } file } chip
             || _shell is not { } shell)
         {
             return;
         }
 
-        shell.Chat.OpenFilePreviewCommand.Execute(file);
+        shell.Chat.OpenAttachmentPreview(file,
+            chip.FindAncestorOfType<ItemsControl>()?.ItemsSource as IEnumerable<RemoteAttachment>);
         e.Handled = true;
     }
 }

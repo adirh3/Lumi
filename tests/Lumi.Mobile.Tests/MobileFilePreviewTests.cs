@@ -472,7 +472,7 @@ public sealed class MobileFilePreviewTests
 
         chat.OpenFilePreviewCommand.Execute(report);
         Assert.Same(first, chat.FilePreview);
-        // A file the user attached has no message of Lumi's to fetch it from.
+        // Without a downloadable identity, for example on an older PC, the chip cannot preview.
         chat.OpenFilePreviewCommand.Execute(new RemoteAttachment { FileName = "my-photo.png", Extension = ".png" });
         Assert.Same(first, chat.FilePreview);
         Assert.Equal(1, sink.Downloads);
@@ -482,6 +482,34 @@ public sealed class MobileFilePreviewTests
         Assert.False(File.Exists(first.LocalPath), "nothing showed the replaced preview, so its copy went at once");
         Assert.Equal("release-notes.docx", chat.FilePreview!.FileName);
         Assert.Equal(1, sink.Downloads);
+    }
+
+    [Fact]
+    public async Task AttachmentGalleryUsesTheSelectedIndexAndDoesNotIncludeOtherFiles()
+    {
+        using var files = new TempFiles();
+        var sink = new PreviewSink(files);
+        var chat = new MobileChatViewModel(sink);
+        chat.Reset(Guid.NewGuid(), "Files");
+        var first = Attachment("same-name.png");
+        first.AttachmentIndex = 0;
+        var last = new RemoteAttachment { FileName = first.FileName, MessageId = first.MessageId, AttachmentIndex = 2 };
+
+        chat.OpenAttachmentPreview(last, [first, Attachment("report.pdf"), last]);
+        var selected = Assert.IsType<FilePreviewViewModel>(chat.FilePreview);
+        Assert.Contains("2 / 2", selected.Subtitle);
+        chat.StepImagePreview(selected, 1);
+        Assert.Same(selected, chat.FilePreview);
+
+        chat.StepImagePreview(selected, -1);
+        Assert.True(selected.IsClosed);
+        var previous = Assert.IsType<FilePreviewViewModel>(chat.FilePreview);
+        Assert.Same(first, previous.File);
+        Assert.Contains("1 / 2", previous.Subtitle);
+        chat.StepImagePreview(selected, -1);
+        Assert.Same(previous, chat.FilePreview);
+        await WaitUntilAsync(() => !previous.IsLoading);
+        chat.CloseFilePreviewCommand.Execute(null);
     }
 
     [Fact]
@@ -519,6 +547,62 @@ public sealed class MobileFilePreviewTests
     }
 
     // ── Where the pane goes ─────────────────────────────────────────────────────────────────────
+
+#if DEBUG
+    [Fact]
+    public Task TappingAnAttachmentAndSwipingItsPreviewUsesTheSameMessageGallery() =>
+        RunShellAsync(412, 892, async (shell, view, window, logs) =>
+        {
+            using var files = new TempFiles();
+            var png = Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQMcAAAAASUVORK5CYII=");
+            shell.DesignPreviewFiles = (_, name, _) => Task.FromResult<string?>(
+                name == "missing.png" ? null : files.Write(name, png));
+            shell.Chat.ApplyTranscript(new RemoteTranscript
+            {
+                ChatId = shell.Chat.ChatId,
+                Turns = [new RemoteTranscriptTurn
+                {
+                    Id = "gallery",
+                    Items = [new RemoteTranscriptItem
+                    {
+                        Id = "gallery-files",
+                        Kind = RemoteProtocol.ItemKinds.File,
+                        Attachments = [Attachment("first.png"), Attachment("notes.md"), Attachment("missing.png"), Attachment("last.png")]
+                    }]
+                }]
+            });
+            await SettleAsync(window);
+            var chip = view.GetVisualDescendants().OfType<StrataFileAttachment>().Single(file => file.FileName == "first.png");
+            var center = chip.TranslatePoint(new Point(chip.Bounds.Width / 2, chip.Bounds.Height / 2), window)!.Value;
+            var tap = window.TouchBegin(center);
+            window.TouchEnd(tap, center);
+            await SettleAsync(window, () => shell.Chat.FilePreview is { FileName: "first.png", ShowImage: true });
+
+            var image = Find<StrataImageViewport>(view, "PreviewImage");
+            Assert.DoesNotContain(view.GetVisualDescendants().OfType<Button>(), button =>
+                button.Name is "PreviewPreviousImage" or "PreviewNextImage");
+            Swipe(forward: true);
+            await SettleAsync(window, () => shell.Chat.FilePreview is { FileName: "missing.png", HasError: true });
+            Swipe(forward: true);
+            await SettleAsync(window, () => shell.Chat.FilePreview is { FileName: "last.png", ShowImage: true });
+            Assert.Contains("3 / 3", Find<TextBlock>(view, "PreviewSubtitle").Text);
+            Swipe(forward: false);
+            await SettleAsync(window, () => shell.Chat.FilePreview is { FileName: "missing.png", HasError: true });
+            AssertNoBindingErrors(logs);
+
+            void Swipe(bool forward)
+            {
+                var start = image.TranslatePoint(new Point(image.Bounds.Width * (forward ? 0.8 : 0.2),
+                    image.Bounds.Height * 0.23), window)!.Value;
+                var end = start + new Vector(image.Bounds.Width * (forward ? -0.6 : 0.6), 0);
+                Assert.Same(image, window.InputHitTest(start));
+                var swipe = window.TouchBegin(start);
+                window.TouchMove(swipe, end);
+                window.TouchEnd(swipe, end);
+            }
+        });
+#endif
 
     [Fact]
     public async Task OnOnePaneThePreviewCoversTheChatAndBackReturnsToIt()
@@ -1387,7 +1471,7 @@ public sealed class MobileFilePreviewTests
     }
 
     /// <summary>The PC, as far as a preview is concerned: it hands over the files Lumi made.</summary>
-    private sealed class PreviewSink(TempFiles files) : IRemoteCommandSink, IRemoteProducedFileSink
+    private sealed class PreviewSink(TempFiles files) : IRemoteCommandSink, IRemoteFilePreviewSink
     {
         public int Downloads { get; private set; }
 
@@ -1395,13 +1479,13 @@ public sealed class MobileFilePreviewTests
 
         public Guid LastMessageId { get; private set; }
 
-        public Task<ProducedFileDownload> DownloadProducedFileAsync(
-            Guid chatId, Guid messageId, string fileName, CancellationToken cancellationToken)
+        public Task<ProducedFileDownload> DownloadPreviewFileAsync(
+            Guid chatId, RemoteAttachment file, CancellationToken cancellationToken)
         {
             Downloads++;
             LastChatId = chatId;
-            LastMessageId = messageId;
-            return Task.FromResult(new ProducedFileDownload(files.Write(fileName, "# Report"u8.ToArray()), null));
+            LastMessageId = file.MessageId!.Value;
+            return Task.FromResult(new ProducedFileDownload(files.Write(file.FileName, "# Report"u8.ToArray()), null));
         }
 
         public Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command) =>

@@ -258,7 +258,7 @@
       <!-- Images: fitted, then pinch, double-tap or drag to look closer. -->
       <sc:StrataImageViewport x:Name="PreviewImage"
                               Source="{Binding Image}"
-                              IsVisible="{Binding ShowImage}" />
+                              IsVisible="{Binding ShowImageViewport}" />
 
       <!-- Text files show in sections, each built only as it nears the screen, so a long file opens at
            once (FilePreviewSections). The ScrollViewer measures a layout container, never the text itself. -->
@@ -279,7 +279,7 @@
               <!-- Sections sit apart as markdown's blocks do, or a blank line apart where one ends mid-text,
                    so the seams between them don't show. -->
               <DataTemplate x:DataType="vm:FilePreviewSection">
-                <sc:StrataMarkdown Markdown="{Binding Text}"
+                <sc:StrataMarkdown Markdown="{Binding Text}" InteractionTouchMode="True"
                                    InteractionLanguage="{x:Static loc:ChatSessionStrings.Language}"
                                    IsInline="True">
                   <sc:StrataMarkdown.Margin>

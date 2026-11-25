@@ -19,6 +19,21 @@ public static class DesignPreview
     public static void OpenFile(MobileShellViewModel shell, string fileName)
     {
         shell.IsDrawerOpen = false;
+        foreach (var item in shell.Chat.Turns.SelectMany(turn => turn.Items))
+        {
+            var files = item switch
+            {
+                AssistantItemViewModel answer => answer.Files,
+                FileItemViewModel attachmentRow => attachmentRow.Files,
+                _ => null
+            };
+            if (files?.FirstOrDefault(file => file.FileName == fileName) is { } selected)
+            {
+                shell.Chat.OpenAttachmentPreview(selected, files);
+                return;
+            }
+        }
+
         shell.Chat.OpenFilePreviewCommand.Execute(new RemoteAttachment
         {
             FileName = fileName,
@@ -328,6 +343,7 @@ public static class DesignPreview
         shell.Chat.Reset(open.Id, open.Title, "gpt-6.1-sol");
         shell.Chat.ProjectValue = lumi.Id.ToString();
         shell.Chat.ProjectName = lumi.Name;
+        var viewerImage = CreateViewerImage();
         shell.Chat.ApplyTranscript(new RemoteTranscript
         {
             ChatId = open.Id, Title = open.Title, Revision = 1,
@@ -342,7 +358,7 @@ public static class DesignPreview
                 SkillNames = ["Fold layout check"],
                 McpNames = ["Avalonia MCP", "DotSight", "avalonia-mcp", "memory", "lumi-mcp", "workiq"]
             },
-            Turns = TranscriptTurns(now)
+            Turns = TranscriptTurns(now, viewerImage)
         });
         // The preview has no PC to load each stretch of work's steps from, so it carries them.
         foreach (var activity in shell.Chat.Turns.SelectMany(turn => turn.Items).OfType<ActivitySummaryItemViewModel>())
@@ -355,7 +371,7 @@ public static class DesignPreview
         shell.Chat.PlanContent = "## Fix the keyboard gap\n\n- [x] Reproduce on the Fold cover screen\n- [x] Clear cached insets on deactivate\n- [x] Read fresh IME insets on resume\n- [ ] Verify on the unfolded screen";
         shell.Chat.PlanContent += "\n\n## Touch viewers\n\nOpen either visual full screen to try pinch-to-zoom, panning and Back.\n\n"
             + "```mermaid\nflowchart LR\n    Phone[Phone or Fold] --> Viewer[Full-screen viewer]\n    Viewer --> Zoom[Pinch and pan]\n    Zoom --> Back[Back to the same screen]\n```\n\n"
-            + $"![Lumi artwork](<{CreateViewerImage()}>)";
+            + $"![Lumi artwork](<{viewerImage}>)\n\n![Lumi artwork again](<{viewerImage}>)";
         shell.ShowLaunchHome();
 
         // The fixture has no PC behind it, so the refreshes the app starts fail; a preview of the
@@ -386,7 +402,7 @@ public static class DesignPreview
     /// work folded behind its summary with the files it changed, a multi-part answer, sources and the
     /// files Lumi made, an answered question, and work still under way.
     /// </summary>
-    private static List<RemoteTranscriptTurn> TranscriptTurns(DateTimeOffset now) =>
+    private static List<RemoteTranscriptTurn> TranscriptTurns(DateTimeOffset now, string viewerImage) =>
     [
         new()
         {
@@ -482,7 +498,8 @@ public static class DesignPreview
                 new()
                 {
                     Id = "answer-2", Kind = RemoteProtocol.ItemKinds.Assistant, Author = "Lumi", Model = "claude-opus-5.5", Timestamp = now.AddMinutes(-10),
-                    Text = "The layout checks pass at large display size, with no stale keyboard gap.",
+                    Text = $"The layout checks pass at large display size, with no stale keyboard gap.\n\n"
+                        + $"![Phone preview]({viewerImage})\n\n![Fold preview]({viewerImage})",
                     IsProgress = false
                 },
                 new()
@@ -490,6 +507,8 @@ public static class DesignPreview
                     Id = "file-2", Kind = RemoteProtocol.ItemKinds.File, Timestamp = now.AddMinutes(-10),
                     Attachments =
                     [
+                        new() { FileName = "phone-preview.png", Extension = ".png", MessageId = Guid.NewGuid() },
+                        new() { FileName = "fold-preview.png", Extension = ".png", MessageId = Guid.NewGuid() },
                         new() { FileName = "fold-layout-report.pdf", Extension = ".pdf", MessageId = Guid.NewGuid() },
                         new() { FileName = "fold-layout-metrics.csv", Extension = ".csv", MessageId = Guid.NewGuid() },
                         new() { FileName = "interactive-report.html", Extension = ".html", MessageId = Guid.NewGuid() },

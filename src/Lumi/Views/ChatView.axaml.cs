@@ -2338,18 +2338,40 @@ public partial class ChatView : UserControl
 
     private void OnFileAttachmentOpenRequested(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (e.Source is StrataFileAttachment { DataContext: FileAttachmentItem item })
+        if (e.Source is StrataFileAttachment { DataContext: FileAttachmentItem item } chip)
+        {
+            if (TryOpenAttachmentGallery(chip, item))
+            {
+                e.Handled = true;
+                return;
+            }
             item.OpenCommand.Execute(null);
+        }
     }
 
     private void OnFileAttachmentPreviewRequested(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (e.Source is StrataFileAttachment { DataContext: FileAttachmentItem item }
+        if (e.Source is StrataFileAttachment { DataContext: FileAttachmentItem item } chip
             && DataContext is ChatViewModel viewModel)
         {
-            viewModel.OpenFilePreview(item.FilePath);
+            if (!TryOpenAttachmentGallery(chip, item))
+                viewModel.OpenFilePreview(item.FilePath);
             e.Handled = true;
         }
+    }
+
+    private static bool TryOpenAttachmentGallery(StrataFileAttachment chip, FileAttachmentItem item)
+    {
+        if (!FilePreviewContent.IsImageFile(item.FilePath)
+            || chip.FindAncestorOfType<ItemsControl>()?.ItemsSource is not IEnumerable<FileAttachmentItem> attachments)
+            return false;
+
+        var images = attachments.Where(file => Path.IsPathFullyQualified(file.FilePath)
+            && FilePreviewContent.IsImageFile(file.FilePath)).ToList();
+        var index = images.IndexOf(item);
+        return index >= 0 && images.Count > 1
+            && StrataMarkdown.TryOpenImageFileGallery(chip, images.Select(file => file.FilePath).ToArray(),
+                index, Loc.Culture.Name);
     }
 
     private static bool HasFiles(DragEventArgs e)

@@ -16,6 +16,9 @@ internal sealed record FilePreviewContent(FilePreviewKind Kind, string? Text = n
     internal static bool IsHtmlFile(string filePath)
         => Path.GetExtension(filePath).ToLowerInvariant() is ".html" or ".htm";
 
+    internal static bool IsImageFile(string filePath)
+        => Path.GetExtension(filePath).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" or ".webp";
+
     internal static async Task<FilePreviewContent> LoadAsync(string filePath, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -23,7 +26,7 @@ internal sealed record FilePreviewContent(FilePreviewKind Kind, string? Text = n
             FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
         var extension = Path.GetExtension(filePath).ToLowerInvariant();
-        if (extension is ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" or ".webp")
+        if (IsImageFile(filePath))
             return new(FilePreviewKind.Image);
         if (extension is ".pdf" or ".doc" or ".docx" or ".docm" or ".xls" or ".xlsx" or ".xlsm"
             or ".ppt" or ".pptx" or ".pptm" or ".rtf" or ".odt" or ".ods" or ".odp"

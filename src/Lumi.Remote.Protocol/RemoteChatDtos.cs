@@ -196,8 +196,11 @@ public sealed class RemoteAttachment
     public string Path { get; set; } = "";
     public string FileName { get; set; } = "";
     public string? Extension { get; set; }
-    /// <summary>Authoritative announce_file message ID. Null for ordinary user attachments.</summary>
+    /// <summary>The stored source message for a downloadable file; otherwise null.</summary>
     public Guid? MessageId { get; set; }
+    /// <summary>Position of an image in a user message's attachments. Null for announced files.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? AttachmentIndex { get; set; }
 }
 
 public sealed class RemoteSource

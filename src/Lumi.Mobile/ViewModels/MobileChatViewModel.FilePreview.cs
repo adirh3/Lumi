@@ -20,19 +20,48 @@ public sealed partial class MobileChatViewModel
 
     /// <summary>Opens a file Lumi announced in the preview, replacing any file already in it.</summary>
     [RelayCommand]
-    private void OpenFilePreview(RemoteAttachment? file)
+    private void OpenFilePreview(RemoteAttachment? file) => OpenAttachmentPreview(file);
+
+    internal void OpenAttachmentPreview(RemoteAttachment? file, IEnumerable<RemoteAttachment>? siblings = null)
+    {
+        List<RemoteAttachment>? images = null;
+        var index = 0;
+        if (file is not null && FilePreviewContent.Classify(file.FileName) == FilePreviewKind.Image && siblings is not null)
+        {
+            images = siblings.Where(attachment => attachment.MessageId.HasValue
+                && FilePreviewContent.Classify(attachment.FileName) == FilePreviewKind.Image).ToList();
+            index = images.IndexOf(file);
+        }
+        ShowFilePreview(file, images is { Count: > 1 } && index >= 0 ? images : [], Math.Max(index, 0));
+    }
+
+    internal void StepImagePreview(FilePreviewViewModel from, int step)
+    {
+        if (!ReferenceEquals(from, FilePreview) || from.IsClosed)
+            return;
+
+        var index = from.ImageGalleryIndex + step;
+        if ((uint)index < (uint)from.ImageGallery.Count)
+            ShowFilePreview(from.ImageGallery[index], from.ImageGallery, index);
+    }
+
+    private void ShowFilePreview(RemoteAttachment? file, IReadOnlyList<RemoteAttachment> images, int index)
     {
         if (file is not { MessageId: { } messageId, FileName.Length: > 0 } || ChatId == Guid.Empty)
             return;
-        if (FilePreview is { } current && current.MessageId == messageId && current.ChatId == ChatId)
+        if (FilePreview is { } current && current.MessageId == messageId && current.ChatId == ChatId
+            && current.File.AttachmentIndex == file.AttachmentIndex)
             return;
 
         var chatId = ChatId;
-        var fileName = file.FileName;
         var preview = new FilePreviewViewModel(file, chatId, token =>
-            _sink is IRemoteProducedFileSink sink
-                ? sink.DownloadProducedFileAsync(chatId, messageId, fileName, token)
-                : Task.FromResult(new ProducedFileDownload(null, Strings.Get("DownloadFileFailed"))));
+            _sink is IRemoteFilePreviewSink sink
+                ? sink.DownloadPreviewFileAsync(chatId, file, token)
+                : Task.FromResult(new ProducedFileDownload(null, Strings.Get("DownloadFileFailed"))))
+        {
+            ImageGallery = images,
+            ImageGalleryIndex = index
+        };
 
         // Beside the chat there is room for one supporting surface, as in the desktop's Workspace: the
         // preview takes the place of a panel or of the chat's changes.

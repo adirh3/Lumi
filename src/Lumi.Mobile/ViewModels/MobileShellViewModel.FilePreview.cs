@@ -1,11 +1,12 @@
 using Avalonia;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Lumi.Mobile.Services;
+using Lumi.Remote.Protocol;
 using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
 
-public sealed partial class MobileShellViewModel : IRemoteProducedFileSink
+public sealed partial class MobileShellViewModel : IRemoteFilePreviewSink
 {
     // ── The file preview ──────────────────────────────────────────────────────────────────────
     //
@@ -105,12 +106,14 @@ public sealed partial class MobileShellViewModel : IRemoteProducedFileSink
     internal Func<Guid, string, CancellationToken, Task<string?>>? DesignPreviewFiles { get; set; }
 #endif
 
-    public async Task<ProducedFileDownload> DownloadProducedFileAsync(
+    public async Task<ProducedFileDownload> DownloadPreviewFileAsync(
         Guid chatId,
-        Guid messageId,
-        string fileName,
+        RemoteAttachment file,
         CancellationToken cancellationToken)
     {
+        if (file.MessageId is not { } messageId)
+            return new ProducedFileDownload(null, Strings.Get("DownloadFileFailed"));
+        var fileName = file.FileName;
 #if DEBUG
         if (DesignPreviewFiles is { } designFiles)
             return new ProducedFileDownload(await designFiles(messageId, fileName, cancellationToken), null);
@@ -122,7 +125,7 @@ public sealed partial class MobileShellViewModel : IRemoteProducedFileSink
             using var request = CreateConnectionRequest();
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(request.Token, cancellationToken);
             var path = await Client.DownloadProducedFileAsync(
-                chatId, messageId, fileName, linked.Token, preferLocalFile: true);
+                chatId, messageId, fileName, linked.Token, preferLocalFile: true, attachmentIndex: file.AttachmentIndex);
             return path is null
                 ? new ProducedFileDownload(null, Client.StateMessage ?? Strings.Get("DownloadFileFailed"))
                 : new ProducedFileDownload(path, null);

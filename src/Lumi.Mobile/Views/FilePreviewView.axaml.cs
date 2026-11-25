@@ -52,6 +52,7 @@ public partial class FilePreviewView : UserControl
     public FilePreviewView()
     {
         InitializeComponent();
+        this.FindControl<StrataImageViewport>("PreviewImage")!.NavigateRequested += (_, step) => StepImage(step);
         this.FindControl<StackPanel>("PreviewActionsHost")!.SizeChanged += (_, _) => ApplyHtmlPreviewClearance();
         ApplyChrome();
     }
@@ -85,6 +86,8 @@ public partial class FilePreviewView : UserControl
         _messageTimer?.Dispose();
         _messageTimer = null;
         _preview = DataContext as FilePreviewViewModel;
+        if (this.FindControl<StrataImageViewport>("PreviewImage") is { } viewport)
+            viewport.CanSwipeBetweenImages = _preview?.HasImageGallery == true;
         if (_preview is not null)
             _preview.PropertyChanged += OnPreviewPropertyChanged;
         this.FindControl<ContentControl>("PreviewHtml")!.Content = null;
@@ -108,6 +111,12 @@ public partial class FilePreviewView : UserControl
             if (preview.ActionMessage == message)
                 preview.ActionMessage = null;
         }, ActionMessageDuration);
+    }
+
+    private void StepImage(int step)
+    {
+        if (_preview is { } preview)
+            FindShell()?.Chat.StepImagePreview(preview, step);
     }
 
     private void SyncHtmlPreview()

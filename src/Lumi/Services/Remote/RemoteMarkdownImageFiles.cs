@@ -177,7 +177,7 @@ internal static class RemoteMarkdownImageFiles
             _ => "application/octet-stream"
         };
 
-    private static bool TryResolveLocalPath(string target, out string path)
+    internal static bool TryResolveLocalPath(string target, out string path)
     {
         path = "";
         try

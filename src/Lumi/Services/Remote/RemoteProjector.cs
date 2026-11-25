@@ -2213,7 +2213,7 @@ internal static class RemoteProjector
     private static RemoteTranscriptItem BuildUserItem(ChatMessage message)
     {
         var content = RemoteUserMessageContent.Parse(message.Content, message.Author);
-        var attachments = (BuildAttachments(message.Attachments) ?? [])
+        var attachments = (BuildAttachments(message) ?? [])
             .Concat(content.Attachments.Where(file => !message.Attachments.Contains(file.Path))).ToList();
         return new RemoteTranscriptItem
         {
@@ -2874,8 +2874,9 @@ internal static class RemoteProjector
         return bounded;
     }
 
-    private static List<RemoteAttachment>? BuildAttachments(IReadOnlyList<string> paths)
+    private static List<RemoteAttachment>? BuildAttachments(ChatMessage message)
     {
+        var paths = message.Attachments;
         if (paths.Count == 0)
             return null;
 
@@ -2889,11 +2890,14 @@ internal static class RemoteProjector
         for (var index = 0; index < retainedCount; index++)
         {
             var path = paths[index] ?? "";
+            var canPreview = RemoteMarkdownImageFiles.TryResolveLocalPath(path, out _);
             bounded.Add(new RemoteAttachment
             {
                 Path = BoundRequired(path, RemoteProtocol.MobilePathLimit),
                 FileName = SafeFileName(path),
-                Extension = SafeExtension(path)
+                Extension = SafeExtension(path),
+                MessageId = canPreview ? message.Id : null,
+                AttachmentIndex = canPreview ? index : null
             });
         }
 
@@ -2928,7 +2932,8 @@ internal static class RemoteProjector
                 Extension = BoundOptional(
                     attachment.Extension,
                     RemoteProtocol.MobileFileExtensionLimit),
-                MessageId = attachment.MessageId
+                MessageId = attachment.MessageId,
+                AttachmentIndex = attachment.AttachmentIndex
             });
         }
 

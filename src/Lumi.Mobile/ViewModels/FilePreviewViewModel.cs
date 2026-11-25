@@ -20,12 +20,11 @@ public readonly record struct ProducedFileDownload(string? Path, string? Error);
 public sealed record FilePreviewSection(string Text, string? CodeLanguage, bool JoinsNext = false);
 
 /// <summary>Narrow seam so a preview can fetch its file without owning the transport.</summary>
-public interface IRemoteProducedFileSink
+public interface IRemoteFilePreviewSink
 {
-    Task<ProducedFileDownload> DownloadProducedFileAsync(
+    Task<ProducedFileDownload> DownloadPreviewFileAsync(
         Guid chatId,
-        Guid messageId,
-        string fileName,
+        RemoteAttachment file,
         CancellationToken cancellationToken);
 }
 
@@ -74,6 +73,12 @@ public sealed partial class FilePreviewViewModel : ObservableObject
 
     public string FileName { get; }
 
+    internal IReadOnlyList<RemoteAttachment> ImageGallery { get; init; } = [];
+    internal int ImageGalleryIndex { get; init; }
+    internal bool HasImageGallery => ImageGallery.Count > 1;
+    private string? ImagePosition =>
+        HasImageGallery ? InteractiveLabels.Current.Format("imagePosition", ImageGalleryIndex + 1, ImageGallery.Count) : null;
+
     /// <summary>The file's type as its chip names it ("PNG", "MD"), or "File" without an extension.</summary>
     public string TypeLabel => Path.GetExtension(FileName).TrimStart('.') is { Length: > 0 } extension
         ? extension.ToUpperInvariant()
@@ -81,7 +86,7 @@ public sealed partial class FilePreviewViewModel : ObservableObject
 
     /// <summary>"PDF · 12 pages · 1.4 MB": the type, what it holds once read, and its size once downloaded.</summary>
     public string Subtitle => string.Join(" · ",
-        new[] { TypeLabel, Pdf?.PageCountText ?? Table?.RowCountText, SizeText }
+        new[] { ImagePosition, TypeLabel, Pdf?.PageCountText ?? Table?.RowCountText, SizeText }
             .Where(part => !string.IsNullOrEmpty(part)));
 
     /// <summary>The downloaded copy on this device, once there is one.</summary>
@@ -135,6 +140,8 @@ public sealed partial class FilePreviewViewModel : ObservableObject
     private bool CanShowContent => !HasError && !IsSettling;
 
     public bool ShowImage => CanShowContent && Kind == FilePreviewKind.Image && Image is not null;
+
+    public bool ShowImageViewport => ShowImage || (HasImageGallery && !IsSettling);
 
     public bool ShowMarkdown => CanShowContent && Kind == FilePreviewKind.Markdown && !string.IsNullOrEmpty(Text);
 
@@ -201,7 +208,7 @@ public sealed partial class FilePreviewViewModel : ObservableObject
 
     private static readonly string[] StateProperties =
     [
-        nameof(HasError), nameof(ShowLoading), nameof(ShowImage), nameof(ShowMarkdown), nameof(ShowCode),
+        nameof(HasError), nameof(ShowLoading), nameof(ShowImage), nameof(ShowImageViewport), nameof(ShowMarkdown), nameof(ShowCode),
         nameof(ShowText), nameof(ShowCsv), nameof(ShowPdf), nameof(ShowHtml), nameof(ShowUnsupported), nameof(ShowEmpty),
         nameof(ShowContentActions), nameof(ShowLimitNotice), nameof(LimitNoticeText), nameof(Subtitle),
         nameof(MarkdownText), nameof(CodeText), nameof(PlainText),

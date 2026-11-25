@@ -213,6 +213,7 @@ public static class DebugAgentHarness
         var dealSummaryPath = Path.Combine(root, "Deal-Summary.md");
         var researchNotesPath = Path.Combine(root, "OLED-Research-Notes.md");
         var fixtureImagePath = Path.Combine(root, "lumi markdown image.png");
+        var fixtureAttachmentImagePath = Path.Combine(root, "lumi attachment image.png");
 
         File.WriteAllText(attachmentPath, "# Debug fixture attachment\n\nThis file exists so attachment chips can resolve size and icon metadata.\n");
         File.WriteAllText(editedPath, "public class FixtureWidget\n{\n    public string State => \"before\";\n}\n");
@@ -226,6 +227,7 @@ public static class DebugAgentHarness
         {
             source.CopyTo(destination);
         }
+        File.Copy(fixtureImagePath, fixtureAttachmentImagePath, overwrite: true);
 
         var codingSkill = dataStore.Data.Skills.FirstOrDefault(s =>
             s.Name.Equals("Code Helper", StringComparison.OrdinalIgnoreCase))
@@ -338,6 +340,8 @@ public static class DebugAgentHarness
             """);
         user.Author = userName;
         user.Attachments.Add(attachmentPath);
+        user.Attachments.Add(fixtureImagePath);
+        user.Attachments.Add(fixtureAttachmentImagePath);
         user.ActiveSkills.Add(builtinSkillRef);
         user.ActiveSkills.Add(skillRef);
         chat.Messages.Add(user);

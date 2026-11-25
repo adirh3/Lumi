@@ -1937,6 +1937,66 @@ public sealed class RemoteEndToEndTests
     });
 
     [Fact]
+    public async Task PhoneCanDownloadOnlyTheImageAtTheStoredUserAttachmentIndex()
+    {
+        var imagePath = Path.Combine(Path.GetTempPath(), $"lumi-user-image-{Guid.NewGuid():N}.png");
+        var otherPath = Path.ChangeExtension(imagePath, ".txt");
+        var invalidImage = Path.ChangeExtension(imagePath, ".jpg");
+        var bytes = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2uoAAAAASUVORK5CYII=");
+        File.WriteAllBytes(imagePath, bytes);
+        File.WriteAllText(otherPath, "not an image");
+        File.WriteAllText(invalidImage, "not an image despite the extension");
+        string? download = null;
+        try
+        {
+            await RunAsync(async rig =>
+            {
+                var chat = Assert.Single(rig.DataStore.Data.Chats);
+                var user = chat.Messages.First(message => message.Role == "user");
+                var assistant = chat.Messages.First(message => message.Role == "assistant");
+                await PairAsync(rig);
+
+                var transcript = Assert.IsType<RemoteTranscript>(
+                    await rig.Client.GetTranscriptAsync(chat.Id, CancellationToken.None));
+                var attachments = Assert.Single(transcript.Turns.SelectMany(turn => turn.Items),
+                    item => item.Kind == RemoteProtocol.ItemKinds.User).Attachments!;
+                Assert.Null(attachments[0].MessageId);
+                Assert.Equal(user.Id, attachments[1].MessageId);
+                Assert.Equal(1, attachments[1].AttachmentIndex);
+
+                download = await rig.Client.DownloadProducedFileAsync(
+                    chat.Id, user.Id, Path.GetFileName(imagePath), CancellationToken.None, attachmentIndex: 1);
+                Assert.NotNull(download);
+                Assert.Equal(bytes, await File.ReadAllBytesAsync(download));
+                Assert.Null(await rig.Client.DownloadProducedFileAsync(
+                    chat.Id, user.Id, "unavailable.png", CancellationToken.None, attachmentIndex: 0));
+                Assert.Null(await rig.Client.DownloadProducedFileAsync(
+                    chat.Id, user.Id, "unavailable.png", CancellationToken.None, attachmentIndex: 2));
+                Assert.Null(await rig.Client.DownloadProducedFileAsync(
+                    chat.Id, user.Id, "unavailable.png", CancellationToken.None, attachmentIndex: 3));
+                Assert.Null(await rig.Client.DownloadProducedFileAsync(
+                    chat.Id, assistant.Id, "unavailable.png", CancellationToken.None, attachmentIndex: 0));
+            }, seed: data =>
+            {
+                var chat = new Chat { Title = "Attachment gallery" };
+                chat.Messages.Add(new ChatMessage { Role = "user", Content = "Attached files", Attachments = [otherPath, imagePath, invalidImage] });
+                chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "Done.", Attachments = [imagePath] });
+                chat.MessageCount = chat.Messages.Count;
+                data.Chats.Add(chat);
+            });
+        }
+        finally
+        {
+            if (download is not null)
+                File.Delete(download);
+            File.Delete(imagePath);
+            File.Delete(otherPath);
+            File.Delete(invalidImage);
+        }
+    }
+
+    [Fact]
     public async Task ViewedInlineImageDownloadsThroughTheAuthenticatedEndpointWithoutAnnouncement()
     {
         var imageBytes = Convert.FromBase64String(

@@ -1612,7 +1612,7 @@
                                              FileSize="{Binding Extension, Converter={x:Static views:FileTypeLabelConverter.Instance}}"
                                              IconImage="{Binding FileName, Converter={x:Static views:FileTypeIconConverter.Instance}}"
                                              Status="Completed"
-                                             IsRemovable="False" />
+                                             IsRemovable="False" OpenRequested="OnAttachmentOpenRequested" />
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
@@ -1699,7 +1699,7 @@
                                        IconImage="{Binding FileName, Converter={x:Static views:FileTypeIconConverter.Instance}}"
                                        Status="Completed" IsRemovable="False"
                                        AutomationProperties.Name="{Binding FileName, StringFormat={loc:Str OpenNamed}}"
-                                       OpenRequested="OnProducedFileOpenRequested" />
+                                       OpenRequested="OnAttachmentOpenRequested" />
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
@@ -1893,7 +1893,7 @@
                                      IconImage="{Binding FileName, Converter={x:Static views:FileTypeIconConverter.Instance}}"
                                      Status="Completed" IsRemovable="False"
                                      AutomationProperties.Name="{Binding FileName, StringFormat={loc:Str OpenNamed}}"
-                                     OpenRequested="OnProducedFileOpenRequested" />
+                                     OpenRequested="OnAttachmentOpenRequested" />
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>
@@ -2758,6 +2758,7 @@
             <sc:StrataMarkdown x:Name="PlanMarkdown"
                                Markdown="{Binding Chat.PlanContent, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
                                InteractionLanguage="{x:Static loc:ChatSessionStrings.Language}"
+                               InteractionTouchMode="True"
                                IsInline="True" />
           </StackPanel>
         </Border>

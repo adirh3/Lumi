@@ -104,7 +104,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         string WorkingDirectory,
         IReadOnlySet<string> RunningBackgroundToolCallIds);
 
-    private sealed record FileMessageCapture(Chat? Chat, string? Content);
+    private sealed record FileMessageCapture(Chat? Chat, string? Path);
     private sealed record MarkdownImageCapture(
         Chat? Chat,
         string? Content,
@@ -1184,6 +1184,20 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             return;
         }
 
+        int? attachmentIndex = null;
+        if (context.Request.QueryValue("attachmentIndex") is { } indexText)
+        {
+            if (!int.TryParse(indexText, System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out var index)
+                || index >= RemoteProtocol.MobileAttachmentCountLimit)
+            {
+                await WriteErrorAsync(context, 404, Loc.Remote_ProducedFileUnavailable, cancellationToken)
+                    .ConfigureAwait(false);
+                return;
+            }
+            attachmentIndex = index;
+        }
+
         var capture = await Dispatcher.UIThread.InvokeAsync(() =>
         {
             var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
@@ -1191,17 +1205,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 return new FileMessageCapture(null, null);
 
             var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
-            var content = owner?.CurrentChat?.Id == chatId
+            var message = owner?.CurrentChat?.Id == chatId
                 ? owner.Messages
                     .Select(item => item.Message)
-                    .FirstOrDefault(message =>
-                        message.Id == messageId
-                        && string.Equals(message.ToolName, "announce_file", StringComparison.OrdinalIgnoreCase))
-                    ?.Content
-                : chat.Messages.FirstOrDefault(message =>
-                    message.Id == messageId
-                    && string.Equals(message.ToolName, "announce_file", StringComparison.OrdinalIgnoreCase))?.Content;
-            return new FileMessageCapture(chat, content);
+                    .FirstOrDefault(message => message.Id == messageId)
+                : chat.Messages.FirstOrDefault(message => message.Id == messageId);
+            return new FileMessageCapture(chat, ResolveFilePath(message, attachmentIndex));
         });
 
         if (capture.Chat is null)
@@ -1210,16 +1219,14 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             return;
         }
 
-        var content = capture.Content;
-        if (content is null
+        var path = capture.Path;
+        if (path is null
             && await _dataStore.FindStoredMessageAsync(chatId, messageId, cancellationToken).ConfigureAwait(false)
-                is { Message: var stored }
-            && string.Equals(stored.ToolName, "announce_file", StringComparison.OrdinalIgnoreCase))
+                is { Message: var stored })
         {
-            content = stored.Content;
+            path = ResolveFilePath(stored, attachmentIndex);
         }
 
-        var path = RemoteProjector.ExtractJsonField(content, "filePath");
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
         {
             await WriteErrorAsync(context, 404, Loc.Remote_ProducedFileUnavailable, cancellationToken)
@@ -1228,7 +1235,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         }
 
         var file = new FileInfo(path);
-        if (file.Length > RemoteProtocol.MaxDownloadBytes)
+        var maxBytes = attachmentIndex.HasValue ? RemoteProtocol.MaxMarkdownImageBytes : RemoteProtocol.MaxDownloadBytes;
+        if (file.Length > maxBytes)
         {
             await WriteErrorAsync(context, 413, Loc.Remote_ProducedFileTooLarge, cancellationToken)
                 .ConfigureAwait(false);
@@ -1242,7 +1250,39 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             FileShare.Read,
             64 * 1024,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
-        await context.WriteFileAsync(stream, file.Length, file.Name, cancellationToken).ConfigureAwait(false);
+        if (stream.Length > maxBytes)
+        {
+            await WriteErrorAsync(context, 413, Loc.Remote_ProducedFileTooLarge, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (attachmentIndex.HasValue)
+        {
+            using var codec = SkiaSharp.SKCodec.Create(new SkiaSharp.SKManagedStream(stream, disposeManagedStream: false));
+            if (codec?.EncodedFormat is not (SkiaSharp.SKEncodedImageFormat.Png or SkiaSharp.SKEncodedImageFormat.Jpeg
+                or SkiaSharp.SKEncodedImageFormat.Gif or SkiaSharp.SKEncodedImageFormat.Bmp or SkiaSharp.SKEncodedImageFormat.Webp))
+            {
+                await WriteErrorAsync(context, 404, Loc.Remote_ProducedFileUnavailable, cancellationToken)
+                    .ConfigureAwait(false);
+                return;
+            }
+            stream.Position = 0;
+        }
+
+        await context.WriteFileAsync(stream, stream.Length, file.Name, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string? ResolveFilePath(ChatMessage? message, int? attachmentIndex)
+    {
+        if (attachmentIndex is not { } index)
+            return message is not null && string.Equals(message.ToolName, "announce_file", StringComparison.OrdinalIgnoreCase)
+                ? RemoteProjector.ExtractJsonField(message.Content, "filePath")
+                : null;
+
+        return message is { Role: "user" } && index < message.Attachments.Count
+            && RemoteMarkdownImageFiles.TryResolveLocalPath(message.Attachments[index], out var path)
+                ? path
+                : null;
     }
 
     private async Task HandleFileSuggestionsAsync(

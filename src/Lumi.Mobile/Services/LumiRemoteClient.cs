@@ -875,7 +875,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     }
 
     /// <summary>
-    /// Downloads a file Lumi announced. A host with a download store keeps it there unless
+    /// Downloads an announced file or an image attached to the user message at the given index.
+    /// A host with a download store keeps it there unless
     /// <paramref name="preferLocalFile"/> asks for a file in this app's temporary folder, which a preview
     /// reads from.
     /// </summary>
@@ -884,14 +885,18 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         Guid messageId,
         string fileName,
         CancellationToken cancellationToken,
-        bool preferLocalFile = false)
+        bool preferLocalFile = false,
+        int? attachmentIndex = null)
     {
         if (BaseUrl is not { Length: > 0 })
             return null;
 
+        var query = $"chatId={chatId}&messageId={messageId}";
+        if (attachmentIndex is { } index)
+            query += FormattableString.Invariant($"&attachmentIndex={index}");
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
-            $"{BaseUrl}{RemoteProtocol.Routes.File}?chatId={chatId}&messageId={messageId}");
+            $"{BaseUrl}{RemoteProtocol.Routes.File}?{query}");
         ApplyAuth(request);
         using var deadline = CreateDeadline(cancellationToken, _uploadDeadline);
         try
