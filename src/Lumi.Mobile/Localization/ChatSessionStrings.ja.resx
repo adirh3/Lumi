@@ -3,6 +3,7 @@
   <data name="SendOptions" xml:space="preserve"><value>送信オプション</value></data>
   <data name="SendNow" xml:space="preserve"><value>今すぐ送信</value></data>
   <data name="QueuedMessages" xml:space="preserve"><value>キュー内: {0}</value></data>
+  <data name="HoldForSendOptions" xml:space="preserve"><value>Lumi の作業中は、長押しで送信オプション</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Enter で送信</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter で改行します。このデバイスのみ。</value></data>
   <data name="FollowUpSuggestions" xml:space="preserve"><value>返信の候補</value></data>

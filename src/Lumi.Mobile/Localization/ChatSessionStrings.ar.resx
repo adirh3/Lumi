@@ -3,6 +3,7 @@
   <data name="SendOptions" xml:space="preserve"><value>خيارات الإرسال</value></data>
   <data name="SendNow" xml:space="preserve"><value>إرسال الآن</value></data>
   <data name="QueuedMessages" xml:space="preserve"><value>في قائمة الانتظار: {0}</value></data>
+  <data name="HoldForSendOptions" xml:space="preserve"><value>أثناء عمل Lumi، اضغط مطولًا لخيارات الإرسال</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>الإرسال باستخدام Enter</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>يضيف Shift+Enter سطرًا جديدًا. على هذا الجهاز فقط.</value></data>
   <data name="FollowUpSuggestions" xml:space="preserve"><value>ردود مقترحة</value></data>

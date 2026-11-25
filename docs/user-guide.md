@@ -1028,16 +1028,15 @@ In the mobile app or web app, **Settings → Send with Enter** lets Enter send a
 that device; it is off by default. When it is on, Shift+Enter inserts a new line. This
 choice is independent of the desktop's send-key setting.
 
-While Lumi is replying, tap the arrow with a draft to steer the reply. The chevron
-beside it opens **Send options**: **Send to steer**, **Add to queue**, **Stop & send**,
-and **Stop session**. A queued message waits on the PC and starts a new turn after
-the current reply. The count above the composer shows what's still waiting.
-**Stop & send** interrupts the current work and sends the draft as a fresh turn.
-**Stop session** leaves the draft
-alone; with no draft, the square in the composer does the same thing. If a steered
-message is still waiting to take effect, **Send now** beside it interrupts the
-current turn and sends that same message as a fresh turn. Queuing and **Send now**
-require an updated Lumi desktop.
+While Lumi is replying, tap the arrow with a draft to steer the reply. Long-press the
+arrow instead (or right-click it with a mouse) to open **Send options**: **Send to steer**,
+**Add to queue**, **Stop & send**, and **Stop session**. A queued message waits on the PC
+and starts a new turn after the current reply. The count above the composer shows what's
+still waiting. **Stop & send** interrupts the current work and sends the draft as a fresh
+turn. **Stop session** leaves the draft alone; with no draft, the square in the composer
+does the same thing. If a steered message is still waiting to take effect, **Send now**
+beside it interrupts the current turn and sends that same message as a fresh turn.
+Queuing and **Send now** require an updated Lumi desktop.
 
 After a reply, Lumi's suggested replies from your PC sit as a row of pills on the composer; swipe
 sideways for more. Tap one to send it as it reads, just as clicking a suggestion does on the desktop,

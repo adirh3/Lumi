@@ -2346,14 +2346,6 @@
                 <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Plus}" />
               </Button>
           </sc:StrataChatComposer.LeadingContent>
-          <sc:StrataChatComposer.SendAccessoryContent>
-            <Button x:Name="SendOptionsButton" Classes="composer-add" Margin="0,0,6,0"
-                    IsVisible="{Binding Chat.ShowSendOptions}"
-                    AutomationProperties.Name="{loc:Str SendOptions}"
-                    Command="{Binding Chat.OpenSendOptionsCommand}">
-              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronDown}" />
-            </Button>
-          </sc:StrataChatComposer.SendAccessoryContent>
           <sc:StrataChatComposer.ToolbarContent>
               <!-- The model, beside send as on the desktop: its name and a chevron that opens the picker. -->
               <Button x:Name="ComposerModelButton" Classes="composer-model"

@@ -16,6 +16,7 @@ using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Mobile.Behaviors;
 using Lumi.Mobile.Layout;
+using Lumi.Mobile.Localization;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Views;
@@ -1301,17 +1302,29 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         {
             var composer = Required<StrataChatComposer>(view, "Composer");
             var editor = Assert.IsType<NativeComposerEditorHost>(composer.EditorContent);
-            var button = Required<Button>(composer, "SendOptionsButton");
-            Assert.False(button.IsVisible);
+            // The send button itself opens the options: nothing sits beside it.
+            Assert.DoesNotContain(view.GetVisualDescendants().OfType<Control>(),
+                control => control.Name == "SendOptionsButton");
+            var button = Required<Button>(composer, "PART_SendButton");
+            Assert.Equal(ChatSessionStrings.Get("HoldForSendOptions"), AutomationProperties.GetHelpText(button));
+            var sends = 0;
+            var stops = 0;
+            composer.SetCurrentValue(StrataChatComposer.SendCommandProperty, new RelayCommand(() => sends++));
+            composer.SetCurrentValue(StrataChatComposer.StopCommandProperty, new RelayCommand(() => stops++));
+            Assert.False(shell.Chat.ShowSendOptions);
 
             editor.SetTextFromNative("keep this draft");
             PumpFrame(window);
             await Task.Delay(320);
             PumpFrame(window);
             Assert.True(editor.IsVisible);
-            Tap(window, button);
+            Assert.True(shell.Chat.ShowSendOptions);
+            Hold(window, button);
             var sheet = Required<StrataBottomSheet>(view, "SendOptionsSheet");
             Assert.True(sheet.IsOpen);
+            // The release that ends the hold neither steers the draft nor stops Lumi.
+            Assert.Equal(0, sends);
+            Assert.Equal(0, stops);
             Assert.False(editor.IsVisible);
             PumpFrame(window);
             await Task.Delay(StrataBottomSheet.OpenDuration + TimeSpan.FromMilliseconds(60));
@@ -1331,6 +1344,56 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.True(editor.IsVisible);
             Assert.Equal("keep this draft", editor.Text);
             Assert.False(shell.IsDrawerOpen);
+        }, nativeFactory: new FocusEditorFactory(), setup: shell =>
+        {
+            shell.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = shell.Chat.ChatId, IsBusy = true, QueuedMessageCount = 0
+            });
+        });
+
+    [Fact]
+    public Task HoldingSendOpensOptionsOnlyForABusyDraftAndATapStillSteers() =>
+        RunUiAsync(412, async (shell, view, window) =>
+        {
+            var composer = Required<StrataChatComposer>(view, "Composer");
+            var editor = Assert.IsType<NativeComposerEditorHost>(composer.EditorContent);
+            var button = Required<Button>(composer, "PART_SendButton");
+            var sheet = Required<StrataBottomSheet>(view, "SendOptionsSheet");
+            var sends = 0;
+            var stops = 0;
+            composer.SetCurrentValue(StrataChatComposer.SendCommandProperty, new RelayCommand(() => sends++));
+            composer.SetCurrentValue(StrataChatComposer.StopCommandProperty, new RelayCommand(() => stops++));
+            PumpFrame(window);
+
+            // With nothing to send there is nothing to choose: a hold stays a press, and lifting stops Lumi.
+            Assert.False(shell.Chat.ShowSendOptions);
+            Hold(window, button);
+            Assert.False(sheet.IsOpen);
+            Assert.False(shell.Chat.IsSendOptionsOpen);
+            Assert.NotEqual(true, button.ContextMenu?.IsOpen);
+            Assert.Equal((0, 1), (sends, stops));
+
+            // A tap on a draft still steers it into the running reply.
+            editor.SetTextFromNative("steer this");
+            PumpFrame(window);
+            await Task.Delay(320);
+            PumpFrame(window);
+            Tap(window, button);
+            Assert.False(sheet.IsOpen);
+            Assert.Equal((1, 1), (sends, stops));
+
+            // A secondary click asks for the same options, and the sheet replaces Strata's desktop menu.
+            editor.SetTextFromNative("then this");
+            PumpFrame(window);
+            var request = new ContextRequestedEventArgs();
+            button.RaiseEvent(request);
+            Pump(window);
+            Assert.True(request.Handled);
+            Assert.True(sheet.IsOpen);
+            Assert.NotEqual(true, button.ContextMenu?.IsOpen);
+            Assert.Equal((1, 1), (sends, stops));
+            Assert.Equal("then this", shell.Chat.PromptText);
         }, nativeFactory: new FocusEditorFactory(), setup: shell =>
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
@@ -1840,8 +1903,9 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal("Lumi", Required<TextBlock>(view, "HeaderProjectText").Text);
             Assert.True(Required<ItemsControl>(composer, "PendingAttachments").IsEffectivelyVisible);
             Assert.True(Required<StrataTypingIndicator>(view, "ChatTyping").IsEffectivelyVisible);
-            Tap(window, Required<Button>(composer, "SendOptionsButton"));
+            Hold(window, Required<Button>(composer, "PART_SendButton"));
             var sheet = Required<StrataBottomSheet>(view, "SendOptionsSheet");
+            Assert.True(sheet.IsOpen);
             PumpFrame(window);
             await Task.Delay(StrataBottomSheet.OpenDuration + TimeSpan.FromMilliseconds(60));
             PumpFrame(window);
@@ -4162,6 +4226,28 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         window.MouseUp(point, MouseButton.Left);
         Pump(window);
     }
+
+    // A long press as Avalonia reports one: Holding starts while the finger is still down, and when
+    // nothing handles it Avalonia asks for a context menu before the finger lifts.
+    private static void Hold(Window window, Button button)
+    {
+        var point = HitPoint(window, button, null);
+        window.MouseDown(point, MouseButton.Left);
+        var held = (HoldingRoutedEventArgs)Activator.CreateInstance(
+            typeof(HoldingRoutedEventArgs),
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+            binder: null,
+            [HoldingState.Started, new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), PointerType.Touch, null],
+            culture: null)!;
+        button.RaiseEvent(held);
+        if (!held.Handled)
+            button.RaiseEvent(new ContextRequestedEventArgs());
+        window.MouseUp(point, MouseButton.Left);
+        Pump(window);
+    }
+
+    private static Point HitPoint(Window window, Button button, Point? position) =>
+        AssertReaches(window, button, position ?? new Point(button.Bounds.Width / 2, button.Bounds.Height / 2));
 
     // Hit testing at this point of the control reaches the control, as a finger landing there would.
     private static Point AssertReaches(Window window, Control control, Point position)

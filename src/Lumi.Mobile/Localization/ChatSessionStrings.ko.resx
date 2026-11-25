@@ -3,6 +3,7 @@
   <data name="SendOptions" xml:space="preserve"><value>전송 옵션</value></data>
   <data name="SendNow" xml:space="preserve"><value>지금 보내기</value></data>
   <data name="QueuedMessages" xml:space="preserve"><value>대기열: {0}</value></data>
+  <data name="HoldForSendOptions" xml:space="preserve"><value>Lumi가 작업 중일 때 길게 눌러 전송 옵션 열기</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Enter로 보내기</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter로 줄을 바꿉니다. 이 기기에만 적용됩니다.</value></data>
   <data name="FollowUpSuggestions" xml:space="preserve"><value>추천 답장</value></data>

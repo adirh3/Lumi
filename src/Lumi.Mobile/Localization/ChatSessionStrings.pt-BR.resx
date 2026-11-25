@@ -3,6 +3,7 @@
   <data name="SendOptions" xml:space="preserve"><value>Opções de envio</value></data>
   <data name="SendNow" xml:space="preserve"><value>Enviar agora</value></data>
   <data name="QueuedMessages" xml:space="preserve"><value>Na fila: {0}</value></data>
+  <data name="HoldForSendOptions" xml:space="preserve"><value>Enquanto o Lumi trabalha, toque e segure para ver as opções de envio</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Enviar com Enter</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter adiciona uma nova linha. Apenas neste dispositivo.</value></data>
   <data name="FollowUpSuggestions" xml:space="preserve"><value>Respostas sugeridas</value></data>

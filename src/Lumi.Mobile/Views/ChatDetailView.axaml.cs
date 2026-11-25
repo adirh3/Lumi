@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.VisualTree;
 using System.Linq;
 using Avalonia.Controls;
@@ -36,6 +37,7 @@ public partial class ChatDetailView : UserControl
     private MobilePresenceController? _presence;
     private MobileShellViewModel? _shell;
     private StrataChatComposer? _composer;
+    private Button? _composerSendButton;
     private NativeComposerEditorHost? _nativeComposerEditor;
     private TextBox? _sharedComposerInput;
     private bool _isFullScreenPresented;
@@ -230,6 +232,16 @@ public partial class ChatDetailView : UserControl
         composer.StopRequested += OnComposerActionRequested;
         composer.StopAndSendRequested += OnComposerActionRequested;
         composer.QueueRequested += OnComposerActionRequested;
+        _composerSendButton = composer.GetVisualDescendants().OfType<Button>()
+            .FirstOrDefault(button => button.Name == "PART_SendButton");
+        if (_composerSendButton is { } sendButton)
+        {
+            // The guard keeps the release that ends a hold from also sending or stopping.
+            TouchScrollClickGuard.SetIsEnabled(sendButton, true);
+            AutomationProperties.SetHelpText(sendButton, Strings.Get("HoldForSendOptions"));
+            sendButton.AddHandler(HoldingEvent, OnSendButtonHolding);
+            sendButton.AddHandler(ContextRequestedEvent, OnSendButtonContextRequested, RoutingStrategies.Tunnel);
+        }
         if (!MobilePlatformServices.NativeComposerEditorFactory.IsAvailable)
         {
             _sharedComposerInput = composer.GetVisualDescendants().OfType<TextBox>()
@@ -269,6 +281,14 @@ public partial class ChatDetailView : UserControl
             _composer.StopRequested -= OnComposerActionRequested;
             _composer.StopAndSendRequested -= OnComposerActionRequested;
             _composer.QueueRequested -= OnComposerActionRequested;
+        }
+        if (_composerSendButton is not null)
+        {
+            _composerSendButton.RemoveHandler(HoldingEvent, OnSendButtonHolding);
+            _composerSendButton.RemoveHandler(ContextRequestedEvent, OnSendButtonContextRequested);
+            TouchScrollClickGuard.SetIsEnabled(_composerSendButton, false);
+            _composerSendButton.ClearValue(AutomationProperties.HelpTextProperty);
+            _composerSendButton = null;
         }
         if (_sharedComposerInput is not null)
             _sharedComposerInput.Classes.CollectionChanged -= OnSharedEditorClassesChanged;
@@ -365,6 +385,41 @@ public partial class ChatDetailView : UserControl
     }
 
     private void OnComposerActionRequested(object? sender, RoutedEventArgs e) => ReleaseComposerFocus();
+
+    /// <summary>
+    /// Holding Send while Lumi works opens the send options, the phone's version of the desktop's send
+    /// menu. A hold with nothing to choose stays a press, so its release still sends or stops.
+    /// </summary>
+    private void OnSendButtonHolding(object? sender, HoldingRoutedEventArgs e)
+    {
+        if (e.HoldingState != HoldingState.Started
+            || sender is not Button button
+            || TouchScrollClickGuard.WasDragged(button)
+            || !TryOpenSendOptions())
+            return;
+
+        TouchScrollClickGuard.ConsumeHold(button);
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// A secondary click or the menu key asks for the same options. Strata's desktop send menu never
+    /// opens on a phone: the sheet's touch rows replace it.
+    /// </summary>
+    private void OnSendButtonContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        TryOpenSendOptions();
+        e.Handled = true;
+    }
+
+    private bool TryOpenSendOptions()
+    {
+        if (_shell?.Chat is not { ShowSendOptions: true } chat)
+            return false;
+
+        chat.OpenSendOptionsCommand.Execute(null);
+        return chat.IsSendOptionsOpen;
+    }
 
     /// <summary>
     /// Holding a suggestion puts its words in the composer to finish first. A tap sends it, so holding,
