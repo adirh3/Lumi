@@ -1323,6 +1323,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             PumpFrame(window);
             Hold(window, button);
             Assert.True(menu.IsOpen);
+            // A hold leaves focus out of the menu: moving it there would close the soft keyboard under the draft.
+            Assert.False(menu.IsKeyboardFocusWithin);
             // The release that ends the hold neither steers the draft nor stops Lumi.
             Assert.Equal((0, 0, 0), (sends, stops, queues));
             // Above the composer the menu leaves the draft in view, where a sheet hid it.
@@ -1407,11 +1409,12 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             // A secondary click asks for the same menu, and it rises above the composer as a hold's does.
             editor.SetTextFromNative("then this");
             PumpFrame(window);
-            var request = new ContextRequestedEventArgs();
-            button.RaiseEvent(request);
+            var point = HitPoint(window, button, null);
+            window.MouseDown(point, MouseButton.Right);
+            window.MouseUp(point, MouseButton.Right);
             Pump(window);
-            Assert.True(request.Handled);
             Assert.True(menu.IsOpen);
+            Assert.False(menu.IsKeyboardFocusWithin);
             var popup = Assert.IsType<Avalonia.Controls.Primitives.Popup>(menu.Parent);
             Assert.Same(composer, popup.PlacementTarget);
             Assert.Equal(PlacementMode.TopEdgeAlignedRight, popup.Placement);
@@ -1466,6 +1469,91 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal((0, 0, 0), (sends, stops, queues));
             menu.Close();
             Pump(window);
+        }, nativeFactory: new FocusEditorFactory(), setup: shell =>
+        {
+            shell.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = shell.Chat.ChatId, IsBusy = true, QueuedMessageCount = 0
+            });
+        });
+
+    [Fact]
+    public Task KeyboardOpensSendOptionsFromTheFocusedSendButton() =>
+        RunUiAsync(412, async (shell, view, window) =>
+        {
+            var composer = Required<StrataChatComposer>(view, "Composer");
+            var editor = Assert.IsType<NativeComposerEditorHost>(composer.EditorContent);
+            var button = Required<Button>(composer, "PART_SendButton");
+            var menu = Assert.IsType<ContextMenu>(button.ContextMenu);
+            var sends = 0;
+            var stops = 0;
+            var queues = 0;
+            composer.SetCurrentValue(StrataChatComposer.SendCommandProperty, new RelayCommand(() => sends++));
+            composer.SetCurrentValue(StrataChatComposer.StopCommandProperty, new RelayCommand(() => stops++));
+            composer.SetCurrentValue(StrataChatComposer.QueueCommandProperty, new RelayCommand(() => queues++));
+            editor.SetTextFromNative("keep this draft");
+            PumpFrame(window);
+            await Task.Delay(320);
+            PumpFrame(window);
+
+            // Send is a tab stop, so a keyboard reaches it.
+            Assert.True(button.Focusable);
+            Assert.True(KeyboardNavigation.GetIsTabStop(button));
+            Assert.True(button.Focus(NavigationMethod.Tab));
+
+            // Shift+F10 opens the send options above the composer as a hold does, though phones and
+            // browsers map only the menu key to a context menu.
+            PressKey(window, Key.F10, RawInputModifiers.Shift, PhysicalKey.F10);
+            Assert.True(menu.IsOpen);
+            var popup = Assert.IsType<Avalonia.Controls.Primitives.Popup>(menu.Parent);
+            Assert.Same(composer, popup.PlacementTarget);
+            Assert.Equal(PlacementMode.TopEdgeAlignedRight, popup.Placement);
+            var labels = InteractiveLabels.Current;
+            Assert.Equal(
+                new string?[] { labels["sendToSteer"], labels["addToQueue"], labels["stopAndSend"] },
+                menu.Items.OfType<MenuItem>().Select(item => item.Header as string).ToArray());
+            Assert.Equal((0, 0, 0), (sends, stops, queues));
+
+            // A keyboard opens the menu on its first row, so the arrows and Enter choose there rather than on Send.
+            Assert.Equal(labels["sendToSteer"],
+                Assert.IsType<MenuItem>(window.FocusManager?.GetFocusedElement()).Header);
+            Assert.True(menu.IsKeyboardFocusWithin);
+
+            // Escape closes the menu and nothing else, and gives the keyboard back to Send.
+            PressKey(window, Key.Escape, RawInputModifiers.None, PhysicalKey.Escape);
+            await WaitForMenuToCloseAsync(window, menu);
+            Assert.False(menu.IsOpen);
+            Assert.True(shell.IsChatPage);
+            Assert.False(shell.IsDrawerOpen);
+            Assert.Equal("keep this draft", editor.Text);
+            Assert.Same(button, window.FocusManager?.GetFocusedElement());
+            Assert.Equal((0, 0, 0), (sends, stops, queues));
+
+            // The menu key opens them too; Down then Enter chooses the next row without steering through Send.
+            PressKey(window, Key.Apps, RawInputModifiers.None, PhysicalKey.ContextMenu);
+            Assert.True(menu.IsOpen);
+            Assert.Equal(labels["sendToSteer"],
+                Assert.IsType<MenuItem>(window.FocusManager?.GetFocusedElement()).Header);
+            PressKey(window, Key.Down, RawInputModifiers.None, PhysicalKey.ArrowDown);
+            Assert.Equal(labels["addToQueue"],
+                Assert.IsType<MenuItem>(window.FocusManager?.GetFocusedElement()).Header);
+            PressKey(window, Key.Enter, RawInputModifiers.None, PhysicalKey.Enter);
+            Assert.Equal((0, 0, 1), (sends, stops, queues));
+            await WaitForMenuToCloseAsync(window, menu);
+            Assert.False(menu.IsOpen);
+            Assert.Same(button, window.FocusManager?.GetFocusedElement());
+
+            // While blanks are left the keyboard is no way around them either.
+            editor.SetTextFromNative("Plan [where?] for [when?]");
+            PumpFrame(window);
+            composer.BeginFillIn(["[where?]", "[when?]"]);
+            Pump(window);
+            Assert.Contains(":fill-in-next", composer.Classes);
+            Assert.True(button.Focus(NavigationMethod.Tab));
+            PressKey(window, Key.F10, RawInputModifiers.Shift, PhysicalKey.F10);
+            Assert.False(menu.IsOpen);
+            Assert.Equal("Plan [where?] for [when?]", shell.Chat.PromptText);
+            Assert.Equal((0, 0, 1), (sends, stops, queues));
         }, nativeFactory: new FocusEditorFactory(), setup: shell =>
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
@@ -4294,22 +4382,37 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         Pump(window);
     }
 
-    // A long press as Avalonia reports one: Holding starts while the finger is still down, and when
-    // nothing handles it Avalonia asks for a context menu before the finger lifts.
+    // A long press as Avalonia reports one: Holding starts while the finger is still down and carries its
+    // press, and when nothing handles it Avalonia asks for a context menu at that press before the finger lifts.
     private static void Hold(Window window, Button button)
     {
         var point = HitPoint(window, button, null);
+        PointerPressedEventArgs? pressed = null;
+        EventHandler<PointerPressedEventArgs> capture = (_, e) => pressed ??= e;
+        button.AddHandler(InputElement.PointerPressedEvent, capture,
+            RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
         window.MouseDown(point, MouseButton.Left);
+        button.RemoveHandler(InputElement.PointerPressedEvent, capture);
+        Assert.NotNull(pressed);
+        const System.Reflection.BindingFlags anyInstance = System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
         var held = (HoldingRoutedEventArgs)Activator.CreateInstance(
-            typeof(HoldingRoutedEventArgs),
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
-            binder: null,
-            [HoldingState.Started, new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), PointerType.Touch, null],
+            typeof(HoldingRoutedEventArgs), anyInstance, binder: null,
+            [HoldingState.Started, new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), PointerType.Touch, pressed],
             culture: null)!;
         button.RaiseEvent(held);
         if (!held.Handled)
-            button.RaiseEvent(new ContextRequestedEventArgs());
+            button.RaiseEvent((ContextRequestedEventArgs)Activator.CreateInstance(
+                typeof(ContextRequestedEventArgs), anyInstance, binder: null, [held], culture: null)!);
         window.MouseUp(point, MouseButton.Left);
+        Pump(window);
+    }
+
+    // A key as a keyboard sends it: pressed, then released, to whatever has focus.
+    private static void PressKey(Window window, Key key, RawInputModifiers modifiers, PhysicalKey physicalKey)
+    {
+        window.KeyPress(key, modifiers, physicalKey, null);
+        window.KeyRelease(key, modifiers, physicalKey, null);
         Pump(window);
     }
 
