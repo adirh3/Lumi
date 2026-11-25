@@ -582,21 +582,22 @@ public sealed class MobileFilePreviewTests
             var image = Find<StrataImageViewport>(view, "PreviewImage");
             Assert.DoesNotContain(view.GetVisualDescendants().OfType<Button>(), button =>
                 button.Name is "PreviewPreviousImage" or "PreviewNextImage");
-            Swipe(forward: true);
+            await SwipeAsync(forward: true);
             await SettleAsync(window, () => shell.Chat.FilePreview is { FileName: "missing.png", HasError: true });
-            Swipe(forward: true);
+            await SwipeAsync(forward: true);
             await SettleAsync(window, () => shell.Chat.FilePreview is { FileName: "last.png", ShowImage: true });
             Assert.Contains("3 / 3", Find<TextBlock>(view, "PreviewSubtitle").Text);
-            Swipe(forward: false);
+            await SwipeAsync(forward: false);
             await SettleAsync(window, () => shell.Chat.FilePreview is { FileName: "missing.png", HasError: true });
             AssertNoBindingErrors(logs);
 
-            void Swipe(bool forward)
+            async Task SwipeAsync(bool forward)
             {
-                var start = image.TranslatePoint(new Point(image.Bounds.Width * (forward ? 0.8 : 0.2),
+                Point Start() => image.TranslatePoint(new Point(image.Bounds.Width * (forward ? 0.75 : 0.25),
                     image.Bounds.Height * 0.23), window)!.Value;
-                var end = start + new Vector(image.Bounds.Width * (forward ? -0.6 : 0.6), 0);
-                Assert.Same(image, window.InputHitTest(start));
+                await SettleAsync(window, () => image.IsEffectivelyVisible && ReferenceEquals(image, window.InputHitTest(Start())));
+                var start = Start();
+                var end = start + new Vector(image.Bounds.Width * (forward ? -0.5 : 0.5), 0);
                 var swipe = window.TouchBegin(start);
                 window.TouchMove(swipe, end);
                 window.TouchEnd(swipe, end);
