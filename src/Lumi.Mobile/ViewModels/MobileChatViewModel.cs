@@ -198,7 +198,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
     {
         SelectedActivity = activity;
         IsActivitySheetOpen = true;
-        if (activity.DetailsLoaded || activity.IsLoadingDetails)
+        var includeTechnicalDetails = activity.IsTechnicalDetailsVisible;
+        if (activity.IsLoadingDetails
+            || (activity.DetailsLoaded && (!includeTechnicalDetails || !activity.TechnicalDetailsDeferred)))
             return;
 
         if (_sink is not IRemoteActivityDetailSink detailsSink)
@@ -215,7 +217,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         activity.IsLoadingDetails = true;
         try
         {
-            var details = await detailsSink.GetActivityDetailsAsync(chatId, activityId);
+            var details = await detailsSink.GetActivityDetailsAsync(chatId, activityId, includeTechnicalDetails);
             if (ChatId != chatId
                 || activation != Volatile.Read(ref _surfaceActivationGeneration)
                 || !string.Equals(activity.ActivityId, activityId, StringComparison.Ordinal))
@@ -243,7 +245,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         finally
         {
             activity.IsLoadingDetails = false;
-            if (retry
+            if ((retry || (!includeTechnicalDetails && activity.TechnicalDetailsDeferred
+                            && activity.IsTechnicalDetailsVisible))
                 && IsActivitySheetOpen
                 && ReferenceEquals(SelectedActivity, activity))
             {
@@ -259,6 +262,30 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         SelectedSourceAnswer = answer;
         IsSourcesSheetOpen = true;
+        if (_sink is MobileShellViewModel shell && Guid.TryParseExact(answer.Id, "N", out var messageId))
+            _ = LoadSourcesAsync(shell, ChatId, messageId, answer);
+    }
+
+    private static async Task LoadSourcesAsync(
+        MobileShellViewModel shell, Guid chatId, Guid messageId, AssistantItemViewModel answer)
+    {
+        if (!answer.TryBeginSourceDetails(out var version))
+            return;
+
+        try
+        {
+            var details = await shell.GetSourcesAsync(chatId, messageId, answer.Lifetime);
+            if (!answer.Lifetime.IsCancellationRequested && details is not null)
+                answer.ApplySourceDetails(version, details);
+        }
+        catch (OperationCanceledException)
+        {
+            // The chat or connection changed while the source details were loading.
+        }
+        finally
+        {
+            answer.EndSourceDetails();
+        }
     }
 
     // ── Composer configuration. Setting any of these configures the chat on the PC. ──
@@ -2108,6 +2135,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>Clears everything so a chat switch never flashes the previous conversation.</summary>
     public void Reset(Guid chatId, string title, string? model = null, bool isLoading = false)
     {
+        StatusDetailsVersion = null;
         ResetMessageActions();
         ResetGitChanges();
         ReplaceFilePreview(null);
@@ -2651,6 +2679,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     public void ApplyStatus(RemoteChatStatus status) => ApplyStatus(status, trackVersion: true);
 
+    internal string? StatusDetailsVersion { get; private set; }
+
     private void ApplyStatus(RemoteChatStatus status, bool trackVersion)
     {
         if (status.ChatId != Guid.Empty && status.ChatId != ChatId)
@@ -2703,7 +2733,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
         ContextTokenLimit = status.ContextTokenLimit;
         // A compact status frame leaves an unchanged plan out instead of repeating it.
         if (!status.IsPlanOmitted)
+        {
             PlanContent = status.PlanContent;
+            StatusDetailsVersion = status.DetailsVersion;
+        }
 
         _applyingServerState = true;
         try
@@ -2907,6 +2940,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     public void ApplyLibraryCatalogs(RemoteLibrary library, bool reconcileProjectSelection = true)
     {
+        StatusDetailsVersion = null;
         SyncCatalog(
             AvailableAgents,
             library.Lumis.Select(item => new RemoteChip
@@ -4489,6 +4523,8 @@ public interface IRemoteCatalogRefreshSink
 public interface IRemoteActivityDetailSink
 {
     Task<RemoteActivityDetails?> GetActivityDetailsAsync(Guid chatId, string activityId);
+    Task<RemoteActivityDetails?> GetActivityDetailsAsync(Guid chatId, string activityId, bool includeTechnicalDetails) =>
+        GetActivityDetailsAsync(chatId, activityId);
 }
 
 public interface IRemoteMarkdownImageSink

@@ -784,6 +784,15 @@ costs a check on unrelated transcript controls when declared globally. Keep
 overlapping rule order and theme resources intact, and check detached popups at
 their own root before moving their styles.
 
+Mobile connection bandwidth is a feature boundary. A foreground subscription names the surfaces
+that need live data: covered chats stop streaming, older history gets a freshness marker, and the
+unfiltered drawer gets its first page and subsequent row patches on the same connection. The
+latest transcript sends changed rows only when the phone can identify its cached rows; otherwise it
+sends a complete bounded window. Keep UI-only plan and picker details versioned, and fetch large
+disclosures (activity inputs/outputs, source excerpts, inline images) only when shown. Changes to
+these paths must preserve the capability fallback for older peers. Measure compressed HTTP bytes
+and request counts on the same replay and visibility scopes, not the decoded diagnostic counters.
+
 The shared mobile UI and desktop simulator build with the ordinary desktop
 solution. A simulator development run should use its own settings and pairing
 directory as well as an isolated desktop profile.

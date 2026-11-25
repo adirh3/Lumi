@@ -232,6 +232,7 @@ public static class RemoteProtocol
 
         /// <summary>Authenticated technical details for one compact activity summary.</summary>
         public const string Activity = "/lumi/activity";
+        public const string Sources = "/lumi/sources";
         public const string MarkdownImage = "/lumi/markdown-image";
 
         /// <summary>
@@ -312,6 +313,7 @@ public static class RemoteProtocol
         /// <see cref="Actions.UseStarter"/>). A PC with the earlier launchpad sent tabs without starter icons.
         /// </summary>
         public const string LaunchpadV2 = "launchpad-v2";
+        public const string ScopedPayloadsV1 = "scoped-payloads-v1";
 
         public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
         public static IReadOnlyList<string> Server { get; } =
@@ -328,7 +330,8 @@ public static class RemoteProtocol
             ChatReadStateV1,
             PhoneNotificationsV1,
             ExplorerPicturesV1,
-            LaunchpadV2
+            LaunchpadV2,
+            ScopedPayloadsV1
         ];
     }
 
@@ -550,6 +553,8 @@ public static class RemoteProtocol
 
         /// <summary>Keep-alive comment ping.</summary>
         public const string Ping = "ping";
+        public const string ChatListState = "chat-list-state";
+        public const string Launchpad = "launchpad";
 
         /// <summary>
         /// Every notification still waiting: <see cref="RemoteNotificationSync"/>. First on a

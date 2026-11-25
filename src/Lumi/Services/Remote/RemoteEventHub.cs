@@ -114,7 +114,9 @@ internal sealed class RemoteEventHub : IDisposable
         Stream stream,
         string deviceId,
         RemoteEventFrame? initialFrame = null,
-        RemoteEventSubscription? subscription = null)
+        RemoteEventSubscription? subscription = null,
+        string? initialCatalogVersion = null,
+        string? initialLaunchpadVersion = null)
     {
         var client = new RemoteEventClient(
             stream,
@@ -128,6 +130,8 @@ internal sealed class RemoteEventHub : IDisposable
             client.Dispose();
             throw new InvalidDataException("The initial remote snapshot exceeds the event queue limit.");
         }
+        client.RememberCatalogVersion(initialCatalogVersion);
+        client.RememberLaunchpadVersion(initialLaunchpadVersion);
         _clients[client.Id] = client;
         Dispatcher.UIThread.Post(ReconcileMessageObservers);
         return client;
@@ -202,8 +206,23 @@ internal sealed class RemoteEventHub : IDisposable
                 if (!change.Previous.IsForeground && change.Current.IsForeground)
                     CatchUpReturningClient(change.Client);
                 PrimeNewChatScope(change);
+                var latest = change.Client.SnapshotSubscription();
+                if (change.Client.UsesScopedPayloads && change.Client.WantsNewChatExperience
+                    && !(change.Previous.IsForeground && change.Previous.IncludeLaunchpad))
+                    SendLaunchpad(change.Client, LaunchpadFrame());
+                if (LatestWantsList(latest) && !LatestWantsList(change.Previous))
+                {
+                    var page = RemoteProjector.BuildChatPage(_dataStore, _main, 0, RemoteProtocol.ChatPageSize, null, null);
+                    var frame = new RemoteEventFrame(RemoteProtocol.Events.Chats,
+                        JsonSerializer.Serialize(page, RemoteJsonContext.Default.RemoteChatPage));
+                    if (!change.Client.EnqueueChatPage(BuildChatPageFrames(page, frame), replace: true))
+                        RemoveClient(change.Client);
+                }
             }
         });
+
+        static bool LatestWantsList(RemoteEventSubscription value) =>
+            value.IsForeground && value.ScopedPayloads && value.IncludeChatList && value.LoadUnfilteredChatList;
     }
 
     private void PrimeNewChatScope(SubscriptionChange change)
@@ -212,7 +231,6 @@ internal sealed class RemoteEventHub : IDisposable
         var currentChatId = ObservedChatId(change.Current);
         if (currentChatId is not { } chatId || currentChatId == previousChatId)
             return;
-
         if (_dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == chatId) is { } chat
             && !change.Client.EnqueueStatus(BuildStatusFrames(chat, includeSlim: false)))
         {
@@ -228,6 +246,7 @@ internal sealed class RemoteEventHub : IDisposable
     {
         var owner = RemoteProjector.ResolveChatOwner(_main, chat.Id);
         var status = RemoteProjector.BuildStatus(_dataStore, owner ?? _main.ChatVM, chat);
+        status.DetailsVersion = RemoteContentVersions.StatusDetails(status);
         var full = StatusFrameBytes(status);
 
         var catalogs = new RemoteContentHash();
@@ -254,13 +273,7 @@ internal sealed class RemoteEventHub : IDisposable
         byte[]? slim = null;
         if (includeSlim)
         {
-            status.PlanContent = null;
-            status.IsPlanOmitted = true;
-            status.HasComposerCatalogs = false;
-            status.AvailableAgents = [];
-            status.AvailableSkills = [];
-            status.AvailableMcps = [];
-            status.AvailableProjects = [];
+            RemoteContentVersions.OmitStatusDetails(status);
             slim = StatusFrameBytes(status);
         }
 
@@ -330,7 +343,9 @@ internal sealed class RemoteEventHub : IDisposable
         && rows.All(row => previous.TryGetValue(row.Key, out var hash) && hash == row.Value);
 
     private static Guid? ObservedChatId(RemoteEventSubscription subscription) =>
-        subscription.IsForeground ? subscription.ChatId : null;
+        subscription.IsForeground && subscription.TranscriptInterest != RemoteTranscriptInterest.Covered
+            ? subscription.ChatId
+            : null;
 
     public void Broadcast(
         RemoteEventFrame frame,
@@ -710,9 +725,11 @@ internal sealed class RemoteEventHub : IDisposable
             var messageId = message.Message.Id;
             foreach (var client in _clients.Values)
             {
-                if (!client.WantsChat(streamingChatId)
+                if (!client.WantsStreamText(streamingChatId)
                     || (isReasoning && client.WantsCompactTranscript))
                 {
+                    if (!isReasoning && client.WantsChat(streamingChatId))
+                        EnqueueTranscriptChange(client, streamingChatId);
                     continue;
                 }
 
@@ -938,8 +955,20 @@ internal sealed class RemoteEventHub : IDisposable
             _snapshotDirty = false;
             // Marked first: a phone that returns during this flush is either marked or included.
             MarkCatalogsMissedInBackground();
-            if (_clients.Values.Any(static client => client.IsForeground))
-                Broadcast(CatalogFrame(), RemoteProtocol.Events.Snapshot, static client => client.IsForeground);
+            foreach (var group in _clients.Values.Where(client => client.IsForeground).GroupBy(client => client.UsesScopedPayloads))
+            {
+                var (frame, version) = CatalogFrame(group.Key);
+                var launchpadClients = group.Key ? group.Where(client => client.WantsNewChatExperience).ToArray() : [];
+                foreach (var client in group)
+                    if (!client.EnqueueCatalog(frame, version))
+                        RemoveClient(client);
+                if (launchpadClients.Length > 0)
+                {
+                    var launchpad = LaunchpadFrame();
+                    foreach (var client in launchpadClients)
+                        SendLaunchpad(client, launchpad);
+                }
+            }
         }
 
         if (_statusDirtyChatIds.Count > 0 || _chatStateDirtyIds.Count > 0)
@@ -987,17 +1016,9 @@ internal sealed class RemoteEventHub : IDisposable
                 if (!HasChatSubscriber(chatId))
                     continue;
 
-                BroadcastJson(
-                    RemoteProtocol.Events.TranscriptInvalidated,
-                    new RemoteTranscriptInvalidated
-                    {
-                        ChatId = chatId,
-                        RevisionEpoch = _revisionEpoch,
-                        Revision = Revision
-                    },
-                    RemoteJsonContext.Default.RemoteTranscriptInvalidated,
-                    $"transcript:{chatId:N}",
-                    client => client.WantsChat(chatId));
+                var frame = TranscriptChange(chatId);
+                foreach (var client in _clients.Values)
+                    EnqueueTranscriptChange(client, chatId, frame);
             }
         }
 
@@ -1024,6 +1045,21 @@ internal sealed class RemoteEventHub : IDisposable
         }
     }
 
+    private RemoteEventFrame TranscriptChange(Guid chatId) => new(
+        RemoteProtocol.Events.TranscriptInvalidated,
+        JsonSerializer.Serialize(new RemoteTranscriptInvalidated
+        {
+            ChatId = chatId,
+            RevisionEpoch = _revisionEpoch,
+            Revision = Revision
+        }, RemoteJsonContext.Default.RemoteTranscriptInvalidated));
+
+    private void EnqueueTranscriptChange(RemoteEventClient client, Guid chatId, RemoteEventFrame? frame = null)
+    {
+        if (!client.EnqueueTranscriptChange(chatId, frame ?? TranscriptChange(chatId)))
+            RemoveClient(client);
+    }
+
     private void BroadcastConnection()
     {
         if (!_clients.IsEmpty)
@@ -1041,7 +1077,7 @@ internal sealed class RemoteEventHub : IDisposable
             RemoteJsonContext.Default.RemoteConnectionStatus));
 
     /// <summary>The partial snapshot carrying model and composer catalogs and the new-chat setup.</summary>
-    private RemoteEventFrame CatalogFrame()
+    private (RemoteEventFrame Frame, string? Version) CatalogFrame(bool scoped)
     {
         var catalogs = RemoteProjector.BuildSnapshot(
             _dataStore,
@@ -1049,11 +1085,26 @@ internal sealed class RemoteEventHub : IDisposable
             _modelsProvider(),
             includeChatList: false,
             includeLibrary: false,
-            isPartial: true);
+            isPartial: true,
+            scoped: scoped);
         RemoteContentVersions.ApplySectionVersions(catalogs);
-        return new RemoteEventFrame(
+        return (new RemoteEventFrame(
             RemoteProtocol.Events.Snapshot,
-            JsonSerializer.Serialize(catalogs, RemoteJsonContext.Default.RemoteSnapshot));
+            JsonSerializer.Serialize(catalogs, RemoteJsonContext.Default.RemoteSnapshot)), catalogs.SettingsVersion);
+    }
+
+    private (RemoteEventFrame Frame, string Version) LaunchpadFrame()
+    {
+        var experience = RemoteProjector.BuildNewChatExperience(_dataStore, _main.ChatVM);
+        var json = JsonSerializer.Serialize(experience, RemoteJsonContext.Default.RemoteNewChatExperience);
+        return (new RemoteEventFrame(RemoteProtocol.Events.Launchpad, json),
+            RemoteContentVersions.Version(Encoding.UTF8.GetBytes(json)));
+    }
+
+    private void SendLaunchpad(RemoteEventClient client, (RemoteEventFrame Frame, string Version) launchpad)
+    {
+        if (!client.EnqueueLaunchpad(launchpad.Frame, launchpad.Version))
+            RemoveClient(client);
     }
 
     /// <summary>
@@ -1062,9 +1113,12 @@ internal sealed class RemoteEventHub : IDisposable
     /// </summary>
     private void CatchUpReturningClient(RemoteEventClient client)
     {
-        var queued = client.Enqueue(ConnectionFrame(), RemoteProtocol.Events.Connection)
-                     && (!client.TakeMissedCatalogs()
-                         || client.Enqueue(CatalogFrame(), RemoteProtocol.Events.Snapshot));
+        var queued = client.Enqueue(ConnectionFrame(), RemoteProtocol.Events.Connection);
+        if (queued && client.TakeMissedCatalogs())
+        {
+            var (frame, version) = CatalogFrame(client.UsesScopedPayloads);
+            queued = client.EnqueueCatalog(frame, version);
+        }
         if (!queued)
             RemoveClient(client);
     }

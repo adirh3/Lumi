@@ -8,6 +8,35 @@ namespace Lumi.Mobile.Tests;
 [Collection("Headless mobile UI")]
 public sealed class InlineImageResolutionTests
 {
+    [Fact]
+    public async Task DeferredImageWaitsForItsAnswerToReachTheViewport()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(() =>
+        {
+            var sink = new ImageSink("/cache/local.png");
+            var chat = new MobileChatViewModel(sink);
+            var transcript = ImageTranscript(Guid.NewGuid(), Guid.NewGuid());
+            try
+            {
+                chat.Reset(transcript.ChatId, "Images");
+                transcript.Turns[0].Items[0].InlineImagesOnDemand = true;
+                chat.ApplyTranscript(transcript);
+                Dispatcher.UIThread.RunJobs();
+                var answer = Assert.IsType<AssistantItemViewModel>(chat.Turns[0].Items[0]);
+                Assert.Equal(0, sink.RequestCount);
+
+                answer.SetInlineImageDemand(true);
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal("![Local](/cache/local.png)", answer.Text);
+                answer.SetInlineImageDemand(false);
+                answer.SetInlineImageDemand(true);
+                Assert.Equal(1, sink.RequestCount);
+            }
+            finally { chat.ResetHostState(); }
+        }, CancellationToken.None);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

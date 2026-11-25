@@ -233,7 +233,7 @@ internal sealed class RemoteCommandRouter
             return Fail(Loc.Get("Remote_ArgumentRequired", "isUnread"), chat.Id);
 
         _main.SetChatUnread(chat, isUnread, fromMobile: true);
-        return new RemoteCommandResult { Ok = true, ChatId = chat.Id };
+        return new RemoteCommandResult { Ok = true, ChatId = chat.Id, HasUnreadMessages = chat.HasUnreadMessages };
     }
 
     private async Task<RemoteCommandResult> DeleteChatAsync(RemoteCommand command)

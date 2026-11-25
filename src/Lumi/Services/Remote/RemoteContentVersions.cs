@@ -26,8 +26,9 @@ internal static class RemoteContentVersions
             JsonSerializer.SerializeToUtf8Bytes(snapshot.Settings, RemoteJsonContext.Default.RemoteSettings));
         if (!snapshot.IsPartial)
         {
-            snapshot.ChatsVersion = Version(
-                JsonSerializer.SerializeToUtf8Bytes(snapshot.Chats, RemoteJsonContext.Default.RemoteChatPage));
+            if (!snapshot.ChatsOmitted)
+                snapshot.ChatsVersion = Version(
+                    JsonSerializer.SerializeToUtf8Bytes(snapshot.Chats, RemoteJsonContext.Default.RemoteChatPage));
             snapshot.LibraryVersion = Version(
                 JsonSerializer.SerializeToUtf8Bytes(snapshot.Library, RemoteJsonContext.Default.RemoteLibrary));
         }
@@ -128,6 +129,27 @@ internal static class RemoteContentVersions
     }
 
     public static string Version(ReadOnlySpan<byte> json) => RemoteContentHash.Format(RemoteContentHash.Of(json));
+
+    public static string StatusDetails(RemoteChatStatus status)
+    {
+        var hash = new RemoteContentHash();
+        hash.Add(status.PlanContent);
+        hash.Add(status.HasComposerCatalogs);
+        foreach (var choices in new[] { status.AvailableAgents, status.AvailableSkills, status.AvailableMcps, status.AvailableProjects })
+            hash.Add(JsonSerializer.SerializeToUtf8Bytes(choices, RemoteJsonContext.Default.ListRemoteChip));
+        return RemoteContentHash.Format(hash.Value);
+    }
+
+    public static void OmitStatusDetails(RemoteChatStatus status)
+    {
+        status.PlanContent = null;
+        status.IsPlanOmitted = true;
+        status.HasComposerCatalogs = false;
+        status.AvailableAgents = [];
+        status.AvailableSkills = [];
+        status.AvailableMcps = [];
+        status.AvailableProjects = [];
+    }
 
     /// <summary>Fields of a message that can change after it was created and that the phone renders.</summary>
     private static void AddMessage(ref RemoteContentHash hash, ChatMessage message)

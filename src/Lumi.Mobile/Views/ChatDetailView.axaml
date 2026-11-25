@@ -1670,7 +1670,7 @@
       the asymmetry is what makes the two speakers instantly distinguishable while scrolling.
     -->
     <DataTemplate DataType="vm:AssistantItemViewModel">
-      <StackPanel Margin="0,6,0,4" Spacing="6">
+      <views:AnswerViewportPanel Margin="0,6,0,4" Spacing="6">
         <!-- IsInline drops StrataMarkdown's card surface. An answer is the page, not a document
              pinned to it, and a card border here would just be a bubble by another name. -->
         <sc:StrataMarkdown Markdown="{Binding Text, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
@@ -1764,7 +1764,7 @@
                      TextTrimming="CharacterEllipsis" MaxLines="1" />
         </StackPanel>
 
-      </StackPanel>
+      </views:AnswerViewportPanel>
     </DataTemplate>
 
     <DataTemplate DataType="vm:InputRequestItemViewModel">

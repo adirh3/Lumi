@@ -82,6 +82,12 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     private long _receivedFrameCount;
     private volatile bool _hasCompatibleBootstrap;
     private bool _disposed;
+    private TranscriptRows? _transcriptRows;
+
+    private sealed record TranscriptRows(
+        Guid ChatId, Dictionary<string, RemoteTranscriptItem> Items);
+
+    public bool SupportsScopedPayloads => _capabilities.Contains(RemoteProtocol.Capabilities.ScopedPayloadsV1);
 
     public LumiRemoteClient(
         string deviceId,
@@ -222,6 +228,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
     public void Configure(string baseUrl, string? token)
     {
+        _transcriptRows = null;
         BaseUrl = NormalizeBaseUrl(baseUrl);
         Token = token;
         lock (_subscriptionRequestGate)
@@ -342,15 +349,25 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     /// </summary>
     public async Task<RemoteSnapshot?> GetSnapshotAsync(
         IReadOnlyDictionary<string, string>? known,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        RemoteEventSubscription? scope = null)
     {
-        var route = RemoteProtocol.Routes.Snapshot;
+        var query = new List<string>();
+        if (scope is { ScopedPayloads: true })
+        {
+            query.Add("scoped=true");
+            if (scope.IncludeChatList)
+                query.Add("chats=true");
+            if (scope.IncludeLibrary)
+                query.Add("library=true");
+            if (scope.IncludeLaunchpad)
+                query.Add("launchpad=true");
+        }
         if (known is { Count: > 0 }
             && RemoteProtocol.SnapshotSections.FormatKnown(known) is { Length: > 0 } knownQuery)
-        {
-            route += $"?known={Uri.EscapeDataString(knownQuery)}";
-        }
+            query.Add($"known={Uri.EscapeDataString(knownQuery)}");
 
+        var route = RemoteProtocol.Routes.Snapshot + (query.Count > 0 ? $"?{string.Join('&', query)}" : "");
         var snapshot = await GetAsync(
                 route,
                 RemoteJsonContext.Default.RemoteSnapshot,
@@ -477,7 +494,9 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         int? beforeMessageIndex,
         int maxItems,
         string? knownVersion,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool reuseRows = false,
+        string? knownStatusDetails = null)
     {
         await _transcriptGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -491,6 +510,12 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             route += $"&limit={Math.Clamp(maxItems, 1, maximum)}";
             if (SupportsCompactTranscript)
                 route += "&mode=compact";
+            if (SupportsScopedPayloads && reuseRows)
+            {
+                route += "&scoped=true";
+                if (knownStatusDetails is { Length: > 0 and <= 32 })
+                    route += $"&status={Uri.EscapeDataString(knownStatusDetails)}";
+            }
             if (beforeMessageIndex is null
                 && SupportsConditionalTranscript
                 && knownVersion is { Length: > 0 and <= RemoteProtocol.MaxTranscriptVersionLength })
@@ -498,11 +523,34 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 route += $"&known={Uri.EscapeDataString(knownVersion)}";
             }
 
+            var baseline = reuseRows && beforeMessageIndex is null && SupportsScopedPayloads && knownVersion is not null
+                && _transcriptRows is { } held && held.ChatId == chatId
+                ? held.Items
+                : null;
             var transcript = await GetAsync(
-                    route,
+                    baseline is { Count: > 0 } ? $"{route}&rows={string.Join(',', baseline.Keys)}" : route,
                     RemoteJsonContext.Default.RemoteTranscript,
                     cancellationToken)
                 .ConfigureAwait(false);
+            if (transcript?.Turns.Exists(turn => turn.ItemOrder is not null) == true
+                && (baseline is null || !RemoteTranscriptReuse.TryRestore(transcript, baseline)))
+            {
+                Trace.TraceWarning("[Mobile] The transcript delta did not match its baseline; fetching the complete window.");
+                transcript = await GetAsync(
+                    route,
+                    RemoteJsonContext.Default.RemoteTranscript,
+                    cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            if (reuseRows && SupportsScopedPayloads
+                && transcript is { IsLatestWindow: true, IsUnchanged: false, TranscriptVersion: not null }
+                && transcript.ChatId == chatId)
+            {
+                var items = new Dictionary<string, RemoteTranscriptItem>(StringComparer.Ordinal);
+                foreach (var item in transcript.Turns.SelectMany(turn => turn.Items).Take(RemoteTranscriptReuse.MaxKeys))
+                    items.TryAdd(RemoteTranscriptReuse.Key(item), item);
+                _transcriptRows = new TranscriptRows(chatId, items);
+            }
             if (transcript is not null)
                 Stats.RecordTranscript(transcript.IsUnchanged);
             return transcript;
@@ -516,12 +564,17 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     public Task<RemoteActivityDetails?> GetActivityDetailsAsync(
         Guid chatId,
         string activityId,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        bool summary = false) =>
         GetAsync(
             $"{RemoteProtocol.Routes.Activity}?chatId={chatId}" +
-            $"&activityId={Uri.EscapeDataString(activityId)}",
+            $"&activityId={Uri.EscapeDataString(activityId)}" + (summary ? "&summary=true" : ""),
             RemoteJsonContext.Default.RemoteActivityDetails,
             cancellationToken);
+
+    public Task<List<RemoteSource>?> GetSourcesAsync(Guid chatId, Guid messageId, CancellationToken cancellationToken) =>
+        GetAsync($"{RemoteProtocol.Routes.Sources}?chatId={chatId}&messageId={messageId}",
+            RemoteJsonContext.Default.ListRemoteSource, cancellationToken);
 
     public async Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command, CancellationToken cancellationToken)
     {
@@ -754,6 +807,16 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             query.Add("compactStatus=true");
         if (subscription.ChatRowPatches)
             query.Add("rowPatches=true");
+        if (subscription.IsChatCovered)
+            query.Add("covered=true");
+        if (subscription.ScopedPayloads)
+            query.Add("scoped=true");
+        if (subscription.LoadUnfilteredChatList)
+            query.Add("loadChats=true");
+        if (subscription.IncludeLaunchpad)
+            query.Add("launchpad=true");
+        if (subscription.TranscriptInterest != RemoteTranscriptInterest.Latest)
+            query.Add($"transcript={subscription.TranscriptInterest}");
         if (KnownSnapshotSections?.Invoke() is { Count: > 0 } known
             && RemoteProtocol.SnapshotSections.FormatKnown(known) is { Length: > 0 } knownQuery)
         {
@@ -2075,6 +2138,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         RemoteProtocol.Routes.GitChanges or RemoteProtocol.Routes.GitDiff => RemoteProtocol.MaxGitJsonBytes,
         RemoteProtocol.Routes.Transcript => RemoteProtocol.MobileTranscriptJsonByteLimit + 64 * 1024,
         RemoteProtocol.Routes.Activity => RemoteProtocol.MaxActivityJsonBytes,
+        RemoteProtocol.Routes.Sources => RemoteProtocol.MobileTranscriptJsonByteLimit,
         _ => RemoteProtocol.MaxCommandResponseJsonBytes
     };
 

@@ -44,6 +44,10 @@ internal sealed class RemoteEventClient : IDisposable
     private readonly SemaphoreSlim _signal = new(0);
     private RemoteChatPageFrames? _pendingChatPage;
     private Dictionary<Guid, ulong>? _deliveredChatRows;
+    private bool _replaceChatPage;
+    private string? _catalogVersion;
+    private string? _launchpadVersion;
+    private bool _sentHistoryChange;
     private long _streamUseCounter;
     private int _queuedBytes;
     private RemoteEventSubscription _subscription;
@@ -82,7 +86,8 @@ internal sealed class RemoteEventClient : IDisposable
         get
         {
             var subscription = Volatile.Read(ref _subscription);
-            return subscription.IsForeground && subscription.ChatId is null;
+            return subscription.IsForeground && subscription.ChatId is null
+                && (!subscription.ScopedPayloads || subscription.IncludeLaunchpad);
         }
     }
     internal bool WantsChatList
@@ -107,6 +112,32 @@ internal sealed class RemoteEventClient : IDisposable
         Volatile.Read(ref _subscription).CompactStatus;
     internal bool WantsChatRowPatches =>
         Volatile.Read(ref _subscription).ChatRowPatches;
+    internal bool UsesScopedPayloads => Volatile.Read(ref _subscription).ScopedPayloads;
+
+    internal bool EnqueueCatalog(RemoteEventFrame frame, string? version)
+    {
+        lock (_queueGate)
+        {
+            if (version is not null && version == _catalogVersion)
+                return true;
+            _catalogVersion = version;
+            return Enqueue(frame, RemoteProtocol.Events.Snapshot);
+        }
+    }
+
+    internal bool EnqueueLaunchpad(RemoteEventFrame frame, string version)
+    {
+        lock (_queueGate)
+        {
+            if (version == _launchpadVersion)
+                return true;
+            _launchpadVersion = version;
+            return Enqueue(frame, RemoteProtocol.Events.Launchpad);
+        }
+    }
+
+    internal void RememberCatalogVersion(string? version) => _catalogVersion = version;
+    internal void RememberLaunchpadVersion(string? version) => _launchpadVersion = version;
 
     internal TimeSpan StreamInterval =>
         TimeSpan.FromMilliseconds(Math.Clamp(
@@ -118,7 +149,28 @@ internal sealed class RemoteEventClient : IDisposable
     {
         var subscription = Volatile.Read(ref _subscription);
         return subscription.IsForeground
-               && subscription.ChatId == chatId;
+               && subscription.ChatId == chatId
+               && subscription.TranscriptInterest != RemoteTranscriptInterest.Covered;
+    }
+
+    internal bool WantsStreamText(Guid chatId) =>
+        WantsChat(chatId) && Volatile.Read(ref _subscription).TranscriptInterest == RemoteTranscriptInterest.Latest;
+
+    internal bool EnqueueTranscriptChange(Guid chatId, RemoteEventFrame frame)
+    {
+        lock (_queueGate)
+        {
+            if (!WantsChat(chatId))
+                return true;
+            if (_subscription.TranscriptInterest == RemoteTranscriptInterest.History)
+            {
+                if (_sentHistoryChange)
+                    return true;
+                _sentHistoryChange = true;
+            }
+
+            return Enqueue(frame, $"transcript:{chatId:N}");
+        }
     }
 
     /// <summary>The phone shows this chat now: in the foreground, and not behind its chat list.</summary>
@@ -127,7 +179,8 @@ internal sealed class RemoteEventClient : IDisposable
         var subscription = Volatile.Read(ref _subscription);
         return subscription.IsForeground
                && subscription.ChatId == chatId
-               && !subscription.IsChatCovered;
+               && !subscription.IsChatCovered
+               && subscription.TranscriptInterest != RemoteTranscriptInterest.Covered;
     }
 
     internal bool TryUpdateSubscription(
@@ -290,13 +343,14 @@ internal sealed class RemoteEventClient : IDisposable
     /// Records the desktop's latest first chat page for a row-patch phone. When written, only rows
     /// that differ from what this phone last received are sent.
     /// </summary>
-    public bool EnqueueChatPage(RemoteChatPageFrames frames)
+    public bool EnqueueChatPage(RemoteChatPageFrames frames, bool replace = false)
     {
         lock (_queueGate)
         {
             if (_disposed || _overflowed)
                 return false;
 
+            _replaceChatPage |= replace;
             var reserved = frames.Full.Length;
             if (_coalesced.Remove(ChatPageKey, out var existing))
             {
@@ -445,6 +499,9 @@ internal sealed class RemoteEventClient : IDisposable
         var currentChat = current.IsForeground ? current.ChatId : null;
         lock (_queueGate)
         {
+            if (previousChat != currentChat || previous.TranscriptInterest != current.TranscriptInterest)
+                _sentHistoryChange = false;
+
             if (previousChat != currentChat)
             {
                 foreach (var key in _streams
@@ -487,6 +544,9 @@ internal sealed class RemoteEventClient : IDisposable
 
     private byte[]? BuildStreamFrameLocked(StreamSlot slot)
     {
+        if (UsesScopedPayloads && !WantsStreamText(slot.ChatId))
+            return null;
+
         var latest = slot.Latest;
         var sent = slot.Sent;
         int offset;
@@ -524,7 +584,10 @@ internal sealed class RemoteEventClient : IDisposable
             return null;
 
         var frames = pending.Frames;
-        if (pending.ListOnly
+        var listOnly = pending.ListOnly || (UsesScopedPayloads && !WantsChat(chatId));
+        if (UsesScopedPayloads && listOnly && !WantsChatList)
+            return null;
+        if (listOnly
             && _deliveredListActivity.TryGetValue(chatId, out var shown)
             && shown == frames.ListActivity)
         {
@@ -532,6 +595,14 @@ internal sealed class RemoteEventClient : IDisposable
         }
 
         _deliveredListActivity[chatId] = frames.ListActivity;
+        if (listOnly && UsesScopedPayloads)
+        {
+            var (isRunning, isSessionActive, unread) = frames.ListActivity;
+            var state = new RemoteChatListState(chatId, isRunning, isSessionActive, unread);
+            return Encoding.UTF8.GetBytes(new RemoteEventFrame(
+                RemoteProtocol.Events.ChatListState,
+                JsonSerializer.Serialize(state, RemoteJsonContext.Default.RemoteChatListState)).ToWire());
+        }
         if (!WantsCompactStatus)
             return frames.Full;
 
@@ -553,6 +624,13 @@ internal sealed class RemoteEventClient : IDisposable
         _pendingChatPage = null;
         if (frames is null)
             return null;
+
+        if (_replaceChatPage)
+        {
+            _replaceChatPage = false;
+            _deliveredChatRows = new Dictionary<Guid, ulong>(frames.RowHashes);
+            return frames.WithReplaceFirstPage();
+        }
 
         if (_deliveredChatRows is null)
         {
@@ -642,6 +720,23 @@ internal sealed record RemoteChatPageFrames(
     IReadOnlyDictionary<Guid, ulong> RowHashes,
     byte[] Full)
 {
+    public byte[] WithReplaceFirstPage()
+    {
+        var page = new RemoteChatPage
+        {
+            TotalCount = Page.TotalCount,
+            HasMore = Page.HasMore,
+            PinnedGroupLabel = Page.PinnedGroupLabel,
+            TodayGroupLabel = Page.TodayGroupLabel,
+            Groups = Page.Groups,
+            RemovedChatIds = Page.RemovedChatIds,
+            ReplaceFirstPage = true
+        };
+        return Encoding.UTF8.GetBytes(new RemoteEventFrame(
+            RemoteProtocol.Events.Chats,
+            JsonSerializer.Serialize(page, RemoteJsonContext.Default.RemoteChatPage)).ToWire());
+    }
+
     public RemoteChatPageFrames WithRemovedChatIds(IEnumerable<Guid> earlierRemovals)
     {
         var removed = Page.RemovedChatIds.Concat(earlierRemovals).Distinct().ToList();

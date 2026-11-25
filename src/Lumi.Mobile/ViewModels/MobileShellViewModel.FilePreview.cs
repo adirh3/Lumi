@@ -82,7 +82,9 @@ public sealed partial class MobileShellViewModel : IRemoteProducedFileSink
 
         _chatHiddenByPreview = hidden;
         if (!hidden && CanReadChatTranscript)
-            _ = RefreshTranscriptAsync();
+            _ = ReacquireVisibleChatAsync(Chat.ChatId);
+        else
+            QueueSubscriptionUpdate();
     }
 
     private void NotifyFilePreviewLayoutChanged()

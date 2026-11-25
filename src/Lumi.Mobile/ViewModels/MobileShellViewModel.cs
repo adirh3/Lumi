@@ -191,7 +191,8 @@ public sealed partial class MobileShellViewModel :
         long SurfaceGeneration,
         long Version,
         long StatusVersion,
-        string? KnownVersion = null)
+        string? KnownVersion,
+        string? KnownStatusDetails)
     {
         public bool IsNavigation =>
             Kind is TranscriptRefreshKind.Earlier
@@ -446,8 +447,15 @@ public sealed partial class MobileShellViewModel :
                 NotifyWebAppUpdateSafetyChanged();
             }
 
-            if (e.PropertyName == nameof(MobileChatViewModel.IsGitChangesOpen) && CanReadChatTranscript)
-                _ = RefreshTranscriptAsync();
+            if (e.PropertyName == nameof(MobileChatViewModel.IsGitChangesOpen))
+            {
+                if (CanReadChatTranscript)
+                    _ = ReacquireVisibleChatAsync(Chat.ChatId);
+                else
+                    QueueSubscriptionUpdate();
+            }
+            if (e.PropertyName == nameof(MobileChatViewModel.IsLatestWindow))
+                QueueSubscriptionUpdate();
 
             if (e.PropertyName is nameof(MobileChatViewModel.IsBusy)
                 or nameof(MobileChatViewModel.IsStreaming))
@@ -752,6 +760,9 @@ public sealed partial class MobileShellViewModel :
 
             if (!result.Ok)
                 ChatActionError = result.Error ?? Strings.Get("ActionIncomplete");
+            else if (command.Action == RemoteProtocol.Actions.SetChatUnread
+                     && result.ChatId is { } chatId && result.HasUnreadMessages is { } unread)
+                ApplyReadState(chatId, unread);
             return result.Ok;
         }
         finally
@@ -923,9 +934,11 @@ public sealed partial class MobileShellViewModel :
         SyncProjectSelection();
     }
 
-    private void ApplyLibrary(RemoteLibrary library, bool reconcileSelections = true)
+    private void ApplyLibrary(RemoteLibrary library, bool reconcileSelections = true, bool catalogOnly = false)
     {
-        Library.Apply(library);
+        if (!catalogOnly || !_hasFullLibrary)
+            Library.Apply(library);
+        _hasFullLibrary |= !catalogOnly;
         SyncProjects(library.Projects);
         Chat.ApplyLibraryCatalogs(library, reconcileSelections);
 
@@ -935,7 +948,10 @@ public sealed partial class MobileShellViewModel :
         {
             ActiveProjectId = null;
         }
+
     }
+
+    private bool _hasFullLibrary;
 
     public string DeviceName => _settings.DeviceName;
 
@@ -1223,8 +1239,21 @@ public sealed partial class MobileShellViewModel :
         Chat.IsRunSettingsSheetOpen = false;
         if (!result.Ok)
             Chat.ErrorText = result.Error ?? Strings.Get("ActionIncomplete");
-        else if (!wasUnread && !CanDockDrawer)
-            ShowHome();
+        else
+        {
+            if (result.HasUnreadMessages is { } unread)
+                ApplyReadState(chatId, unread);
+            if (!wasUnread && !CanDockDrawer)
+                ShowHome();
+        }
+    }
+
+    private void ApplyReadState(Guid chatId, bool unread)
+    {
+        ChatList.SetUnread(chatId, unread);
+        SearchChatList.SetUnread(chatId, unread);
+        if (Chat.ChatId == chatId)
+            Chat.HasUnreadMessages = unread;
     }
 
     private RemoteCommand BuildReadStateCommand(Guid chatId, bool isUnread)
@@ -1730,9 +1759,12 @@ public sealed partial class MobileShellViewModel :
             return;
 
         _isChatListShown = shown;
-        if (shown && IsPaired && !_isOpeningAtLaunch)
+        if (shown && IsPaired && !_isOpeningAtLaunch && !LoadsUnfilteredListFromStream)
             _ = ChatList.RefreshFromServerAsync();
     }
+
+    private bool LoadsUnfilteredListFromStream => Client.SupportsScopedPayloads
+        && IsDrawerVisible && ChatList.ProjectFilterId is null && string.IsNullOrWhiteSpace(ChatList.SearchText);
 
     partial void OnIsSidebarCollapsedChanged(bool value)
     {
@@ -1963,10 +1995,11 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(IsDrawerVisible));
         OnPropertyChanged(nameof(ShowScrim));
         OnPropertyChanged(nameof(CanGoBack));
-        QueueSubscriptionUpdate();
-        FollowChatListVisibility();
         if (!value && CanReadChatTranscript)
-            _ = RefreshTranscriptAsync();
+            _ = ReacquireVisibleChatAsync(Chat.ChatId);
+        else
+            QueueSubscriptionUpdate();
+        FollowChatListVisibility();
     }
 
     partial void OnLayoutChanged(MobileLayoutState oldValue, MobileLayoutState newValue)
@@ -2566,7 +2599,7 @@ public sealed partial class MobileShellViewModel :
     {
         if (Page == MobilePage.Chat && Chat.ChatId != Guid.Empty)
             _ = RefreshTranscriptAsync();
-        if (IsDrawerVisible)
+        if (IsDrawerVisible && !LoadsUnfilteredListFromStream)
             _ = ChatList.RefreshFromServerAsync();
         if (Page == MobilePage.Search)
             _ = SearchChatList.RefreshFromServerAsync();
@@ -2604,7 +2637,7 @@ public sealed partial class MobileShellViewModel :
         Trace.TraceInformation("[Mobile] Transport " + stats.Details);
     }
 
-    private RemoteEventSubscription BuildEventSubscription() => new()
+    private RemoteEventSubscription BuildEventSubscription(bool receiveLatest = false) => new()
     {
         Generation = Interlocked.Increment(ref _subscriptionGeneration),
         ChatId = Page == MobilePage.Chat && Chat.ChatId != Guid.Empty
@@ -2618,8 +2651,15 @@ public sealed partial class MobileShellViewModel :
         StreamIntervalMs = RemoteProtocol.MobileStreamIntervalMs,
         CompactStatus = true,
         ChatRowPatches = true,
-        // On a phone the chat list slides over the open chat, which stays current underneath.
-        IsChatCovered = IsDrawerOverlay
+        ScopedPayloads = Client.SupportsScopedPayloads,
+        LoadUnfilteredChatList = LoadsUnfilteredListFromStream,
+        IncludeLaunchpad = Page == MobilePage.Chat && !Chat.HasChat && !IsDrawerOverlay,
+        IsChatCovered = IsTranscriptCovered,
+        TranscriptInterest = !Client.SupportsScopedPayloads
+            ? RemoteTranscriptInterest.Latest
+            : IsTranscriptCovered ? RemoteTranscriptInterest.Covered
+            : Chat.IsLatestWindow || receiveLatest ? RemoteTranscriptInterest.Latest
+            : RemoteTranscriptInterest.History
     };
 
     private void QueueSubscriptionUpdate()
@@ -2661,7 +2701,7 @@ public sealed partial class MobileShellViewModel :
     {
         await UpdateEventSubscriptionForConnectionAsync(BuildEventSubscription());
         // Under the list on a single pane the chat is fetched when the list uncovers it.
-        if (!_isApplicationActive || Page != MobilePage.Chat || IsDrawerOverlay || Chat.ChatId != chatId)
+        if (!_isApplicationActive || Page != MobilePage.Chat || IsTranscriptCovered || Chat.ChatId != chatId)
             return;
 
         await RefreshTranscriptAsync();
@@ -2695,6 +2735,7 @@ public sealed partial class MobileShellViewModel :
         SearchChatList.SearchText = "";
         SearchChatList.ProjectFilterId = null;
         ApplyLibrary(new RemoteLibrary(), reconcileSelections: false);
+        _hasFullLibrary = false;
         Library.ResetHostState();
         ActionChat = null;
         IsChatActionsOpen = false;
@@ -2809,7 +2850,7 @@ public sealed partial class MobileShellViewModel :
                 {
                     // Sections the phone already holds at their current version come back empty,
                     // so a navigation refresh only pays for what actually changed.
-                    snapshot = await Client.GetSnapshotAsync(GetKnownSnapshotSections(), request.Token);
+                    snapshot = await Client.GetSnapshotAsync(GetKnownSnapshotSections(), request.Token, BuildEventSubscription());
                 }
                 catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
                 {
@@ -2890,12 +2931,13 @@ public sealed partial class MobileShellViewModel :
             var libraryChanged = false;
             if (!snapshot.IsPartial)
             {
-                chats = Resolve(
-                    RemoteProtocol.SnapshotSections.Chats,
-                    snapshot.Chats,
-                    snapshot.ChatsVersion,
-                    ref _cachedChatPage,
-                    out chatsChanged);
+                if (!snapshot.ChatsOmitted)
+                    chats = Resolve(
+                        RemoteProtocol.SnapshotSections.Chats,
+                        snapshot.Chats,
+                        snapshot.ChatsVersion,
+                        ref _cachedChatPage,
+                        out chatsChanged);
                 library = Resolve(
                     RemoteProtocol.SnapshotSections.Library,
                     snapshot.Library,
@@ -2984,13 +3026,16 @@ public sealed partial class MobileShellViewModel :
             if (Page == MobilePage.Search && chatsChanged)
                 _ = SearchChatList.RefreshFromServerAsync();
             if (library is not null && libraryChanged)
-                ApplyLibrary(library, reconcileSelections: false);
+                ApplyLibrary(library, reconcileSelections: false, catalogOnly: snapshot.LibraryCatalogOnly);
         }
         if (settingsChanged)
         {
             Chat.ApplyCatalogs(settings);
-            ApplyNewChatExperience(settings.NewChat);
+            if (!Client.SupportsScopedPayloads || settings.NewChat is not null)
+                ApplyNewChatExperience(settings.NewChat);
         }
+        if (snapshot.NewChat is { } newChat)
+            ApplyNewChatExperience(newChat);
 
         // Adopt the desktop's active chat on first connect so the phone opens where the PC left off.
         if (!snapshot.IsPartial &&
@@ -3206,7 +3251,12 @@ public sealed partial class MobileShellViewModel :
             }
 
             if (IsConnected)
-                await RefreshSnapshotAsync();
+            {
+                if (Client.SupportsScopedPayloads)
+                    await UpdateEventSubscriptionForConnectionAsync(BuildEventSubscription());
+                else
+                    await RefreshSnapshotAsync();
+            }
             return;
         }
 
@@ -3218,6 +3268,9 @@ public sealed partial class MobileShellViewModel :
 
         await RefreshTranscriptAsync();
     }
+
+    private bool IsTranscriptCovered =>
+        IsDrawerOverlay || IsFilePreviewCoveringChat || (Chat.IsGitChangesOpen && !Chat.UseSidePanels);
 
     private bool IsChatTranscriptVisible => IsPaired && _isApplicationActive && Page == MobilePage.Chat
         && !IsDrawerOverlay && !Chat.IsGitChangesOpen && !IsFilePreviewCoveringChat;
@@ -3312,6 +3365,8 @@ public sealed partial class MobileShellViewModel :
     {
         if (Chat.ChatId == Guid.Empty)
             return Task.CompletedTask;
+        if (Client.SupportsScopedPayloads && IsTranscriptCovered)
+            return Task.CompletedTask;
 
         if (TryDeferAutomaticTranscriptUpdate(out var navigation))
             return navigation;
@@ -3362,12 +3417,20 @@ public sealed partial class MobileShellViewModel :
     }
 
     [RelayCommand]
-    private Task ReturnToLatestAsync()
+    private async Task ReturnToLatestAsync()
     {
         if (!Chat.CanNavigateTranscript || Chat.IsLatestWindow)
-            return Task.CompletedTask;
+            return;
 
-        return RequestTranscriptRefreshAsync(
+        var chatId = Chat.ChatId;
+        if (Client.SupportsScopedPayloads)
+        {
+            await UpdateEventSubscriptionForConnectionAsync(BuildEventSubscription(receiveLatest: true));
+            if (Chat.ChatId != chatId || IsTranscriptCovered || !_isApplicationActive)
+                return;
+        }
+
+        await RequestTranscriptRefreshAsync(
             beforeMessageIndex: null,
             TranscriptRefreshKind.Latest,
             showLoading: true,
@@ -3418,7 +3481,8 @@ public sealed partial class MobileShellViewModel :
                 // it changed at all; an unchanged answer costs no body, parse or projection.
                 kind == TranscriptRefreshKind.Refresh && beforeMessageIndex is null
                     ? Chat.TranscriptVersion
-                    : null);
+                    : null,
+                Chat.StatusDetailsVersion);
 
             // One pending slot is enough: every trigger asks for the newest known view of one exact
             // chat/window, so replacing it coalesces reconnect and invalidation bursts.
@@ -3503,7 +3567,9 @@ public sealed partial class MobileShellViewModel :
                                 ? RemoteProtocol.InitialCompactTranscriptWindowVisibleItemLimit
                                 : RemoteProtocol.InitialTranscriptWindowRawMessageLimit,
                         request.KnownVersion,
-                        requestCts.Token)
+                        requestCts.Token,
+                        reuseRows: true,
+                        knownStatusDetails: request.KnownStatusDetails)
                     .ConfigureAwait(false);
 
                 if (transcript is null)
@@ -3862,6 +3928,13 @@ public sealed partial class MobileShellViewModel :
                 return;
             }
 
+            case RemoteProtocol.Events.Launchpad:
+            {
+                if (TryParse(frame.Data, RemoteJsonContext.Default.RemoteNewChatExperience) is { } launchpad)
+                    Post(() => ApplyNewChatExperience(launchpad));
+                return;
+            }
+
             case RemoteProtocol.Events.Chats:
             {
                 if (TryParse(frame.Data, RemoteJsonContext.Default.RemoteChatPage) is { } page)
@@ -3874,7 +3947,10 @@ public sealed partial class MobileShellViewModel :
                         UpdateSendReconciliationCandidates(page);
                         // Pushes update rows in place; filtered lists and search results only
                         // refresh the rows they show, instead of downloading the list again.
-                        ChatList.ApplyLive(page);
+                        if (page.ReplaceFirstPage && LoadsUnfilteredListFromStream)
+                            ChatList.Apply(page);
+                        else
+                            ChatList.ApplyLive(page);
                         if (Page == MobilePage.Search)
                             SearchChatList.ApplyLive(page);
                     });
@@ -3893,6 +3969,27 @@ public sealed partial class MobileShellViewModel :
                     });
                 }
                 return;
+            }
+
+            case RemoteProtocol.Events.ChatListState:
+            {
+                if (TryParse(frame.Data, RemoteJsonContext.Default.RemoteChatListState) is { } state)
+                {
+                    Post(() =>
+                    {
+                        ApplyListState(ChatList, state);
+                        ApplyListState(SearchChatList, state);
+                        if (state.HasUnreadMessages is { } unread)
+                            ApplyReadState(state.ChatId, unread);
+                    });
+                }
+                return;
+
+                static void ApplyListState(ChatListViewModel list, RemoteChatListState state)
+                {
+                    list.SetRunning(state.ChatId, state.IsRunning);
+                    list.SetSessionActive(state.ChatId, state.IsSessionActive);
+                }
             }
 
             case RemoteProtocol.Events.ChatStatus:
@@ -3945,6 +4042,10 @@ public sealed partial class MobileShellViewModel :
 
                     Post(() =>
                     {
+                        if (delta.ChatId == Chat.ChatId
+                            && Client.SupportsScopedPayloads && IsTranscriptCovered)
+                            return;
+
                         if (delta.ChatId == Chat.ChatId
                             && TryDeferAutomaticTranscriptUpdate(out _))
                         {
@@ -4001,6 +4102,8 @@ public sealed partial class MobileShellViewModel :
     private void QueueTranscriptRefresh()
     {
         if (Chat.ChatId == Guid.Empty)
+            return;
+        if (Client.SupportsScopedPayloads && IsTranscriptCovered)
             return;
 
         Chat.InvalidateTranscriptAuthority();
@@ -4230,17 +4333,30 @@ public sealed partial class MobileShellViewModel :
 
     public async Task<RemoteActivityDetails?> GetActivityDetailsAsync(
         Guid chatId,
-        string activityId)
+        string activityId) => await GetActivityDetailsAsync(chatId, activityId, includeTechnicalDetails: true);
+
+    public async Task<RemoteActivityDetails?> GetActivityDetailsAsync(
+        Guid chatId,
+        string activityId,
+        bool includeTechnicalDetails)
     {
         using var request = CreateConnectionRequest();
         try
         {
-            return await Client.GetActivityDetailsAsync(chatId, activityId, request.Token);
+            return await Client.GetActivityDetailsAsync(chatId, activityId, request.Token,
+                summary: Client.SupportsScopedPayloads && !includeTechnicalDetails);
         }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
         {
             return null;
         }
+    }
+
+    internal async Task<List<RemoteSource>?> GetSourcesAsync(Guid chatId, Guid messageId, CancellationToken cancellationToken)
+    {
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(
+            _lifetime.Token, _connectionLifetime.Token, cancellationToken);
+        return await Client.GetSourcesAsync(chatId, messageId, request.Token);
     }
 
     public async ValueTask DisposeAsync()

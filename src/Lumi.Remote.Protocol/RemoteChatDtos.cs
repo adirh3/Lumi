@@ -49,7 +49,11 @@ public sealed class RemoteChatPage
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsPatch { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ReplaceFirstPage { get; set; }
 }
+
+public sealed record RemoteChatListState(Guid ChatId, bool IsRunning, bool IsSessionActive, bool? HasUnreadMessages);
 
 /// <summary>Live per-chat runtime state pushed on <see cref="RemoteProtocol.Events.ChatStatus"/>.</summary>
 public sealed class RemoteChatStatus
@@ -114,6 +118,7 @@ public sealed class RemoteChatStatus
     public List<RemoteChip> AvailableMcps { get; set; } = [];
     public List<RemoteChip> AvailableProjects { get; set; } = [];
     public bool HasComposerCatalogs { get; set; }
+    public string? DetailsVersion { get; set; }
 }
 
 public sealed class RemoteConnectionStatus
@@ -171,6 +176,8 @@ public sealed class RemoteActivityDetails
     public List<RemoteToolCall> Tools { get; set; } = [];
     public int TotalFileChangeCount { get; set; }
     public List<RemoteFileChange> FileChanges { get; set; } = [];
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool TechnicalDetailsDeferred { get; set; }
 }
 
 public sealed class RemoteAttachment
@@ -266,7 +273,10 @@ public sealed class RemoteTranscriptItem
     public List<RemoteFileChange>? FileChanges { get; set; }
     public List<RemoteAttachment>? Attachments { get; set; }
     public List<RemoteSource>? Sources { get; set; }
+    public string? SourceDetailsVersion { get; set; }
     public List<RemoteInlineImage>? InlineImages { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool InlineImagesOnDemand { get; set; }
     public Dictionary<string, string>? InteractionStates { get; set; }
     public string? InteractionLanguage { get; set; }
     public RemoteQuestion? Question { get; set; }
@@ -293,6 +303,8 @@ public sealed class RemoteTranscriptTurn
     /// </summary>
     public bool? IsSettled { get; set; }
     public List<RemoteTranscriptItem> Items { get; set; } = [];
+    /// <summary>When rows are reused, reconstructs the turn from the caller's known rows and the supplied items.</summary>
+    public List<string>? ItemOrder { get; set; }
 }
 
 public sealed class RemoteTranscript

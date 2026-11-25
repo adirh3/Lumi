@@ -450,6 +450,11 @@ public sealed class RemoteSnapshot
     public RemoteChatPage Chats { get; set; } = new();
     public RemoteLibrary Library { get; set; } = new();
     public RemoteSettings Settings { get; set; } = new();
+    public RemoteNewChatExperience? NewChat { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ChatsOmitted { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool LibraryCatalogOnly { get; set; }
 
     /// <summary>Content versions of <see cref="Chats"/>, <see cref="Library"/> and <see cref="Settings"/>.</summary>
     public string? ChatsVersion { get; set; }

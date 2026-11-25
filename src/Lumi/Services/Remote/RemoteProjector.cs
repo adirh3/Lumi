@@ -48,9 +48,13 @@ internal static class RemoteProjector
         IReadOnlyList<string> models,
         bool includeChatList = true,
         bool includeLibrary = true,
-        bool isPartial = false)
+        bool isPartial = false,
+        bool scoped = false,
+        bool includeLaunchpad = false,
+        bool libraryCatalogOnly = false)
     {
         var activeChat = main.ChatVM.CurrentChat;
+        var settings = BuildSettings(dataStore, models, main.ChatVM, includeNewChat: !scoped);
         return new RemoteSnapshot
         {
             Capabilities = [.. RemoteProtocol.Capabilities.Server],
@@ -69,8 +73,11 @@ internal static class RemoteProjector
                     query: null,
                     projectId: null)
                 : new RemoteChatPage(),
-            Library = includeLibrary ? BuildLibrary(dataStore) : new RemoteLibrary(),
-            Settings = BuildSettings(dataStore, models, main.ChatVM)
+            ChatsOmitted = !includeChatList,
+            Library = includeLibrary ? BuildLibrary(dataStore, libraryCatalogOnly) : new RemoteLibrary(),
+            LibraryCatalogOnly = libraryCatalogOnly,
+            Settings = settings,
+            NewChat = scoped && includeLaunchpad ? BuildNewChatExperience(dataStore, main.ChatVM) : null
         };
     }
 
@@ -357,7 +364,7 @@ internal static class RemoteProjector
              })
              .ToList();
 
-    public static RemoteLibrary BuildLibrary(DataStore dataStore)
+    public static RemoteLibrary BuildLibrary(DataStore dataStore, bool catalogOnly = false)
     {
         var data = dataStore.Data;
         return new RemoteLibrary
@@ -389,7 +396,7 @@ internal static class RemoteProjector
                 SkillCount = agent.SkillIds.Count,
                 ToolCount = agent.ToolNames.Count
             }).ToList(),
-            Memories = data.Memories.Select(memory => new RemoteMemory
+            Memories = catalogOnly ? [] : data.Memories.Select(memory => new RemoteMemory
             {
                 Id = memory.Id,
                 Key = BoundRequired(memory.Key, RemoteProtocol.MobileMetadataTextLimit),
@@ -407,7 +414,7 @@ internal static class RemoteProjector
                 IsEnabled = server.IsEnabled,
                 ToolCount = server.Tools.Count
             }).ToList(),
-            Jobs = dataStore.SnapshotBackgroundJobs().Select(job => new RemoteJob
+            Jobs = catalogOnly ? [] : dataStore.SnapshotBackgroundJobs().Select(job => new RemoteJob
             {
                 Id = job.Id,
                 Name = BoundRequired(job.Name, RemoteProtocol.MobileMetadataTextLimit),
@@ -621,13 +628,14 @@ internal static class RemoteProjector
     public static RemoteSettings BuildSettings(
         DataStore dataStore,
         IReadOnlyList<string> models,
-        ChatViewModel? chatVm = null)
+        ChatViewModel? chatVm = null,
+        bool includeNewChat = true)
     {
         var settings = dataStore.Data.Settings;
         return new RemoteSettings
         {
             UserName = settings.UserName ?? "",
-            NewChat = chatVm is null ? null : BuildNewChatExperience(dataStore, chatVm),
+            NewChat = includeNewChat && chatVm is not null ? BuildNewChatExperience(dataStore, chatVm) : null,
             IsDarkTheme = settings.IsDarkTheme,
             PreferredModel = settings.PreferredModel,
             ReasoningEffort = settings.ReasoningEffort,
@@ -935,7 +943,8 @@ internal static class RemoteProjector
         IReadOnlyList<ChatMessage> messages,
         string activityId,
         string? workingDirectory = null,
-        IReadOnlySet<string>? runningBackgroundToolCallIds = null)
+        IReadOnlySet<string>? runningBackgroundToolCallIds = null,
+        bool includeTechnicalDetails = true)
     {
         if (string.IsNullOrWhiteSpace(activityId))
             return null;
@@ -989,12 +998,21 @@ internal static class RemoteProjector
             });
         }
 
+        var deferred = !includeTechnicalDetails
+            && tools.Any(tool => !string.IsNullOrWhiteSpace(tool.Input) || !string.IsNullOrWhiteSpace(tool.Output));
+        if (deferred)
+        {
+            foreach (var tool in tools)
+                tool.Input = tool.Output = null;
+        }
+
         var fileChanges = BuildFileChanges(technicalMessages, workingDirectory);
         return EnforceActivityWireLimit(new RemoteActivityDetails
         {
             ChatId = chat.Id,
             ActivityId = BoundRequired(activityId, RemoteProtocol.MobileIdentifierLimit),
             Tools = tools,
+            TechnicalDetailsDeferred = deferred,
             TotalFileChangeCount = fileChanges.Count,
             FileChanges = BoundFileChanges(fileChanges)
         });
@@ -2923,7 +2941,7 @@ internal static class RemoteProjector
             FileName = Loc.Get("Remote_AttachmentsOmitted", omitted)
         };
 
-    private static List<RemoteSource>? BuildSources(IReadOnlyList<SearchSource> sources)
+    internal static List<RemoteSource>? BuildSources(IReadOnlyList<SearchSource> sources)
     {
         if (sources.Count == 0)
             return null;

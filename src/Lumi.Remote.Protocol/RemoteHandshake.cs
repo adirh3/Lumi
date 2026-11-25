@@ -54,6 +54,16 @@ public sealed class RemoteEventSubscription
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsChatCovered { get; set; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public RemoteTranscriptInterest TranscriptInterest { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ScopedPayloads { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool LoadUnfilteredChatList { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IncludeLaunchpad { get; set; }
+
     /// <summary>True when every scope that decides what the desktop pushes, or notifies about, matches.</summary>
     public bool HasSameScope(RemoteEventSubscription other) =>
         ChatId == other.ChatId
@@ -64,7 +74,11 @@ public sealed class RemoteEventSubscription
         && StreamIntervalMs == other.StreamIntervalMs
         && CompactStatus == other.CompactStatus
         && ChatRowPatches == other.ChatRowPatches
-        && IsChatCovered == other.IsChatCovered;
+        && IsChatCovered == other.IsChatCovered
+        && TranscriptInterest == other.TranscriptInterest
+        && ScopedPayloads == other.ScopedPayloads
+        && LoadUnfilteredChatList == other.LoadUnfilteredChatList
+        && IncludeLaunchpad == other.IncludeLaunchpad;
 
     public RemoteEventSubscription Copy() => new()
     {
@@ -77,8 +91,19 @@ public sealed class RemoteEventSubscription
         StreamIntervalMs = StreamIntervalMs,
         CompactStatus = CompactStatus,
         ChatRowPatches = ChatRowPatches,
-        IsChatCovered = IsChatCovered
+        IsChatCovered = IsChatCovered,
+        TranscriptInterest = TranscriptInterest,
+        ScopedPayloads = ScopedPayloads,
+        LoadUnfilteredChatList = LoadUnfilteredChatList,
+        IncludeLaunchpad = IncludeLaunchpad
     };
+}
+
+public enum RemoteTranscriptInterest
+{
+    Latest,
+    History,
+    Covered
 }
 
 /// <summary>What a Lumi desktop broadcasts over UDP so phones can find it.</summary>

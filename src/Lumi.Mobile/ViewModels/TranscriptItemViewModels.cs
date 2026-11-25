@@ -187,6 +187,11 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
     private CancellationTokenSource? _imageResolutionCts;
     private IReadOnlyList<RemoteInlineImage>? _inlineImages;
     private IReadOnlyList<RemoteInlineImage>? _leasedInlineImages;
+    private bool _inlineImagesOnDemand;
+    private bool _nearViewport;
+    private string? _sourceDetailsVersion;
+    private bool _sourceDetailsLoaded;
+    private bool _loadingSourceDetails;
     private long _imageResolutionVersion;
     private readonly CancellationTokenSource _lifetime = new();
 
@@ -323,14 +328,62 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         }
         InteractionStates = states;
 
+        if (item.SourceDetailsVersion is null || item.SourceDetailsVersion != _sourceDetailsVersion)
+        {
+            _sourceDetailsVersion = item.SourceDetailsVersion;
+            _sourceDetailsLoaded = false;
+            ShowSources(item.Sources ?? []);
+        }
+
+        _inlineImagesOnDemand = item.InlineImagesOnDemand;
+        StartInlineImagesIfNeeded();
+    }
+
+    internal bool TryBeginSourceDetails(out string? version)
+    {
+        version = _sourceDetailsVersion;
+        if (version is null || _sourceDetailsLoaded || _loadingSourceDetails)
+            return false;
+        _loadingSourceDetails = true;
+        return true;
+    }
+
+    internal void ApplySourceDetails(string? version, List<RemoteSource> sources)
+    {
+        if (version != _sourceDetailsVersion)
+            return;
+        _sourceDetailsLoaded = true;
+        ShowSources(sources);
+    }
+
+    internal void EndSourceDetails() => _loadingSourceDetails = false;
+
+    private void ShowSources(IReadOnlyList<RemoteSource> sources)
+    {
         Sources.Clear();
-        foreach (var source in item.Sources ?? [])
+        foreach (var source in sources)
             Sources.Add(source);
         OnPropertyChanged(nameof(HasSources));
         OnPropertyChanged(nameof(SourceCountText));
         OnPropertyChanged(nameof(SourceDomains));
+    }
 
-        if (_inlineImages is { Count: > 0 }
+    internal void SetInlineImageDemand(bool nearViewport)
+    {
+        if (_nearViewport == nearViewport)
+            return;
+
+        _nearViewport = nearViewport;
+        if (nearViewport)
+            StartInlineImagesIfNeeded();
+        else if (_inlineImagesOnDemand)
+            CancelImageResolution();
+    }
+
+    private void StartInlineImagesIfNeeded()
+    {
+        if ((!_inlineImagesOnDemand || _nearViewport)
+            && _inlineImages is { Count: > 0 }
             && _resolveInlineImages is not null
             && _imageResolutionCts is null
             && (_leasedInlineImages?.Count ?? 0) < _inlineImages.Count)
@@ -341,7 +394,7 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
             var current = new CancellationTokenSource();
             _imageResolutionCts = current;
             _ = ResolveInlineImagesAsync(
-                sourceText,
+                SourceText,
                 Text,
                 pendingImages,
                 version,
@@ -715,8 +768,9 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
     public bool IsStopped => Status == "Stopped";
     public bool HasFileChanges => FileChanges.Count > 0;
     public bool HasSections => Sections.Count > 0;
+    internal bool TechnicalDetailsDeferred { get; private set; }
     public bool CanShowTechnicalDetails =>
-        Sections.SelectMany(section => section.Steps).Any(step => step.HasTechnicalDetails);
+        TechnicalDetailsDeferred || Sections.SelectMany(section => section.Steps).Any(step => step.HasTechnicalDetails);
     public string FileSummary =>
         TotalFileChangeCount == 1 ? Strings.Get("FileChangedOne") : Strings.Get("FileChangedMany", TotalFileChangeCount);
     public string SummaryText
@@ -848,6 +902,7 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
         if (detailsChanged && DetailsLoaded)
         {
             DetailsLoaded = false;
+            TechnicalDetailsDeferred = false;
             Sections.Clear();
             OnPropertyChanged(nameof(HasSections));
             OnPropertyChanged(nameof(CanShowTechnicalDetails));
@@ -881,6 +936,7 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
 
     public void ApplyDetails(RemoteActivityDetails details)
     {
+        TechnicalDetailsDeferred = details.TechnicalDetailsDeferred;
         Sections.Clear();
         var sections = new List<ActivitySectionViewModel>();
         foreach (var tool in details.Tools)
@@ -910,12 +966,14 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
     private Task OpenAsync() => _openAction?.Invoke(this) ?? Task.CompletedTask;
 
     [RelayCommand]
-    private void ToggleTechnicalDetails()
+    private async Task ToggleTechnicalDetailsAsync()
     {
         IsTechnicalDetailsVisible = !IsTechnicalDetailsVisible;
         foreach (var step in Sections.SelectMany(section => section.Steps))
             step.ShowTechnicalDetails = IsTechnicalDetailsVisible;
         OnPropertyChanged(nameof(TechnicalDetailsLabel));
+        if (IsTechnicalDetailsVisible && TechnicalDetailsDeferred && _openAction is not null)
+            await _openAction(this);
     }
 
     partial void OnStatusChanged(string value)

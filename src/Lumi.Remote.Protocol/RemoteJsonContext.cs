@@ -41,6 +41,7 @@ namespace Lumi.Remote.Protocol;
 [JsonSerializable(typeof(RemoteTranscriptTurn))]
 [JsonSerializable(typeof(RemoteTranscriptItem))]
 [JsonSerializable(typeof(RemoteInlineImage))]
+[JsonSerializable(typeof(List<RemoteSource>))]
 [JsonSerializable(typeof(RemoteActivityDetails))]
 [JsonSerializable(typeof(RemoteFileChange))]
 [JsonSerializable(typeof(RemoteChatStatus))]
@@ -56,6 +57,7 @@ namespace Lumi.Remote.Protocol;
 [JsonSerializable(typeof(RemoteNotificationSync))]
 [JsonSerializable(typeof(RemoteNotificationDismissal))]
 [JsonSerializable(typeof(RemoteChatPage))]
+[JsonSerializable(typeof(RemoteChatListState))]
 [JsonSerializable(typeof(List<RemoteChatGroup>))]
 [JsonSerializable(typeof(List<RemoteChat>))]
 public sealed partial class RemoteJsonContext : JsonSerializerContext;

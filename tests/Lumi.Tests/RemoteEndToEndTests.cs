@@ -921,6 +921,18 @@ public sealed class RemoteEndToEndTests
                 Assert.Equal(["web_search", "edit"], details.Tools.Select(tool => tool.Name));
                 Assert.Equal(["research", "work"], details.Tools.Select(tool => tool.Category));
                 Assert.Single(details.FileChanges);
+
+                var summary = Assert.IsType<RemoteActivityDetails>(
+                    await rig.Client.GetActivityDetailsAsync(chat.Id, activity.ActivityId!,
+                        CancellationToken.None, summary: true));
+                Assert.True(summary.TechnicalDetailsDeferred);
+                Assert.Equal(details.Tools.Select(tool => tool.Id), summary.Tools.Select(tool => tool.Id));
+                Assert.All(summary.Tools, tool =>
+                {
+                    Assert.Null(tool.Input);
+                    Assert.Null(tool.Output);
+                });
+                Assert.Contains(details.Tools, tool => tool.Output == "sources");
             },
             seed: data =>
             {
@@ -954,6 +966,36 @@ public sealed class RemoteEndToEndTests
                 chat.MessageCount = chat.Messages.Count;
                 data.Chats.Add(chat);
             });
+
+    [Fact]
+    public Task SourceExcerptsReachThePhoneOnlyWhenSourcesOpens() => RunAsync(async rig =>
+    {
+        await PairAsync(rig);
+        var chat = Assert.Single(rig.DataStore.Data.Chats);
+        await WaitAsync(() => rig.Shell.ChatList.FindChat(chat.Id) is not null, "the source chat to arrive");
+        rig.Shell.ChatList.OpenChatCommand.Execute(rig.Shell.ChatList.FindChat(chat.Id));
+        AssistantItemViewModel? FindAnswer() => rig.Shell.Chat.Turns
+            .SelectMany(turn => turn.Items).OfType<AssistantItemViewModel>().SingleOrDefault();
+        await WaitAsync(() => FindAnswer()?.HasSources == true, "source metadata to arrive");
+        var answer = FindAnswer()!;
+        Assert.Null(Assert.Single(answer.Sources).Snippet);
+        Assert.Equal(0, rig.Client.Stats.Snapshot().RequestsTo(RemoteProtocol.Routes.Sources));
+
+        answer.OpenSourcesCommand.Execute(null);
+        await WaitAsync(() => answer.Sources.SingleOrDefault()?.Snippet == "The excerpt.",
+            "the selected answer's source excerpt to arrive");
+        answer.OpenSourcesCommand.Execute(null);
+        Assert.Equal(1, rig.Client.Stats.Snapshot().RequestsTo(RemoteProtocol.Routes.Sources));
+    }, seed: data =>
+    {
+        var chat = new Chat { Title = "Sources on demand" };
+        chat.Messages.Add(new ChatMessage
+        {
+            Role = "assistant", Content = "Here is the result.",
+            Sources = [new SearchSource { Title = "The source", Url = "https://example.test", Snippet = "The excerpt." }]
+        });
+        data.Chats.Add(chat);
+    });
 
     /// <summary>
     /// The plan is chat-level state. Appending it to the last transcript turn pinned a full-size
@@ -2153,6 +2195,15 @@ public sealed class RemoteEndToEndTests
         Assert.Equal("Adir", rig.Shell.UserName);
         Assert.Equal(Environment.MachineName, rig.Shell.HostName);
 
+        rig.Shell.Library.Section = LibrarySection.Memories;
+        Assert.DoesNotContain(rig.Shell.Library.Entries, e => e.Name == "Likes");
+        rig.Shell.SelectPlace(MobilePlace.Customize);
+        await WaitAsync(() =>
+        {
+            rig.Shell.Library.Section = LibrarySection.Memories;
+            return rig.Shell.Library.Entries.Any(e => e.Name == "Likes");
+        }, "library items to load on opening Customize");
+
         rig.Shell.Library.Section = LibrarySection.Skills;
         Assert.Contains(rig.Shell.Library.Entries, e => e.Name == "Document Creator");
 
@@ -3050,12 +3101,12 @@ public sealed class RemoteEndToEndTests
             await Task.Delay(300);
             Assert.Empty(presenter.Shown);
 
-            // The phone's chat list slides over it, as the phone's home does: the chat stays current
-            // underneath, but nobody is reading it.
+            // The phone's chat list covers the selected chat: only list updates should travel.
             rig.Shell.IsDrawerOpen = true;
             await WaitAsync(
                 () => rig.Server.EventHub is { } hub
-                      && hub.HasChatSubscriber(NotifiedChatId)
+                      && hub.HasChatListSubscriber()
+                      && !hub.HasChatSubscriber(NotifiedChatId)
                       && !hub.IsChatOnPhoneScreen(NotifiedChatId),
                 "the covered chat to reach the desktop");
             rig.Main.ChatEvents.PublishAttention(new ChatAttention(

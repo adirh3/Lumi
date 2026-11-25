@@ -805,6 +805,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                     return;
                 case RemoteProtocol.Routes.Activity:
                     await HandleActivityAsync(context, cancellationToken).ConfigureAwait(false);
+                    break;
+                case RemoteProtocol.Routes.Sources:
+                    await HandleSourcesAsync(context, cancellationToken).ConfigureAwait(false);
                     return;
                 case RemoteProtocol.Routes.File:
                     await HandleFileAsync(context, cancellationToken).ConfigureAwait(false);
@@ -1028,8 +1031,13 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
     private async Task HandleSnapshotAsync(RemoteHttpContext context, CancellationToken cancellationToken)
     {
+        var scoped = context.Request.QueryValue("scoped") == "true";
         var snapshot = await Dispatcher.UIThread.InvokeAsync(() =>
-            RemoteProjector.BuildSnapshot(_dataStore, _main, _main.ChatVM.AvailableModels.ToList()));
+            RemoteProjector.BuildSnapshot(_dataStore, _main, _main.ChatVM.AvailableModels.ToList(),
+                includeChatList: !scoped || context.Request.QueryValue("chats") == "true",
+                scoped: scoped,
+                includeLaunchpad: context.Request.QueryValue("launchpad") == "true",
+                libraryCatalogOnly: scoped && context.Request.QueryValue("library") != "true"));
         RemoteContentVersions.ApplySectionVersions(
             snapshot,
             RemoteProtocol.SnapshotSections.ParseKnown(context.Request.QueryValue("known")));
@@ -1767,6 +1775,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                            && context.Request.QueryValue("known") is { Length: > 0 and <= RemoteProtocol.MaxTranscriptVersionLength } known
             ? known
             : null;
+        var scoped = context.Request.QueryValue("scoped") == "true";
 
         // Capture mutable desktop state on the UI thread, then do the potentially large persisted
         // read and bounded projection away from it. A live/detached owner still wins so streaming and
@@ -1787,6 +1796,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             var runningBackgroundToolCallIds =
                 (owner ?? _main.ChatVM).GetRunningBackgroundShellIds(chatId);
             var status = RemoteProjector.BuildStatus(_dataStore, owner ?? _main.ChatVM, chat);
+            if (scoped)
+            {
+                status.DetailsVersion = RemoteContentVersions.StatusDetails(status);
+                if (status.DetailsVersion == context.Request.QueryValue("status"))
+                    RemoteContentVersions.OmitStatusDetails(status);
+            }
 
             // Only the latest window is versioned; history pages are immutable reads by cursor.
             string? version = null;
@@ -1920,12 +1935,72 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             activitySource,
             capture.RunningBackgroundToolCallIds,
             imagePaths);
+        if (scoped)
+        {
+            foreach (var item in transcript.Turns.SelectMany(turn => turn.Items))
+            {
+                item.InlineImagesOnDemand = item.InlineImages is { Count: > 0 };
+                if (item.Sources is { } sources && sources.Any(source => source.Snippet is not null))
+                {
+                    item.SourceDetailsVersion = RemoteContentVersions.Version(
+                        JsonSerializer.SerializeToUtf8Bytes(sources, RemoteJsonContext.Default.ListRemoteSource));
+                    foreach (var source in sources)
+                        source.Snippet = null;
+                }
+            }
+        }
         if (transcript.IsLatestWindow)
+        {
             transcript.TranscriptVersion = capture.TranscriptVersion;
+            if (knownVersion is not null && RemoteTranscriptReuse.Parse(context.Request.QueryValue("rows")) is { } knownRows)
+                RemoteTranscriptReuse.OmitKnownItems(transcript, knownRows);
+        }
 
         await context.WriteJsonAsync(
             JsonSerializer.Serialize(transcript, RemoteJsonContext.Default.RemoteTranscript),
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task HandleSourcesAsync(RemoteHttpContext context, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(context.Request.QueryValue("chatId"), out var chatId)
+            || !Guid.TryParse(context.Request.QueryValue("messageId"), out var messageId))
+        {
+            await WriteErrorAsync(context, 400, Loc.Get("Remote_ArgumentRequired", "chatId, messageId"), cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var (exists, liveSources) = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+            if (chat is null)
+                return (false, (List<RemoteSource>?)null);
+            var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
+            var message = owner?.CurrentChat?.Id == chatId
+                ? owner.Messages.FirstOrDefault(item => item.Message.Id == messageId)?.Message
+                : chat.Messages.FirstOrDefault(item => item.Id == messageId);
+            return (true, message is { Role: "assistant" }
+                ? RemoteProjector.BuildSources(message.Sources) ?? []
+                : null);
+        });
+        var sources = liveSources;
+        if (exists && sources is null
+            && await _dataStore.FindStoredMessageAsync(chatId, messageId, cancellationToken).ConfigureAwait(false)
+                is { Message: { Role: "assistant" } stored })
+        {
+            sources = RemoteProjector.BuildSources(stored.Sources) ?? [];
+        }
+
+        if (sources is null)
+        {
+            await WriteErrorAsync(context, 404, Loc.Remote_ChatNotFound, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        await context.WriteJsonAsync(
+            JsonSerializer.Serialize(sources, RemoteJsonContext.Default.ListRemoteSource), cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private async Task HandleActivityAsync(RemoteHttpContext context, CancellationToken cancellationToken)
@@ -2003,7 +2078,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             messages,
             activityId,
             capture.WorkingDirectory,
-            capture.RunningBackgroundToolCallIds);
+            capture.RunningBackgroundToolCallIds,
+            includeTechnicalDetails: context.Request.QueryValue("summary") != "true");
         if (details is null)
         {
             await WriteErrorAsync(context, 404, Loc.Remote_ActivityNotFound, cancellationToken)
@@ -2562,7 +2638,10 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 _dataStore,
                 _main,
                 _main.ChatVM.AvailableModels.ToList(),
-                includeChatList: true));
+                includeChatList: !subscription.ScopedPayloads || subscription.IncludeChatList,
+                scoped: subscription.ScopedPayloads,
+                includeLaunchpad: subscription.IncludeLaunchpad,
+                libraryCatalogOnly: subscription.ScopedPayloads && !subscription.IncludeLibrary));
         RemoteContentVersions.ApplySectionVersions(
             snapshot,
             RemoteProtocol.SnapshotSections.ParseKnown(context.Request.QueryValue("known")));
@@ -2587,7 +2666,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                     context.RemoteEndPoint,
                     context.LocalEndPoint,
                     cancellationToken,
-                    subscription)
+                    subscription,
+                    snapshot.SettingsVersion,
+                    snapshot.NewChat is { } launchpad
+                        ? RemoteContentVersions.Version(JsonSerializer.SerializeToUtf8Bytes(
+                            launchpad, RemoteJsonContext.Default.RemoteNewChatExperience))
+                        : null)
                 .ConfigureAwait(false);
             if (client is null)
             {
@@ -2870,6 +2954,15 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             bool.TryParse(request.QueryValue("compactStatus"), out var compactStatus) && compactStatus;
         subscription.ChatRowPatches =
             bool.TryParse(request.QueryValue("rowPatches"), out var rowPatches) && rowPatches;
+        subscription.IsChatCovered = bool.TryParse(request.QueryValue("covered"), out var covered) && covered;
+        subscription.ScopedPayloads = bool.TryParse(request.QueryValue("scoped"), out var scoped) && scoped;
+        subscription.LoadUnfilteredChatList = bool.TryParse(request.QueryValue("loadChats"), out var loadChats) && loadChats;
+        subscription.IncludeLaunchpad = bool.TryParse(request.QueryValue("launchpad"), out var launchpad) && launchpad;
+        if (Enum.TryParse<RemoteTranscriptInterest>(request.QueryValue("transcript"), out var interest)
+            && Enum.IsDefined(interest))
+        {
+            subscription.TranscriptInterest = interest;
+        }
         return subscription;
     }
 
@@ -3092,7 +3185,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         RemoteEventFrame initialFrame,
         [NotNullWhen(true)]
         out RemoteEventClient? client,
-        RemoteEventSubscription? subscription = null)
+        RemoteEventSubscription? subscription = null,
+        string? initialCatalogVersion = null,
+        string? initialLaunchpadVersion = null)
     {
         lock (_deviceAuthorizationGate)
         {
@@ -3102,7 +3197,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 return false;
             }
 
-            client = hub.AddClient(stream, device.DeviceId, initialFrame, subscription);
+            client = hub.AddClient(stream, device.DeviceId, initialFrame, subscription, initialCatalogVersion, initialLaunchpadVersion);
             _streams[client.Id] = client;
             return true;
         }
@@ -3116,7 +3211,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         EndPoint? remoteEndPoint,
         EndPoint? localEndPoint,
         CancellationToken cancellationToken,
-        RemoteEventSubscription? subscription = null)
+        RemoteEventSubscription? subscription = null,
+        string? initialCatalogVersion = null,
+        string? initialLaunchpadVersion = null)
     {
         await _networkPolicyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -3133,7 +3230,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 return null;
             }
 
-            return TryRegisterEventClient(hub, stream, device, initialFrame, out var client, subscription)
+            return TryRegisterEventClient(hub, stream, device, initialFrame, out var client, subscription,
+                    initialCatalogVersion, initialLaunchpadVersion)
                 ? client
                 : null;
         }
