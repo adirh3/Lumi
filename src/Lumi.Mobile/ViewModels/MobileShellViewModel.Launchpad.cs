@@ -891,7 +891,7 @@ public sealed partial class MobileShellViewModel
         };
     }
 
-    private bool CanUseStartSetup() => !Chat.HasChat && !Chat.IsBusy && !Chat.IsLoading && Chat.CanChangeProjectSelection;
+    private bool CanUseStartSetup() => !Chat.HasChat && !Chat.IsLoading && Chat.CanChangeProjectSelection;
 
     /// <summary>
     /// Applies a starter to the draft (its project, agent, checkout, model and effort; the prompt and attachments stay);

@@ -3737,6 +3737,100 @@ public sealed class MobileShellViewTests
         });
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Launchpad_StarterCanBeTappedInAnotherNewChatAfterSending(bool sendTimedOut)
+    {
+        var chatId = Guid.NewGuid();
+        const string message = "A message from the first starter";
+        await using var desktop = new FakeLumiDesktop
+        {
+            Snapshot = new RemoteSnapshot
+            {
+                Settings = MobileLaunchpadTests.Catalogs(),
+                Library = MobileLaunchpadTests.Library()
+            },
+            CommandResultFactory = command =>
+            {
+                if (command?.Action != RemoteProtocol.Actions.SendMessage)
+                    return new RemoteCommandResult { Ok = true };
+
+                return sendTimedOut
+                    ? new RemoteCommandResult { IsTimeout = true, Error = "Send acknowledgement timed out" }
+                    : new RemoteCommandResult { Ok = true, ChatId = chatId };
+            },
+            Transcript = new RemoteTranscript
+            {
+                ChatId = chatId,
+                Revision = 1,
+                TotalRawMessageCount = 1,
+                WindowEndMessageIndex = 1,
+                Turns = [new() { Id = "turn", Items = [new() { Id = "user", Kind = RemoteProtocol.ItemKinds.User, Text = message }] }],
+                Status = new RemoteChatStatus { ChatId = chatId, IsBusy = true, IsStreaming = true }
+            }
+        };
+        desktop.Snapshot.Settings.NewChat = MobileLaunchpadTests.Experience();
+        desktop.Start();
+
+        await RunAsync(async (shell, window) =>
+        {
+            shell.Connect.ManualAddress = desktop.BaseUrl;
+            await shell.Connect.ConnectManuallyCommand.ExecuteAsync(null);
+            shell.Connect.PairingCode = "123456";
+            await shell.Connect.SubmitCodeCommand.ExecuteAsync(null);
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!shell.HasLaunchpad && DateTime.UtcNow < deadline)
+                await Task.Delay(20);
+            Assert.True(shell.HasLaunchpad);
+            Layout(window, shell, 412, 892);
+            shell.IsDrawerOpen = false;
+            await SettleFramesAsync(window);
+
+            Button Card(string title) => Named(window, "WelcomeSetups").GetVisualDescendants().OfType<Button>()
+                .Single(button => button.Name == "StartSetupCard" && button.DataContext is ChatStartSetup setup && setup.Title == title);
+
+            Tap(window, Card("UI dev"));
+            Assert.Equal("UI dev", shell.ActiveStartSetup?.Title);
+            shell.Chat.PromptText = message;
+            Pump(window);
+            var send = Named(window, "Composer").GetVisualDescendants().OfType<Button>()
+                .Single(button => button.Name == "PART_SendButton");
+            Tap(window, send);
+            await shell.Chat.SendCommand.ExecutionTask!.WaitAsync(TimeSpan.FromSeconds(10));
+            if (sendTimedOut)
+            {
+                Assert.Equal(Guid.Empty, shell.Chat.ChatId);
+                Assert.False(shell.Chat.IsWorking);
+                Assert.Equal(message, shell.Chat.PromptText);
+                Assert.False(shell.Chat.CanChangeProjectSelection);
+            }
+            else
+            {
+                deadline = DateTime.UtcNow.AddSeconds(10);
+                while (!shell.Chat.IsStreaming && DateTime.UtcNow < deadline)
+                    await Task.Delay(20);
+                Assert.Equal(chatId, shell.Chat.ChatId);
+                Assert.True(shell.Chat.IsStreaming);
+            }
+            Assert.False(Card("UI dev").IsEffectivelyEnabled);
+
+            Tap(window, Named(window, "MenuButton"));
+            await SettleFramesAsync(window, frames: 30);
+            Tap(window, Named(window, "DrawerNewChatButton"));
+            await SettleFramesAsync(window, frames: 30);
+            Assert.Equal(Guid.Empty, shell.Chat.ChatId);
+            Assert.Empty(shell.Chat.PromptText);
+
+            var next = Card("Fixes");
+            Assert.True(next.IsEffectivelyVisible);
+            Assert.True(next.IsEffectivelyEnabled);
+            Tap(window, next);
+            Assert.Equal("Fixes", shell.ActiveStartSetup?.Title);
+            Assert.True(shell.Chat.UseWorktree);
+        });
+    }
+
     /// <summary>Runs layout, the dispatcher and render frames, so posted work and frame-driven glides finish.</summary>
     private static async Task SettleFramesAsync(Window window, int frames = 12)
     {

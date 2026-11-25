@@ -399,7 +399,7 @@ public sealed partial class MobileShellViewModel :
                 OnPropertyChanged(nameof(OpenChatPinLabel));
             }
             if (e.PropertyName is nameof(MobileChatViewModel.HasChat)
-                or nameof(MobileChatViewModel.IsBusy)
+                or nameof(MobileChatViewModel.IsWorking)
                 or nameof(MobileChatViewModel.IsLoading)
                 or nameof(MobileChatViewModel.CanChangeProjectSelection))
                 UseStartSetupCommand.NotifyCanExecuteChanged();
