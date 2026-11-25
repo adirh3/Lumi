@@ -1,4 +1,13 @@
 {
+  "NeedsYou_Title": "回答待ち",
+  "NeedsYou_UnreadReply": "未読の返信",
+  "NeedsYou_CountOne": "1件の回答待ち",
+  "NeedsYou_Count": "{0}件の回答待ち",
+  "NeedsYou_Unread": "{0}件未読",
+  "NeedsYou_Description": "すべてのプロジェクトの未処理リクエストと未読の返信です。行を開くと元のチャットで続行できます。",
+  "NeedsYou_Approval": "承認",
+  "NeedsYou_Form": "入力",
+  "NeedsYou_Question": "質問",
   "Discover_UpdateFromSource": "ソースから更新",
   "Discover_UpdateUnknown": "利用可能なバージョンは不明です。「ソースから更新」は、このソースが提供するバージョンのインストールを Copilot に依頼します。",
   "Discover_UpdatedVersionUnknown": "Copilot は更新を完了しましたが、インストール済みバージョンを報告しませんでした。再読み込みしてインストールを確認してください。",

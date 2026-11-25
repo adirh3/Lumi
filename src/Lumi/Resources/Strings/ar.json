@@ -1,4 +1,13 @@
 {
+  "NeedsYou_Title": "بانتظارك",
+  "NeedsYou_UnreadReply": "رد غير مقروء",
+  "NeedsYou_CountOne": "واحدة بانتظارك",
+  "NeedsYou_Count": "{0} بانتظارك",
+  "NeedsYou_Unread": "{0} غير مقروءة",
+  "NeedsYou_Description": "طلبات معلقة وردود غير مقروءة من جميع المشاريع. افتح صفًا للمتابعة في محادثته.",
+  "NeedsYou_Approval": "موافقة",
+  "NeedsYou_Form": "بيانات",
+  "NeedsYou_Question": "سؤال",
   "Discover_UpdateFromSource": "التحديث من المصدر",
   "Discover_UpdateUnknown": "الإصدار المتاح غير معروف. يطلب التحديث من المصدر من Copilot تثبيت الإصدار الذي يقدمه هذا المصدر.",
   "Discover_UpdatedVersionUnknown": "أكمل Copilot التحديث لكنه لم يبلغ عن الإصدار المثبت. حدّث العرض للتحقق من التثبيت.",

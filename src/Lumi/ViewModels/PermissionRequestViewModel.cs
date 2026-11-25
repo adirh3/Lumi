@@ -60,6 +60,7 @@ public partial class PermissionRequestViewModel : ObservableObject
     public Guid ChatId { get; }
     public string SessionId { get; }
     public string RequestId { get; }
+    public DateTimeOffset RequestedAt { get; } = DateTimeOffset.UtcNow;
     public ApprovalRequestInfo Info { get; }
     public string? ProjectName { get; }
 

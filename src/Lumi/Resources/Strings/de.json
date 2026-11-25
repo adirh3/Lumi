@@ -1,4 +1,13 @@
 {
+  "NeedsYou_Title": "Du bist gefragt",
+  "NeedsYou_UnreadReply": "Ungelesene Antwort",
+  "NeedsYou_CountOne": "1 wartet auf dich",
+  "NeedsYou_Count": "{0} warten",
+  "NeedsYou_Unread": "{0} ungelesen",
+  "NeedsYou_Description": "Offene Anfragen und ungelesene Antworten aus allen Projekten. Öffne eine Zeile, um im Chat fortzufahren.",
+  "NeedsYou_Approval": "Freigabe",
+  "NeedsYou_Form": "Eingabe",
+  "NeedsYou_Question": "Frage",
   "Discover_UpdateFromSource": "Aus Quelle aktualisieren",
   "Discover_UpdateUnknown": "Die verfügbare Version ist unbekannt. Beim Aktualisieren aus der Quelle installiert Copilot die von dieser Quelle angebotene Version.",
   "Discover_UpdatedVersionUnknown": "Copilot hat die Aktualisierung abgeschlossen, aber keine installierte Version gemeldet. Lade die Ansicht neu, um die Installation zu prüfen.",

@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
 using Lumi.Models;
+using Lumi.Services;
 
 namespace Lumi.ViewModels;
 
@@ -35,10 +36,31 @@ public sealed class UnreadChatEntry
     public bool IsOutsideActiveFilter { get; init; }
 
     public required string TimeLabel { get; init; }
+    public PendingChatRequest? PendingRequest { get; init; }
+    public bool NeedsInput => PendingRequest is not null;
+    public string? Ask => PendingRequest?.Ask;
+    public bool StartsUnreadSection { get; init; }
+    public bool HasAmbiguousTitle { get; init; }
+    public string AskHint => (HasAmbiguousTitle ? (ProjectName ?? Loc.Unread_NoProject) + " · " : "")
+        + LaunchpadPlanner.CleanPreview(Ask);
+    public string StateLabel => Loc.Get(NeedsInput ? "NeedsYou_Title" : "NeedsYou_UnreadReply");
+    public string AccessibleName => Title + " · " + StateLabel;
+    public string AccessibleDetails => string.Join("\n", new[]
+    {
+        TooltipText,
+        ProjectName ?? Loc.Unread_NoProject,
+        PendingRequest is { } request ? Loc.Get(request.Kind switch
+        {
+            ChatAttentionKind.Approval => "NeedsYou_Approval",
+            ChatAttentionKind.Input => "NeedsYou_Form",
+            _ => "NeedsYou_Question"
+        }) : StateLabel,
+        Ask
+    }.Where(part => !string.IsNullOrWhiteSpace(part)));
 
     /// <summary>
-    /// Hover text. For a chat the active filter is hiding it spells out *why* the chat is not in the
-    /// list below, which is the question this row exists to answer.
+    /// Full title and filter explanation, included in the row's accessible details even when its
+    /// visible title is trimmed.
     /// </summary>
     public string TooltipText => IsOutsideActiveFilter
         ? $"{Title}\n{string.Format(Loc.Culture, Loc.Unread_RowHiddenByFilter, ProjectName ?? Loc.Unread_NoProject)}"
@@ -92,7 +114,7 @@ public partial class MainViewModel
 
     partial void OnHasUnreadChatsChanged(bool value)
     {
-        if (!value)
+        if (!value && !HasPendingNotifications)
             IsUnreadPanelOpen = false;
     }
 
@@ -122,18 +144,22 @@ public partial class MainViewModel
             ? unread.Count(chat => chat.ProjectId != filter.Value)
             : 0;
 
+        var pendingIds = _attentionInbox.Requests.Select(request => request.Chat.Id).ToHashSet();
+        var unreadOnly = unread.Where(chat => !pendingIds.Contains(chat.Id)).ToList();
         var entries = new List<UnreadChatEntry>(UnreadListLimit);
-        foreach (var chat in unread.Take(UnreadListLimit))
+        foreach (var chat in unreadOnly.Take(UnreadListLimit))
         {
             var title = string.IsNullOrWhiteSpace(chat.Title) ? Loc.Library_UntitledChat : chat.Title;
             var projectName = GetProjectName(chat.ProjectId);
             var isOutsideFilter = filter.HasValue && chat.ProjectId != filter.Value;
             var timeLabel = LibraryViewModel.FormatRelativeTime(chat.UpdatedAt);
+            var startsUnread = pendingIds.Count > 0 && entries.Count == 0;
             var existing = UnreadChats.FirstOrDefault(entry =>
                 ReferenceEquals(entry.Chat, chat)
                 && entry.Title == title
                 && entry.ProjectName == projectName
                 && entry.IsOutsideActiveFilter == isOutsideFilter
+                && entry.StartsUnreadSection == startsUnread
                 && entry.TimeLabel == timeLabel);
             entries.Add(existing ?? new UnreadChatEntry
             {
@@ -142,11 +168,12 @@ public partial class MainViewModel
                 ProjectName = projectName,
                 IsOutsideActiveFilter = isOutsideFilter,
                 TimeLabel = timeLabel,
+                StartsUnreadSection = startsUnread,
             });
         }
         SynchronizeCollection(UnreadChats, entries);
 
-        var overflow = unread.Count - UnreadChats.Count;
+        var overflow = unreadOnly.Count - UnreadChats.Count;
         HasUnreadOverflow = overflow > 0;
         UnreadOverflowText = overflow > 0
             ? string.Format(CultureInfo.CurrentCulture, Loc.Unread_MoreChats, overflow)
@@ -162,6 +189,7 @@ public partial class MainViewModel
             : Loc.Unread_OpenTooltip;
         UnreadTooltipText = $"{unreadTooltip} ({Loc.AdaptKeyboardHint("Ctrl+Shift+I")})";
         HasUnreadChats = unread.Count > 0;
+        RefreshNotifications();
 
         UnreadStateChanged?.Invoke();
     }
@@ -200,14 +228,17 @@ public partial class MainViewModel
     [RelayCommand]
     private void ToggleUnreadPanel()
     {
-        if (!HasUnreadChats)
+        if (!HasNotifications)
         {
             IsUnreadPanelOpen = false;
             return;
         }
 
         if (!IsUnreadPanelOpen)
+        {
+            _attentionInbox.Refresh();
             RefreshUnreadState();
+        }
 
         IsUnreadPanelOpen = !IsUnreadPanelOpen;
     }

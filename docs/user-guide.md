@@ -818,6 +818,24 @@ assistant reply and whether Lumi is still working, paused, or waiting for you. T
 existing reply without opening the chat, marking it as read, or making another AI request.
 If Lumi finishes a reply while the card is open, the card updates in place.
 
+### Needs you
+
+The existing notification area below the project selector has one list: **Needs you** requests
+come first, followed by unread replies, with a quiet divider between them. The notification area
+keeps the sidebar's neutral surface: a small amber dot marks pending requests and an accent dot
+marks unread replies. Each row has a chat title and at most one line of secondary text. Pending
+requests show a short hint about the ask (not the full command for an approval); screen readers
+also receive the full title, project, request kind and state. They cover every project, even when
+the chat list is filtered.
+A chat with both a pending request and an unread reply appears once, as Needs you.
+The unread-only row limit and overflow count are applied after those overlaps are removed.
+
+Open a row to continue in its original chat and answer with the conversation in view.
+Opening or reading a chat clears its unread state, not its pending request. Only an answer,
+cancellation or expiry clears Needs you, including when handled in another window or on a phone.
+Approval request times are shared across windows. Returning through navigation history restores
+your unsent prompt and project as usual.
+
 ### Unread chats
 
 Right-click a sidebar chat and choose **Mark as unread** to add it to the unread

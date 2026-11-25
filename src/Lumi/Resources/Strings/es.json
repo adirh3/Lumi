@@ -1,4 +1,13 @@
 {
+  "NeedsYou_Title": "Te necesita",
+  "NeedsYou_UnreadReply": "Respuesta sin leer",
+  "NeedsYou_CountOne": "1 te necesita",
+  "NeedsYou_Count": "{0} te necesitan",
+  "NeedsYou_Unread": "{0} sin leer",
+  "NeedsYou_Description": "Solicitudes pendientes y respuestas sin leer de todos los proyectos. Abre una fila para continuar en su chat.",
+  "NeedsYou_Approval": "Aprobación",
+  "NeedsYou_Form": "Datos",
+  "NeedsYou_Question": "Pregunta",
   "Discover_UpdateFromSource": "Actualizar desde el origen",
   "Discover_UpdateUnknown": "La versión disponible es desconocida. Actualizar desde el origen pide a Copilot que instale la versión que ofrece este origen.",
   "Discover_UpdatedVersionUnknown": "Copilot completó la actualización, pero no informó de la versión instalada. Actualiza la vista para comprobar la instalación.",

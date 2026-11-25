@@ -1,4 +1,13 @@
 {
+  "NeedsYou_Title": "Нужно ваше участие",
+  "NeedsYou_UnreadReply": "Непрочитанный ответ",
+  "NeedsYou_CountOne": "1 ждёт вас",
+  "NeedsYou_Count": "{0} ждут вас",
+  "NeedsYou_Unread": "{0} непрочитанных",
+  "NeedsYou_Description": "Ожидающие запросы и непрочитанные ответы из всех проектов. Откройте строку, чтобы продолжить в её чате.",
+  "NeedsYou_Approval": "Разрешение",
+  "NeedsYou_Form": "Данные",
+  "NeedsYou_Question": "Вопрос",
   "Discover_UpdateFromSource": "Обновить из источника",
   "Discover_UpdateUnknown": "Доступная версия неизвестна. Обновление из источника просит Copilot установить версию, предлагаемую этим источником.",
   "Discover_UpdatedVersionUnknown": "Copilot завершил обновление, но не сообщил о установленной версии. Обновите, чтобы проверить установку.",

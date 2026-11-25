@@ -61,6 +61,7 @@ class Program
     /// <summary>When true, opens Lumi directly into the agent debug transcript fixture.</summary>
     public static bool OpenAgentDebugHarness { get; private set; }
     public static bool OpenInteractiveControlsFixture { get; private set; }
+    public static bool OpenAttentionFixture { get; private set; }
 
     /// <summary>When true, debug automation starts in the main app without first-run onboarding.</summary>
     public static bool SkipOnboarding { get; private set; }
@@ -158,7 +159,8 @@ class Program
             SkipOnboarding = true;
         }
         OpenInteractiveControlsFixture = args.Any(DebugAgentHarness.IsInteractiveControlsFlag);
-        OpenAgentDebugHarness = OpenInteractiveControlsFixture || args.Any(DebugAgentHarness.IsUiHarnessFlag);
+        OpenAttentionFixture = args.Contains("--debug-needs-you", StringComparer.OrdinalIgnoreCase);
+        OpenAgentDebugHarness = OpenAttentionFixture || OpenInteractiveControlsFixture || args.Any(DebugAgentHarness.IsUiHarnessFlag);
         SkipOnboarding = QaSmokeOptions.Enabled || args.Contains("--skip-onboarding", StringComparer.OrdinalIgnoreCase)
             || args.Contains("--no-onboarding", StringComparer.OrdinalIgnoreCase);
         NoBackgroundJobs = args.Contains("--no-background-jobs", StringComparer.OrdinalIgnoreCase);

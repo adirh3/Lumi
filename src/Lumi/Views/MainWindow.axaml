@@ -1060,8 +1060,8 @@
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
     <Style Selector="Button#UnreadInboxToggle.unread-toggle">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface0}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
       <Setter Property="Padding" Value="8,4" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -1071,8 +1071,8 @@
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
     <Style Selector="Button#UnreadInboxToggle.unread-toggle:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
       <Setter Property="BoxShadow" Value="0 4 14 0 #14000000" />
     </Style>
     <Style Selector="Button#UnreadInboxToggle.unread-toggle:pointerover /template/ Border#PART_Aurora">
@@ -1090,6 +1090,12 @@
     <Style Selector="Button#UnreadInboxToggle.unread-toggle.open PathIcon#UnreadChevron">
       <Setter Property="RenderTransform" Value="rotate(180deg)" />
     </Style>
+    <Style Selector="Button#UnreadInboxToggle TextBlock#UnreadSummaryLabel">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button#UnreadInboxToggle PathIcon#UnreadChevron">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
     <!-- The dot breathes so a reply arriving while the user is elsewhere draws the eye. -->
     <Style Selector="Border#SidebarBorder Border.unread-dot">
       <Setter Property="Width" Value="7" />
@@ -1102,6 +1108,9 @@
       <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.5" />
       <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="Border#UnreadInboxRoot Border.unread-dot.pending">
+      <Setter Property="Background" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
     <Style Selector="Border#SidebarBorder Border.unread-nav-badge, #SidebarRail Border.unread-nav-badge">
       <Setter Property="MinWidth" Value="15" />
@@ -1703,29 +1712,28 @@
                   <Border x:Name="UnreadInboxRoot"
                           DockPanel.Dock="Top"
                           Margin="14,6,14,0"
-                          IsVisible="{Binding HasUnreadChats}">
+                          IsVisible="{Binding HasNotifications}">
                     <StackPanel>
                       <Button x:Name="UnreadInboxToggle"
                               Classes="unread-toggle"
                               Command="{Binding ToggleUnreadPanelCommand}"
-                              ToolTip.Tip="{Binding UnreadTooltipText}"
-                              AutomationProperties.Name="{Binding UnreadSummaryText}">
+                              ToolTip.Tip="{Binding NotificationTooltipText}"
+                              AutomationProperties.Name="{Binding NotificationSummaryText}">
                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
-                          <Border Grid.Column="0" Classes="unread-dot" />
+                          <Border x:Name="NotificationStatusDot" Grid.Column="0" Classes="unread-dot"
+                                  Classes.pending="{Binding HasPendingNotifications}" />
                           <TextBlock Grid.Column="1"
                                      x:Name="UnreadSummaryLabel"
-                                     Text="{Binding UnreadSummaryText}"
+                                     Text="{Binding NotificationSummaryText}"
                                      FontSize="11.5"
                                      FontWeight="SemiBold"
-                                     Foreground="{DynamicResource Brush.AccentDefault}"
                                      VerticalAlignment="Center"
                                      TextTrimming="CharacterEllipsis" />
                           <PathIcon Grid.Column="2"
                                     x:Name="UnreadChevron"
                                     Data="{StaticResource Icon.ChevronDown}"
                                     Width="11" Height="11"
-                                    VerticalAlignment="Center"
-                                    Foreground="{DynamicResource Brush.AccentDefault}" />
+                                    VerticalAlignment="Center" />
                         </Grid>
                       </Button>
 
@@ -1741,25 +1749,31 @@
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled"
                                           Classes="hover-scroll">
-                              <ItemsControl ItemsSource="{Binding UnreadChats}">
+                              <ItemsControl x:Name="NotificationList" ItemsSource="{Binding NotificationChats}">
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:UnreadChatEntry">
-                                    <Button Classes="unread-row"
+                                    <StackPanel>
+                                      <Border x:Name="NotificationSectionDivider" Height="1" Margin="4,5"
+                                              Background="{DynamicResource Brush.BorderSubtle}"
+                                              IsVisible="{Binding StartsUnreadSection}" />
+                                    <Button x:Name="NotificationRow" Classes="unread-row"
                                             Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenUnreadChatCommand}"
                                             CommandParameter="{Binding}"
-                                            ToolTip.Tip="{Binding TooltipText}">
+                                            AutomationProperties.Name="{Binding AccessibleName}"
+                                            AutomationProperties.HelpText="{Binding AccessibleDetails}">
                                       <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
-                                        <Border Grid.Column="0"
-                                                Width="6" Height="6" CornerRadius="3"
-                                                VerticalAlignment="Center"
-                                                Background="{DynamicResource Brush.AccentDefault}" />
+                                        <Border Grid.Column="0" Classes="unread-dot"
+                                                Classes.pending="{Binding NeedsInput}" />
                                         <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
                                           <TextBlock Text="{Binding Title}"
                                                      FontSize="11.5"
                                                      FontWeight="Medium"
                                                      Foreground="{DynamicResource Brush.TextPrimary}"
                                                      TextTrimming="CharacterEllipsis" />
-                                          <StackPanel Orientation="Horizontal" Spacing="4">
+                                          <TextBlock x:Name="NotificationAskHint" Text="{Binding AskHint}" IsVisible="{Binding NeedsInput}"
+                                                     TextTrimming="CharacterEllipsis" MaxLines="1" FontSize="10.5"
+                                                     Foreground="{DynamicResource Brush.TextSecondary}" />
+                                          <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding !NeedsInput}">
                                             <PathIcon Data="{StaticResource Icon.Folder}"
                                                       Width="9" Height="9"
                                                       VerticalAlignment="Center"
@@ -1782,10 +1796,13 @@
                                         <TextBlock Grid.Column="2"
                                                    Text="{Binding TimeLabel}"
                                                    FontSize="9.8"
+                                                   MaxWidth="48"
+                                                   TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center"
                                                    Foreground="{DynamicResource Brush.TextTertiary}" />
                                       </Grid>
                                     </Button>
+                                    </StackPanel>
                                   </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
@@ -1798,10 +1815,11 @@
                                        Margin="0,1"
                                        Foreground="{DynamicResource Brush.TextTertiary}" />
 
-                            <Border Height="1" Margin="2,2"
+                            <Border Height="1" Margin="2,2" IsVisible="{Binding HasUnreadChats}"
                                     Background="{DynamicResource Brush.BorderSubtle}" />
 
                             <Button Classes="subtle unread-mark-all"
+                                    IsVisible="{Binding HasUnreadChats}"
                                     Command="{Binding MarkAllChatsReadCommand}"
                                     Content="{loc:Str Unread_MarkAllRead}" />
                           </StackPanel>

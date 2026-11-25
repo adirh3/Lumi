@@ -892,7 +892,7 @@ public partial class MainWindow : Window
 
         if (CanNavigateChatsWithKeyboard && CanHandleHistoryNavigationInput(vm, e.Source))
         {
-            if (ctrl && shift && !alt && e.Key == Key.I && vm.HasUnreadChats)
+            if (ctrl && shift && !alt && e.Key == Key.I && vm.HasNotifications)
             {
                 if (vm.IsSidebarCollapsed)
                     vm.ToggleSidebarCommand.Execute(null);

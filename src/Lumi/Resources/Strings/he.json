@@ -1,4 +1,13 @@
 {
+  "NeedsYou_Title": "צריך אותך",
+  "NeedsYou_UnreadReply": "תשובה שלא נקראה",
+  "NeedsYou_CountOne": "שיחה אחת צריכה אותך",
+  "NeedsYou_Count": "{0} צריכות אותך",
+  "NeedsYou_Unread": "{0} לא נקראו",
+  "NeedsYou_Description": "בקשות ממתינות ותשובות שלא נקראו מכל הפרויקטים. פתיחת שורה ממשיכה בשיחה המקורית.",
+  "NeedsYou_Approval": "אישור",
+  "NeedsYou_Form": "פרטים",
+  "NeedsYou_Question": "שאלה",
   "Discover_UpdateFromSource": "עדכון מהמקור",
   "Discover_UpdateUnknown": "הגרסה הזמינה אינה ידועה. עדכון מהמקור מבקש מ-Copilot להתקין את הגרסה שהמקור מציע.",
   "Discover_UpdatedVersionUnknown": "Copilot השלים את העדכון אך לא דיווח על גרסה מותקנת. יש לרענן כדי לבדוק את ההתקנה.",
