@@ -370,6 +370,12 @@ public static class DebugAgentHarness
             | Sources visible below | visible below message | search source chips appear | ChatView | in progress | still good | another value | trailing value |
             | Model label visibility | visible after turn | the model name label renders | ChatViewModel | pending | confirmed ok | one more | the very end |
 
+            A summary card reads as its gist; Read more opens the rest:
+
+            ```card
+            {"header":"Weather in Amsterdam","summary":"☀️ 22°C, sunny with a light breeze","detail":"- **Humidity:** 45%\n- **Wind:** 12 km/h NW\n- **UV index:** 6 (high)\n- **Sunset:** 21:42\n- **Tomorrow:** cloudy, 19°C"}
+            ```
+
             The two-option comparison control (StrataFork) should switch when either tab is clicked:
 
             ```comparison

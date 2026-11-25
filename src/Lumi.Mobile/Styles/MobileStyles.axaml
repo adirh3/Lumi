@@ -106,6 +106,17 @@
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
   </Style>
 
+  <!-- A phone's touch-sized toolbar keeps zoom, copy and full screen; the source view stays on the desktop. -->
+  <Style Selector="sc|StrataMermaid /template/ Border#PART_ViewSwitch">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+
+  <!-- A card's Read more pill keeps its place and size; only its touch target grows to 48. -->
+  <Style Selector="sc|StrataCard /template/ Button#PART_MoreButton">
+    <Setter Property="MinHeight" Value="48" />
+    <Setter Property="Margin" Value="16,-9,0,5" />
+  </Style>
+
   <Style Selector="Button.nav-item">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />

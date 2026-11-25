@@ -3736,6 +3736,30 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(shell.IsChatActionsOpen);
         });
 
+    [Fact]
+    public Task CardReadMoreIsAFingertipTargetAroundTheSamePill() =>
+        RunUiAsync(360, (shell, view, window) =>
+        {
+            shell.IsDrawerOpen = false;
+            var card = new StrataCard
+            {
+                Header = "Weather in Amsterdam",
+                Summary = "Sunny, 22°C",
+                Detail = new TextBlock { Text = "Humidity 45%" },
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Required<Panel>(view, "Root").Children.Add(card);
+            PumpFrame(window);
+            var more = Required<Button>(card, "PART_MoreButton");
+            Assert.True(more.Bounds.Height >= 48, $"Read more is a {more.Bounds.Height:0.#} dp target");
+            Assert.Equal(30, Required<Panel>(card, "PART_MorePill").Bounds.Height, precision: 1);
+
+            Tap(window, more);
+            PumpFrame(window);
+            Assert.True(card.IsExpanded);
+            return Task.CompletedTask;
+        });
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
