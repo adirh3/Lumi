@@ -2395,7 +2395,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         Chat chat,
         CancellationToken ct,
         bool allowCreateFallback = true,
-        bool holdForConnectorSignIn = false)
+        bool holdForConnectorSignIn = false,
+        bool preserveMcpSelection = false,
+        ChatMessage? startingMessage = null)
     {
         var allSkills = _dataStore.Data.Skills;
         var activeSkills = ResolveSkillsByIds(chat.ActiveSkillIds);
@@ -2429,7 +2431,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             activeChats);
 
         var sdkAgentName = GetSessionSdkAgentName(chat, CurrentChat, SelectedSdkAgentName);
-        using var mcpPlan = BuildMcpPlan(workDir, capabilities, chat, activeAgent);
+        using var mcpPlan = BuildMcpPlan(workDir, capabilities, chat, activeAgent, preserveMcpSelection);
         using var pendingMcpProxyPlan = TrackPendingMcpProxyPlan(chat.Id, mcpPlan);
         _sessionMcpPlans[chat.Id] = mcpPlan;
         ResetMcpIssues(chat.Id);
@@ -2634,6 +2636,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return config;
         }
 
+        bool PublishConfiguredSession(
+            CopilotSession session,
+            Action? beforeAttach = null,
+            Action? afterSubscribe = null)
+        {
+            if (!TryPublishSession(session, chat, workDir, mcpPlan, pendingMcpProxyPlan, beforeAttach, afterSubscribe))
+                return false;
+
+            // A newly shown connector can now be toggled on the live session.
+            if (!preserveMcpSelection)
+                ApplySessionDiscoveredConnectors(chat, capabilities, mcpPlan, startingMessage);
+            return true;
+        }
+
         if (chat.CopilotSessionId is not null)
             await AwaitPendingSessionReleaseAsync(chat.Id, sessionCt);
 
@@ -2648,12 +2664,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
                 await PrepareSessionPermissionsAsync(createdSession, chat, askLayer, sessionCt);
                 await PrepareResponseDetailAsync(createdSession, chat, sessionCt);
-                if (!TryPublishSession(
+                if (!PublishConfiguredSession(
                         createdSession,
-                        chat,
-                        workDir,
-                        mcpPlan,
-                        pendingMcpProxyPlan,
                         beforeAttach: () =>
                         {
                             chat.CopilotSessionId = createdSession.SessionId;
@@ -2696,12 +2708,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     chat.CopilotSessionId, resumeConfig, sessionCt);
                 await PrepareSessionPermissionsAsync(session, chat, askLayer, sessionCt);
                 await PrepareResponseDetailAsync(session, chat, sessionCt);
-                if (!TryPublishSession(
+                if (!PublishConfiguredSession(
                         session,
-                        chat,
-                        workDir,
-                        mcpPlan,
-                        pendingMcpProxyPlan,
                         afterSubscribe: () =>
                         {
                             RecordSessionProviderSignature(chat, currentByokSignature);
@@ -2787,12 +2795,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
             await PrepareSessionPermissionsAsync(createdSession, chat, askLayer, sessionCt);
             await PrepareResponseDetailAsync(createdSession, chat, sessionCt);
-            if (!TryPublishSession(
+            if (!PublishConfiguredSession(
                     createdSession,
-                    chat,
-                    workDir,
-                    mcpPlan,
-                    pendingMcpProxyPlan,
                     beforeAttach: () => chat.CopilotSessionId = createdSession.SessionId))
                 return false;
             await RestorePendingPermissionsAsync(createdSession, chat, sessionCt);
@@ -5180,7 +5184,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 var previousSessionId = targetChat.CopilotSessionId;
                 var ok = await EnsureSessionAsync(
-                    targetChat, cts.Token, allowCreateFallback: true, holdForConnectorSignIn: true);
+                    targetChat, cts.Token, holdForConnectorSignIn: true, startingMessage: userMsg);
                 // Stop while the message waited for a connector sign-in ends that wait quietly and disposes
                 // this turn's cancellation, so report the stop before anything reads cts.Token.
                 turnToken.ThrowIfCancellationRequested();
@@ -5268,7 +5272,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var previousSessionId = targetChat.CopilotSessionId;
                 InvalidateLocalSessionCache(targetChat);
                 var ok = await EnsureSessionAsync(
-                    targetChat, cts.Token, allowCreateFallback: true, holdForConnectorSignIn: true);
+                    targetChat, cts.Token, holdForConnectorSignIn: true, startingMessage: userMsg);
                 if (cts.IsCancellationRequested)
                     throw new OperationCanceledException();
                 if (!ok)
@@ -7539,7 +7543,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             if (needsSessionSetup)
             {
-                var ok = await EnsureSessionAsync(CurrentChat, cts.Token, allowCreateFallback: true);
+                var ok = await EnsureSessionAsync(
+                    CurrentChat, cts.Token, preserveMcpSelection: userMessage.HasMcpSelection);
 
                 if (!ok)
                 {
@@ -7579,7 +7584,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     historyRewound = false;
                     shouldReplayPrompt = true;
 
-                    var ok = await EnsureSessionAsync(CurrentChat, cts.Token, allowCreateFallback: true);
+                    var ok = await EnsureSessionAsync(
+                        CurrentChat, cts.Token, preserveMcpSelection: userMessage.HasMcpSelection);
                     if (!ok)
                     {
                         AppendResendSessionUnavailable(CurrentChat);
@@ -7670,7 +7676,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 StatusText = Loc.Status_Reconnecting;
                 var previousSessionId = CurrentChat.CopilotSessionId;
                 InvalidateLocalSessionCache(CurrentChat);
-                var ok = await EnsureSessionAsync(CurrentChat, cts.Token, allowCreateFallback: true);
+                var ok = await EnsureSessionAsync(
+                    CurrentChat, cts.Token, preserveMcpSelection: userMessage.HasMcpSelection);
                 if (!ok)
                 {
                     ClearPendingTurnTracking(CurrentChat.Id);

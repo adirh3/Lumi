@@ -172,11 +172,23 @@ public partial class ChatViewModel
         string workDir,
         CapabilitySnapshot capabilities,
         Chat chat,
-        LumiAgent? activeAgent)
+        LumiAgent? activeAgent,
+        bool preserveMcpSelection = false)
     {
-        IReadOnlyCollection<string>? selectedServerNames = null;
-        if (CurrentChat?.Id == chat.Id)
-            selectedServerNames = ActiveMcpServerNames.ToList();
+        var isCurrentChat = CurrentChat?.Id == chat.Id;
+        IReadOnlyCollection<string>? selectedServerNames = isCurrentChat
+            ? ActiveMcpServerNames
+            : chat.ActiveMcpServerNames.Count > 0 ? chat.ActiveMcpServerNames : null;
+
+        // Discovery can finish before the composer applies its result, or after the user leaves
+        // this chat. Use the session's snapshot for defaults rather than disabling a late arrival.
+        if (selectedServerNames is not null
+            && !chat.HasExplicitMcpServerSelection
+            && !preserveMcpSelection
+            && !(isCurrentChat && IsEditingMessage))
+        {
+            selectedServerNames = [.. selectedServerNames, ..DefaultDiscoveredMcpNames(capabilities)];
+        }
 
         // Lumi's proxy starts local connectors in its own process, out of the sandbox's reach, so a
         // sandboxed project's chats leave them to the runtime, which runs them in the sandbox.
@@ -192,6 +204,61 @@ public partial class ChatViewModel
             selectedServerNames,
             activeAgent,
             proxyRuntime);
+    }
+
+    internal void ApplySessionDiscoveredConnectors(
+        Chat chat,
+        CapabilitySnapshot capabilities,
+        McpSessionPlan plan,
+        Lumi.Models.ChatMessage? startingMessage)
+    {
+        if (!capabilities.IsComplete || chat.HasExplicitMcpServerSelection
+            || !capabilities.Query.Equals(BuildCapabilityQuery(chat)))
+            return;
+
+        var isCurrentChat = CurrentChat?.Id == chat.Id;
+        if (isCurrentChat && IsEditingMessage)
+            return;
+
+        var discoveredNames = DefaultDiscoveredMcpNames(capabilities)
+            .Except(plan.DisabledServerNames, NameComparer)
+            .ToArray();
+        if (discoveredNames.Length == 0)
+            return;
+
+        List<string> selectedNames;
+        if (isCurrentChat && capabilities.Query.Equals(BuildCapabilityQuery()))
+        {
+            RefreshComposerMcpCatalog(capabilities, syncProjectContextMcpSelections: false);
+            selectedNames = [.. ActiveMcpServerNames];
+        }
+        else
+        {
+            var previous = chat.ActiveMcpServerNames.Count > 0
+                ? chat.ActiveMcpServerNames
+                : capabilities.UserInvocable(CapabilityKind.McpServer)
+                    .Where(static server => server.Origin.IsLumi)
+                    .Select(static server => server.Name);
+            selectedNames = previous.Union(discoveredNames, NameComparer).ToList();
+        }
+
+        var changed = !chat.ActiveMcpServerNames.SequenceEqual(selectedNames, NameComparer);
+        if (changed)
+            chat.ActiveMcpServerNames = selectedNames;
+
+        if (startingMessage is { HasMcpSelection: true })
+        {
+            var messageNames = startingMessage.ActiveMcpServerNames.Union(discoveredNames, NameComparer).ToList();
+            if (!startingMessage.ActiveMcpServerNames.SequenceEqual(messageNames, NameComparer))
+            {
+                // An edit or resend reads the turn's saved selection, not what the picker shows now.
+                startingMessage.ActiveMcpServerNames = messageNames;
+                changed = true;
+            }
+        }
+
+        if (changed)
+            QueueSaveChat(chat, saveIndex: true);
     }
 
     private List<AIFunction> BuildWebTools()

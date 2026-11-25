@@ -14,6 +14,61 @@ public sealed class ChatViewModelConnectorTests
 {
     private static readonly McpServerConfig LocalConfig = new McpStdioServerConfig { Command = "npx" };
 
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, false, true)]
+    public async Task SessionPlanningUsesDiscoveredConnectorsBeforeTheComposerRefreshes(
+        bool userCurated, bool chatIsInBackground, bool preservesMessageSelection)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var chat = new Chat
+            {
+                ActiveMcpServerNames = ["Existing"],
+                HasExplicitMcpServerSelection = userCurated,
+            };
+            var message = new ChatMessage { Role = "user", ActiveMcpServerNames = ["Existing"], HasMcpSelection = true };
+            chat.Messages.Add(message);
+            var store = new DataStore(new AppData
+            {
+                Settings = new UserSettings { AutoSaveChats = false, UseMcpProxy = false },
+                McpServers = [new McpServer { Name = "Existing", Command = "node" }],
+            });
+            using var catalog = new CapabilityCatalog(new LumiCapabilityProvider(store), new WorkIqProvider());
+            using var vm = new ChatViewModel(store, TestCopilot.Shared, capabilityCatalog: catalog)
+            {
+                CurrentChat = chatIsInBackground ? null : chat,
+            };
+            var query = new CapabilityQuery([Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)]);
+            await catalog.LoadAsync(query);
+            var capabilities = catalog.GetSnapshot(query);
+
+            // Discovery has returned to session startup, but the composer has not applied the snapshot yet.
+            Assert.Equal(["Existing"], vm.ActiveMcpServerNames);
+            Assert.True(capabilities.IsComplete);
+            Assert.NotNull(capabilities.FindMcpServer("workiq"));
+            using var plan = vm.BuildMcpPlan(
+                query.WorkingDirectories[0], capabilities, chat, activeAgent: null,
+                preserveMcpSelection: preservesMessageSelection);
+
+            Assert.Contains("Existing", plan.Servers.Keys);
+            Assert.Equal(userCurated || preservesMessageSelection, plan.DisabledServerNames.Contains("workiq"));
+            if (!preservesMessageSelection)
+                vm.ApplySessionDiscoveredConnectors(chat, capabilities, plan, message);
+
+            Assert.Equal(!userCurated && !preservesMessageSelection, chat.ActiveMcpServerNames.Contains("workiq"));
+            Assert.Equal(!userCurated && !preservesMessageSelection, message.ActiveMcpServerNames.Contains("workiq"));
+            Assert.Equal(
+                !chatIsInBackground && !userCurated && !preservesMessageSelection,
+                vm.ActiveMcpServerNames.Contains("workiq"));
+            if (!chatIsInBackground && !userCurated && !preservesMessageSelection)
+                Assert.Equal(Available(vm, "workiq"), Chip(vm, "workiq"));
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task AProblemSurvivesUnrelatedRebuildsAndOnlyProblemsNeedAttention()
     {
@@ -353,6 +408,15 @@ public sealed class ChatViewModelConnectorTests
             PluginName = pluginName,
             Description = description,
         };
+
+    private sealed class WorkIqProvider : ICapabilityProvider
+    {
+        public string Id => "plugin-discovery";
+
+        public Task<CapabilityProviderResult> LoadAsync(CapabilityQuery query, CancellationToken cancellationToken)
+            => Task.FromResult(new CapabilityProviderResult(
+                [External("workiq", CapabilityOrigin.ForPlugin("workiq"), pluginName: "workiq")]));
+    }
 
     private sealed class RepairHost
     {

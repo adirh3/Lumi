@@ -1064,10 +1064,26 @@ public partial class ChatViewModel
         CapabilitySnapshot capabilities,
         bool syncProjectContextMcpSelections = true)
     {
-
         ReplaceCollection(AvailableAgentChips, BuildCapabilityChips(capabilities, CapabilityKind.Agent));
         ReplaceCollection(AvailableSkillChips, BuildCapabilityChips(capabilities, CapabilityKind.Skill));
+        RefreshComposerMcpCatalog(capabilities, syncProjectContextMcpSelections);
+        RefreshActiveSkillChipsFromState();
 
+        ReplaceCollection(AvailableProjectChips,
+            _dataStore.Data.Projects
+                .OrderBy(p => p.Name)
+                .Select(p => new StrataComposerChip(
+                    p.Name,
+                    "📁",
+                    SecondaryText: BuildProjectInlineCompletionSecondaryText(p),
+                    Value: p.Id.ToString())));
+
+        SyncComposerProjectSelectionFromState();
+        RefreshProjectBadge();
+    }
+
+    private void RefreshComposerMcpCatalog(CapabilitySnapshot capabilities, bool syncProjectContextMcpSelections)
+    {
         var mcpChips = capabilities
             .UserInvocable(CapabilityKind.McpServer)
             .Select(capability => ToMcpChip(capability))
@@ -1075,11 +1091,7 @@ public partial class ChatViewModel
         ReplaceCollection(AvailableMcpChips, mcpChips);
         IsConnectorCatalogLoading = !capabilities.IsComplete;
 
-        var discoveredMcpNames = capabilities
-            .UserInvocable(CapabilityKind.McpServer)
-            .Where(static capability => !capability.Origin.IsLumi)
-            .Select(static capability => capability.Name)
-            .ToList();
+        var discoveredMcpNames = DefaultDiscoveredMcpNames(capabilities).ToList();
 
         // Drop discovered MCPs that are no longer offered here (a previous project's servers), then
         // auto-select newly discovered ones. Auto-selection only applies while the selection has no
@@ -1140,21 +1152,13 @@ public partial class ChatViewModel
         // against the current snapshot upgrades those placeholders to real capabilities — giving
         // them their source hint and description, and making them eligible for pruning once the
         // snapshot is complete and the capability is genuinely gone.
-        RefreshActiveSkillChipsFromState();
         UpgradeActiveMcpChips(capabilities);
-
-        ReplaceCollection(AvailableProjectChips,
-            _dataStore.Data.Projects
-                .OrderBy(p => p.Name)
-                .Select(p => new StrataComposerChip(
-                    p.Name,
-                    "📁",
-                    SecondaryText: BuildProjectInlineCompletionSecondaryText(p),
-                    Value: p.Id.ToString())));
-
-        SyncComposerProjectSelectionFromState();
-        RefreshProjectBadge();
     }
+
+    private static IEnumerable<string> DefaultDiscoveredMcpNames(CapabilitySnapshot capabilities)
+        => capabilities.UserInvocable(CapabilityKind.McpServer)
+            .Where(static capability => !capability.Origin.IsLumi)
+            .Select(static capability => capability.Name);
 
     private void QueueCapabilityRefresh(CapabilityQuery query, bool forceRefresh = false)
     {

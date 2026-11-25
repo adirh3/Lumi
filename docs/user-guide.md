@@ -604,8 +604,11 @@ What installed plugins bring shows up in the **Skills**, **Agents** and **Connec
 plugin, next to items from your GitHub Copilot folder. These are read-only because they update with
 their source: **Make a copy** creates an editable Lumi item, and **Manage in Discover** updates or
 removes the plugin. New chats load installed plugins automatically, and plugin MCP servers start like
-other servers Copilot discovers. The runtime describes skills to the model only up to a character budget
-and lists the rest by name alone, so Lumi raises that budget (`SKILL_CHAR_BUDGET`, 40,000 characters
+other servers Copilot discovers. With the default connector selection, a first message includes connectors
+discovered during session startup, even if the composer's list is still loading.
+
+The runtime describes skills to the model only up to a character budget and lists the rest by name alone,
+so Lumi raises that budget (`SKILL_CHAR_BUDGET`, 40,000 characters
 unless you set your own) to keep a large plugin from hiding every skill installed after it. Lumi declines
 MCP sampling requests (a server asking to borrow the chat's model), which the C# SDK can't yet carry out;
 answering at once lets servers such as Azure MCP fall back to explicit commands instead of waiting forever. In Debug builds run with `LUMI_APPDATA_DIR`, plugins install into
