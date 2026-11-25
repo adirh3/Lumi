@@ -214,6 +214,12 @@ public sealed class RemoteCommandResult
     /// <summary>The resulting state of a read acknowledgement, including when it leaves a chat unread.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? HasUnreadMessages { get; set; }
+    /// <summary>
+    /// Text the command hands back to the phone: the whole queued message that
+    /// <see cref="RemoteProtocol.Actions.EditQueuedMessage"/> took out of the queue.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Text { get; set; }
 }
 
 /// <summary>Where an uploaded file landed on the PC, so a message can point Lumi at it.</summary>

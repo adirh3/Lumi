@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
-  <data name="SendOptions" xml:space="preserve"><value>Sendeoptionen</value></data>
   <data name="SendNow" xml:space="preserve"><value>Jetzt senden</value></data>
-  <data name="QueuedMessages" xml:space="preserve"><value>In der Warteschlange: {0}</value></data>
+  <data name="QueuedTitle" xml:space="preserve"><value>In Warteschlange</value></data>
+  <data name="QueuedSubtitle" xml:space="preserve"><value>Wird gesendet, wenn diese Antwort fertig ist</value></data>
+  <data name="QueuedSteerNow" xml:space="preserve"><value>Jetzt einsteuern</value></data>
+  <data name="QueuedSteerNowHelp" xml:space="preserve"><value>Diese Nachricht jetzt in die laufende Antwort einsteuern</value></data>
+  <data name="QueuedRemove" xml:space="preserve"><value>Entfernen</value></data>
+  <data name="QueuedRemoveFailed" xml:space="preserve"><value>Die Nachricht in der Warteschlange konnte nicht entfernt werden.</value></data>
   <data name="HoldForSendOptions" xml:space="preserve"><value>Während Lumi arbeitet, für Sendeoptionen lange drücken</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Mit Enter senden</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter fügt eine neue Zeile ein. Nur auf diesem Gerät.</value></data>

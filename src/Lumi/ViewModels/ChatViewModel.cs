@@ -2855,9 +2855,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 _suggestionDisplayChatId = chat.Id;
                 chat.HasUnreadMessages = false;
                 RestorePausedSendQueue(chat);
+                RestoreWaitingSends(chat);
+                SyncQueuedSends();
                 SynchronizeDisplayedMessagesFromChat(chat, forceRebuild: true);
                 RestoreSuggestionsForChat(chat);
                 SweepInactiveChatStates();
+                ScheduleRestoredWaitingSends(chat);
             }
             finally
             {
@@ -2913,6 +2916,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 return;
 
             RestorePausedSendQueue(chat);
+            RestoreWaitingSends(chat);
 
             // Yield so the UI thread can render the loading overlay before heavy synchronous work
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
@@ -3098,6 +3102,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // without making chat opening (or forking) wait on the Copilot runtime.
             RefreshComposerCatalogs();
             QueueCapabilityRefresh(BuildCapabilityQuery(), forceRefresh: true);
+            // A queue saved while a reply ran follows it; once the chat is back with nothing running, it goes next.
+            ScheduleRestoredWaitingSends(chat);
         }
         catch (OperationCanceledException) when (loadToken.IsCancellationRequested)
         {

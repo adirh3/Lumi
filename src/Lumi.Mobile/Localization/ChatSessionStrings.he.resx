@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
-  <data name="SendOptions" xml:space="preserve"><value>אפשרויות שליחה</value></data>
   <data name="SendNow" xml:space="preserve"><value>שלח עכשיו</value></data>
-  <data name="QueuedMessages" xml:space="preserve"><value>בתור: {0}</value></data>
+  <data name="QueuedTitle" xml:space="preserve"><value>בתור</value></data>
+  <data name="QueuedSubtitle" xml:space="preserve"><value>יישלח כשהתשובה הזאת תסתיים</value></data>
+  <data name="QueuedSteerNow" xml:space="preserve"><value>הכוונה עכשיו</value></data>
+  <data name="QueuedSteerNowHelp" xml:space="preserve"><value>שליחת ההודעה לתשובה הרצה עכשיו</value></data>
+  <data name="QueuedRemove" xml:space="preserve"><value>הסרה</value></data>
+  <data name="QueuedRemoveFailed" xml:space="preserve"><value>לא ניתן להסיר את ההודעה מהתור.</value></data>
   <data name="HoldForSendOptions" xml:space="preserve"><value>בזמן ש-Lumi עובד, לחיצה ארוכה לאפשרויות שליחה</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>שליחה באמצעות Enter</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter מוסיף שורה חדשה. רק במכשיר הזה.</value></data>

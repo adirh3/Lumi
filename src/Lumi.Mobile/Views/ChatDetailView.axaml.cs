@@ -38,6 +38,7 @@ public partial class ChatDetailView : UserControl
     private MobileShellViewModel? _shell;
     private StrataChatComposer? _composer;
     private Button? _composerSendButton;
+    private ContextMenu? _composerSendMenu;
     private NativeComposerEditorHost? _nativeComposerEditor;
     private TextBox? _sharedComposerInput;
     private bool _isFullScreenPresented;
@@ -239,8 +240,18 @@ public partial class ChatDetailView : UserControl
             // The guard keeps the release that ends a hold from also sending or stopping.
             TouchScrollClickGuard.SetIsEnabled(sendButton, true);
             AutomationProperties.SetHelpText(sendButton, Strings.Get("HoldForSendOptions"));
-            sendButton.AddHandler(HoldingEvent, OnSendButtonHolding);
-            sendButton.AddHandler(ContextRequestedEvent, OnSendButtonContextRequested, RoutingStrategies.Tunnel);
+            sendButton.AddHandler(ContextCanceledEvent, OnSendMenuCanceled, RoutingStrategies.Tunnel);
+            if (sendButton.ContextMenu is { } sendMenu)
+            {
+                // Strata's own send menu, opened by a hold as a right-click opens it on the desktop.
+                _composerSendMenu = sendMenu;
+                sendMenu.Classes.Add("mobile-send-menu");
+                sendMenu.FlowDirection = Strings.UiFlowDirection;
+                // Taking focus would close the soft keyboard under the draft the menu is about.
+                Popup.SetTakesFocusFromNativeControl(sendMenu, false);
+                sendMenu.Opening += OnSendMenuOpening;
+                sendMenu.Opened += OnSendMenuOpened;
+            }
         }
         if (!MobilePlatformServices.NativeComposerEditorFactory.IsAvailable)
         {
@@ -282,10 +293,19 @@ public partial class ChatDetailView : UserControl
             _composer.StopAndSendRequested -= OnComposerActionRequested;
             _composer.QueueRequested -= OnComposerActionRequested;
         }
+        if (_composerSendMenu is not null)
+        {
+            _composerSendMenu.Opening -= OnSendMenuOpening;
+            _composerSendMenu.Opened -= OnSendMenuOpened;
+            _composerSendMenu.Close();
+            _composerSendMenu.Classes.Remove("mobile-send-menu");
+            _composerSendMenu.ClearValue(FlowDirectionProperty);
+            _composerSendMenu.ClearValue(Popup.TakesFocusFromNativeControlProperty);
+            _composerSendMenu = null;
+        }
         if (_composerSendButton is not null)
         {
-            _composerSendButton.RemoveHandler(HoldingEvent, OnSendButtonHolding);
-            _composerSendButton.RemoveHandler(ContextRequestedEvent, OnSendButtonContextRequested);
+            _composerSendButton.RemoveHandler(ContextCanceledEvent, OnSendMenuCanceled);
             TouchScrollClickGuard.SetIsEnabled(_composerSendButton, false);
             _composerSendButton.ClearValue(AutomationProperties.HelpTextProperty);
             _composerSendButton = null;
@@ -387,38 +407,49 @@ public partial class ChatDetailView : UserControl
     private void OnComposerActionRequested(object? sender, RoutedEventArgs e) => ReleaseComposerFocus();
 
     /// <summary>
-    /// Holding Send while Lumi works opens the send options, the phone's version of the desktop's send
-    /// menu. A hold with nothing to choose stays a press, so its release still sends or stops.
+    /// While blanks are left the send button walks them, so the menu stays shut and the hold's release
+    /// takes the user to the next blank. Strata has already cancelled the menu when there is nothing to
+    /// choose; this only ever cancels more.
     /// </summary>
-    private void OnSendButtonHolding(object? sender, HoldingRoutedEventArgs e)
+    private void OnSendMenuOpening(object? sender, CancelEventArgs e)
     {
-        if (e.HoldingState != HoldingState.Started
-            || sender is not Button button
-            || TouchScrollClickGuard.WasDragged(button)
-            || !TryOpenSendOptions())
-            return;
-
-        TouchScrollClickGuard.ConsumeHold(button);
-        e.Handled = true;
+        if (_composer?.Classes.Contains(":fill-in-next") == true)
+            e.Cancel = true;
     }
 
     /// <summary>
-    /// A secondary click or the menu key asks for the same options. Strata's desktop send menu never
-    /// opens on a phone: the sheet's touch rows replace it.
+    /// The menu rises above the composer on Send's side, as the desktop's does, whatever opened it. Above
+    /// the composer is the only place it can show: the phone's native editor draws over anything on top of it.
     /// </summary>
-    private void OnSendButtonContextRequested(object? sender, ContextRequestedEventArgs e)
+    private void OnSendMenuOpened(object? sender, RoutedEventArgs e)
     {
-        TryOpenSendOptions();
-        e.Handled = true;
+        if (_composerSendButton is { } sendButton)
+            TouchScrollClickGuard.ConsumeHold(sendButton);
+        if (_composerSendMenu?.Parent is Popup popup && _composer is { } composer)
+        {
+            popup.PlacementTarget = composer;
+            popup.Placement = PlacementMode.TopEdgeAlignedRight;
+        }
     }
 
-    private bool TryOpenSendOptions()
+    /// <summary>A finger that moves on after the menu opened leaves it open, so the user can lift it and choose.</summary>
+    private void OnSendMenuCanceled(object? sender, RoutedEventArgs e)
     {
-        if (_shell?.Chat is not { ShowSendOptions: true } chat)
+        if (_composerSendMenu?.IsOpen == true)
+            e.Handled = true;
+    }
+
+    /// <summary>
+    /// Back closes the send menu before it leaves the chat. A menu playing its exit has already closed
+    /// for the user, so Back goes on to the page.
+    /// </summary>
+    internal bool TryCloseSendMenu()
+    {
+        if (_composerSendMenu is not { IsOpen: true, Parent: Popup { IsOpen: true } } menu)
             return false;
 
-        chat.OpenSendOptionsCommand.Execute(null);
-        return chat.IsSendOptionsOpen;
+        menu.Close();
+        return true;
     }
 
     /// <summary>
@@ -460,14 +491,34 @@ public partial class ChatDetailView : UserControl
             if (_shell?.Chat != chat || chat.ChatId != chatId || chat.PromptText != suggestion
                 || !this.IsAttachedToVisualTree())
                 return;
-            if (_nativeComposerEditor is { } editor)
-                editor.FocusAtEnd();
-            else if (_sharedComposerInput is { } input)
-            {
-                input.Focus();
-                input.CaretIndex = input.Text?.Length ?? 0;
-            }
+            FocusComposerAtEnd();
         }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Edit put a queued message back in the composer: the caret follows it there.</summary>
+    private void OnComposerFocusRequested()
+    {
+        if (_shell?.Chat is not { } chat)
+            return;
+
+        var chatId = chat.ChatId;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_shell?.Chat != chat || chat.ChatId != chatId || !this.IsAttachedToVisualTree())
+                return;
+            FocusComposerAtEnd();
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void FocusComposerAtEnd()
+    {
+        if (_nativeComposerEditor is { } editor)
+            editor.FocusAtEnd();
+        else if (_sharedComposerInput is { } input)
+        {
+            input.Focus();
+            input.CaretIndex = input.Text?.Length ?? 0;
+        }
     }
 
     /// <summary>New suggestions rise onto the composer from its start, as a finished reply settles.</summary>
@@ -1287,6 +1338,7 @@ public partial class ChatDetailView : UserControl
         shell.Chat.ChatSurfaceReset += OnChatSurfaceReset;
         shell.Chat.TranscriptApplied += OnTranscriptApplied;
         shell.Chat.AttachmentPickRequested += OnPickAttachment;
+        shell.Chat.ComposerFocusRequested += OnComposerFocusRequested;
         shell.StarterApplied += OnStarterApplied;
         shell.StarterNameFocusRequested += OnStarterNameFocusRequested;
         SynchronizeObservers();
@@ -1305,6 +1357,7 @@ public partial class ChatDetailView : UserControl
         _shell.Chat.ChatSurfaceReset -= OnChatSurfaceReset;
         _shell.Chat.TranscriptApplied -= OnTranscriptApplied;
         _shell.Chat.AttachmentPickRequested -= OnPickAttachment;
+        _shell.Chat.ComposerFocusRequested -= OnComposerFocusRequested;
         _shell.StarterApplied -= OnStarterApplied;
         _shell.StarterNameFocusRequested -= OnStarterNameFocusRequested;
         _shell.PropertyChanged -= OnShellPropertyChanged;

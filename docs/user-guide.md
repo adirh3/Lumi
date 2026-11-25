@@ -949,7 +949,8 @@ reply still being written never appears beneath them. Each one offers **Steer no
 From the composer, **Alt+↑** (**⌥↑** on macOS) selects the newest queued message; then
 **Enter** steers it now, **E** edits it, **Delete** removes it, **↑**/**↓** move between them
 and **Esc** returns to the composer. When the reply finishes, the oldest enters the
-transcript and is sent as the next turn. If the reply fails, queued messages enter the transcript
+transcript and is sent as the next turn. Queued messages survive a restart of Lumi, in order,
+and the oldest is sent once the chat opens again. If the reply fails, queued messages enter the transcript
 marked **Not delivered**, so their text is kept.
 
 ### Edit an earlier message
@@ -1028,15 +1029,20 @@ In the mobile app or web app, **Settings → Send with Enter** lets Enter send a
 that device; it is off by default. When it is on, Shift+Enter inserts a new line. This
 choice is independent of the desktop's send-key setting.
 
-While Lumi is replying, tap the arrow with a draft to steer the reply. Long-press the
-arrow instead (or right-click it with a mouse) to open **Send options**: **Send to steer**,
-**Add to queue**, **Stop & send**, and **Stop session**. A queued message waits on the PC
-and starts a new turn after the current reply. The count above the composer shows what's
-still waiting. **Stop & send** interrupts the current work and sends the draft as a fresh
-turn. **Stop session** leaves the draft alone; with no draft, the square in the composer
-does the same thing. If a steered message is still waiting to take effect, **Send now**
-beside it interrupts the current turn and sends that same message as a fresh turn.
-Queuing and **Send now** require an updated Lumi desktop.
+While Lumi is replying, tap the arrow with a draft to steer the reply. Press and hold the
+arrow instead (or right-click it with a mouse) for a menu above the composer: **Send to steer**,
+**Add to queue** and **Stop & send**. While a starter still has blanks, the arrow moves to the
+next blank and the menu waits until they're filled in; Back closes it. A queued message waits
+on the PC and starts a new turn after the current reply. Queued messages are listed above the
+composer, oldest first, as on the PC, and each offers **Steer now**, **Edit** (back into the
+composer, ahead of anything already typed there) and **Remove**. **Edit** isn't offered for a
+message with files, a reply or chats added on the PC, which the phone's composer can't hold.
+If the PC turns down a queued message (say, the chat was just paused), it returns to the
+composer ahead of anything you typed since, with its files. **Stop & send** interrupts the
+current work and sends the draft as a fresh turn; with no draft, the square in the composer
+stops the session. If a steered message is still waiting to take effect, **Send now** beside
+it interrupts the current turn and sends that same message as a fresh turn. Queuing, the
+queue list and **Send now** require an updated Lumi desktop.
 
 After a reply, Lumi's suggested replies from your PC sit as a row of pills on the composer; swipe
 sideways for more. Tap one to send it as it reads, just as clicking a suggestion does on the desktop,

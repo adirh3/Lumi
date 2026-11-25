@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
-  <data name="SendOptions" xml:space="preserve"><value>Options d’envoi</value></data>
   <data name="SendNow" xml:space="preserve"><value>Envoyer maintenant</value></data>
-  <data name="QueuedMessages" xml:space="preserve"><value>En file d’attente : {0}</value></data>
+  <data name="QueuedTitle" xml:space="preserve"><value>En file</value></data>
+  <data name="QueuedSubtitle" xml:space="preserve"><value>Envoyé à la fin de cette réponse</value></data>
+  <data name="QueuedSteerNow" xml:space="preserve"><value>Réorienter maintenant</value></data>
+  <data name="QueuedSteerNowHelp" xml:space="preserve"><value>Intégrer ce message à la réponse en cours maintenant</value></data>
+  <data name="QueuedRemove" xml:space="preserve"><value>Retirer</value></data>
+  <data name="QueuedRemoveFailed" xml:space="preserve"><value>Impossible de retirer le message en file.</value></data>
   <data name="HoldForSendOptions" xml:space="preserve"><value>Pendant que Lumi travaille, appui long pour les options d’envoi</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Envoyer avec Entrée</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Maj+Entrée ajoute une nouvelle ligne. Sur cet appareil uniquement.</value></data>

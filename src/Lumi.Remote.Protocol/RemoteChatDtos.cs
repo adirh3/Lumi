@@ -68,6 +68,13 @@ public sealed class RemoteChatStatus
     /// <summary>Messages waiting to follow the current reply. Null on hosts without queued sends.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? QueuedMessageCount { get; set; }
+    /// <summary>
+    /// The queued messages, oldest first, which the phone can steer now, edit or remove by id
+    /// (<see cref="RemoteProtocol.Actions.SteerQueuedMessage"/>, <see cref="RemoteProtocol.Actions.EditQueuedMessage"/>,
+    /// <see cref="RemoteProtocol.Actions.RemoveQueuedMessage"/>). Null when nothing is queued.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<RemoteQueuedMessage>? QueuedMessages { get; set; }
     /// <summary>Desktop-owned read state. Null when connected to a host predating read-state status.</summary>
     public bool? HasUnreadMessages { get; set; }
     /// <summary>An explicit mobile mark that a background transcript refresh must not acknowledge.</summary>
@@ -133,6 +140,25 @@ public enum RemoteModelSwitchState
     NextMessage,
     Switching,
     Applied
+}
+
+/// <summary>A message the desktop holds to send once the current reply finishes.</summary>
+public sealed class RemoteQueuedMessage
+{
+    public Guid Id { get; set; }
+
+    /// <summary>The message on one line, without the files attached to it.</summary>
+    public string Text { get; set; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int AttachmentCount { get; set; }
+
+    /// <summary>
+    /// The phone's composer can take the whole message back to change it. False for a message
+    /// that carries what the phone's composer cannot, such as a reply to another message.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CanEdit { get; set; }
 }
 
 public sealed class RemoteConnectionStatus

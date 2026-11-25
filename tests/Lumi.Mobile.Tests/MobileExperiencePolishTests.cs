@@ -21,6 +21,7 @@ using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Views;
 using Lumi.Remote.Protocol;
+using StrataTheme;
 using StrataTheme.Controls;
 using StrataTheme.Animation;
 using Xunit;
@@ -1053,8 +1054,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Pump(window);
             }
             var sheets = view.GetVisualDescendants().OfType<StrataBottomSheet>().ToArray();
-            Assert.Equal(22, sheets.Length);
-            Assert.Contains(sheets, sheet => sheet.Name == "SendOptionsSheet");
+            Assert.Equal(21, sheets.Length);
+            Assert.DoesNotContain(sheets, sheet => sheet.Name == "SendOptionsSheet");
             Assert.Contains(sheets, sheet => sheet.Name == "MessageEditSheet");
             Assert.Contains(sheets, sheet => sheet.Name == "MessageSelectionSheet");
             Assert.Contains(sheets, sheet => sheet.Name == "NotificationsPromptSheet");
@@ -1297,7 +1298,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         });
 
     [Fact]
-    public Task BusyComposerSendOptionsUseTouchRowsAndDismissAboveTheNativeEditor() =>
+    public Task HoldingSendOpensStrataMenuAboveTheComposerWithTouchRows() =>
         RunUiAsync(412, async (shell, view, window) =>
         {
             var composer = Required<StrataChatComposer>(view, "Composer");
@@ -1307,43 +1308,66 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 control => control.Name == "SendOptionsButton");
             var button = Required<Button>(composer, "PART_SendButton");
             Assert.Equal(ChatSessionStrings.Get("HoldForSendOptions"), AutomationProperties.GetHelpText(button));
+            var menu = Assert.IsType<ContextMenu>(button.ContextMenu);
+            Assert.Contains("mobile-send-menu", menu.Classes);
             var sends = 0;
             var stops = 0;
+            var queues = 0;
             composer.SetCurrentValue(StrataChatComposer.SendCommandProperty, new RelayCommand(() => sends++));
             composer.SetCurrentValue(StrataChatComposer.StopCommandProperty, new RelayCommand(() => stops++));
-            Assert.False(shell.Chat.ShowSendOptions);
+            composer.SetCurrentValue(StrataChatComposer.QueueCommandProperty, new RelayCommand(() => queues++));
 
             editor.SetTextFromNative("keep this draft");
             PumpFrame(window);
             await Task.Delay(320);
             PumpFrame(window);
-            Assert.True(editor.IsVisible);
-            Assert.True(shell.Chat.ShowSendOptions);
             Hold(window, button);
-            var sheet = Required<StrataBottomSheet>(view, "SendOptionsSheet");
-            Assert.True(sheet.IsOpen);
+            Assert.True(menu.IsOpen);
             // The release that ends the hold neither steers the draft nor stops Lumi.
-            Assert.Equal(0, sends);
-            Assert.Equal(0, stops);
-            Assert.False(editor.IsVisible);
+            Assert.Equal((0, 0, 0), (sends, stops, queues));
+            // Above the composer the menu leaves the draft in view, where a sheet hid it.
+            Assert.True(editor.IsVisible);
+            var popup = Assert.IsType<Avalonia.Controls.Primitives.Popup>(menu.Parent);
+            Assert.Same(composer, popup.PlacementTarget);
+            Assert.Equal(PlacementMode.TopEdgeAlignedRight, popup.Placement);
+            var labels = InteractiveLabels.Current;
+            var items = menu.Items.OfType<MenuItem>().ToList();
+            Assert.Equal(
+                new string?[] { labels["sendToSteer"], labels["addToQueue"], labels["stopAndSend"] },
+                items.Select(item => item.Header as string).ToArray());
             PumpFrame(window);
-            await Task.Delay(StrataBottomSheet.OpenDuration + TimeSpan.FromMilliseconds(60));
-            PumpFrame(window);
-            var queue = Required<Button>(sheet, "QueueSendOptionButton");
-            Assert.True(queue.IsEffectivelyVisible);
-            Assert.True(queue.Bounds.Height >= 48);
-            Assert.Same(shell.Chat.QueueSendCommand, queue.Command);
-            Assert.Same(shell.Chat.SendCommand, Required<Button>(sheet, "SendOptionButton").Command);
-            Assert.Same(shell.Chat.StopAndSendCommand, Required<Button>(sheet, "StopAndSendOptionButton").Command);
-            Assert.Same(shell.Chat.StopCommand, Required<Button>(sheet, "StopSessionOptionButton").Command);
+            Assert.All(items, item =>
+            {
+                Assert.True(item.IsVisible);
+                Assert.True((item.Bounds.Height > 0 ? item.Bounds.Height : item.MinHeight) >= 44,
+                    $"{item.Header} is {item.Bounds.Height} high (minimum {item.MinHeight}).");
+            });
 
+            // Choosing a row runs Strata's own action for it and closes the menu.
+            Assert.IsAssignableFrom<Avalonia.Automation.Provider.IInvokeProvider>(
+                Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(items[1])).Invoke();
+            Assert.False(popup.IsOpen);
+            await WaitForMenuToCloseAsync(window, menu);
+            Assert.False(menu.IsOpen);
+            Assert.Equal((0, 0, 1), (sends, stops, queues));
+
+            // Back closes the menu and nothing else: the chat, its draft and the drawer stay as they were.
+            Hold(window, button);
+            Assert.True(menu.IsOpen);
             PressAndroidBack(window, shell);
-            Assert.False(sheet.IsOpen);
-            await Task.Delay(StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
-            Pump(window);
+            Assert.False(popup.IsOpen);
+            Assert.True(shell.IsChatPage);
+            Assert.False(shell.IsDrawerOpen);
             Assert.True(editor.IsVisible);
             Assert.Equal("keep this draft", editor.Text);
-            Assert.False(shell.IsDrawerOpen);
+            Assert.Equal((0, 0, 1), (sends, stops, queues));
+
+            // While its exit plays the menu is already gone for the user, so the next Back is the page's.
+            PressAndroidBack(window, shell);
+            Assert.True(shell.IsDrawerOpen);
+            await WaitForMenuToCloseAsync(window, menu);
+            Assert.False(menu.IsOpen);
+            Assert.Equal((0, 0, 1), (sends, stops, queues));
         }, nativeFactory: new FocusEditorFactory(), setup: shell =>
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
@@ -1353,13 +1377,13 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         });
 
     [Fact]
-    public Task HoldingSendOpensOptionsOnlyForABusyDraftAndATapStillSteers() =>
+    public Task HoldingSendOnlyOpensForABusyDraftAndATapStillSteers() =>
         RunUiAsync(412, async (shell, view, window) =>
         {
             var composer = Required<StrataChatComposer>(view, "Composer");
             var editor = Assert.IsType<NativeComposerEditorHost>(composer.EditorContent);
             var button = Required<Button>(composer, "PART_SendButton");
-            var sheet = Required<StrataBottomSheet>(view, "SendOptionsSheet");
+            var menu = Assert.IsType<ContextMenu>(button.ContextMenu);
             var sends = 0;
             var stops = 0;
             composer.SetCurrentValue(StrataChatComposer.SendCommandProperty, new RelayCommand(() => sends++));
@@ -1367,11 +1391,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             PumpFrame(window);
 
             // With nothing to send there is nothing to choose: a hold stays a press, and lifting stops Lumi.
-            Assert.False(shell.Chat.ShowSendOptions);
             Hold(window, button);
-            Assert.False(sheet.IsOpen);
-            Assert.False(shell.Chat.IsSendOptionsOpen);
-            Assert.NotEqual(true, button.ContextMenu?.IsOpen);
+            Assert.False(menu.IsOpen);
             Assert.Equal((0, 1), (sends, stops));
 
             // A tap on a draft still steers it into the running reply.
@@ -1380,20 +1401,71 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             await Task.Delay(320);
             PumpFrame(window);
             Tap(window, button);
-            Assert.False(sheet.IsOpen);
+            Assert.False(menu.IsOpen);
             Assert.Equal((1, 1), (sends, stops));
 
-            // A secondary click asks for the same options, and the sheet replaces Strata's desktop menu.
+            // A secondary click asks for the same menu, and it rises above the composer as a hold's does.
             editor.SetTextFromNative("then this");
             PumpFrame(window);
             var request = new ContextRequestedEventArgs();
             button.RaiseEvent(request);
             Pump(window);
             Assert.True(request.Handled);
-            Assert.True(sheet.IsOpen);
-            Assert.NotEqual(true, button.ContextMenu?.IsOpen);
+            Assert.True(menu.IsOpen);
+            var popup = Assert.IsType<Avalonia.Controls.Primitives.Popup>(menu.Parent);
+            Assert.Same(composer, popup.PlacementTarget);
+            Assert.Equal(PlacementMode.TopEdgeAlignedRight, popup.Placement);
             Assert.Equal((1, 1), (sends, stops));
             Assert.Equal("then this", shell.Chat.PromptText);
+
+            // A finger that moves on once the menu is open cancels the hold, and the menu stays to be chosen from.
+            button.RaiseEvent(new RoutedEventArgs(InputElement.ContextCanceledEvent));
+            Pump(window);
+            Assert.True(menu.IsOpen);
+            menu.Close();
+            Pump(window);
+        }, nativeFactory: new FocusEditorFactory(), setup: shell =>
+        {
+            shell.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = shell.Chat.ChatId, IsBusy = true, QueuedMessageCount = 0
+            });
+        });
+
+    [Fact]
+    public Task HoldingSendWhileBlanksRemainWalksToTheNextBlank() =>
+        RunUiAsync(412, async (shell, view, window) =>
+        {
+            var composer = Required<StrataChatComposer>(view, "Composer");
+            var editor = Assert.IsType<NativeComposerEditorHost>(composer.EditorContent);
+            var button = Required<Button>(composer, "PART_SendButton");
+            var menu = Assert.IsType<ContextMenu>(button.ContextMenu);
+            var sends = 0;
+            var stops = 0;
+            var queues = 0;
+            composer.SetCurrentValue(StrataChatComposer.SendCommandProperty, new RelayCommand(() => sends++));
+            composer.SetCurrentValue(StrataChatComposer.StopCommandProperty, new RelayCommand(() => stops++));
+            composer.SetCurrentValue(StrataChatComposer.QueueCommandProperty, new RelayCommand(() => queues++));
+            editor.SetTextFromNative("Plan [where?] for [when?]");
+            PumpFrame(window);
+            await Task.Delay(320);
+            PumpFrame(window);
+            composer.BeginFillIn(["[where?]", "[when?]"]);
+            Pump(window);
+            Assert.Contains(":fill-in-next", composer.Classes);
+
+            // While blanks are left Send walks to the next one, so a hold does too rather than offering the menu.
+            Hold(window, button);
+            Assert.False(menu.IsOpen);
+            Assert.DoesNotContain(":fill-in-next", composer.Classes);
+            Assert.Equal((0, 0, 0), (sends, stops, queues));
+
+            // Once every blank has had its turn, a hold offers the send options as usual.
+            Hold(window, button);
+            Assert.True(menu.IsOpen);
+            Assert.Equal((0, 0, 0), (sends, stops, queues));
+            menu.Close();
+            Pump(window);
         }, nativeFactory: new FocusEditorFactory(), setup: shell =>
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
@@ -1891,6 +1963,9 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             {
                 ChatId = shell.Chat.ChatId, IsBusy = true, ProjectId = projectId, ProjectName = "Lumi"
             });
+            composer.StopCommand = null;
+            var stops = 0;
+            composer.StopRequested += (_, _) => stops++;
             Pump(window);
             await Task.Delay(280);
             Pump(window);
@@ -1903,16 +1978,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal("Lumi", Required<TextBlock>(view, "HeaderProjectText").Text);
             Assert.True(Required<ItemsControl>(composer, "PendingAttachments").IsEffectivelyVisible);
             Assert.True(Required<StrataTypingIndicator>(view, "ChatTyping").IsEffectivelyVisible);
-            Hold(window, Required<Button>(composer, "PART_SendButton"));
-            var sheet = Required<StrataBottomSheet>(view, "SendOptionsSheet");
-            Assert.True(sheet.IsOpen);
-            PumpFrame(window);
-            await Task.Delay(StrataBottomSheet.OpenDuration + TimeSpan.FromMilliseconds(60));
-            PumpFrame(window);
-            var stop = Required<Button>(sheet, "StopSessionOptionButton");
-            Assert.Same(shell.Chat.StopCommand, stop.Command);
-            Tap(window, stop);
-            Assert.False(sheet.IsOpen);
+            Tap(window, Required<Button>(composer, "PART_SendButton"));
+            Assert.Equal(1, stops);
             Assert.False(composer.IsCompact);
             Assert.Single(shell.Chat.Attachments);
         });
@@ -4291,6 +4358,18 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
 
     private static void TouchTap(Window window, Point point, ulong at = 1000, TouchDevice? finger = null) =>
         Touch(window, [point], at, finger);
+
+    // Strata plays a menu's exit before closing it for good: a rendered frame starts the motion, and
+    // a timer closes the menu once it has played.
+    private static async Task WaitForMenuToCloseAsync(Window window, ContextMenu menu)
+    {
+        var deadline = DateTime.UtcNow + PopupAnimationHelper.CloseDuration + TimeSpan.FromSeconds(5);
+        while (menu.IsOpen && DateTime.UtcNow < deadline)
+        {
+            PumpFrame(window);
+            await Task.Delay(25);
+        }
+    }
 
     // The Android navigation manager raises this event directly on the top level.
     private static void PressAndroidBack(Window window, MobileShellViewModel shell)

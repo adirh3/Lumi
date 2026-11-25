@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
-  <data name="SendOptions" xml:space="preserve"><value>Opciones de envío</value></data>
   <data name="SendNow" xml:space="preserve"><value>Enviar ahora</value></data>
-  <data name="QueuedMessages" xml:space="preserve"><value>En cola: {0}</value></data>
+  <data name="QueuedTitle" xml:space="preserve"><value>En cola</value></data>
+  <data name="QueuedSubtitle" xml:space="preserve"><value>Se enviará cuando termine esta respuesta</value></data>
+  <data name="QueuedSteerNow" xml:space="preserve"><value>Orientar ahora</value></data>
+  <data name="QueuedSteerNowHelp" xml:space="preserve"><value>Incorporar este mensaje a la respuesta en curso ahora</value></data>
+  <data name="QueuedRemove" xml:space="preserve"><value>Quitar</value></data>
+  <data name="QueuedRemoveFailed" xml:space="preserve"><value>No se pudo quitar el mensaje en cola.</value></data>
   <data name="HoldForSendOptions" xml:space="preserve"><value>Mientras Lumi trabaja, mantén pulsado para ver las opciones de envío</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Enviar con Enter</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter añade una nueva línea. Solo en este dispositivo.</value></data>

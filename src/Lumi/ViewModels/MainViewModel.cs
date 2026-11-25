@@ -1796,7 +1796,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         else if (e.PropertyName is nameof(Chat.HasUnreadMessages) or nameof(Chat.Title))
             RefreshUnreadState();
         else if (e.PropertyName is not (nameof(Chat.IsSessionActive)
-            or nameof(Chat.IsPaused) or nameof(Chat.IsPausePending)))
+            or nameof(Chat.IsPaused) or nameof(Chat.IsPausePending) or nameof(Chat.QueuedSends)))
             return;
 
         RefreshChatPauseCommands();

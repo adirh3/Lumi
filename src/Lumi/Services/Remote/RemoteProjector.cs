@@ -271,7 +271,8 @@ internal static class RemoteProjector
             IsAwaitingInput = chat.IsAwaitingInput,
             IsSessionActive = chat.IsSessionActive || chat.IsRunning
                               || isActive && (chatVm.IsSessionActive || chatVm.IsBusy || chatVm.IsStreaming),
-            QueuedMessageCount = chatVm.GetWaitingSendCount(chatId),
+            QueuedMessageCount = chat.QueuedSends?.Count ?? 0,
+            QueuedMessages = BuildQueuedMessages(chat.QueuedSends),
             HasUnreadMessages = chat.HasUnreadMessages,
             StatusText = isActive ? chatVm.StatusText : null,
             MobileUnreadMark = chat.MobileUnreadMark,
@@ -365,6 +366,35 @@ internal static class RemoteProjector
                  Value = BoundOptional(chip.Value, RemoteProtocol.MobileIdentifierLimit)
              })
              .ToList();
+
+    /// <summary>
+    /// The chat's queued messages as the phone lists them, oldest first. A message sent from a phone
+    /// carries its files in its text, so they are counted from there and left out of the line shown.
+    /// </summary>
+    internal static List<RemoteQueuedMessage>? BuildQueuedMessages(IReadOnlyList<ChatMessage>? queued)
+    {
+        if (queued is not { Count: > 0 })
+            return null;
+
+        var messages = new List<RemoteQueuedMessage>(
+            Math.Min(queued.Count, RemoteProtocol.MobileStatusCollectionCountLimit));
+        foreach (var message in queued.Take(RemoteProtocol.MobileStatusCollectionCountLimit))
+        {
+            var (text, files) = RemoteUserMessageContent.Parse(message.Content, message.Author);
+            messages.Add(new RemoteQueuedMessage
+            {
+                Id = message.Id,
+                Text = BoundRequired(
+                    string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)),
+                    RemoteProtocol.MobileStatusValueLimit),
+                AttachmentCount = message.Attachments.Count
+                                  + files.Count(file => !message.Attachments.Contains(file.Path, StringComparer.OrdinalIgnoreCase)),
+                CanEdit = ChatViewModel.CanEditQueuedSendRemotely(message)
+            });
+        }
+
+        return messages;
+    }
 
     public static RemoteLibrary BuildLibrary(DataStore dataStore, bool catalogOnly = false)
     {
@@ -2389,6 +2419,8 @@ internal static class RemoteProjector
             IsStreaming = transcript.Status.IsStreaming,
             IsAwaitingInput = transcript.Status.IsAwaitingInput,
             IsSessionActive = transcript.Status.IsSessionActive,
+            QueuedMessageCount = transcript.Status.QueuedMessageCount,
+            QueuedMessages = transcript.Status.QueuedMessages,
             HasUnreadMessages = transcript.Status.HasUnreadMessages,
             MobileUnreadMark = transcript.Status.MobileUnreadMark,
             ContextCurrentTokens = transcript.Status.ContextCurrentTokens,
@@ -2663,6 +2695,8 @@ internal static class RemoteProjector
         status.ProjectName = CompactOptional(status.ProjectName, minimumLength, ref changed);
         CompactStrings(status.SkillNames, minimumLength, ref changed);
         CompactStrings(status.McpNames, minimumLength, ref changed);
+        foreach (var queued in status.QueuedMessages ?? [])
+            queued.Text = CompactRequired(queued.Text, minimumLength, ref changed);
         return status;
     }
 
@@ -2703,6 +2737,7 @@ internal static class RemoteProjector
             IsAwaitingInput = status.IsAwaitingInput,
             IsSessionActive = status.IsSessionActive,
             QueuedMessageCount = status.QueuedMessageCount,
+            QueuedMessages = BoundQueuedMessages(status.QueuedMessages),
             HasUnreadMessages = status.HasUnreadMessages,
             MobileUnreadMark = status.MobileUnreadMark,
             StatusText = BoundOptional(status.StatusText, RemoteProtocol.MobileStatusTextLimit),
@@ -2744,6 +2779,19 @@ internal static class RemoteProjector
             AvailableProjects = BoundChips(status.AvailableProjects),
             HasComposerCatalogs = status.HasComposerCatalogs
         };
+
+    private static List<RemoteQueuedMessage>? BoundQueuedMessages(List<RemoteQueuedMessage>? source) =>
+        source is not { Count: > 0 }
+            ? null
+            : source.Take(RemoteProtocol.MobileStatusCollectionCountLimit)
+                .Select(message => new RemoteQueuedMessage
+                {
+                    Id = message.Id,
+                    Text = BoundRequired(message.Text, RemoteProtocol.MobileStatusValueLimit),
+                    AttachmentCount = Math.Max(0, message.AttachmentCount),
+                    CanEdit = message.CanEdit
+                })
+                .ToList();
 
     private static List<RemoteChip> BoundChips(IEnumerable<RemoteChip> source) =>
         source.Take(RemoteProtocol.MobileStatusCollectionCountLimit)

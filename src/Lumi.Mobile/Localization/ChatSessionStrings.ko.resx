@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
-  <data name="SendOptions" xml:space="preserve"><value>전송 옵션</value></data>
   <data name="SendNow" xml:space="preserve"><value>지금 보내기</value></data>
-  <data name="QueuedMessages" xml:space="preserve"><value>대기열: {0}</value></data>
+  <data name="QueuedTitle" xml:space="preserve"><value>대기열</value></data>
+  <data name="QueuedSubtitle" xml:space="preserve"><value>이 응답이 끝나면 보내요</value></data>
+  <data name="QueuedSteerNow" xml:space="preserve"><value>지금 반영</value></data>
+  <data name="QueuedSteerNowHelp" xml:space="preserve"><value>이 메시지를 진행 중인 응답에 지금 반영</value></data>
+  <data name="QueuedRemove" xml:space="preserve"><value>제거</value></data>
+  <data name="QueuedRemoveFailed" xml:space="preserve"><value>대기 중인 메시지를 제거하지 못했어요.</value></data>
   <data name="HoldForSendOptions" xml:space="preserve"><value>Lumi가 작업 중일 때 길게 눌러 전송 옵션 열기</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Enter로 보내기</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter로 줄을 바꿉니다. 이 기기에만 적용됩니다.</value></data>

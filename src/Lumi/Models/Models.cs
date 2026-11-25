@@ -1143,6 +1143,23 @@ public class Chat : INotifyPropertyChanged
     public string? LastRemoteDeviceId { get; set; }
     public string? LastRemoteRequestId { get; set; }
 
+    private List<ChatMessage>? _queuedSends;
+
+    /// <summary>
+    /// Messages queued to follow the running reply, oldest first, or null when none are. Saved with the
+    /// chat so an accepted queue survives a restart; always replaced, never changed in place.
+    /// </summary>
+    public List<ChatMessage>? QueuedSends
+    {
+        get => _queuedSends;
+        set
+        {
+            if (ReferenceEquals(_queuedSends, value)) return;
+            _queuedSends = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(QueuedSends)));
+        }
+    }
+
     /// <summary>Last model used in this chat. Restored as the selected model when the chat is reopened.</summary>
     public string? LastModelUsed { get; set; }
 

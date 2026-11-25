@@ -73,7 +73,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(QueueSendCommand), nameof(StopAndSendCommand))]
     [NotifyPropertyChangedFor(nameof(HasUnsentWork))]
     [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
-    [NotifyPropertyChangedFor(nameof(ShowSendOptions))]
     private string _promptText = "";
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
@@ -86,7 +85,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private bool _isStreaming;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
-    [NotifyPropertyChangedFor(nameof(ShowSendOptions))]
     private bool _isSessionActive;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(QueueSendCommand), nameof(StopAndSendCommand))]
@@ -95,8 +93,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private bool _isLoading;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(QueueSendCommand))]
-    [NotifyPropertyChangedFor(nameof(ComposerQueueCommand), nameof(ShowQueueSendOption),
-        nameof(HasQueuedMessages), nameof(QueuedMessagesLabel))]
+    [NotifyPropertyChangedFor(nameof(ComposerQueueCommand))]
     private int? _queuedMessageCount;
     [ObservableProperty] private string? _statusText;
     [ObservableProperty]
@@ -593,9 +590,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
         {
             OnPropertyChanged(nameof(HasUnsentWork));
             OnPropertyChanged(nameof(ShowFollowUpSuggestions));
-            OnPropertyChanged(nameof(ShowSendOptions));
         };
         Suggestions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowFollowUpSuggestions));
+        QueuedMessages.CollectionChanged += OnQueuedMessagesChanged;
         SendCommand.PropertyChanged += OnSendActivityChanged;
         QueueSendCommand.PropertyChanged += OnSendActivityChanged;
         StopAndSendCommand.PropertyChanged += OnSendActivityChanged;
@@ -793,17 +790,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     private bool HasSendDraft => !string.IsNullOrWhiteSpace(PromptText) || HasAttachments;
 
-    public bool ShowSendOptions => HasSendDraft && (IsWorking || IsSessionActive);
-
-    public string SendOptionLabel => InteractiveLabels.ForLanguage(Strings.Language)[IsWorking ? "sendToSteer" : "send"];
-
-    public bool ShowQueueSendOption => IsWorking && QueuedMessageCount.HasValue;
-
+    /// <summary>A PC that says how many messages it holds for after the reply can queue one.</summary>
     public IAsyncRelayCommand? ComposerQueueCommand => QueuedMessageCount.HasValue ? QueueSendCommand : null;
-
-    public bool HasQueuedMessages => QueuedMessageCount > 0;
-
-    public string QueuedMessagesLabel => Strings.Get("QueuedMessages", QueuedMessageCount ?? 0);
 
     /// <summary>
     /// True when the blank surface has become the user's work rather than the untouched launch
@@ -919,17 +907,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
     private bool _isContextSheetOpen;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
-    private bool _isSendOptionsOpen;
-
-    [RelayCommand]
-    private void OpenSendOptions()
-    {
-        if (ShowSendOptions)
-            IsSendOptionsOpen = true;
-    }
 
     [RelayCommand]
     private void OpenRunSettingsSheet() => IsRunSettingsSheetOpen = true;
@@ -1403,7 +1380,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
         IsModelSheetOpen ||
         IsContextSheetOpen ||
         IsEffortSheetOpen ||
-        IsSendOptionsOpen ||
         IsAddSheetOpen ||
         IsContextPickerOpen;
 
@@ -1432,12 +1408,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (IsContextPickerOpen)
         {
             IsContextPickerOpen = false;
-            return true;
-        }
-
-        if (IsSendOptionsOpen)
-        {
-            IsSendOptionsOpen = false;
             return true;
         }
 
@@ -1610,9 +1580,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(ProgressText));
         OnPropertyChanged(nameof(IsWorking));
         OnPropertyChanged(nameof(WorkingStatusText));
-        OnPropertyChanged(nameof(ShowSendOptions));
-        OnPropertyChanged(nameof(SendOptionLabel));
-        OnPropertyChanged(nameof(ShowQueueSendOption));
     }
 
     partial void OnContextCurrentTokensChanged(long value) => RaiseContextChanged();
@@ -2271,7 +2238,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsModelSheetOpen = false;
             IsContextSheetOpen = false;
             IsEffortSheetOpen = false;
-            IsSendOptionsOpen = false;
             IsAddSheetOpen = false;
             IsContextPickerOpen = false;
             ContextOptions.Clear();
@@ -2295,6 +2261,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsBusy = false;
             IsStreaming = false;
             QueuedMessageCount = null;
+            QueuedMessages.Clear();
             IsUploading = false;
             _revision = -1;
             _transcriptVersion = null;
@@ -2336,6 +2303,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     {
         Interlocked.Increment(ref _hostGeneration);
         _pendingStopRequestIds.Clear();
+        _queuedActionRequestIds.Clear();
         _drafts.Clear();
         _surfaceMappings.Clear();
         _preferredModel = null;
@@ -2831,6 +2799,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             HasUnreadMessages = unread;
         IsAwaitingInput = status.IsAwaitingInput;
         QueuedMessageCount = status.QueuedMessageCount;
+        SyncQueuedMessages(status.QueuedMessages);
         ContextCurrentTokens = status.ContextCurrentTokens;
         ContextTokenLimit = status.ContextTokenLimit;
         // A compact status frame leaves an unchanged plan out instead of repeating it.
@@ -3453,7 +3422,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     private async Task SendCoreAsync(SendMode mode)
     {
-        IsSendOptionsOpen = false;
         var hostGeneration = Volatile.Read(ref _hostGeneration);
         var surface = CurrentSurface;
         var activation = _surfaceActivationGeneration;
@@ -3695,9 +3663,13 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 attachments.Add(attachment);
         }
 
-        var promptText = draft.PromptText.Length == 0
-            ? sentPayload.PromptText
-            : draft.PromptText;
+        // A queue request the PC turned down returns ahead of anything typed since, as Edit
+        // returns a queued message. One whose outcome is unknown may be in the PC's queue.
+        var promptText = mode == SendMode.Queue && !preserveRequestIdentity
+            ? PrependReturnedText(sentPayload.PromptText, draft.PromptText)
+            : draft.PromptText.Length == 0
+                ? sentPayload.PromptText
+                : draft.PromptText;
         var configuration = draft.Configuration.Clone();
         configuration.MergeFrom(
             sentConfiguration,
@@ -4088,7 +4060,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [RelayCommand]
     private async Task StopAsync()
     {
-        IsSendOptionsOpen = false;
         var surface = CurrentSurface;
         foreach (var staged in _stagedSends.Where(staged =>
                      IsCurrentHost(staged.HostGeneration)

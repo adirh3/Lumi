@@ -472,6 +472,7 @@ internal static class AppDataSnapshotFactory
             WorktreePath = source.WorktreePath,
             LastRemoteDeviceId = source.LastRemoteDeviceId,
             LastRemoteRequestId = source.LastRemoteRequestId,
+            QueuedSends = source.QueuedSends?.Select(static message => message.Clone()).ToList(),
             MessageCount = source.MessageCount,
             Preview = source.Preview,
             LastModelUsed = source.LastModelUsed,

@@ -1,8 +1,12 @@
 <?xml version='1.0' encoding='utf-8'?>
 <root>
-  <data name="SendOptions" xml:space="preserve"><value>送信オプション</value></data>
   <data name="SendNow" xml:space="preserve"><value>今すぐ送信</value></data>
-  <data name="QueuedMessages" xml:space="preserve"><value>キュー内: {0}</value></data>
+  <data name="QueuedTitle" xml:space="preserve"><value>キュー</value></data>
+  <data name="QueuedSubtitle" xml:space="preserve"><value>この返信が終わると送信されます</value></data>
+  <data name="QueuedSteerNow" xml:space="preserve"><value>今すぐ方針を伝える</value></data>
+  <data name="QueuedSteerNowHelp" xml:space="preserve"><value>このメッセージを実行中の返信に今すぐ反映する</value></data>
+  <data name="QueuedRemove" xml:space="preserve"><value>削除</value></data>
+  <data name="QueuedRemoveFailed" xml:space="preserve"><value>キューのメッセージを削除できませんでした。</value></data>
   <data name="HoldForSendOptions" xml:space="preserve"><value>Lumi の作業中は、長押しで送信オプション</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Enter で送信</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter で改行します。このデバイスのみ。</value></data>

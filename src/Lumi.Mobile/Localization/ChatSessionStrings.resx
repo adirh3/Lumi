@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
-  <data name="SendOptions" xml:space="preserve"><value>Send options</value></data>
   <data name="SendNow" xml:space="preserve"><value>Send now</value></data>
-  <data name="QueuedMessages" xml:space="preserve"><value>Queued: {0}</value></data>
+  <data name="QueuedTitle" xml:space="preserve"><value>Queued</value></data>
+  <data name="QueuedSubtitle" xml:space="preserve"><value>Sends when this reply finishes</value></data>
+  <data name="QueuedSteerNow" xml:space="preserve"><value>Steer now</value></data>
+  <data name="QueuedSteerNowHelp" xml:space="preserve"><value>Send this message into the running reply now</value></data>
+  <data name="QueuedRemove" xml:space="preserve"><value>Remove</value></data>
+  <data name="QueuedRemoveFailed" xml:space="preserve"><value>The queued message couldn't be removed.</value></data>
   <data name="HoldForSendOptions" xml:space="preserve"><value>While Lumi is working, long press for send options</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Send with Enter</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter adds a new line. Only on this device.</value></data>

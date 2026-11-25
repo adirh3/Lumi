@@ -273,7 +273,6 @@ public static class RemoteProtocol
         public const string InteractiveResponsesV1 = "interactive-responses-v1";
         public const string MessageEditingV1 = "message-editing-v1";
         public const string ChatReadStateV1 = "chat-read-state-v1";
-        public const string QueuedSendsV1 = "queued-sends-v1";
 
         /// <summary>
         /// A latest-window transcript request may carry the <see cref="RemoteTranscript.TranscriptVersion"/>
@@ -329,7 +328,6 @@ public static class RemoteProtocol
             ModelPinsV1,
             MessageEditingV1,
             ChatReadStateV1,
-            QueuedSendsV1,
             PhoneNotificationsV1,
             ExplorerPicturesV1,
             LaunchpadV2,
@@ -418,6 +416,15 @@ public static class RemoteProtocol
         public const string SendMessage = "send_message";
         public const string QueueMessage = "queue_message";
         public const string SendSteeredNow = "send_steered_now";
+        /// <summary>Steers a queued message (<c>messageId</c>) into the running reply now.</summary>
+        public const string SteerQueuedMessage = "steer_queued_message";
+        /// <summary>Takes a queued message (<c>messageId</c>) out of the queue without sending it.</summary>
+        public const string RemoveQueuedMessage = "remove_queued_message";
+        /// <summary>
+        /// Takes a queued message (<c>messageId</c>) out of the queue and returns it whole in
+        /// <see cref="RemoteCommandResult.Text"/>, for the phone's composer.
+        /// </summary>
+        public const string EditQueuedMessage = "edit_queued_message";
         public const string EditMessage = "edit_message";
         public const string StopGeneration = "stop_generation";
         public const string RevokeDevice = "revoke_device";

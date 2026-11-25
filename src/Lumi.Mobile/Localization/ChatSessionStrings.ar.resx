@@ -1,8 +1,12 @@
 <?xml version='1.0' encoding='utf-8'?>
 <root>
-  <data name="SendOptions" xml:space="preserve"><value>خيارات الإرسال</value></data>
   <data name="SendNow" xml:space="preserve"><value>إرسال الآن</value></data>
-  <data name="QueuedMessages" xml:space="preserve"><value>في قائمة الانتظار: {0}</value></data>
+  <data name="QueuedTitle" xml:space="preserve"><value>في قائمة الانتظار</value></data>
+  <data name="QueuedSubtitle" xml:space="preserve"><value>تُرسل عند انتهاء هذا الرد</value></data>
+  <data name="QueuedSteerNow" xml:space="preserve"><value>توجيه الآن</value></data>
+  <data name="QueuedSteerNowHelp" xml:space="preserve"><value>إيصال هذه الرسالة إلى الرد الجاري الآن</value></data>
+  <data name="QueuedRemove" xml:space="preserve"><value>إزالة</value></data>
+  <data name="QueuedRemoveFailed" xml:space="preserve"><value>تعذّرت إزالة الرسالة من قائمة الانتظار.</value></data>
   <data name="HoldForSendOptions" xml:space="preserve"><value>أثناء عمل Lumi، اضغط مطولًا لخيارات الإرسال</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>الإرسال باستخدام Enter</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>يضيف Shift+Enter سطرًا جديدًا. على هذا الجهاز فقط.</value></data>

@@ -1732,6 +1732,90 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
+    public async Task RejectedQueueRequest_ReturnsAheadOfANewerDraftWithEveryFile()
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Existing chat");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, QueuedMessageCount = 0 });
+        var queuedFile = new PendingAttachment("first.txt", @"C:\uploads\first.txt");
+        chat.PromptText = "first";
+        chat.Attachments.Add(queuedFile);
+
+        var queue = chat.QueueSendCommand.ExecuteAsync(null);
+        var request = await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(RemoteProtocol.Actions.QueueMessage, request.Action);
+
+        var newerFile = new PendingAttachment("second.txt", @"C:\uploads\second.txt");
+        chat.PromptText = "second";
+        chat.Attachments.Add(newerFile);
+        sink.CommandResult.SetResult(new RemoteCommandResult { Ok = false, Error = "This chat is paused." });
+        await queue;
+
+        Assert.Equal("first\n\nsecond", chat.PromptText);
+        Assert.Equal([newerFile, queuedFile], chat.Attachments);
+        Assert.Equal("This chat is paused.", chat.ErrorText);
+        Assert.True(chat.IsBusy);
+        Assert.Empty(chat.Turns);
+    }
+
+    [Fact]
+    public async Task QueuedEditWithALostAnswer_KeepsItsRowAndAsksAgainWithTheSameRequest()
+    {
+        const string gone = "That queued message was already sent or removed.";
+        var sink = new ScriptedCommandSink(
+            new RemoteCommandResult { Error = "connection lost", IsOutcomeUnknown = true },
+            new RemoteCommandResult { Ok = true, Text = "ask this next" },
+            new RemoteCommandResult { Error = "connection lost", IsOutcomeUnknown = true },
+            new RemoteCommandResult { Ok = false, Error = gone });
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Queue");
+        var (returned, expired) = (Guid.NewGuid(), Guid.NewGuid());
+        ApplyQueue(returned, expired);
+        var returnedRow = chat.QueuedMessages.Single(item => item.Id == returned);
+        var expiredRow = chat.QueuedMessages.Single(item => item.Id == expired);
+        chat.PromptText = "typed meanwhile";
+
+        // The PC took the message out of its queue but its answer never arrived, so the row stays:
+        // the PC now holds the message's text only in that answer.
+        await returnedRow.EditCommand.ExecuteAsync(null);
+        Assert.Equal("connection lost", chat.ErrorText);
+        ApplyQueue(expired);
+        Assert.Contains(returnedRow, chat.QueuedMessages);
+
+        // Asking again with the same request gets the PC's first answer, which brings the text back.
+        await returnedRow.EditCommand.ExecuteAsync(null);
+        Assert.Equal(sink.Commands[0].RequestId, sink.Commands[1].RequestId);
+        Assert.Equal(returned.ToString(), sink.Commands[1].Get("messageId"));
+        Assert.Equal("ask this next\n\ntyped meanwhile", chat.PromptText);
+        Assert.Null(chat.ErrorText);
+        Assert.Same(expiredRow, Assert.Single(chat.QueuedMessages));
+
+        // Once the PC answers that it no longer has the message, the row kept for it goes too.
+        await expiredRow.EditCommand.ExecuteAsync(null);
+        ApplyQueue();
+        Assert.Same(expiredRow, Assert.Single(chat.QueuedMessages));
+        await expiredRow.EditCommand.ExecuteAsync(null);
+        Assert.Equal(sink.Commands[2].RequestId, sink.Commands[3].RequestId);
+        Assert.Empty(chat.QueuedMessages);
+        Assert.Equal(gone, chat.ErrorText);
+        Assert.Equal("ask this next\n\ntyped meanwhile", chat.PromptText);
+        Assert.All(sink.Commands, command => Assert.Equal(RemoteProtocol.Actions.EditQueuedMessage, command.Action));
+
+        void ApplyQueue(params Guid[] ids) => chat.ApplyStatus(new RemoteChatStatus
+        {
+            ChatId = chatId,
+            IsBusy = true,
+            QueuedMessageCount = ids.Length,
+            QueuedMessages = ids.Length > 0
+                ? ids.Select(id => new RemoteQueuedMessage { Id = id, Text = $"message {id}", CanEdit = true }).ToList()
+                : null
+        });
+    }
+
+    [Fact]
     public async Task SendTransportException_RestoresTheActiveDraftWithoutThrowing()
     {
         var chat = new MobileChatViewModel(new ThrowingCommandSink());

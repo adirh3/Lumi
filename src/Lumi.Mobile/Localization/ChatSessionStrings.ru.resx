@@ -1,8 +1,12 @@
 <?xml version='1.0' encoding='utf-8'?>
 <root>
-  <data name="SendOptions" xml:space="preserve"><value>Варианты отправки</value></data>
   <data name="SendNow" xml:space="preserve"><value>Отправить сейчас</value></data>
-  <data name="QueuedMessages" xml:space="preserve"><value>В очереди: {0}</value></data>
+  <data name="QueuedTitle" xml:space="preserve"><value>В очереди</value></data>
+  <data name="QueuedSubtitle" xml:space="preserve"><value>Отправится после завершения этого ответа</value></data>
+  <data name="QueuedSteerNow" xml:space="preserve"><value>Перейти сейчас</value></data>
+  <data name="QueuedSteerNowHelp" xml:space="preserve"><value>Отправить это сообщение в текущий ответ сейчас</value></data>
+  <data name="QueuedRemove" xml:space="preserve"><value>Удалить</value></data>
+  <data name="QueuedRemoveFailed" xml:space="preserve"><value>Не удалось удалить сообщение из очереди.</value></data>
   <data name="HoldForSendOptions" xml:space="preserve"><value>Пока Lumi работает, долгое нажатие открывает варианты отправки</value></data>
   <data name="SendWithEnter" xml:space="preserve"><value>Отправлять по Enter</value></data>
   <data name="SendWithEnterDescription" xml:space="preserve"><value>Shift+Enter добавляет новую строку. Только на этом устройстве.</value></data>
