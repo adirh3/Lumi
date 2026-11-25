@@ -1100,8 +1100,11 @@ does not leave foreground reconnection waiting on a native streaming read.
 
 To save battery, the phone keeps one quiet connection and only asks for what changed.
 A short app switch (file picker, share sheet, another app for under a minute) keeps
-the live stream instead of reconnecting; reopening later skips the handshake and the
-startup snapshot omits the chat list, library and settings the phone already holds.
+the live stream if it still responds. Lumi gives the background update and resume check
+five seconds in total; if the old stream can't be restored, Lumi replaces it without
+interrupting a reconnect that's already underway. Reopening later starts a fresh
+stream without waiting on the old connection. It skips the handshake, and the startup
+snapshot omits the chat list, library and settings the phone already holds.
 Reopening a chat whose transcript has not changed returns no transcript body. Sends
 and uploads finish even if the app is backgrounded mid-request. Answers stream to the
 phone at most every 150 ms, with each batch written in one network flush, and status

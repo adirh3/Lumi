@@ -128,6 +128,7 @@ public sealed partial class MobileShellViewModel :
     private long _snapshotRefreshVersion;
     private long _subscriptionGeneration;
     private long _lifecycleGeneration;
+    private Task _backgroundSubscriptionUpdate = Task.CompletedTask;
     private bool _isApplicationActive = true;
     private MobilePage _lastObservedPage = MobilePage.Chat;
     private readonly Stack<PageNavigation> _pageHistory = new();
@@ -2262,7 +2263,7 @@ public sealed partial class MobileShellViewModel :
                 if (Client.IsEventStreamActive
                     && Client.State is RemoteLinkState.Connecting or RemoteLinkState.Connected)
                 {
-                    await Client.UpdateEventSubscriptionAsync(BuildEventSubscription(), request.Token);
+                    await UpdateEventSubscriptionForConnectionAsync(BuildEventSubscription());
                 }
                 else if (_isApplicationActive)
                 {
@@ -2337,6 +2338,7 @@ public sealed partial class MobileShellViewModel :
                          && Client.State == RemoteLinkState.Connected;
         if (!keepStream)
             BeginConnectionGeneration();
+        Task transport;
         await _lifecycleGate.WaitAsync();
         try
         {
@@ -2345,22 +2347,28 @@ public sealed partial class MobileShellViewModel :
 
             if (keepStream)
             {
-                _connection.BeginBackgroundGrace(OnBackgroundGraceExpiredAsync);
-                await UpdateEventSubscriptionForConnectionAsync(BuildEventSubscription());
+                _connection.BeginBackgroundGrace(() => OnBackgroundGraceExpiredAsync(generation));
+                transport = UpdateEventSubscriptionForConnectionAsync(BuildEventSubscription(), restartOnFailure: false);
+                Volatile.Write(ref _backgroundSubscriptionUpdate, transport);
+            }
+            else
+            {
+                await Client.StopEventStreamAsync();
                 return;
             }
-
-            await Client.StopEventStreamAsync();
         }
         finally
         {
             _lifecycleGate.Release();
         }
+
+        await transport;
     }
 
     public async Task NotifyApplicationActivatedAsync()
     {
         var generation = Interlocked.Increment(ref _lifecycleGeneration);
+        var wasInBackground = !_isApplicationActive;
         _isApplicationActive = true;
         NotifyWebAppUpdateSafetyChanged();
         // The user may have allowed or blocked notifications in the system's settings meanwhile.
@@ -2370,41 +2378,44 @@ public sealed partial class MobileShellViewModel :
             RefreshNotificationState();
         }
         OfferPhoneSetupIfUseful();
-        var hadGrace = _connection.IsInBackgroundGrace;
-        var resumedInGrace = _connection.EndBackgroundGrace();
+        Task transport;
         await _lifecycleGate.WaitAsync();
         try
         {
             if (generation != Volatile.Read(ref _lifecycleGeneration) || !_isApplicationActive)
                 return;
 
-            if (resumedInGrace
+            if (_connection.EndBackgroundGrace()
                 && Client.IsEventStreamActive
                 && Client.State == RemoteLinkState.Connected)
             {
-                await ResumeKeptStreamAsync();
-                return;
+                transport = ResumeKeptStreamAsync(generation);
             }
-
-            if (hadGrace && !resumedInGrace)
+            else
             {
-                // The process was frozen past the grace window, so its timer never ran. The kept
-                // stream may have died meanwhile; start a fresh one.
-                BeginConnectionGeneration();
-                await Client.StopEventStreamAsync();
-            }
+                if (wasInBackground && Client.IsEventStreamActive)
+                {
+                    // The grace expired (possibly while the process was frozen), or the kept
+                    // stream failed while we were away. Don't reuse it or its backoff.
+                    BeginConnectionGeneration();
+                    await Client.StopEventStreamAsync();
+                }
 
-            // Reopening is a reason to try again at once, even after giving up.
-            _connection.RetryNow();
-            await StartAsync();
+                _connection.RetryNow();
+                transport = StartAsync();
+            }
         }
         finally
         {
             _lifecycleGate.Release();
         }
+
+        // A prior scope POST or handshake can be waiting on a sleeping network. The lifecycle
+        // gate orders changes to the stream, not waits for that network to answer.
+        await transport;
     }
 
-    private async Task OnBackgroundGraceExpiredAsync()
+    private async Task OnBackgroundGraceExpiredAsync(long lifecycleGeneration)
     {
         try
         {
@@ -2417,7 +2428,7 @@ public sealed partial class MobileShellViewModel :
 
         try
         {
-            if (_isApplicationActive)
+            if (_isApplicationActive || lifecycleGeneration != Volatile.Read(ref _lifecycleGeneration))
                 return;
 
             BeginConnectionGeneration();
@@ -2433,37 +2444,84 @@ public sealed partial class MobileShellViewModel :
     /// Brings a stream kept through the background grace back to the foreground: the desktop pushes
     /// a ping in response, and a stream that stays silent is replaced.
     /// </summary>
-    private async Task ResumeKeptStreamAsync()
+    private async Task ResumeKeptStreamAsync(long lifecycleGeneration)
     {
-        var framesBefore = Client.ReceivedFrameCount;
-        var generation = Volatile.Read(ref _connectionGeneration);
-        await UpdateEventSubscriptionForConnectionAsync(BuildEventSubscription());
-        _ = VerifyResumedStreamAsync(framesBefore, generation);
-        CatchUpAfterBackground();
-    }
-
-    private async Task VerifyResumedStreamAsync(long framesBefore, long generation)
-    {
+        var connectionGeneration = Volatile.Read(ref _connectionGeneration);
+        var routeEpoch = Client.EventStreamRouteEpoch;
+        using var request = CreateConnectionRequest();
+        using var budget = new CancellationTokenSource(_connection.ResumeProbeTimeout, _connection.Time);
+        using var resume = CancellationTokenSource.CreateLinkedTokenSource(request.Token, budget.Token);
+        var background = Volatile.Read(ref _backgroundSubscriptionUpdate);
+        var receivedFrame = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        long? framesBeforeProbe = null;
+        void OnFrame(RemoteEventFrame _) => receivedFrame.TrySetResult();
         try
         {
-            await Task.Delay(_connection.ResumeProbeTimeout, _connection.Time, _lifetime.Token);
+            // A replacement opened during the wait should already start with foreground scope.
+            Client.StageEventSubscription(BuildEventSubscription());
+            await background.WaitAsync(resume.Token);
+            if (!IsCurrentForeground(lifecycleGeneration, connectionGeneration))
+                return;
+
+            framesBeforeProbe = Client.ReceivedFrameCount;
+            Client.FrameReceived += OnFrame;
+            try
+            {
+                var accepted = await Client.UpdateEventSubscriptionAsync(
+                    BuildEventSubscription(), resume.Token, restartOnFailure: false);
+                resume.Token.ThrowIfCancellationRequested();
+                if (!accepted)
+                {
+                    await RestartEventStreamAsync(lifecycleGeneration, connectionGeneration,
+                        (routeEpoch, Client.ReceivedFrameCount));
+                    return;
+                }
+
+                await receivedFrame.Task.WaitAsync(resume.Token);
+            }
+            finally
+            {
+                Client.FrameReceived -= OnFrame;
+            }
         }
         catch (OperationCanceledException)
         {
-            return;
+            if (request.IsCancellationRequested || !IsCurrentForeground(lifecycleGeneration, connectionGeneration))
+                return;
+
+            if (!budget.IsCancellationRequested)
+                throw;
+
+            if (!background.IsCompleted)
+            {
+                _ = Interlocked.CompareExchange(ref _backgroundSubscriptionUpdate, Task.CompletedTask, background);
+                // A replacement may already have registered during the wait. Apply any staged
+                // navigation it missed; a replacement still bootstrapping does this on arrival.
+                if (routeEpoch != Client.EventStreamRouteEpoch && Client.State == RemoteLinkState.Connected)
+                    QueueSubscriptionUpdate();
+            }
+
+            if (!receivedFrame.Task.IsCompleted
+                && (framesBeforeProbe is null || Client.ReceivedFrameCount == framesBeforeProbe))
+            {
+                await RestartEventStreamAsync(lifecycleGeneration, connectionGeneration,
+                    (routeEpoch, framesBeforeProbe ?? Client.ReceivedFrameCount));
+                return;
+            }
         }
 
-        if (generation != Volatile.Read(ref _connectionGeneration) || !_isApplicationActive)
-            return;
-
-        if (Client.ReceivedFrameCount == framesBefore)
-        {
-            Trace.TraceWarning("[Mobile] The kept stream stayed silent after resuming; reconnecting.");
-            await RestartEventStreamAsync();
-        }
+        if (IsCurrentForeground(lifecycleGeneration, connectionGeneration)
+            && routeEpoch == Client.EventStreamRouteEpoch)
+            CatchUpAfterBackground();
     }
 
-    private async Task RestartEventStreamAsync()
+    private bool IsCurrentForeground(long lifecycleGeneration, long connectionGeneration) =>
+        _isApplicationActive
+        && lifecycleGeneration == Volatile.Read(ref _lifecycleGeneration)
+        && connectionGeneration == Volatile.Read(ref _connectionGeneration);
+
+    private async Task RestartEventStreamAsync(long lifecycleGeneration, long connectionGeneration,
+        (long RouteEpoch, long FrameCount)? resumeProbe = null)
     {
         try
         {
@@ -2474,19 +2532,33 @@ public sealed partial class MobileShellViewModel :
             return;
         }
 
+        Task start;
         try
         {
-            if (!_isApplicationActive)
+            if (!IsCurrentForeground(lifecycleGeneration, connectionGeneration))
                 return;
 
-            BeginConnectionGeneration();
-            await Client.StopEventStreamAsync();
-            await StartAsync();
+            if (resumeProbe is { } probe)
+            {
+                if (!await Client.TryStopSilentEventStreamAsync(probe.RouteEpoch, probe.FrameCount))
+                    return;
+
+                Trace.TraceWarning("[Mobile] Could not restore the kept stream after resuming; reconnecting.");
+                BeginConnectionGeneration();
+            }
+            else
+            {
+                BeginConnectionGeneration();
+                await Client.StopEventStreamAsync();
+            }
+            start = StartAsync();
         }
         finally
         {
             _lifecycleGate.Release();
         }
+
+        await start;
     }
 
     /// <summary>The desktop kept the stream quiet while the app was away; read what may have moved.</summary>
@@ -2514,7 +2586,8 @@ public sealed partial class MobileShellViewModel :
             if (Client.TimeSinceLastFrame is not { } silent
                 || silent >= _connection.StaleStreamAfterNetworkChange)
             {
-                _ = RestartEventStreamAsync();
+                _ = RestartEventStreamAsync(
+                    Volatile.Read(ref _lifecycleGeneration), Volatile.Read(ref _connectionGeneration));
             }
 
             return;
@@ -2559,12 +2632,24 @@ public sealed partial class MobileShellViewModel :
     }
 
     private async Task UpdateEventSubscriptionForConnectionAsync(
-        RemoteEventSubscription subscription)
+        RemoteEventSubscription subscription, bool restartOnFailure = true)
     {
         using var request = CreateConnectionRequest();
         try
         {
-            await Client.UpdateEventSubscriptionAsync(subscription, request.Token);
+            if (subscription.IsForeground)
+            {
+                // The desktop only pings on a background-to-foreground transition. Don't let
+                // foreground navigation overtake the background update on a different socket.
+                var background = Volatile.Read(ref _backgroundSubscriptionUpdate);
+                if (!background.IsCompleted)
+                {
+                    Client.StageEventSubscription(subscription);
+                    return; // Resume sends the latest scope once the background update finishes.
+                }
+            }
+
+            await Client.UpdateEventSubscriptionAsync(subscription, request.Token, restartOnFailure);
         }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
         {
