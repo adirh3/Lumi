@@ -6533,6 +6533,7 @@
         <!-- How much this chat may do on its own: a setting like the model, beside it. -->
         <sc:StrataChatComposer.TrailingContent>
           <sc:StrataModePicker x:Name="ApprovalModePicker"
+                               Classes="composer"
                                Icon="{Binding CurrentApprovalMode, Converter={x:Static conv:ApprovalModeIconConverter.Instance}}"
                                Label="{Binding CurrentApprovalModeOption.Title}"
                                ShowLabel="{Binding !IsFullAccessMode}"

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Microsoft.Copilot;
@@ -11,6 +12,7 @@ using Lumi.Services.Permissions;
 using Lumi.ViewModels;
 using Lumi.Views;
 using Microsoft.Extensions.AI;
+using StrataTheme;
 using StrataTheme.Controls;
 using Xunit;
 using Chat = Lumi.Models.Chat;
@@ -893,6 +895,8 @@ public sealed class PermissionControlsTests
                 Assert.True(picker.IsEffectivelyVisible);
                 Assert.Equal(Loc.Get("ApprovalMode_AskFirst"), picker.Label);
                 Assert.Equal(StrataModeTone.Caution, picker.Tone);
+                var popup = picker.GetVisualDescendants().OfType<Popup>().Single(part => part.Name == "PART_Popup");
+                Assert.Equal(TimeSpan.FromMilliseconds(220), PopupAnimationHelper.GetOpenAnimationDuration(popup));
                 Assert.True(view.FindControl<Border>("ApprovalsWaitingBar")!.IsEffectivelyVisible);
                 Assert.Equal(Loc.Get("Approval_WaitingMany", 2), vm.ApprovalsWaitingText);
 
