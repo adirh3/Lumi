@@ -1750,6 +1750,7 @@
   "ModelSwitch_Switching": "Passage à {0}…",
   "ModelSwitch_Applied": "Désormais avec {0}",
   "ModelSwitch_SwitchNow": "Changer maintenant",
+  "ModelSwitch_NoLongerPending": "Ce changement de modèle n’est plus en attente.",
   "ModelSwitch_SwitchNowToolTip": "Arrête l'étape en cours et poursuit ce travail avec {0}",
   "ModelSwitch_NextMessage": "{0} prendra le relais à votre prochain message",
   "ModelSwitch_CannotUse": "Impossible de démarrer ce tour avec {0}. Réessayez ou choisissez un autre modèle. Lumi n’a pas changé de modèle.",

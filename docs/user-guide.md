@@ -1312,6 +1312,13 @@ not inside the conversation's clipping and layout subtree. The overlay follows t
 pane's bounds, including docked navigation and foldable insets, while keeping the chat's native
 editor behind the sheets through dismissal.
 
+Tap the model name in the composer, or open **Chat title → Model**, to change the model or
+reasoning effort while Lumi is replying, even if the chat isn't open on your PC. Reasoning effort
+takes effect from the next step, with a brief confirmation in the chat. Picking a model closes
+the picker. The change normally waits for the reply to finish; tap **Switch now** above the
+composer to interrupt the current step and continue the same work with the new model. A model
+on a different account endpoint takes over with your next message instead.
+
 The mobile conversation is an unlimited canvas: history runs edge to edge underneath the floating
 top bar and composer, resting clear of both. Everything that floats over moving content is one
 material, the composer's floating glass: the composer, the top-bar buttons and title pill, the

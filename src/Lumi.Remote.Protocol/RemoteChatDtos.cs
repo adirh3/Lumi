@@ -72,6 +72,8 @@ public sealed class RemoteChatStatus
     public Guid? MobileUnreadMark { get; set; }
     public string? StatusText { get; set; }
     public string? Model { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public RemoteModelSwitchState ModelSwitch { get; set; }
     public long ContextCurrentTokens { get; set; }
     public long ContextTokenLimit { get; set; }
     public string? PlanContent { get; set; }
@@ -119,6 +121,15 @@ public sealed class RemoteChatStatus
     public List<RemoteChip> AvailableProjects { get; set; } = [];
     public bool HasComposerCatalogs { get; set; }
     public string? DetailsVersion { get; set; }
+}
+
+public enum RemoteModelSwitchState
+{
+    None,
+    AfterReply,
+    NextMessage,
+    Switching,
+    Applied
 }
 
 public sealed class RemoteConnectionStatus

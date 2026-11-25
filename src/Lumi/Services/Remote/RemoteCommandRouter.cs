@@ -72,6 +72,7 @@ internal sealed class RemoteCommandRouter
             RemoteProtocol.Actions.AnswerQuestion => await AnswerQuestionAsync(command),
             RemoteProtocol.Actions.UpdateInteraction => await UpdateInteractionAsync(command, cancellationToken),
             RemoteProtocol.Actions.ConfigureChat => await ConfigureChatAsync(command),
+            RemoteProtocol.Actions.SwitchModelNow => await SwitchModelNowAsync(command),
             RemoteProtocol.Actions.ConfigureFeature => await ConfigureFeatureAsync(command),
             RemoteProtocol.Actions.PinModel => await PinModelAsync(command),
             RemoteProtocol.Actions.KeepSetup => await KeepSetupAsync(command),
@@ -940,10 +941,8 @@ internal sealed class RemoteCommandRouter
     }
 
     /// <summary>
-    /// Applies composer configuration to the open chat. The desktop keeps model / effort / context
-    /// tier / agent / project / skills / MCPs on <see cref="ChatViewModel"/> for whichever chat is
-    /// currently open, so the chat must be opened first; every other path would diverge from what
-    /// the desktop composer itself does.
+    /// Applies composer configuration as the desktop picker does. A live chat's model settings can
+    /// target its runtime directly when the owner is displaying another chat.
     ///
     /// Only arguments actually present are applied. That matters because the phone sends one picker
     /// at a time — echoing the whole configuration back would re-apply values the user did not touch
@@ -957,6 +956,24 @@ internal sealed class RemoteCommandRouter
             return Fail(projectError, chat.Id);
         if (!TryResolveAgentSelection(command, out var agentSelection, out var agentError))
             return Fail(agentError, chat.Id);
+
+        // Model-only picks can target an offscreen chat without taking over the desktop window.
+        var registeredOwner = TryResolveRegisteredOwner(chat.Id);
+        if (registeredOwner is not null && registeredOwner.CurrentChat?.Id != chat.Id
+            && command.Arguments.Keys.All(key => key is "chatId" or "model" or "quality" or "reasoningEffort" or "contextWindowTier"))
+        {
+            var quality = command.Get("quality") ?? command.Get("reasoningEffort");
+            var tier = command.Get("contextWindowTier");
+            var requestedModel = command.Get("model");
+            var model = requestedModel ?? registeredOwner.ResolveSelectedModelForChat(chat);
+            if (string.IsNullOrWhiteSpace(model) || (requestedModel is null && quality is null && tier is null))
+                return Fail(Loc.Remote_NothingToConfigure, chat.Id);
+
+            await registeredOwner.ConfigureBackgroundModelAsync(
+                chat, registeredOwner.ResolveModelQualitySelection(model, quality), quality, tier);
+            await _dataStore.SaveAsync().ConfigureAwait(true);
+            return Success(Loc.Get("Remote_ConfigurationUpdated", Loc.Chat_ContextWindow_Model), chat.Id);
+        }
 
         var chatVm = await ResolveChatOwnerAsync(chat).ConfigureAwait(true);
         if (chatVm is null || chatVm.CurrentChat?.Id != chat.Id)
@@ -979,6 +996,17 @@ internal sealed class RemoteCommandRouter
 
         await _dataStore.SaveAsync().ConfigureAwait(true);
         return Success(Loc.Get("Remote_ConfigurationUpdated", string.Join(", ", applied.Distinct())), chat.Id);
+    }
+
+    private async Task<RemoteCommandResult> SwitchModelNowAsync(RemoteCommand command)
+    {
+        if (ResolveExplicitChat(command) is not { } chat)
+            return Fail(Loc.Remote_ChatNotFound);
+        if (TryResolveRegisteredOwner(chat.Id) is not { } owner)
+            return Fail(Loc.Get("ModelSwitch_NoLongerPending"), chat.Id);
+
+        var error = await owner.TrySwitchModelNowAsync(chat, command.Get("model"));
+        return error is null ? Success(Loc.Get("ModelSwitch_SwitchNow"), chat.Id) : Fail(error, chat.Id);
     }
 
     private List<string> ApplyChatConfiguration(

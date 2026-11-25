@@ -274,6 +274,12 @@
   <data name="ModelNamed" xml:space="preserve">
     <value>モデル: {0}</value>
   </data>
+  <data name="ModelSwitchAfterReply" xml:space="preserve"><value>この返信の後に {0} に切り替わります</value></data>
+  <data name="ModelSwitchNextMessage" xml:space="preserve"><value>次のメッセージから {0} を使用します</value></data>
+  <data name="ModelSwitchSwitching" xml:space="preserve"><value>{0} に切り替えています…</value></data>
+  <data name="ModelSwitchApplied" xml:space="preserve"><value>現在 {0} を使用中</value></data>
+  <data name="ModelSwitchNow" xml:space="preserve"><value>今すぐ切り替え</value></data>
+  <data name="ModelSwitchFailed" xml:space="preserve"><value>モデルを切り替えられませんでした。</value></data>
   <data name="ProjectNamed" xml:space="preserve">
     <value>プロジェクト: {0}</value>
   </data>

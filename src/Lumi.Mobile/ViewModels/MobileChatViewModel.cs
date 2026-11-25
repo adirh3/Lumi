@@ -1307,7 +1307,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         IsEffortSheetOpen = true;
     }
 
-    /// <summary>Picks a model and dismisses — a sheet that stays open after a choice feels broken.</summary>
+    /// <summary>Dismisses after a model pick so the live switch notice is visible in the chat.</summary>
     [RelayCommand]
     private void PickModel(string? model)
     {
@@ -1325,7 +1325,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private void PickQuality(string? quality)
     {
         if (quality is { Length: > 0 })
+        {
             Quality = quality;
+            if (IsWorking)
+            {
+                IsModelSheetOpen = false;
+                IsEffortSheetOpen = false;
+            }
+        }
 
         RefreshPickerOptions();
     }
@@ -1779,6 +1786,13 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (_applyingServerState || _restoringDraftState || value is null)
             return;
 
+        if (key is "model" or "quality")
+        {
+            ModelSwitchError = null;
+            if (ModelSwitch != RemoteModelSwitchState.Switching)
+                ModelSwitch = RemoteModelSwitchState.None;
+        }
+
         Interlocked.Increment(ref _statusVersion);
 
         // A phone launches into an empty surface, so the user reaches the pickers before any chat
@@ -2090,6 +2104,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             var surface = CurrentSurface;
             var activation = _surfaceActivationGeneration;
             var hostGeneration = Volatile.Read(ref _hostGeneration);
+            var wasWorking = IsWorking;
             var pending = _pendingConfiguration.Clone();
             // Worktree selection is consumed only by the first send. Configure-chat has no
             // worktree operation, so flushing other staged settings must leave this intent armed.
@@ -2117,11 +2132,19 @@ public sealed partial class MobileChatViewModel : ObservableObject
             catch (Exception ex)
             {
                 Trace.TraceWarning($"[Mobile] Pending chat configuration failed: {ex}");
+                if (wasWorking && IsCurrentHost(hostGeneration) && IsCurrentSurfaceActivation(surface, activation))
+                    ReportModelConfigurationFailure(pending, null);
                 return;
             }
 
-            if (!IsCurrentHost(hostGeneration) || !result.Ok)
+            if (!IsCurrentHost(hostGeneration))
                 return;
+            if (!result.Ok)
+            {
+                if (wasWorking && IsCurrentSurfaceActivation(surface, activation))
+                    ReportModelConfigurationFailure(pending, result.Error);
+                return;
+            }
 
             if (IsCurrentSurfaceActivation(surface, activation))
             {
@@ -2184,6 +2207,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
             ContextCurrentTokens = 0;
             ContextTokenLimit = 0;
             StatusText = null;
+            ModelSwitch = RemoteModelSwitchState.None;
+            ModelSwitchText = null;
+            ModelSwitchError = null;
             HasUnreadMessages = null;
             PlanContent = null;
             IsPlanOpen = false;
@@ -2708,7 +2734,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // before the transcript carrying the first reasoning/tool/assistant row reaches the phone.
         // Preserve the working state across that gap; a visible response row, Stop, or an explicit
         // send failure is what ends the optimistic progress state.
-        var reportsWorking = status.IsBusy || status.IsStreaming;
+        // The desktop briefly pauses the underlying turn to continue it on the new model.
+        var isBusy = status.IsBusy || status.ModelSwitch == RemoteModelSwitchState.Switching;
+        var reportsWorking = isBusy || status.IsStreaming;
         var reportsSessionActive = status.IsSessionActive || reportsWorking;
         var wasWorking = IsBusy || IsStreaming;
         if (reportsWorking && !wasWorking && !_hasVisibleResponseActivity)
@@ -2721,6 +2749,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                                    _pendingStopRequestIds.Remove(statusChatId);
         var holdingProgress = !pendingStopCompleted &&
                               _awaitingVisibleActivity &&
+                              ModelSwitch != RemoteModelSwitchState.Switching &&
                               !reportsWorking &&
                               wasWorking;
         _idleAwaitingVisibleActivity = holdingProgress;
@@ -2733,7 +2762,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
         else if (!holdingProgress)
         {
-            ApplyWorkingState(status.IsBusy, status.IsStreaming);
+            ApplyWorkingState(isBusy, status.IsStreaming);
             if (!reportsWorking)
                 ResetVisibleActivityProgress();
         }
@@ -2819,6 +2848,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(EffortIndex));
         OnPropertyChanged(nameof(EffortMax));
         OnPropertyChanged(nameof(EffortLabel));
+        ApplyModelSwitchStatus(status);
 
         Sync(Suggestions, status.Suggestions
             .Where(suggestion => !string.IsNullOrWhiteSpace(suggestion))

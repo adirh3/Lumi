@@ -597,7 +597,8 @@ public partial class ChatViewModel
         var cts = _modelSelectionSyncCts;
         var token = cts.Token;
         _ = Task.Delay(75, token).ContinueWith(
-            async _ => await Dispatcher.UIThread.InvokeAsync(() => !token.IsCancellationRequested && CurrentChat?.Id == chat.Id
+            async _ => await Dispatcher.UIThread.InvokeAsync(() =>
+                CurrentChat?.Id == chat.Id
                     ? SwitchModelMidSessionAsync(modelId, reasoningEffort, contextTier, token)
                     : Task.FromResult(false)),
             token,
@@ -605,10 +606,39 @@ public partial class ChatViewModel
             TaskScheduler.Default).Unwrap();
     }
 
-    private async Task<bool> SwitchModelMidSessionAsync(
+    private Task<bool> SwitchModelMidSessionAsync(
         string? modelId, string? reasoningEffort, string? contextTier, CancellationToken selectionToken = default)
+        => CurrentChat is { } chat
+            ? SwitchChatModelMidSessionAsync(chat, modelId, reasoningEffort, contextTier, selectionToken, requireDisplayedChat: true)
+            : Task.FromResult(false);
+
+    internal async Task ConfigureBackgroundModelAsync(Chat chat, string model, string? quality, string? tier)
     {
-        if (selectionToken.IsCancellationRequested || CurrentChat is not { } chat || !_sessionCache.ContainsKey(chat.Id))
+        var effort = ResolveReasoningEffortForModel(
+            ModelSelectionHelper.DisplayToEffort(quality) ?? ResolvePersistedReasoningEffortForChat(chat, model), model);
+        var contextTier = tier is not null
+            ? NormalizeContextWindowTierFor(model, tier)
+            : ResolveSelectedContextWindowTierForChat(chat, model);
+        if (chat.LastModelUsed == model && chat.LastReasoningEffortUsed == effort
+            && (contextTier is null || chat.LastContextWindowTierUsed == contextTier))
+        {
+            return;
+        }
+
+        chat.LastModelUsed = model;
+        chat.LastReasoningEffortUsed = effort;
+        if (contextTier is not null)
+            chat.LastContextWindowTierUsed = contextTier;
+        _dataStore.MarkChatChanged(chat);
+        NotifyModelSwitchChanged(chat.Id);
+        await SwitchChatModelMidSessionAsync(chat, model, effort, contextTier);
+    }
+
+    private async Task<bool> SwitchChatModelMidSessionAsync(
+        Chat chat, string? modelId, string? reasoningEffort, string? contextTier,
+        CancellationToken selectionToken = default, bool requireDisplayedChat = false)
+    {
+        if (selectionToken.IsCancellationRequested || !_sessionCache.ContainsKey(chat.Id))
             return false;
 
         // No specific model to switch to — treat the session as already consistent.
@@ -624,17 +654,17 @@ public partial class ChatViewModel
         var modelRoute = ResolveModelRouteForChat(modelId, chat);
         if (modelRoute.IsInvalidByok || string.IsNullOrWhiteSpace(modelRoute.SessionModelId))
         {
-            InvalidateCurrentSessionForModelSwitch();
+            InvalidateSessionForModelSwitch(chat);
             return false;
         }
 
         var newSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider, modelRoute.ByokModel);
         if (!string.Equals(newSignature, _sessionProviderSignatures.GetValueOrDefault(chat.Id), StringComparison.Ordinal))
         {
-            InvalidateCurrentSessionForModelSwitch();
+            InvalidateSessionForModelSwitch(chat);
             try
             {
-                await WaitForSessionRebuildAsync(chat, modelRoute.SessionModelId, selectionToken);
+                await WaitForSessionRebuildAsync(chat, modelRoute.SessionModelId, modelId, selectionToken);
             }
             catch (OperationCanceledException) when (selectionToken.IsCancellationRequested)
             {
@@ -660,7 +690,8 @@ public partial class ChatViewModel
                 System.Diagnostics.Trace.TraceWarning("[Chat] Could not validate the session for a model change: {0}", ex);
                 return false;
             }
-            if (selectionToken.IsCancellationRequested || session is null || CurrentChat?.Id != chat.Id)
+            if (selectionToken.IsCancellationRequested || session is null
+                || (requireDisplayedChat && CurrentChat?.Id != chat.Id))
                 return false;
 
             try
@@ -692,7 +723,7 @@ public partial class ChatViewModel
             {
                 // The live session cannot apply this selection. Keep the existing recreation fallback.
                 System.Diagnostics.Trace.TraceWarning("[Chat] Model switch failed: {0}", ex.Message);
-                InvalidateCurrentSessionForModelSwitch();
+                InvalidateSessionForModelSwitch(chat);
                 return false;
             }
         }
@@ -711,9 +742,15 @@ public partial class ChatViewModel
     /// </summary>
     private void InvalidateCurrentSessionForModelSwitch()
     {
-        if (CurrentChat is null) return;
-        _pendingSessionInvalidations.Add(CurrentChat.Id);
-        StatusText = Loc.Status_Reconnecting;
+        if (CurrentChat is { } chat)
+            InvalidateSessionForModelSwitch(chat);
+    }
+
+    private void InvalidateSessionForModelSwitch(Chat chat)
+    {
+        _pendingSessionInvalidations.Add(chat.Id);
+        if (CurrentChat?.Id == chat.Id)
+            StatusText = Loc.Status_Reconnecting;
     }
 
     private List<AIFunction> BuildUIAutomationTools(Guid chatId)

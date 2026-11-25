@@ -2916,6 +2916,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Reuse the cached session only while the current CLI connection can still talk to it.
             // Inactive chats are evicted separately, and AutoRestart can still leave stale session handles.
             _activeSession = await TryGetReusableCachedSessionAsync(chat, loadToken);
+            _activeSessionProviderSignature = _activeSession is null
+                ? null
+                : _sessionProviderSignatures.GetValueOrDefault(chat.Id);
 
             // If the cached session was created against a different BYOK endpoint than what the
             // user has selected for this chat now (e.g. the chat was previously sent through the
@@ -5705,7 +5708,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Refresh the active-session provider signature from the cached entry so the next
             // mid-session model switch can detect when the cached session's endpoint no longer
             // matches the user's selected model.
-            _activeSessionProviderSignature = _sessionProviderSignatures.GetValueOrDefault(chat.Id);
+            if (CurrentChat?.Id == chat.Id)
+                _activeSessionProviderSignature = _sessionProviderSignatures.GetValueOrDefault(chat.Id);
             GetOrCreateRuntimeState(chat.Id).LastSessionActivityUtc = DateTimeOffset.UtcNow;
             return cachedSession;
         }

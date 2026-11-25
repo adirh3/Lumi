@@ -106,6 +106,12 @@
   <data name="JobWakeNamed" xml:space="preserve"><value>Tarefa despertada: {0}</value></data>
   <data name="ChatDetailsNamed" xml:space="preserve"><value>Detalhes da conversa: {0}</value></data>
   <data name="ModelNamed" xml:space="preserve"><value>Modelo: {0}</value></data>
+  <data name="ModelSwitchAfterReply" xml:space="preserve"><value>{0} assume após esta resposta</value></data>
+  <data name="ModelSwitchNextMessage" xml:space="preserve"><value>{0} assume na sua próxima mensagem</value></data>
+  <data name="ModelSwitchSwitching" xml:space="preserve"><value>Alternando para {0}…</value></data>
+  <data name="ModelSwitchApplied" xml:space="preserve"><value>Usando {0} agora</value></data>
+  <data name="ModelSwitchNow" xml:space="preserve"><value>Trocar agora</value></data>
+  <data name="ModelSwitchFailed" xml:space="preserve"><value>Não foi possível trocar de modelo.</value></data>
   <data name="ProjectNamed" xml:space="preserve"><value>Projeto: {0}</value></data>
   <data name="AgentNamed" xml:space="preserve"><value>Agente: {0}</value></data>
   <data name="SkillNamed" xml:space="preserve"><value>Habilidade: {0}</value></data>

@@ -16,7 +16,8 @@ internal enum ContextTokenLimitSource
 /// No switch is queued: the running session can't take the pick (it routes to another endpoint, or the
 /// session rejected it), so the next message's session does.
 /// </param>
-internal sealed record PendingModelSwitch(string SessionModelId, IReadOnlyList<string> QueueIds, bool NeedsNewSession = false);
+internal sealed record PendingModelSwitch(
+    string SessionModelId, IReadOnlyList<string> QueueIds, bool NeedsNewSession = false, string? SelectionToken = null);
 
 internal sealed class ChatRuntimeState
 {

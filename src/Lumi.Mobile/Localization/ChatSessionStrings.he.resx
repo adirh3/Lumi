@@ -106,6 +106,12 @@
   <data name="JobWakeNamed" xml:space="preserve"><value>הפעלה ממשימה: {0}</value></data>
   <data name="ChatDetailsNamed" xml:space="preserve"><value>פרטי השיחה: {0}</value></data>
   <data name="ModelNamed" xml:space="preserve"><value>מודל: {0}</value></data>
+  <data name="ModelSwitchAfterReply" xml:space="preserve"><value>{0} ימשיך אחרי התשובה הזו</value></data>
+  <data name="ModelSwitchNextMessage" xml:space="preserve"><value>{0} ימשיך מההודעה הבאה שלך</value></data>
+  <data name="ModelSwitchSwitching" xml:space="preserve"><value>עובר ל-{0}…</value></data>
+  <data name="ModelSwitchApplied" xml:space="preserve"><value>עובד עכשיו עם {0}</value></data>
+  <data name="ModelSwitchNow" xml:space="preserve"><value>החלף עכשיו</value></data>
+  <data name="ModelSwitchFailed" xml:space="preserve"><value>לא ניתן להחליף מודל.</value></data>
   <data name="ProjectNamed" xml:space="preserve"><value>פרויקט: {0}</value></data>
   <data name="AgentNamed" xml:space="preserve"><value>סוכן: {0}</value></data>
   <data name="SkillNamed" xml:space="preserve"><value>כישור: {0}</value></data>

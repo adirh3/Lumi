@@ -1750,6 +1750,7 @@
   "ModelSwitch_Switching": "جارٍ التبديل إلى {0}…",
   "ModelSwitch_Applied": "يعمل الآن باستخدام {0}",
   "ModelSwitch_SwitchNow": "التبديل الآن",
+  "ModelSwitch_NoLongerPending": "لم يعد تبديل النموذج هذا قيد الانتظار.",
   "ModelSwitch_SwitchNowToolTip": "يوقف الخطوة الحالية ويواصل هذا العمل باستخدام {0}",
   "ModelSwitch_NextMessage": "سيتولى {0} العمل مع رسالتك التالية",
   "ModelSwitch_CannotUse": "تعذّر بدء هذه الجولة باستخدام {0}. حاول مجددًا أو اختر نموذجًا آخر. لم ينتقل لومي إلى نموذج آخر.",

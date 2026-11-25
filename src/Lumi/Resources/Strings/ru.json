@@ -1750,6 +1750,7 @@
   "ModelSwitch_Switching": "Переключение на {0}…",
   "ModelSwitch_Applied": "Теперь используем {0}",
   "ModelSwitch_SwitchNow": "Переключиться сейчас",
+  "ModelSwitch_NoLongerPending": "Эта смена модели больше не ожидается.",
   "ModelSwitch_SwitchNowToolTip": "Остановит текущий шаг и продолжит работу с {0}",
   "ModelSwitch_NextMessage": "{0} будет работать с вашим следующим сообщением",
   "ModelSwitch_CannotUse": "Не удалось начать этот ход с {0}. Попробуйте снова или выберите другую модель. Lumi не переключилась на другую модель",

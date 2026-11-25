@@ -106,6 +106,12 @@
   <data name="JobWakeNamed" xml:space="preserve"><value>任务唤醒：{0}</value></data>
   <data name="ChatDetailsNamed" xml:space="preserve"><value>聊天详情：{0}</value></data>
   <data name="ModelNamed" xml:space="preserve"><value>模型：{0}</value></data>
+  <data name="ModelSwitchAfterReply" xml:space="preserve"><value>此回复结束后将使用 {0}</value></data>
+  <data name="ModelSwitchNextMessage" xml:space="preserve"><value>发送下一条消息时将使用 {0}</value></data>
+  <data name="ModelSwitchSwitching" xml:space="preserve"><value>正在切换到 {0}…</value></data>
+  <data name="ModelSwitchApplied" xml:space="preserve"><value>当前使用 {0}</value></data>
+  <data name="ModelSwitchNow" xml:space="preserve"><value>立即切换</value></data>
+  <data name="ModelSwitchFailed" xml:space="preserve"><value>无法切换模型。</value></data>
   <data name="ProjectNamed" xml:space="preserve"><value>项目：{0}</value></data>
   <data name="AgentNamed" xml:space="preserve"><value>智能体：{0}</value></data>
   <data name="SkillNamed" xml:space="preserve"><value>技能：{0}</value></data>

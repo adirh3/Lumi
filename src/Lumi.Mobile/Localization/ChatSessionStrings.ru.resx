@@ -106,6 +106,12 @@
   <data name="JobWakeNamed" xml:space="preserve"><value>Задача активации: {0}</value></data>
   <data name="ChatDetailsNamed" xml:space="preserve"><value>Детали чата: {0}</value></data>
   <data name="ModelNamed" xml:space="preserve"><value>Модель: {0}</value></data>
+  <data name="ModelSwitchAfterReply" xml:space="preserve"><value>{0} начнёт работу после этого ответа</value></data>
+  <data name="ModelSwitchNextMessage" xml:space="preserve"><value>{0} начнёт работу со следующего сообщения</value></data>
+  <data name="ModelSwitchSwitching" xml:space="preserve"><value>Переход на {0}…</value></data>
+  <data name="ModelSwitchApplied" xml:space="preserve"><value>Теперь используется {0}</value></data>
+  <data name="ModelSwitchNow" xml:space="preserve"><value>Сменить сейчас</value></data>
+  <data name="ModelSwitchFailed" xml:space="preserve"><value>Не удалось сменить модель.</value></data>
   <data name="ProjectNamed" xml:space="preserve"><value>Проект: {0}</value></data>
   <data name="AgentNamed" xml:space="preserve"><value>Агент: {0}</value></data>
   <data name="SkillNamed" xml:space="preserve"><value>Навык: {0}</value></data>

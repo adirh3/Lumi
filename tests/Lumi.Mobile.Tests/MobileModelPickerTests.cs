@@ -129,6 +129,158 @@ public sealed class MobileModelPickerTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task SwitchNowTargetsTheOpenChatAndIgnoresAReplyAfterNavigation()
+    {
+        var sink = new PinSink();
+        var chat = OpenSheet(sink, Catalog());
+        var id = Guid.NewGuid();
+        chat.Reset(id, "Working");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = id, IsBusy = true, Model = "gpt-6.1-sol" });
+        chat.OpenModelSheetCommand.Execute(null);
+        chat.PickModelCommand.Execute("claude-sonnet-5");
+        Assert.False(chat.IsModelSheetOpen);
+        var pick = Assert.Single(sink.Commands);
+        Assert.Equal(RemoteProtocol.Actions.ConfigureChat, pick.Action);
+        Assert.Equal("claude-sonnet-5", pick.Get("model"));
+        sink.Commands.Clear();
+
+        chat.ApplyStatus(new RemoteChatStatus
+        {
+            ChatId = id, IsBusy = true, Model = "claude-sonnet-5", ModelSwitch = RemoteModelSwitchState.AfterReply
+        });
+        Assert.Equal("Claude Sonnet 5 takes over after this reply", chat.ModelSwitchText);
+
+        var response = new TaskCompletionSource<RemoteCommandResult>();
+        sink.Respond = _ => response.Task;
+        var switching = chat.SwitchModelNowCommand.ExecuteAsync(null);
+
+        var command = Assert.Single(sink.Commands);
+        Assert.Equal((RemoteProtocol.Actions.SwitchModelNow, id.ToString(), "claude-sonnet-5"),
+            (command.Action, command.Get("chatId"), command.Get("model")));
+
+        chat.Reset(Guid.NewGuid(), "Another chat");
+        response.SetResult(new RemoteCommandResult { Error = "The original reply ended." });
+        await switching;
+
+        Assert.False(chat.ShowModelSwitch);
+        Assert.False(chat.SwitchModelNowCommand.CanExecute(null));
+        Assert.Null(chat.ModelSwitchError);
+    }
+
+    [Fact]
+    public async Task NewModelPickDoesNotResurrectAnOlderSwitchNoticeWhileThePcAnswers()
+    {
+        var response = new TaskCompletionSource<RemoteCommandResult>();
+        var sink = new PinSink { Respond = _ => response.Task };
+        var chat = OpenSheet(sink, Catalog());
+        var id = Guid.NewGuid();
+        chat.Reset(id, "Working");
+        var older = new RemoteChatStatus
+        {
+            ChatId = id, IsBusy = true, Model = "claude-sonnet-5", ModelSwitch = RemoteModelSwitchState.AfterReply
+        };
+        chat.ApplyStatus(older);
+        Assert.True(chat.SwitchModelNowCommand.CanExecute(null));
+
+        chat.PickModelCommand.Execute("gpt-6.1-sol");
+        chat.ApplyStatus(older);
+
+        Assert.False(chat.ShowModelSwitch);
+        Assert.False(chat.SwitchModelNowCommand.CanExecute(null));
+        response.SetResult(new RemoteCommandResult { Ok = true });
+        await chat.FlushPendingConfigurationAsync();
+        chat.ApplyStatus(new RemoteChatStatus
+        {
+            ChatId = id, IsBusy = true, Model = "gpt-6.1-sol", ModelSwitch = RemoteModelSwitchState.AfterReply
+        });
+        Assert.True(chat.SwitchModelNowCommand.CanExecute(null));
+        Assert.Contains("GPT-6.1 Sol", chat.ModelSwitchText);
+    }
+
+    [Fact]
+    public void RejectedMidReplyEffortPickReportsTheErrorInChat()
+    {
+        var sink = new PinSink
+        {
+            Respond = _ => Task.FromResult(new RemoteCommandResult { Error = "The PC rejected the effort." })
+        };
+        var chat = OpenSheet(sink, Catalog());
+        var id = Guid.NewGuid();
+        chat.Reset(id, "Working");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = id, IsBusy = true, Model = "gpt-6.1-sol", Quality = "low" });
+        chat.OpenModelSheetCommand.Execute(null);
+
+        chat.PickQualityCommand.Execute("high");
+
+        Assert.False(chat.IsModelSheetOpen);
+        Assert.Equal("The PC rejected the effort.", chat.ModelSwitchError);
+        Assert.False(chat.ShowModelSwitch);
+    }
+
+    [Fact]
+    public Task ModelPickDismissesTheSheetAndTheChatShowsTheLiveSwitchAction() => RunUiAsync(async (shell, window) =>
+    {
+        var chat = shell.Chat;
+        var id = Guid.NewGuid();
+        chat.ApplyCatalogs(Catalog());
+        chat.Reset(id, "Working");
+        shell.IsDrawerOpen = false;
+        void SetState(RemoteModelSwitchState state, bool busy, string model = "claude-sonnet-5", string quality = "high")
+        {
+            chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = id, IsBusy = busy, Model = model, Quality = quality,
+                QualityLevels = ["low", "medium", "high"], ModelSwitch = state
+            });
+            Pump(window);
+            window.UpdateLayout();
+        }
+
+        SetState(RemoteModelSwitchState.None, true, model: "gpt-6.1-sol");
+        await SettleAsync(window);
+        var composer = Named<StrataChatComposer>(window, "Composer");
+        Assert.True(composer.IsCompact);
+        Assert.DoesNotContain(composer.GetVisualDescendants(), child => child is Button { Name: "SwitchModelNowButton" });
+
+        // The existing title → Model route opens the same picker without touching the editor.
+        Tap(window, Named<Button>(window, "HeaderDetailsButton"));
+        await SettleAsync(window);
+        Tap(window, Named<Button>(window, "RunSettingsModelButton"));
+        Assert.True(chat.IsModelSheetOpen);
+        await SettleAsync(window);
+        var modelRow = window.GetVisualDescendants().OfType<Button>().Single(button =>
+            button.Command == chat.PickModelCommand && Equals(button.CommandParameter, "claude-sonnet-5"));
+        Tap(window, modelRow);
+        Assert.False(chat.IsModelSheetOpen);
+
+        SetState(RemoteModelSwitchState.AfterReply, true);
+        await SettleAsync(window);
+        var bar = Named<Panel>(window, "ModelSwitchBar");
+        var action = Named<Button>(window, "SwitchModelNowButton");
+        var label = Named<TextBlock>(window, "ModelSwitchText");
+        Assert.True(bar.IsEffectivelyVisible);
+        Assert.True(action.IsEffectivelyVisible);
+        Assert.True(action.Bounds.Width >= 48 && action.Bounds.Height >= 48);
+        Assert.Contains("after this reply", label.Text);
+
+        SetState(RemoteModelSwitchState.Switching, false);
+        Assert.True(chat.IsBusy);
+        Assert.False(action.IsEffectivelyVisible);
+        Assert.Equal("Switching to Claude Sonnet 5 · High…", label.Text);
+
+        chat.OpenModelSheetCommand.Execute(null);
+        chat.PickQualityCommand.Execute("medium");
+        Assert.False(chat.IsModelSheetOpen);
+        SetState(RemoteModelSwitchState.Applied, true, quality: "medium");
+        Assert.Equal("Now using Claude Sonnet 5 · Medium", label.Text);
+        SetState(RemoteModelSwitchState.NextMessage, true, quality: "medium");
+        Assert.Equal("Claude Sonnet 5 · Medium takes over with your next message", label.Text);
+        Assert.False(action.IsEffectivelyVisible);
+        SetState(RemoteModelSwitchState.None, false);
+        Assert.False(bar.IsEffectivelyVisible);
+    });
+
+    [Fact]
     public async Task PinningMovesTheRowAtOnceAndKeepsThePcsPin()
     {
         var answer = new TaskCompletionSource<RemoteCommandResult>();

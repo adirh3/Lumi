@@ -816,7 +816,8 @@ dotnet run --project src/Lumi.Mobile.Desktop/Lumi.Mobile.Desktop.csproj -- --des
 The Debug-only `--design-preview` and `--popup-preview` fixtures use synthetic
 data without pairing or model calls. See the
 [mobile UI reference](user-guide.md#mobile-conversations) for device and popup
-options. Omit the preview flag to test an actual paired connection.
+options. Add `--model-switch-preview` to `--design-preview` to see a queued model change
+in the chat. Omit the preview flag to test an actual paired connection.
 
 Mobile sends clear the composer and show the user bubble and Thinking before
 waiting for pending configuration requests. Sending closes the keyboard; on Android

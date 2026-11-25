@@ -275,6 +275,7 @@ internal static class RemoteProjector
             StatusText = isActive ? chatVm.StatusText : null,
             MobileUnreadMark = chat.MobileUnreadMark,
             Model = model,
+            ModelSwitch = chatVm.GetModelSwitchState(chat),
             ContextCurrentTokens = isActive ? chatVm.ContextCurrentTokens : 0,
             ContextTokenLimit = isActive ? chatVm.ContextTokenLimit : 0,
             PlanContent = RemoteProtocol.TruncateForMobile(
@@ -2703,6 +2704,7 @@ internal static class RemoteProjector
             MobileUnreadMark = status.MobileUnreadMark,
             StatusText = BoundOptional(status.StatusText, RemoteProtocol.MobileStatusTextLimit),
             Model = BoundOptional(status.Model, RemoteProtocol.MobileStatusValueLimit),
+            ModelSwitch = status.ModelSwitch,
             ContextCurrentTokens = status.ContextCurrentTokens,
             ContextTokenLimit = status.ContextTokenLimit,
             PlanContent = BoundOptional(status.PlanContent, RemoteProtocol.MobilePlanTextLimit),

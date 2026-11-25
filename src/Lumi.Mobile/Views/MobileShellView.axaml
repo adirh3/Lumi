@@ -360,7 +360,7 @@
       <!-- The desktop's model picker as a sheet: pinned models first, then each provider or account, each
            row with its cost, context size and pin; how hard the chosen model thinks and how much it keeps
            in view stay docked beneath the list, as the picker's footer does. Picking a model closes the
-           sheet; a pin or a segment does not. -->
+           sheet, as does an effort pick during a reply so the chat can show the confirmation. -->
       <sc:StrataBottomSheet x:Name="ModelSheet"
                             Classes="safe-area"
                             IsOpen="{Binding Chat.IsModelSheetOpen, Mode=TwoWay}"

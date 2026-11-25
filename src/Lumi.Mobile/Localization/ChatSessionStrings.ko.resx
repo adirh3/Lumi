@@ -102,6 +102,12 @@
   <data name="JobWakeNamed" xml:space="preserve"><value>작업 깨우기: {0}</value></data>
   <data name="ChatDetailsNamed" xml:space="preserve"><value>채팅 세부 정보: {0}</value></data>
   <data name="ModelNamed" xml:space="preserve"><value>모델: {0}</value></data>
+  <data name="ModelSwitchAfterReply" xml:space="preserve"><value>이 답변이 끝나면 {0} 모델을 사용합니다</value></data>
+  <data name="ModelSwitchNextMessage" xml:space="preserve"><value>다음 메시지부터 {0} 모델을 사용합니다</value></data>
+  <data name="ModelSwitchSwitching" xml:space="preserve"><value>{0} 모델로 전환 중…</value></data>
+  <data name="ModelSwitchApplied" xml:space="preserve"><value>현재 {0} 모델 사용 중</value></data>
+  <data name="ModelSwitchNow" xml:space="preserve"><value>지금 전환</value></data>
+  <data name="ModelSwitchFailed" xml:space="preserve"><value>모델을 전환하지 못했습니다.</value></data>
   <data name="ProjectNamed" xml:space="preserve"><value>프로젝트: {0}</value></data>
   <data name="AgentNamed" xml:space="preserve"><value>에이전트: {0}</value></data>
   <data name="SkillNamed" xml:space="preserve"><value>스킬: {0}</value></data>

@@ -62,6 +62,7 @@ public static class Program
         var popupPreview = args.Contains("--popup-preview");
         var designPreview = args.Contains("--design-preview");
         var designFile = ReadOption(args, "--open-file");
+        var modelSwitchPreview = args.Contains("--model-switch-preview");
         var installPreview = ReadOption(args, "--install-preview");
         if (installPreview is not null)
             MobilePlatformServices.HostEnvironment = new InstallPreviewHost(installPreview);
@@ -93,7 +94,7 @@ public static class Program
             if (popupPreview)
                 window.Opened += (_, _) => window.OpenPopupPreview();
             if (designPreview)
-                window.Opened += (_, _) => window.OpenDesignPreview(designFile);
+                window.Opened += (_, _) => window.OpenDesignPreview(designFile, modelSwitchPreview);
             if (installPreview is not null)
                 window.Opened += (_, _) =>
                 {

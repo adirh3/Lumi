@@ -9,7 +9,9 @@ using Avalonia.Threading;
 using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
+using Lumi.Remote.Protocol;
 using Lumi.Services;
+using Lumi.Services.Remote;
 using Lumi.ViewModels;
 using StreamJsonRpc;
 using Xunit;
@@ -77,6 +79,65 @@ public sealed partial class DeferredSendQueueTests
         Assert.False(host.Runtime.IsSwitchingModel);
         Assert.Equal(ModelSwitchNotice.Applied, host.ViewModel.ModelSwitchNotice);
         Assert.Contains("Claude Haiku 5.5", host.ViewModel.ModelSwitchNoticeText);
+    }
+
+    [Fact]
+    public async Task OffscreenModelPickAndSwitchNowUseTheRunningChatRatherThanTheDisplayedOne()
+    {
+        await TestCopilot.Shared.ConnectAsync();
+        using var host = DeferredSendHost.Create();
+        using var rpc = StartWorkingTurn(host);
+        var other = new Chat { LastModelUsed = RunningModel };
+        host.ViewModel.CurrentChat = other;
+
+        await host.ViewModel.ConfigureBackgroundModelAsync(host.Chat, RunningModel, "High", null);
+        Assert.Equal("high", rpc.LiveEffort);
+        Assert.Equal(RemoteModelSwitchState.Applied,
+            RemoteProjector.BuildStatus(host.DataStore, host.ViewModel, host.Chat).ModelSwitch);
+
+        await host.ViewModel.ConfigureBackgroundModelAsync(host.Chat, PickedModel, null, null);
+
+        var status = RemoteProjector.BuildStatus(host.DataStore, host.ViewModel, host.Chat);
+        Assert.Equal(RemoteModelSwitchState.AfterReply, status.ModelSwitch);
+        Assert.Equal(PickedModel, status.Model);
+        Assert.Equal([PickedModel], rpc.QueuedModelSwitches);
+        Assert.NotNull(await host.ViewModel.TrySwitchModelNowAsync(host.Chat, RunningModel));
+        Assert.Equal(0, rpc.AbortCount);
+
+        Assert.Null(await host.ViewModel.TrySwitchModelNowAsync(host.Chat, PickedModel));
+
+        Assert.Equal(PickedModel, rpc.LiveModel);
+        Assert.Equal(1, rpc.EmptyBatchCount);
+        Assert.Equal(RemoteModelSwitchState.Applied,
+            RemoteProjector.BuildStatus(host.DataStore, host.ViewModel, host.Chat).ModelSwitch);
+        Assert.Equal(RemoteModelSwitchState.None,
+            RemoteProjector.BuildStatus(host.DataStore, host.ViewModel, other).ModelSwitch);
+        Assert.Same(other, host.ViewModel.CurrentChat);
+        Assert.Equal(RunningModel, other.LastModelUsed);
+    }
+
+    [Fact]
+    public async Task ReopeningACachedAccountChatRestoresItsProviderForSteering()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.Chat.LastModelUsed = AddOwnAccount(host, out var signature);
+            host.AttachSession(rpc);
+            host.RecordProviderSignature(signature);
+            host.MarkRuntimeBusy();
+            var other = new Chat { LastModelUsed = RunningModel };
+            host.DataStore.Data.Chats.Add(other);
+
+            await host.ViewModel.LoadChatAsync(other);
+            await host.ViewModel.LoadChatAsync(host.Chat);
+
+            Assert.Same(host.Chat, host.ViewModel.CurrentChat);
+            Assert.True(host.IsProviderConsistent(rpc.Session));
+        }, CancellationToken.None);
     }
 
     [Fact]

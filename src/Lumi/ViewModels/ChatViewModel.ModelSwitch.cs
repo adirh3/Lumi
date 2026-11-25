@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
+using Lumi.Remote.Protocol;
 using Lumi.Services;
 
 namespace Lumi.ViewModels;
@@ -38,6 +39,8 @@ public partial class ChatViewModel
     private readonly SemaphoreSlim _modelSwitchGate = new(1, 1);
     private (Guid ChatId, string Selection)? _modelSwitchApplied;
     private CancellationTokenSource? _modelSwitchAppliedCts;
+
+    internal event Action<Guid>? ModelSwitchStateChanged;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasModelSwitchNotice), nameof(IsModelSwitchPending),
@@ -83,15 +86,15 @@ public partial class ChatViewModel
                 ?? throw new InvalidOperationException(Loc.Byok_Error_StaleModel);
             var result = await SessionModelSwitch.SwitchAsync(session, sessionModelId, options, selectionToken);
             if (result.Deferred)
-                runtime.PendingModelSwitch = new PendingModelSwitch(sessionModelId, result.QueueIds);
+                runtime.PendingModelSwitch = new PendingModelSwitch(sessionModelId, result.QueueIds,
+                    SelectionToken: route.SelectionToken);
             else if (runtime.IsBusy && !chat.IsPaused)
                 ShowModelSwitchApplied(chat);
         }
         finally
         {
             _modelSwitchGate.Release();
-            if (CurrentChat?.Id == chat.Id)
-                RefreshModelSwitchNotice();
+            NotifyModelSwitchChanged(chat.Id);
         }
     }
 
@@ -100,7 +103,8 @@ public partial class ChatViewModel
     /// message starts a session on the pick's (a session can't move to another endpoint, so the running
     /// work can't continue there).
     /// </summary>
-    private async Task WaitForSessionRebuildAsync(Chat chat, string sessionModelId, CancellationToken selectionToken)
+    private async Task WaitForSessionRebuildAsync(
+        Chat chat, string sessionModelId, string modelSelection, CancellationToken selectionToken)
     {
         var runtime = GetOrCreateRuntimeState(chat.Id);
         await _modelSwitchGate.WaitAsync(selectionToken);
@@ -109,14 +113,13 @@ public partial class ChatViewModel
             if (runtime.PendingModelSwitch is { } waiting && _sessionCache.TryGetValue(chat.Id, out var session))
                 await SessionModelSwitch.RemoveQueuedAsync(session, waiting.QueueIds);
             runtime.PendingModelSwitch = runtime.IsBusy
-                ? new PendingModelSwitch(sessionModelId, [], NeedsNewSession: true)
+                ? new PendingModelSwitch(sessionModelId, [], NeedsNewSession: true, SelectionToken: modelSelection)
                 : null;
         }
         finally
         {
             _modelSwitchGate.Release();
-            if (CurrentChat?.Id == chat.Id)
-                RefreshModelSwitchNotice();
+            NotifyModelSwitchChanged(chat.Id);
         }
     }
 
@@ -142,9 +145,9 @@ public partial class ChatViewModel
     {
         var runtime = GetOrCreateRuntimeState(chat.Id);
         await _modelSwitchGate.WaitAsync(cancellationToken);
+        var pending = runtime.PendingModelSwitch;
         try
         {
-            var pending = runtime.PendingModelSwitch;
             var route = ResolveModelRouteForChat(selection.Model, chat);
             if (route.IsInvalidByok)
                 throw new InvalidOperationException(Loc.Byok_Error_StaleModel);
@@ -201,7 +204,8 @@ public partial class ChatViewModel
                     session, route.SessionModelId, options, cancellationToken);
                 if (result.Deferred)
                 {
-                    runtime.PendingModelSwitch = new PendingModelSwitch(route.SessionModelId, result.QueueIds);
+                    runtime.PendingModelSwitch = new PendingModelSwitch(route.SessionModelId, result.QueueIds,
+                        SelectionToken: route.SelectionToken);
                     if (waitForDeferred && result.QueueIds.Count > 0)
                         return false;
                 }
@@ -221,7 +225,9 @@ public partial class ChatViewModel
         finally
         {
             _modelSwitchGate.Release();
-            if (CurrentChat?.Id == chat.Id)
+            if (pending is not null || runtime.PendingModelSwitch is not null)
+                NotifyModelSwitchChanged(chat.Id);
+            else if (CurrentChat?.Id == chat.Id)
                 RefreshModelSwitchNotice();
         }
     }
@@ -236,8 +242,7 @@ public partial class ChatViewModel
         }
 
         runtime.PendingModelSwitch = null;
-        if (CurrentChat?.Id == chat.Id)
-            RefreshModelSwitchNotice();
+        NotifyModelSwitchChanged(chat.Id);
     }
 
     /// <summary>
@@ -248,12 +253,20 @@ public partial class ChatViewModel
     [RelayCommand]
     private async Task SwitchModelNow()
     {
-        if (CurrentChat is not { } chat
-            || chat.IsPaused
+        if (CurrentChat is { } chat)
+            await TrySwitchModelNowAsync(chat, ResolveSelectedModelForChat(chat));
+    }
+
+    internal async Task<string?> TrySwitchModelNowAsync(Chat chat, string? expectedModel)
+    {
+        var model = ResolveSelectedModelForChat(chat);
+        if (string.IsNullOrWhiteSpace(expectedModel) || !string.Equals(model, expectedModel, StringComparison.OrdinalIgnoreCase)
+            || GetModelSwitchState(chat) != RemoteModelSwitchState.AfterReply
             || !_runtimeStates.TryGetValue(chat.Id, out var runtime)
-            || runtime is not { PendingModelSwitch.NeedsNewSession: false, IsSwitchingModel: false, IsPreparingModelForTurn: false })
+            || !string.Equals(runtime.PendingModelSwitch?.SessionModelId, ResolveModelRouteForChat(model, chat).SessionModelId,
+                StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            return Loc.Get("ModelSwitch_NoLongerPending");
         }
 
         SetModelSwitching(chat, runtime, switching: true);
@@ -274,11 +287,12 @@ public partial class ChatViewModel
         {
             // The work couldn't resume, so the chat stays paused and holds its queued messages as a pause does.
             SetChatPaused(chat, paused: true);
-            return;
+            return error;
         }
 
         if (error is null && runtime is { PendingModelSwitch: null, IsBusy: true })
             ShowModelSwitchApplied(chat);
+        return error;
     }
 
     private void SetModelSwitching(Chat chat, ChatRuntimeState runtime, bool switching)
@@ -286,14 +300,19 @@ public partial class ChatViewModel
         runtime.IsSwitchingModel = switching;
         if (CurrentChat?.Id == chat.Id)
             NotifyChatPausePropertiesChanged();
+        ModelSwitchStateChanged?.Invoke(chat.Id);
     }
 
     /// <summary>For a moment, says the running work now uses the chat's pick.</summary>
     private void ShowModelSwitchApplied(Chat chat)
     {
         _modelSwitchAppliedCts?.Cancel();
+        _modelSwitchAppliedCts?.Dispose();
+        var previousChatId = _modelSwitchApplied?.ChatId;
         var cancellation = _modelSwitchAppliedCts = new CancellationTokenSource();
         _modelSwitchApplied = (chat.Id, DescribeModelSelection(chat));
+        if (previousChatId is { } previousId && previousId != chat.Id)
+            NotifyModelSwitchChanged(previousId);
         _ = Task.Delay(ModelSwitchAppliedDuration, cancellation.Token).ContinueWith(
             _ => Dispatcher.UIThread.Post(() =>
             {
@@ -301,13 +320,38 @@ public partial class ChatViewModel
                     return;
 
                 _modelSwitchApplied = null;
-                RefreshModelSwitchNotice();
+                NotifyModelSwitchChanged(chat.Id);
             }),
             cancellation.Token,
             TaskContinuationOptions.OnlyOnRanToCompletion,
             TaskScheduler.Default);
-        if (CurrentChat?.Id == chat.Id)
+        NotifyModelSwitchChanged(chat.Id);
+    }
+
+    private void NotifyModelSwitchChanged(Guid chatId)
+    {
+        if (CurrentChat?.Id == chatId)
             RefreshModelSwitchNotice();
+        ModelSwitchStateChanged?.Invoke(chatId);
+    }
+
+    internal RemoteModelSwitchState GetModelSwitchState(Chat chat)
+    {
+        var runtime = _runtimeStates.GetValueOrDefault(chat.Id);
+        if (runtime is { IsSwitchingModel: true })
+            return RemoteModelSwitchState.Switching;
+        if (runtime is { PendingModelSwitch: { } pending, IsBusy: true } && !chat.IsPaused
+            && (pending.SelectionToken is null || string.Equals(
+                pending.SelectionToken, ResolveSelectedModelForChat(chat), StringComparison.OrdinalIgnoreCase)))
+        {
+            return pending.NeedsNewSession || runtime.IsPreparingModelForTurn
+                ? RemoteModelSwitchState.NextMessage
+                : RemoteModelSwitchState.AfterReply;
+        }
+        return _modelSwitchApplied is { } applied && applied.ChatId == chat.Id
+            && applied.Selection == DescribeModelSelection(chat)
+            ? RemoteModelSwitchState.Applied
+            : RemoteModelSwitchState.None;
     }
 
     /// <summary>The chat's pick as the picker names it: the model, and its reasoning effort when it has one.</summary>
@@ -330,27 +374,27 @@ public partial class ChatViewModel
         var canSwitchNow = false;
         if (CurrentChat is { } chat)
         {
-            var runtime = _runtimeStates.GetValueOrDefault(chat.Id);
-            if (runtime is { IsSwitchingModel: true })
+            switch (GetModelSwitchState(chat))
             {
-                notice = ModelSwitchNotice.Switching;
-                text = Loc.Get(nameof(Loc.ModelSwitch_Switching), DescribeModelSelection(chat));
-            }
-            else if (runtime is { PendingModelSwitch: { } pending, IsBusy: true } && !chat.IsPaused)
-            {
-                var selection = DescribeModelSelection(chat);
-                notice = ModelSwitchNotice.Pending;
-                canSwitchNow = !pending.NeedsNewSession && !runtime.IsPreparingModelForTurn;
-                text = canSwitchNow
-                    ? Loc.Get(nameof(Loc.ModelSwitch_Pending), selection)
-                    : Loc.Get(nameof(Loc.ModelSwitch_NextMessage), selection);
-                if (canSwitchNow)
+                case RemoteModelSwitchState.Switching:
+                    notice = ModelSwitchNotice.Switching;
+                    text = Loc.Get(nameof(Loc.ModelSwitch_Switching), DescribeModelSelection(chat));
+                    break;
+                case RemoteModelSwitchState.AfterReply:
+                    var selection = DescribeModelSelection(chat);
+                    notice = ModelSwitchNotice.Pending;
+                    canSwitchNow = true;
+                    text = Loc.Get(nameof(Loc.ModelSwitch_Pending), selection);
                     toolTip = Loc.Get(nameof(Loc.ModelSwitch_SwitchNowToolTip), selection);
-            }
-            else if (_modelSwitchApplied is { } applied && applied.ChatId == chat.Id)
-            {
-                notice = ModelSwitchNotice.Applied;
-                text = Loc.Get(nameof(Loc.ModelSwitch_Applied), applied.Selection);
+                    break;
+                case RemoteModelSwitchState.NextMessage:
+                    notice = ModelSwitchNotice.Pending;
+                    text = Loc.Get(nameof(Loc.ModelSwitch_NextMessage), DescribeModelSelection(chat));
+                    break;
+                case RemoteModelSwitchState.Applied:
+                    notice = ModelSwitchNotice.Applied;
+                    text = Loc.Get(nameof(Loc.ModelSwitch_Applied), DescribeModelSelection(chat));
+                    break;
             }
         }
 

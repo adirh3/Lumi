@@ -2418,6 +2418,30 @@ public sealed class RemoteCommandRouterSurfaceTests
     });
 
     [Fact]
+    public Task ConfigureModelTargetsAnOffscreenRunningChatWithoutChangingDesktopSelection() => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync();
+        MarkBusy(rig.DetachedSurface, rig.DetachedChat);
+        rig.DetachedSurface.CurrentChat = rig.MainChat;
+        var router = new RemoteCommandRouter(rig.DataStore, rig.Main);
+
+        var result = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.ConfigureChat)
+                .With("chatId", rig.DetachedChat.Id.ToString())
+                .With("model", "phone-model"), CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal("phone-model", rig.DetachedChat.LastModelUsed);
+        Assert.Equal("initial-model", rig.MainChat.LastModelUsed);
+        Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
+
+        var noTarget = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.SwitchModelNow).With("model", "phone-model"),
+            CancellationToken.None);
+        Assert.False(noTarget.Ok);
+    });
+
+    [Fact]
     public Task SendNeverAppliesConfigurationToALiveOwnerDisplayingAnotherChat() => RunAsync(async () =>
     {
         using var rig = await DetachedRig.CreateAsync();

@@ -2199,6 +2199,37 @@
                                     IsActive="{Binding Chat.IsWorking}"
                                     IsVisible="{Binding Chat.IsWorking}"
                                     AutomationProperties.Name="{Binding Chat.WorkingStatusText}" />
+          <Panel x:Name="ModelSwitchBar" Margin="0,0,0,6" IsVisible="{Binding Chat.ShowModelSwitch}">
+            <sc:StrataBackdropBlur Classes="floating-frost" CornerRadius="18" />
+            <Border CornerRadius="18" BorderThickness="1" Padding="12,0,3,0"
+                    Background="{DynamicResource Brush.FloatingGlass}"
+                    BorderBrush="{DynamicResource Brush.FloatingGlassRim}">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" MinHeight="44">
+                <sc:StrataLineIcon Width="16" Height="16" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource Brush.AccentDefault}"
+                                   IsVisible="{Binding !Chat.IsModelSwitchApplied}"
+                                   Data="{x:Static sc:StrataIcons.Clock}" />
+                <sc:StrataLineIcon Width="16" Height="16" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource Brush.AccentDefault}"
+                                   IsVisible="{Binding Chat.IsModelSwitchApplied}"
+                                   Data="{x:Static sc:StrataIcons.Check}" />
+                <TextBlock x:Name="ModelSwitchText" Grid.Column="1" Margin="0,6"
+                           Text="{Binding Chat.ModelSwitchText}" TextWrapping="Wrap" VerticalAlignment="Center"
+                           MaxLines="3" TextTrimming="CharacterEllipsis"
+                           AutomationProperties.LiveSetting="Polite"
+                           FontSize="{DynamicResource Font.SizeMeta}" />
+                <Button x:Name="SwitchModelNowButton" Grid.Column="2" Classes="quiet"
+                        MinHeight="{DynamicResource Touch.MinTarget}" MinWidth="{DynamicResource Touch.MinTarget}"
+                        IsVisible="{Binding Chat.CanSwitchModelNow}" Command="{Binding Chat.SwitchModelNowCommand}"
+                        Content="{loc:Str ModelSwitchNow}" />
+              </Grid>
+            </Border>
+          </Panel>
+          <TextBlock x:Name="ModelSwitchError" Margin="12,0,12,6"
+                     Text="{Binding Chat.ModelSwitchError}" TextWrapping="Wrap"
+                     Foreground="{DynamicResource Brush.DangerDefault}"
+                     AutomationProperties.LiveSetting="Polite"
+                     IsVisible="{Binding Chat.ModelSwitchError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
           <!-- What to say next, on the composer where the thumb already is. The row reaches past the
                composer's 12 dp sides to the screen's edges, its first pill in line with the composer. -->
           <ScrollViewer x:Name="FollowUpSuggestions"

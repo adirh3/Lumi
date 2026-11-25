@@ -427,6 +427,9 @@ public static class RemoteProtocol
         /// </summary>
         public const string ConfigureChat = "configure_chat";
 
+        /// <summary>Continues the running reply on its queued model. Requires <c>chatId</c> and <c>model</c>.</summary>
+        public const string SwitchModelNow = "switch_model_now";
+
         public const string ConfigureFeature = "configure_feature";
 
         /// <summary>

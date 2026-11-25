@@ -106,6 +106,12 @@
   <data name="JobWakeNamed" xml:space="preserve"><value>Job wake: {0}</value></data>
   <data name="ChatDetailsNamed" xml:space="preserve"><value>Chat details: {0}</value></data>
   <data name="ModelNamed" xml:space="preserve"><value>Model: {0}</value></data>
+  <data name="ModelSwitchAfterReply" xml:space="preserve"><value>{0} takes over after this reply</value></data>
+  <data name="ModelSwitchNextMessage" xml:space="preserve"><value>{0} takes over with your next message</value></data>
+  <data name="ModelSwitchSwitching" xml:space="preserve"><value>Switching to {0}…</value></data>
+  <data name="ModelSwitchApplied" xml:space="preserve"><value>Now using {0}</value></data>
+  <data name="ModelSwitchNow" xml:space="preserve"><value>Switch now</value></data>
+  <data name="ModelSwitchFailed" xml:space="preserve"><value>Couldn't switch models.</value></data>
   <data name="ProjectNamed" xml:space="preserve"><value>Project: {0}</value></data>
   <data name="AgentNamed" xml:space="preserve"><value>Agent: {0}</value></data>
   <data name="SkillNamed" xml:space="preserve"><value>Skill: {0}</value></data>

@@ -274,6 +274,12 @@
   <data name="ModelNamed" xml:space="preserve">
     <value>النموذج: {0}</value>
   </data>
+  <data name="ModelSwitchAfterReply" xml:space="preserve"><value>سيتولى {0} العمل بعد هذا الرد</value></data>
+  <data name="ModelSwitchNextMessage" xml:space="preserve"><value>سيتولى {0} العمل مع رسالتك التالية</value></data>
+  <data name="ModelSwitchSwitching" xml:space="preserve"><value>جارٍ التبديل إلى {0}…</value></data>
+  <data name="ModelSwitchApplied" xml:space="preserve"><value>يُستخدم الآن {0}</value></data>
+  <data name="ModelSwitchNow" xml:space="preserve"><value>التبديل الآن</value></data>
+  <data name="ModelSwitchFailed" xml:space="preserve"><value>تعذّر تبديل النموذج.</value></data>
   <data name="ProjectNamed" xml:space="preserve">
     <value>المشروع: {0}</value>
   </data>

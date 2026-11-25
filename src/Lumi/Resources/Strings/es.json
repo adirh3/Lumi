@@ -1750,6 +1750,7 @@
   "ModelSwitch_Switching": "Cambiando a {0}…",
   "ModelSwitch_Applied": "Ahora con {0}",
   "ModelSwitch_SwitchNow": "Cambiar ahora",
+  "ModelSwitch_NoLongerPending": "Ese cambio de modelo ya no está pendiente.",
   "ModelSwitch_SwitchNowToolTip": "Detiene el paso actual y continúa este trabajo con {0}",
   "ModelSwitch_NextMessage": "{0} tomará el relevo con tu próximo mensaje",
   "ModelSwitch_CannotUse": "No se pudo iniciar este turno con {0}. Inténtalo de nuevo o elige otro modelo. Lumi no ha cambiado de modelo.",

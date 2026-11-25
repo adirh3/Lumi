@@ -476,6 +476,7 @@ internal sealed class RemoteEventHub : IDisposable
         surface.AvailableMcpChips.CollectionChanged += observer.ComposerChipsChanged;
         surface.AvailableProjectChips.CollectionChanged += observer.ComposerChipsChanged;
         surface.ChatUpdated += observer.ChatUpdated;
+        surface.ModelSwitchStateChanged += OnModelSwitchStateChanged;
         surface.TranscriptRebuilt += observer.TranscriptRebuilt;
         surface.FeatureManagementStateChanged += observer.LibraryChanged;
 
@@ -497,6 +498,7 @@ internal sealed class RemoteEventHub : IDisposable
         surface.AvailableMcpChips.CollectionChanged -= observer.ComposerChipsChanged;
         surface.AvailableProjectChips.CollectionChanged -= observer.ComposerChipsChanged;
         surface.ChatUpdated -= observer.ChatUpdated;
+        surface.ModelSwitchStateChanged -= OnModelSwitchStateChanged;
         surface.TranscriptRebuilt -= observer.TranscriptRebuilt;
         surface.FeatureManagementStateChanged -= observer.LibraryChanged;
 
@@ -748,6 +750,8 @@ internal sealed class RemoteEventHub : IDisposable
         MarkChatListDirtyIfChanged(observer.Surface.CurrentChat?.Id);
         MarkStatusDirty(observer.Surface.CurrentChat?.Id);
     }
+
+    private void OnModelSwitchStateChanged(Guid chatId) => MarkStatusDirty(chatId);
 
     private void OnTranscriptRebuilt(SurfaceObserver observer) =>
         MarkTranscriptDirty(observer.Surface.CurrentChat?.Id);

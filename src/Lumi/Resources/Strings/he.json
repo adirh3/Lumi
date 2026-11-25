@@ -1768,6 +1768,7 @@
   "ModelSwitch_Switching": "עובר ל-{0}…",
   "ModelSwitch_Applied": "עובד עכשיו עם {0}",
   "ModelSwitch_SwitchNow": "החלף עכשיו",
+  "ModelSwitch_NoLongerPending": "החלפת המודל הזו כבר לא ממתינה.",
   "ModelSwitch_SwitchNowToolTip": "עוצר את השלב הנוכחי וממשיך את העבודה עם {0}",
   "ModelSwitch_NextMessage": "{0} ימשיך מההודעה הבאה שלך",
   "ModelSwitch_CannotUse": "לא ניתן להתחיל את הסבב הזה עם {0}. אפשר לנסות שוב או לבחור מודל אחר. לומי לא החליף מודל.",
