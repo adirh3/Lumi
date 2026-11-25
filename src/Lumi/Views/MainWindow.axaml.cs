@@ -3142,7 +3142,7 @@ public partial class MainWindow : Window
             .ToList();
 
         totalMatches = candidates.Count;
-        var take = hasQuery ? 30 : 8;
+        const int maxProjectResults = 100;
 
         return candidates
             .OrderByDescending(candidate => vm.SelectedProjectFilter == candidate.Project.Id)
@@ -3150,7 +3150,7 @@ public partial class MainWindow : Window
             .ThenByDescending(candidate => hasQuery ? candidate.SearchScore : 0)
             .ThenByDescending(candidate => candidate.LastActivity ?? candidate.Project.CreatedAt)
             .ThenBy(candidate => candidate.Project.Name, StringComparer.CurrentCultureIgnoreCase)
-            .Take(take);
+            .Take(maxProjectResults);
     }
 
     private static double ScoreProjectFilterCandidate(Project project, string query)

@@ -183,6 +183,81 @@ public sealed class NavigationBarTests
     }
 
     [Fact]
+    public async Task ProjectSwitcher_ScrollsThroughOneHundredProjects_AndSearchesBeyondThem()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var projects = Enumerable.Range(1, 101).Select(index => new Project
+            {
+                Name = $"Atlas workspace {index:000}",
+                CreatedAt = DateTimeOffset.UnixEpoch.AddDays(index),
+            }).ToList();
+            projects[0].Name = "Atlas workspace archive";
+            using var vm = CreateMainViewModel(new AppData { Projects = projects });
+            vm.SettingsVM.ShowAnimations = false;
+            var window = new MainWindow { DataContext = vm, Width = 1280, Height = 860 };
+            window.Show();
+
+            try
+            {
+                var results = window.FindControl<StackPanel>("ProjectFilterResults")!;
+                var search = window.FindControl<TextBox>("ProjectFilterSearchBox")!;
+                var more = window.FindControl<TextBlock>("ProjectFilterMoreText")!;
+                var reveal = window.FindControl<Border>("ProjectSwitchRevealHost")!;
+                new ButtonAutomationPeer(window.FindControl<Button>("ProjectSwitchButton")!).Invoke();
+
+                Assert.Equal(101, results.Children.OfType<Button>().Count()); // Includes All chats.
+                Assert.True(more.IsVisible);
+
+                search.Text = "Atlas";
+                await Settle();
+                Assert.Equal(101, results.Children.OfType<Button>().Count());
+                Assert.True(more.IsVisible);
+
+                search.Text = "archive";
+                await Settle();
+                Assert.Equal(2, results.Children.OfType<Button>().Count());
+                Assert.Contains(results.Children[^1].GetVisualDescendants().OfType<TextBlock>(),
+                    text => text.Text == projects[0].Name);
+                Assert.False(more.IsVisible);
+
+                search.Text = "";
+                await Settle();
+                Assert.Equal(101, results.Children.OfType<Button>().Count());
+                for (var frame = 0; frame < 30 && !double.IsNaN(reveal.Height); frame++)
+                {
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    await Task.Delay(20);
+                    await Settle();
+                }
+                Assert.True(double.IsNaN(reveal.Height));
+
+                var scroll = results.FindAncestorOfType<ScrollViewer>()!;
+                var lastRow = Assert.IsType<Button>(results.Children[^1]);
+                Assert.True(lastRow.TranslatePoint(default, scroll)!.Value.Y > scroll.Viewport.Height);
+                scroll.ScrollToEnd();
+                await Settle();
+                var point = lastRow.TranslatePoint(new Point(lastRow.Bounds.Width / 2, lastRow.Bounds.Height / 2), window)!.Value;
+                window.MouseDown(point, MouseButton.Left);
+                window.MouseUp(point, MouseButton.Left);
+                Assert.Equal(projects[1].Id, vm.SelectedProjectFilter);
+
+                async Task Settle()
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                    window.UpdateLayout();
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public void Jobs_ShowsHowManyAreRunning()
     {
         var idle = new BackgroundJob { Name = "Digest" };
