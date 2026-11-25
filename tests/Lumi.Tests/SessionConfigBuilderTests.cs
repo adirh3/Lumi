@@ -38,16 +38,28 @@ public sealed class SessionConfigBuilderTests
     }
 
     [Fact]
+    public void ReadOnlyResume_UsesTheSavedModelForCopilot()
+    {
+        var config = SessionConfigBuilder.BuildForReadOnlyResume(wireModelId: "retired-copilot-model");
+
+        Assert.Null(config.Model);
+    }
+
+    [Fact]
     public void ReadOnlyResume_CarriesTheChatsAccountAndNothingElse()
     {
         var provider = new ProviderConfig { Type = "openai", BaseUrl = "https://models.example.test/v1" };
 
-        var config = SessionConfigBuilder.BuildForReadOnlyResume(provider);
+        var config = SessionConfigBuilder.BuildForReadOnlyResume(
+            provider, providerModelId: "fixture", wireModelId: "provider-model");
 
         // A profile that uses only its own accounts refuses a resume without the chat's account.
         var sessionProvider = Assert.Single(config.Inference.Providers!);
+        var sessionModel = Assert.Single(config.Inference.Models!);
         Assert.Equal(provider.Type, sessionProvider.Type);
         Assert.Equal(provider.BaseUrl, sessionProvider.BaseUrl);
+        Assert.Equal("lumi-byok/fixture", config.Model);
+        Assert.Equal("provider-model", sessionModel.WireModel);
         Assert.Null(config.SystemMessage);
         Assert.True(config.Tools.Definitions is null or { Count: 0 });
         Assert.True(config.Mcp.Servers is null or { Count: 0 });

@@ -218,6 +218,7 @@ public sealed class LightweightSessionOptions
     /// Builds the bare <see cref="ResumeSessionOptions"/> of a handle resumed only to read a session (to
     /// fork it, or to see which files an edit can put back): no prompt, tools or connectors, and no
     /// capability discovery, which would start every discovered MCP server for a handle thrown away at once.
+    /// Copilot resumes leave the model unset so an unavailable model from an older turn cannot block the read.
     /// </summary>
     /// <param name="provider">
     /// The account the session's chat uses. Without one, a profile that uses only its own accounts
@@ -230,7 +231,7 @@ public sealed class LightweightSessionOptions
         ModelCapabilitiesOverride? modelCapabilities = null)
         => BuildForResume(
             systemPrompt: null,
-            model: wireModelId ?? provider?.WireModel ?? provider?.ModelId,
+            model: provider is null ? null : wireModelId ?? provider.WireModel ?? provider.ModelId,
             workingDirectory: null, mcpPlan: null,
             skillDirectories: null, customAgents: null, tools: null, reasoningEffort: null,
             userInputHandler: null, onPermission: null, hooks: null,
