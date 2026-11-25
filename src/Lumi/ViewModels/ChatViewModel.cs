@@ -4961,7 +4961,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 Title = BuildProvisionalChatTitle(prompt),
                 AgentId = ActiveAgent?.Id,
-                ProjectId = _pendingProjectId ?? ActiveProjectFilterId,
+                ProjectId = GetCurrentProject()?.Id,
                 ActiveSkillIds = new List<Guid>(ActiveSkillIds),
                 ActiveExternalSkillNames = new List<string>(_activeExternalSkillNames),
                 ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),

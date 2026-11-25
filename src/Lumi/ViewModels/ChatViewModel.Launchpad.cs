@@ -141,7 +141,7 @@ public partial class ChatViewModel
             ? _dataStore.Data.Projects.FirstOrDefault(candidate => candidate.Id == projectId)
             : null;
 
-        // Mirrors picking the project in the composer, so the sidebar lens follows it the same way.
+        // Use the same sidebar filter rules as the composer project picker.
         if (GetCurrentProject()?.Id != project?.Id)
         {
             if (project is null)

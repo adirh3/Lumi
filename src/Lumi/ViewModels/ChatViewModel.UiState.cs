@@ -1046,6 +1046,15 @@ public partial class ChatViewModel
 
     public void RefreshComposerCatalogs(bool syncProjectContextMcpSelections = true)
     {
+        if (CurrentChat is null && _pendingProjectId.HasValue && GetCurrentProject() is null)
+        {
+            _pendingProjectId = null;
+            ApplyDraftProjectWorkspaceDefault(ActiveProjectFilterId);
+            OnPropertyChanged(nameof(CurrentChat));
+            NotifyPermissionPropertiesChanged();
+            QueueRefreshCodingProjectState();
+        }
+
         var query = BuildCapabilityQuery();
         var capabilities = _capabilityCatalog.GetSnapshot(query);
         RefreshComposerCatalogs(capabilities, syncProjectContextMcpSelections);

@@ -30,9 +30,11 @@ namespace Lumi.Tests;
 public sealed class MoveChatProjectSyncTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task SidebarProjectChange_AfterComposerSelection_UpdatesProjectSuggestions(bool clearFilter)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task SidebarProjectChange_AfterComposerSelection_UpdatesProjectSuggestions(
+        bool startFiltered, bool clearFilter)
     {
         using var session = HeadlessTestSession.Start();
 
@@ -42,6 +44,9 @@ public sealed class MoveChatProjectSyncTests
             var work = new Project { Name = "Work" };
             var personal = new Project { Name = "Personal" };
             using var viewModel = CreateViewModel([work, personal]);
+            if (startFiltered)
+                viewModel.SelectProjectFilterCommand.Execute(personal);
+
             var view = new ChatView { DataContext = viewModel.ChatVM };
             var window = new Window { Width = 1000, Height = 720, Content = view };
             window.Show();
@@ -66,7 +71,8 @@ public sealed class MoveChatProjectSyncTests
                 };
                 input.RaiseEvent(confirm);
                 Assert.True(confirm.Handled);
-                Assert.Equal(work.Id, viewModel.SelectedProjectFilter);
+                Assert.Equal(startFiltered ? work.Id : null, viewModel.SelectedProjectFilter);
+                Assert.Equal(work.Id, viewModel.ChatVM.GetLaunchpadDraftSetup()?.ProjectId);
                 Assert.Equal(work.Id.ToString(), composer.ProjectValue);
                 Assert.Equal(work.Name, composer.ProjectName);
 

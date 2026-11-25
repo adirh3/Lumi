@@ -439,10 +439,13 @@ public sealed class AppNavigationHistoryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public Task NewChatPrompt_SurvivesOpeningAnExistingChat(bool returnWithBack) => Run(async (vm, data) =>
+    public Task NewChatDraft_KeepsPromptAndComposerProjectWhenReturningFromAnExistingChat(bool returnWithBack) => Run(async (vm, data) =>
     {
         const string prompt = "Draft a reply.\nKeep it short. ";
+        var project = data.Projects[0];
         vm.ChatVM.PromptText = prompt;
+        vm.ChatVM.SelectedProjectName = project.Name;
+        Assert.Null(vm.SelectedProjectFilter);
         var existingChat = data.Chats[0];
 
         Assert.True(await vm.OpenChatByIdAsync(existingChat.Id));
@@ -457,12 +460,37 @@ public sealed class AppNavigationHistoryTests
 
         Assert.Null(vm.ChatVM.CurrentChat);
         Assert.Equal(prompt, vm.ChatVM.PromptText);
+        Assert.Equal(project.Name, vm.ChatVM.SelectedProjectName);
+        Assert.Null(vm.SelectedProjectFilter);
 
         vm.ChatVM.PromptText = "";
+        vm.ChatVM.RemoveProjectCommand.Execute(null);
         Assert.True(await vm.OpenChatByIdAsync(existingChat.Id));
         Assert.Equal("Draft for the existing chat", vm.ChatVM.PromptText);
         vm.NewChatCommand.Execute(null);
         Assert.True(string.IsNullOrEmpty(vm.ChatVM.PromptText));
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task DeletedComposerProject_ClearsTheNewChatDraftWithoutLosingItsPrompt(bool parkDraft) => Run(async (vm, data) =>
+    {
+        var project = data.Projects[0];
+        vm.ChatVM.PromptText = "Unsent prompt";
+        vm.ChatVM.SelectedProjectName = project.Name;
+        vm.ChatVM.IsWorktreeMode = true;
+        if (parkDraft)
+            Assert.True(await vm.OpenChatByIdAsync(data.Chats[0].Id));
+
+        vm.ProjectsVM.DeleteProjectCommand.Execute(project);
+
+        if (parkDraft)
+            vm.NewChatCommand.Execute(null);
+        Assert.Null(vm.SelectedProjectFilter);
+        Assert.Null(vm.ChatVM.SelectedProjectName);
+        Assert.False(vm.ChatVM.IsWorktreeMode);
+        Assert.Equal("Unsent prompt", vm.ChatVM.PromptText);
     });
 
     [Fact]

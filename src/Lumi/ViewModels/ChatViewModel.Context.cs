@@ -632,7 +632,7 @@ public partial class ChatViewModel
         return projectDir ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     }
 
-    private Project? GetCurrentProject()
+    internal Project? GetCurrentProject()
     {
         // An existing chat's null assignment means no project, not the sidebar's current filter.
         var pid = CurrentChat is { } chat
