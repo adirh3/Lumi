@@ -348,6 +348,8 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         return true;
     }
 
+    internal string? SourceDetailsVersion => _sourceDetailsVersion;
+
     internal void ApplySourceDetails(string? version, List<RemoteSource> sources)
     {
         if (version != _sourceDetailsVersion)

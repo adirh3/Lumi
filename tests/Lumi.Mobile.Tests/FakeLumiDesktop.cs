@@ -61,6 +61,7 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
 
     public List<RemoteCommand> ReceivedCommands { get; } = [];
     public Func<RemoteCommand?, RemoteCommandResult>? CommandResultFactory { get; set; }
+    public Func<RemoteCommand?, Task<RemoteCommandResult>>? CommandResponseFactory { get; set; }
 
     /// <summary>The last file the phone uploaded, so tests can assert on the transfer itself.</summary>
     public string? UploadedFileName { get; private set; }
@@ -339,8 +340,9 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
                     lock (ReceivedCommands)
                         ReceivedCommands.Add(command);
 
-                var result = CommandResultFactory?.Invoke(command)
-                    ?? new RemoteCommandResult { Ok = true, Message = "ok" };
+                var result = CommandResponseFactory is { } respond
+                    ? await respond(command)
+                    : CommandResultFactory?.Invoke(command) ?? new RemoteCommandResult { Ok = true, Message = "ok" };
                 result.RequestId ??= command?.RequestId;
                 if (result.Ok && command?.Action == RemoteProtocol.Actions.CreateChat)
                     result.ChatId = Guid.NewGuid();

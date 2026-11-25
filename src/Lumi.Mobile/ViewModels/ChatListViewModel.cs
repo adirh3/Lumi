@@ -101,7 +101,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     private readonly Dictionary<Guid, ChatListItemViewModel> _realizedChats = [];
     // Pushes applied while a first-page read is in flight. The read was served earlier, so they
     // are replayed over it; a pushed row is never resent until it changes again.
-    private readonly List<(long Sequence, RemoteChatPage Page)> _livePagesDuringReads = [];
+    private readonly List<(long Sequence, RemoteChatPage Page, bool Replace)> _livePagesDuringReads = [];
     private const int MaxLivePagesDuringReads = 64;
     private long _liveSequence;
     private int _firstPageReads;
@@ -259,7 +259,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     /// Applies a live push without reordering what the list shows, so rows never move under the
     /// user's finger. See <see cref="MergeLive"/>.
     /// </summary>
-    public void ApplyLive(RemoteChatPage page)
+    public void ApplyLive(RemoteChatPage page, bool replace = false)
     {
         lock (_livePagesDuringReads)
         {
@@ -268,11 +268,11 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
             {
                 if (_livePagesDuringReads.Count >= MaxLivePagesDuringReads)
                     _livePagesDuringReads.RemoveAt(0);
-                _livePagesDuringReads.Add((_liveSequence, page));
+                _livePagesDuringReads.Add((_liveSequence, page, replace));
             }
         }
 
-        MergeLive(page);
+        ApplyLivePage(page, replace);
     }
 
     /// <summary>
@@ -294,7 +294,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     /// </summary>
     internal void EndFirstPageRead(long startedAt, bool applied)
     {
-        (long Sequence, RemoteChatPage Page)[] replay = [];
+        (long Sequence, RemoteChatPage Page, bool Replace)[] replay = [];
         lock (_livePagesDuringReads)
         {
             if (applied && _liveSequence != startedAt)
@@ -310,7 +310,15 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
         if (replay.Length == 0)
             return;
 
-        foreach (var (_, page) in replay)
+        foreach (var (_, page, replace) in replay)
+            ApplyLivePage(page, replace);
+    }
+
+    private void ApplyLivePage(RemoteChatPage page, bool replace)
+    {
+        if (replace && ProjectFilterId is null && string.IsNullOrWhiteSpace(SearchText))
+            Apply(page);
+        else
             MergeLive(page);
     }
 

@@ -986,6 +986,14 @@ public sealed class RemoteEndToEndTests
             "the selected answer's source excerpt to arrive");
         answer.OpenSourcesCommand.Execute(null);
         Assert.Equal(1, rig.Client.Stats.Snapshot().RequestsTo(RemoteProtocol.Routes.Sources));
+
+        Assert.True(await rig.Main.OpenChatByIdAsync(chat.Id));
+        var desktopAnswer = rig.Main.ChatVM.Messages.Single(message => message.Role == "assistant");
+        desktopAnswer.Message.Sources[0].Snippet = "The revised excerpt.";
+        desktopAnswer.Message.Content = "Here is the revised result.";
+        desktopAnswer.NotifyContentChanged();
+        await WaitAsync(() => rig.Shell.Chat.SelectedSourceAnswer?.Sources.SingleOrDefault()?.Snippet == "The revised excerpt.",
+            "the open Sources sheet to show the revised excerpt");
     }, seed: data =>
     {
         var chat = new Chat { Title = "Sources on demand" };
@@ -1017,6 +1025,25 @@ public sealed class RemoteEndToEndTests
         Assert.DoesNotContain(
             rig.Shell.Chat.Turns.SelectMany(t => t.Items),
             i => string.Equals(i.Kind, "plan", StringComparison.Ordinal));
+
+        var chat = Assert.Single(rig.DataStore.Data.Chats);
+        Assert.Equal(chat.PlanContent, rig.Shell.Chat.PlanContent);
+        Assert.True(await rig.Main.OpenChatByIdAsync(chat.Id));
+        var initial = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+            chat.Id, null, 48, null, CancellationToken.None, reuseRows: true));
+        Assert.NotNull(initial.Status.DetailsVersion);
+        var reply = new ChatMessage { Role = "assistant", Content = "Step one complete." };
+        chat.Messages.Add(reply);
+        rig.Main.ChatVM.Messages.Add(new ChatMessageViewModel(reply));
+        var updated = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+            chat.Id, null, 48, initial.TranscriptVersion, CancellationToken.None,
+            reuseRows: true, knownStatusDetails: initial.Status.DetailsVersion));
+        Assert.False(updated.IsUnchanged);
+        Assert.True(updated.Status.IsPlanOmitted);
+        Assert.Null(updated.Status.PlanContent);
+        await WaitAsync(() => rig.Shell.Chat.Turns.SelectMany(turn => turn.Items)
+            .OfType<AssistantItemViewModel>().Any(answer => answer.Text == reply.Content), "the new transcript row");
+        Assert.Equal("# Plan\n\n- step one\n- step two", rig.Shell.Chat.PlanContent);
     },
     seed: data =>
     {
@@ -2235,6 +2262,64 @@ public sealed class RemoteEndToEndTests
         chat.MessageCount = chat.Messages.Count;
         data.Chats.Add(chat);
     });
+
+    [Fact]
+    public Task UncoveringTheDesktopChatAfterPairingLoadsItsFirstTranscript() => RunAsync(async rig =>
+    {
+        var chat = Assert.Single(rig.DataStore.Data.Chats);
+        Assert.True(await rig.Main.OpenChatByIdAsync(chat.Id));
+        rig.Shell.UpdateLayout(393, 852);
+        await PairAsync(rig);
+        await WaitAsync(() => rig.Shell.Chat.ChatId == chat.Id && rig.Shell.IsDrawerOverlay,
+            "the first snapshot to select the covered desktop chat");
+        Assert.Equal(0, rig.Client.Stats.Snapshot().RequestsTo(RemoteProtocol.Routes.Transcript));
+
+        rig.Shell.IsDrawerOpen = false;
+        await WaitAsync(() => !rig.Shell.Chat.IsLoading && rig.Shell.Chat.Turns.SelectMany(turn => turn.Items)
+                .OfType<AssistantItemViewModel>().Any(answer => answer.Text == "Ready to read."),
+            "revealing the selected chat to fetch and display its transcript");
+    }, seed: data =>
+    {
+        var chat = new Chat { Title = "Already open on the PC" };
+        chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "Ready to read." });
+        data.Chats.Add(chat);
+    });
+
+    [Fact]
+    public Task AdoptedChatCanBePinnedWithoutLoadingTheCollapsedDrawer() => RunAsync(async rig =>
+    {
+        var chat = Assert.Single(rig.DataStore.Data.Chats);
+        Assert.True(await rig.Main.OpenChatByIdAsync(chat.Id));
+        rig.Shell.UpdateLayout(1000, 852);
+        rig.Shell.IsSidebarCollapsed = true;
+        await PairAsync(rig);
+        await WaitAsync(() => rig.Shell.Chat.ChatId == chat.Id && !rig.Shell.Chat.IsLoading,
+            "the selected desktop chat to load without its drawer");
+        Assert.Null(rig.Shell.ChatList.FindLoadedChat(chat.Id));
+        Assert.True(rig.Shell.CanPinOpenChat);
+
+        await rig.Shell.PinOpenChatCommand.ExecuteAsync(null);
+        Assert.True(chat.IsPinned);
+        Assert.Null(rig.Shell.ChatList.FindLoadedChat(chat.Id));
+    }, seed: data => data.Chats.Add(new Chat { Title = "Pin from chat" }));
+
+    [Fact]
+    public Task NewChatRefreshesComposerChoicesChangedOnTheDesktop() => RunAsync(async rig =>
+    {
+        await PairAsync(rig);
+        var chat = Assert.Single(rig.DataStore.Data.Chats);
+        await WaitAsync(() => rig.Shell.ChatList.FindChat(chat.Id) is not null, "the phone's chat list");
+        rig.Shell.ChatList.OpenChatCommand.Execute(rig.Shell.ChatList.FindChat(chat.Id));
+        await WaitAsync(() => rig.Shell.Chat.ChatId == chat.Id && !rig.Shell.Chat.IsLoading, "the selected chat");
+
+        rig.DataStore.Data.Skills.Add(new Skill { Name = "Added on the PC", Content = "A new skill." });
+        await rig.DataStore.SaveAsync();
+        rig.Shell.ChatList.NewChatCommand.Execute(null);
+
+        await WaitAsync(() => !rig.Shell.Chat.HasChat &&
+                rig.Shell.Chat.AvailableSkills.Any(skill => skill.Name == "Added on the PC"),
+            "the new chat to offer the new skill without opening Customize");
+    }, seed: data => data.Chats.Add(new Chat { Title = "Prior chat" }));
 
     [Fact]
     public Task OpeningAChatFromThePhoneRendersTheRealTranscript() => RunAsync(async rig =>

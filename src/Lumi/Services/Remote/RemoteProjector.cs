@@ -2706,6 +2706,8 @@ internal static class RemoteProjector
             ContextCurrentTokens = status.ContextCurrentTokens,
             ContextTokenLimit = status.ContextTokenLimit,
             PlanContent = BoundOptional(status.PlanContent, RemoteProtocol.MobilePlanTextLimit),
+            IsPlanOmitted = status.IsPlanOmitted,
+            DetailsVersion = status.DetailsVersion,
             Suggestions = BoundStrings(
                 status.Suggestions,
                 RemoteProtocol.MobileMetadataTextLimit),

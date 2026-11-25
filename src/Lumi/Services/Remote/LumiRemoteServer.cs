@@ -1937,6 +1937,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             imagePaths);
         if (scoped)
         {
+            if (!transcript.Status.IsPlanOmitted)
+                transcript.Status.DetailsVersion = RemoteContentVersions.StatusDetails(transcript.Status);
+
             foreach (var item in transcript.Turns.SelectMany(turn => turn.Items))
             {
                 item.InlineImagesOnDemand = item.InlineImages is { Count: > 0 };

@@ -262,29 +262,38 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         SelectedSourceAnswer = answer;
         IsSourcesSheetOpen = true;
+        LoadSelectedSourceDetails(answer);
+    }
+
+    private void LoadSelectedSourceDetails(AssistantItemViewModel answer)
+    {
         if (_sink is MobileShellViewModel shell && Guid.TryParseExact(answer.Id, "N", out var messageId))
             _ = LoadSourcesAsync(shell, ChatId, messageId, answer);
     }
 
-    private static async Task LoadSourcesAsync(
+    private async Task LoadSourcesAsync(
         MobileShellViewModel shell, Guid chatId, Guid messageId, AssistantItemViewModel answer)
     {
-        if (!answer.TryBeginSourceDetails(out var version))
-            return;
+        while (IsSourcesSheetOpen && ReferenceEquals(SelectedSourceAnswer, answer)
+               && answer.TryBeginSourceDetails(out var version))
+        {
+            try
+            {
+                var details = await shell.GetSourcesAsync(chatId, messageId, answer.Lifetime);
+                if (!answer.Lifetime.IsCancellationRequested && details is not null)
+                    answer.ApplySourceDetails(version, details);
+            }
+            catch (OperationCanceledException)
+            {
+                return; // The chat or connection changed while the source details were loading.
+            }
+            finally
+            {
+                answer.EndSourceDetails();
+            }
 
-        try
-        {
-            var details = await shell.GetSourcesAsync(chatId, messageId, answer.Lifetime);
-            if (!answer.Lifetime.IsCancellationRequested && details is not null)
-                answer.ApplySourceDetails(version, details);
-        }
-        catch (OperationCanceledException)
-        {
-            // The chat or connection changed while the source details were loading.
-        }
-        finally
-        {
-            answer.EndSourceDetails();
+            if (version == answer.SourceDetailsVersion)
+                return;
         }
     }
 
@@ -2486,6 +2495,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             else
             {
                 SelectedSourceAnswer = reconciledAnswer;
+                LoadSelectedSourceDetails(reconciledAnswer);
             }
         }
 
@@ -2678,6 +2688,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
     }
 
     public void ApplyStatus(RemoteChatStatus status) => ApplyStatus(status, trackVersion: true);
+
+    internal void ApplyReadState(bool unread)
+    {
+        Interlocked.Increment(ref _statusVersion);
+        HasUnreadMessages = unread;
+    }
 
     internal string? StatusDetailsVersion { get; private set; }
 

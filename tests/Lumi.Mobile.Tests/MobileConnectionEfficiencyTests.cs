@@ -907,6 +907,22 @@ public sealed class MobileConnectionEfficiencyTests
     }
 
     [Fact]
+    public async Task AnOlderChatListReadDoesNotUndoAStreamReplacement()
+    {
+        var sink = new GatedChatPageSink();
+        using var list = new ChatListViewModel(sink);
+        var read = list.RefreshFromServerAsync();
+        await WaitUntilAsync(() => sink.Requests == 1);
+
+        var newest = Guid.NewGuid();
+        list.ApplyLive(ChatPage(newest, "Reopened drawer", running: false, isPatch: false), replace: true);
+        sink.Page.SetResult(ChatPage(Guid.NewGuid(), "Stale page", running: true, isPatch: false));
+        await read.WaitAsync(WaitTimeout);
+
+        Assert.Equal(newest, Assert.Single(list.Groups.SelectMany(group => group.Chats)).Id);
+    }
+
+    [Fact]
     public void ConnectionActivityReadsNaturallyInSettings()
     {
         var stats = new RemoteTransportStats(new ManualTimeProvider());

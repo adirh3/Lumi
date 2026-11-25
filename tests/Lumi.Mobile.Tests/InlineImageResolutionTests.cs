@@ -137,11 +137,16 @@ public sealed class InlineImageResolutionTests
                 chat.ApplyTranscript(transcript);
                 Assert.Equal(1, sink.RequestCount);
                 Assert.False(sink.RequestToken.IsCancellationRequested);
+                var answer = Assert.IsType<AssistantItemViewModel>(chat.Turns[0].Items[0]);
+                var resolved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                answer.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(AssistantItemViewModel.Text)
+                        && answer.Text == "![Local](/cache/local.png)")
+                        resolved.TrySetResult();
+                };
                 sink.Response.SetResult("/cache/local.png");
-                await Task.Yield();
-                Dispatcher.UIThread.RunJobs();
-                Assert.Equal("![Local](/cache/local.png)",
-                    Assert.IsType<AssistantItemViewModel>(chat.Turns[0].Items[0]).Text);
+                await resolved.Task.WaitAsync(TimeSpan.FromSeconds(5));
             }
             catch (Exception ex) { failure = ex; }
             finally

@@ -387,6 +387,44 @@ public sealed class MobileUnreadSyncTests
             return desktop.ReceivedCommands.ToArray();
     }
 
+    [Fact]
+    public async Task AReadCommandResponseCannotUndoNewerUnreadState()
+    {
+        var chatId = Guid.NewGuid();
+        var reply = new TaskCompletionSource<RemoteCommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var desktop = new FakeLumiDesktop
+        {
+            Snapshot = Snapshot(chatId, unread: true),
+            CommandResponseFactory = _ => reply.Task
+        };
+        desktop.Capabilities.Add(RemoteProtocol.Capabilities.ChatReadStateV1);
+        desktop.Start();
+        await using var shell = CreateShell();
+        await PairAsync(shell, desktop);
+        var row = Assert.Single(Assert.Single(shell.ChatList.Groups).Chats);
+        shell.OpenChatActionsCommand.Execute(row);
+        var marking = shell.SetActionChatReadStateCommand.ExecuteAsync(null);
+        try
+        {
+            await WaitAsync(() => ReadCommands(desktop).Any(command =>
+                command.Action == RemoteProtocol.Actions.SetChatUnread && command.GetBool("isUnread") == false));
+            await PublishReadState(false);
+            await WaitAsync(() => !row.HasUnreadMessages);
+            await PublishReadState(true);
+            await WaitAsync(() => row.HasUnreadMessages);
+        }
+        finally
+        {
+            reply.TrySetResult(new RemoteCommandResult { Ok = true, ChatId = chatId, HasUnreadMessages = false });
+        }
+        await marking;
+        Assert.True(row.HasUnreadMessages);
+
+        Task PublishReadState(bool unread) => desktop.PushAsync(RemoteProtocol.Events.ChatListState,
+            JsonSerializer.Serialize(new RemoteChatListState(chatId, false, false, unread),
+                RemoteJsonContext.Default.RemoteChatListState));
+    }
+
     private static RemoteSnapshot Snapshot(Guid chatId, bool unread) => new()
     {
         Chats = new RemoteChatPage
