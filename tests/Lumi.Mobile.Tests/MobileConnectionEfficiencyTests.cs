@@ -118,11 +118,12 @@ public sealed class MobileConnectionEfficiencyTests
         await WaitUntilAsync(() => shell.IsConnected);
 
         await shell.NotifyApplicationDeactivatedAsync();
-        await shell.NotifyApplicationActivatedAsync();
+        var resume = shell.NotifyApplicationActivatedAsync();
         await WaitUntilAsync(() => desktop.Subscriptions.Count == 2);
         await WaitUntilAsync(() => time.PendingTimerCount > 0);
         time.Advance(TimeSpan.FromSeconds(5));
 
+        await resume.WaitAsync(WaitTimeout);
         await WaitUntilAsync(() => desktop.Events == 2 && shell.BootstrapSnapshotCount == 2);
         Assert.Equal(1, desktop.Hellos);
     }
@@ -145,6 +146,211 @@ public sealed class MobileConnectionEfficiencyTests
         await shell.NotifyApplicationActivatedAsync();
         await WaitUntilAsync(() => desktop.Events == 2 && shell.BootstrapSnapshotCount == 2);
         Assert.Equal(1, desktop.Hellos);
+    }
+
+    [Fact]
+    public async Task ALongResumeDoesNotWaitForAnUnansweredBackgroundSubscription()
+    {
+        using var temp = new TempDirectory();
+        var time = new ManualTimeProvider();
+        var unanswered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var desktop = new EfficiencyDesktop { SubscriptionAnswer = () => unanswered.Task };
+        await using var shell = CreateShell(desktop, temp.Path, time, requestDeadline: TimeSpan.FromSeconds(20));
+        await shell.StartAsync();
+        await WaitUntilAsync(() => shell.BootstrapSnapshotCount == 1);
+
+        var background = shell.NotifyApplicationDeactivatedAsync();
+        await WaitUntilAsync(() => desktop.Subscriptions is [{ IsForeground: false }]);
+        time.Freeze(TimeSpan.FromMinutes(10));
+        try
+        {
+            await shell.NotifyApplicationActivatedAsync().WaitAsync(WaitTimeout);
+            await WaitUntilAsync(() => shell.IsConnected && shell.BootstrapSnapshotCount == 2);
+            Assert.Equal(2, desktop.Events);
+            Assert.Equal(1, desktop.Hellos);
+        }
+        finally
+        {
+            unanswered.TrySetResult();
+            await background.WaitAsync(WaitTimeout);
+        }
+    }
+
+    [Fact]
+    public async Task TheResumeProbeReplacesASilentStreamEvenIfTheForegroundSubscriptionIsUnanswered()
+    {
+        using var temp = new TempDirectory();
+        var time = new ManualTimeProvider();
+        var desktop = new EfficiencyDesktop();
+        await using var shell = CreateShell(desktop, temp.Path, time, requestDeadline: TimeSpan.FromSeconds(20));
+        await shell.StartAsync();
+        await WaitUntilAsync(() => shell.BootstrapSnapshotCount == 1);
+        await shell.NotifyApplicationDeactivatedAsync();
+        var unanswered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        desktop.SubscriptionAnswer = () => unanswered.Task;
+
+        var resume = shell.NotifyApplicationActivatedAsync();
+        try
+        {
+            await WaitUntilAsync(() => desktop.Subscriptions is [_, { IsForeground: true }]);
+            time.Advance(TimeSpan.FromSeconds(5));
+            await WaitUntilAsync(() => shell.IsConnected && shell.BootstrapSnapshotCount == 2);
+            Assert.Equal(2, desktop.Events);
+        }
+        finally
+        {
+            unanswered.TrySetResult();
+            await resume.WaitAsync(WaitTimeout);
+        }
+    }
+
+    [Fact]
+    public async Task AShortResumeWaitsForTheBackgroundScopeBeforeRequestingThePing()
+    {
+        using var temp = new TempDirectory();
+        var time = new ManualTimeProvider();
+        var backgroundArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var applyBackground = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var desktop = new EfficiencyDesktop
+        {
+            BeforeApplySubscription = subscription =>
+            {
+                if (subscription.IsForeground)
+                    return Task.CompletedTask;
+                backgroundArrived.TrySetResult();
+                return applyBackground.Task;
+            }
+        };
+        await using var shell = CreateShell(desktop, temp.Path, time, requestDeadline: TimeSpan.FromSeconds(20));
+        await shell.StartAsync();
+        await WaitUntilAsync(() => shell.BootstrapSnapshotCount == 1);
+
+        var background = shell.NotifyApplicationDeactivatedAsync();
+        await backgroundArrived.Task.WaitAsync(WaitTimeout);
+        var resume = shell.NotifyApplicationActivatedAsync();
+        shell.IsDrawerOpen = true;
+        try
+        {
+            // Both the resume and its navigation update must stay behind the unapplied background scope.
+            Assert.Empty(desktop.Subscriptions);
+            time.Advance(TimeSpan.FromSeconds(2));
+            applyBackground.TrySetResult();
+            await Task.WhenAll(resume, background).WaitAsync(WaitTimeout);
+            Assert.Collection(desktop.Subscriptions,
+                subscription => Assert.False(subscription.IsForeground),
+                subscription =>
+                {
+                    Assert.True(subscription.IsForeground);
+                    Assert.True(subscription.IncludeChatList);
+                });
+            Assert.Equal(1, desktop.Events);
+        }
+        finally
+        {
+            applyBackground.TrySetResult();
+        }
+    }
+
+    [Fact]
+    public async Task AShortResumeUsesOneBudgetEvenWhenTheBackgroundScopeNeverArrives()
+    {
+        using var temp = new TempDirectory();
+        var time = new ManualTimeProvider();
+        var applyBackground = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var desktop = new EfficiencyDesktop { BeforeApplySubscription = _ => applyBackground.Task };
+        await using var shell = CreateShell(desktop, temp.Path, time, requestDeadline: TimeSpan.FromSeconds(20));
+        await shell.StartAsync();
+        await WaitUntilAsync(() => shell.BootstrapSnapshotCount == 1);
+
+        var background = shell.NotifyApplicationDeactivatedAsync();
+        var resume = shell.NotifyApplicationActivatedAsync();
+        try
+        {
+            time.Advance(TimeSpan.FromSeconds(5));
+            await resume.WaitAsync(WaitTimeout);
+            await WaitUntilAsync(() => shell.IsConnected && shell.BootstrapSnapshotCount == 2);
+            Assert.Empty(desktop.Subscriptions);
+            Assert.Contains("foreground=true", desktop.LastEventQuery, StringComparison.Ordinal);
+            Assert.Equal(2, desktop.Events);
+        }
+        finally
+        {
+            applyBackground.TrySetResult();
+            await background.WaitAsync(WaitTimeout);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TheResumeBudgetDoesNotStopAReplacementThatIsStillBootstrapping(bool rejectForegroundScope)
+    {
+        using var temp = new TempDirectory();
+        var time = new ManualTimeProvider();
+        var desktop = new EfficiencyDesktop { PingOnForegroundReturn = false };
+        await using var shell = CreateShell(desktop, temp.Path, time, requestDeadline: TimeSpan.FromSeconds(20));
+        await shell.StartAsync();
+        await WaitUntilAsync(() => shell.BootstrapSnapshotCount == 1);
+        await shell.NotifyApplicationDeactivatedAsync();
+
+        var bootstrap = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        desktop.BootstrapGate = bootstrap;
+        desktop.RejectForegroundSubscription = rejectForegroundScope;
+        var resume = shell.NotifyApplicationActivatedAsync();
+        try
+        {
+            await WaitUntilAsync(() => desktop.Subscriptions is [_, { IsForeground: true }]);
+            if (!rejectForegroundScope)
+            {
+                desktop.CloseEventStream();
+                await WaitUntilAsync(() => shell.Client.State == RemoteLinkState.Disconnected && time.PendingTimerCount > 1);
+                time.Advance(TimeSpan.FromSeconds(1));
+            }
+
+            await WaitUntilAsync(() => desktop.Events == 2 && shell.Client.State == RemoteLinkState.Connecting);
+            time.Advance(TimeSpan.FromSeconds(5));
+            await resume.WaitAsync(WaitTimeout);
+            bootstrap.TrySetResult();
+            await WaitUntilAsync(() => shell.IsConnected && shell.BootstrapSnapshotCount == 2);
+            Assert.Equal(2, desktop.Events);
+        }
+        finally
+        {
+            bootstrap.TrySetResult();
+        }
+    }
+
+    [Fact]
+    public async Task ReconnectRetriesWhenTheHeadersArriveButTheBootstrapDoesNot()
+    {
+        using var temp = new TempDirectory();
+        var time = new ManualTimeProvider();
+        var desktop = new EfficiencyDesktop();
+        await using var shell = CreateShell(desktop, temp.Path, time, requestDeadline: TimeSpan.FromSeconds(1));
+        await shell.StartAsync();
+        await WaitUntilAsync(() => shell.BootstrapSnapshotCount == 1);
+        await shell.NotifyApplicationDeactivatedAsync();
+        time.Advance(TimeSpan.FromSeconds(61));
+        await WaitUntilAsync(() => !shell.Client.IsEventStreamActive);
+
+        var missingBootstrap = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        desktop.BootstrapGate = missingBootstrap;
+        try
+        {
+            await shell.NotifyApplicationActivatedAsync();
+            await WaitUntilAsync(() => desktop.Events == 2);
+            await WaitUntilAsync(() => shell.Client.Stats.Snapshot().StreamFailures == 1);
+            Assert.Equal(1, shell.BootstrapSnapshotCount);
+            desktop.BootstrapGate = null;
+            await WaitUntilAsync(() => time.PendingTimerCount > 0);
+            time.Advance(TimeSpan.FromSeconds(1));
+            await WaitUntilAsync(() => shell.IsConnected && shell.BootstrapSnapshotCount == 2);
+            Assert.Equal(3, desktop.Events);
+        }
+        finally
+        {
+            missingBootstrap.TrySetResult();
+        }
     }
 
     [Fact]
@@ -859,7 +1065,8 @@ public sealed class MobileConnectionEfficiencyTests
         string directory,
         ManualTimeProvider time,
         IRemoteNetworkMonitor? network = null,
-        TimeSpan? giveUpAfter = null)
+        TimeSpan? giveUpAfter = null,
+        TimeSpan? requestDeadline = null)
     {
         var store = new MobileSettingsStore(directory);
         store.Save(new MobileConnectionSettings
@@ -874,7 +1081,7 @@ public sealed class MobileConnectionEfficiencyTests
             "device",
             "Phone",
             desktop,
-            requestDeadline: WaitTimeout,
+            requestDeadline: requestDeadline ?? WaitTimeout,
             uploadDeadline: WaitTimeout,
             routeVerifier: new TrustedRouteVerifier(),
             time: time);
@@ -930,6 +1137,7 @@ public sealed class MobileConnectionEfficiencyTests
         public Func<Guid, string?, Task<RemoteTranscript>>? TranscriptResponder { get; set; }
         public Func<RemoteCommand, Task<RemoteCommandResult>>? CommandResponder { get; init; }
         public bool PingOnForegroundReturn { get; init; } = true;
+        public bool RejectForegroundSubscription { get; set; }
         public volatile bool FailEvents;
 
         /// <summary>
@@ -943,6 +1151,7 @@ public sealed class MobileConnectionEfficiencyTests
         /// this returns completes, as on a slow link.
         /// </summary>
         public Func<Task>? SubscriptionAnswer { get; set; }
+        public Func<RemoteEventSubscription, Task>? BeforeApplySubscription { get; init; }
 
         public IReadOnlyList<RemoteEventSubscription> DroppedSubscriptions
         {
@@ -986,6 +1195,12 @@ public sealed class MobileConnectionEfficiencyTests
             lock (_gate)
                 stream = _stream;
             stream?.Push(new RemoteEventFrame(eventName, json).ToWire());
+        }
+
+        public void CloseEventStream()
+        {
+            lock (_gate)
+                _stream?.Complete();
         }
 
         public void PushDelta(Guid chatId, string itemId, int offset, string text) =>
@@ -1056,6 +1271,8 @@ public sealed class MobileConnectionEfficiencyTests
                     var subscription = JsonSerializer.Deserialize(
                         await request.Content!.ReadAsStringAsync(cancellationToken),
                         RemoteJsonContext.Default.RemoteEventSubscription)!;
+                    if (BeforeApplySubscription is { } beforeApply)
+                        await beforeApply(subscription).WaitAsync(cancellationToken);
                     RemoteEventSubscription? previous;
                     lock (_gate)
                     {
@@ -1071,6 +1288,8 @@ public sealed class MobileConnectionEfficiencyTests
 
                     if (SubscriptionAnswer is { } answer)
                         await answer().WaitAsync(cancellationToken);
+                    if (subscription.IsForeground && RejectForegroundSubscription)
+                        return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
                     if (PingOnForegroundReturn && previous is { IsForeground: false } && subscription.IsForeground)
                         Push(RemoteProtocol.Events.Ping, "{}");
                     return Json("{}");

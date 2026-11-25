@@ -195,6 +195,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     /// <summary>Live frames received since this client was created, including pings.</summary>
     public long ReceivedFrameCount => Interlocked.Read(ref _receivedFrameCount);
 
+    internal long EventStreamRouteEpoch => Volatile.Read(ref _routeEpoch);
+
     public RemoteTransportStats Stats { get; }
 
     /// <summary>Decides reconnect pauses. The app installs its connection supervisor here.</summary>
@@ -1460,19 +1462,28 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         }
     }
 
-    public async Task UpdateEventSubscriptionAsync(
+    internal void StageEventSubscription(RemoteEventSubscription subscription) =>
+        TryStoreEventSubscription(subscription);
+
+    public Task UpdateEventSubscriptionAsync(
         RemoteEventSubscription subscription,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        UpdateEventSubscriptionAsync(subscription, cancellationToken, restartOnFailure: true);
+
+    internal async Task<bool> UpdateEventSubscriptionAsync(
+        RemoteEventSubscription subscription,
+        CancellationToken cancellationToken,
+        bool restartOnFailure)
     {
         ArgumentNullException.ThrowIfNull(subscription);
         if (!TryStoreEventSubscription(subscription))
-            return;
+            return true; // A newer scope already owns the update.
         var streamGeneration = Volatile.Read(ref _streamGeneration);
         if (!SupportsScopedEvents
             || BaseUrl is not { Length: > 0 }
             || Token is not { Length: > 0 })
         {
-            return;
+            return false;
         }
 
         // Repeating a scope the desktop's registered stream already holds only wakes both radios.
@@ -1484,7 +1495,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         lock (_subscriptionRequestGate)
         {
             if (_confirmedSubscription is { } confirmed && confirmed.HasSameScope(subscription))
-                return;
+                return true;
             _confirmedSubscription = null;
             _postedSinceRoute = true;
             sentRouteEpoch = _routeEpoch;
@@ -1509,7 +1520,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 SetState(RemoteLinkState.Unauthorized, Strings.Get("NoLongerPaired"));
-                return;
+                return false;
             }
 
             if (!response.IsSuccessStatusCode)
@@ -1529,12 +1540,12 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return;
+            return false;
         }
         catch (RemoteGatewaySignInException ex)
         {
             SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
-            return;
+            return false;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1545,24 +1556,19 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         {
             lock (_subscriptionRequestGate)
             {
-                if (!delivered)
-                {
-                    // The desktop may or may not hold this scope now; the next update must be sent.
-                    _confirmedSubscription = null;
-                }
-                else if (sentToLiveStream
-                         && sentRouteEpoch == _routeEpoch
-                         && _liveRouteEpoch == sentRouteEpoch
+                if (sentRouteEpoch == _routeEpoch
                          && subscription.Generation == Volatile.Read(ref _eventSubscription).Generation)
                 {
                     // Only the newest scope is confirmed: the desktop ignores older generations, so an
                     // older request answered while a newer one travels says nothing about its scope.
-                    _confirmedSubscription = subscription.Copy();
+                    _confirmedSubscription = delivered && sentToLiveStream && _liveRouteEpoch == sentRouteEpoch
+                        ? subscription.Copy()
+                        : null;
                 }
             }
         }
 
-        if (restartStream && !cancellationToken.IsCancellationRequested && !_disposed && _streamDesired)
+        if (restartOnFailure && restartStream && !cancellationToken.IsCancellationRequested && !_disposed && _streamDesired)
         {
             var latest = Volatile.Read(ref _eventSubscription);
             if (latest.Generation == subscription.Generation)
@@ -1571,30 +1577,62 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                     .ConfigureAwait(false);
             }
         }
+
+        return delivered;
     }
 
-    public async Task StopEventStreamAsync()
+    public Task StopEventStreamAsync() => StopEventStreamAsync(expected: null);
+
+    internal Task<bool> TryStopSilentEventStreamAsync(long routeEpoch, long frameCount) =>
+        StopEventStreamAsync((routeEpoch, frameCount));
+
+    private async Task<bool> StopEventStreamAsync((long RouteEpoch, long FrameCount)? expected)
     {
         await _streamGate.WaitAsync().ConfigureAwait(false);
         try
         {
             if (_disposed)
-                return;
+                return false;
 
-            _streamDesired = false;
-            _streamGeneration++;
-            await StopEventStreamCoreAsync().ConfigureAwait(false);
+            Task stop;
+            if (expected is { } probe)
+            {
+                lock (_subscriptionRequestGate)
+                {
+                    if (!IsEventStreamActive || State != RemoteLinkState.Connected
+                        || _routeEpoch != probe.RouteEpoch || ReceivedFrameCount != probe.FrameCount)
+                        return false;
+
+                    // Begin cancellation while route creation is excluded, so the probe can only
+                    // stop the kept stream, never an attempt the pump already started in its place.
+                    stop = StopDesiredStreamAsync();
+                }
+            }
+            else
+            {
+                stop = StopDesiredStreamAsync();
+            }
+
+            await stop.ConfigureAwait(false);
             lock (_subscriptionRequestGate)
             {
                 _confirmedSubscription = null;
                 _liveRouteEpoch = -1;
             }
             SetState(RemoteLinkState.Disconnected, null);
+            return true;
         }
         finally
         {
             _streamGate.Release();
         }
+    }
+
+    private Task StopDesiredStreamAsync()
+    {
+        _streamDesired = false;
+        _streamGeneration++;
+        return StopEventStreamCoreAsync();
     }
 
     private async Task StopEventStreamCoreAsync()
@@ -1707,72 +1745,77 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         ApplyAuth(request);
 
         using var connectionDeadline = CreateDeadline(cancellationToken, _requestDeadline);
-        using var response = await _http
-            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, connectionDeadline.Token)
-            .ConfigureAwait(false);
-
-        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            throw new UnauthorizedAccessException();
-
-        response.EnsureSuccessStatusCode();
-
-        await using var stream = await response.Content.ReadAsStreamAsync(connectionDeadline.Token).ConfigureAwait(false);
-        // Only opening the response is finite. The live body keeps its existing silence deadline
-        // and must not inherit the request deadline after a healthy connection is established.
-        connectionDeadline.CancelAfter(Timeout.InfiniteTimeSpan);
         var frames = new RemoteEventFrame.Reader();
         var awaitingBootstrapSnapshot = true;
-        await ReadEventLinesAsync(
-            stream,
-            line =>
+        try
+        {
+            using var response = await _http
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, connectionDeadline.Token)
+                .ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+                throw new UnauthorizedAccessException();
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(connectionDeadline.Token)
+                .ConfigureAwait(false);
+            await ReadEventLinesAsync(stream, ConsumeLine, connectionDeadline.Token).ConfigureAwait(false);
+            connectionDeadline.Token.ThrowIfCancellationRequested();
+            if (awaitingBootstrapSnapshot)
+                throw new InvalidDataException(Strings.Get("ConnectionClosedBeforeBootstrap"));
+        }
+        catch (OperationCanceledException) when (IsDeadlineCancellation(cancellationToken, connectionDeadline))
+        {
+            throw new TimeoutException(RequestTimeoutMessage);
+        }
+
+        void ConsumeLine(string line)
+        {
+            if (frames.Push(line) is not { } frame)
+                return;
+
+            Interlocked.Exchange(ref _lastFrameTimestamp, _time.GetTimestamp());
+            Interlocked.Increment(ref _receivedFrameCount);
+            Stats.RecordFrame(frame.Event, frame.Data.Length);
+            if (awaitingBootstrapSnapshot)
             {
-                if (frames.Push(line) is not { } frame)
-                    return;
-
-                Interlocked.Exchange(ref _lastFrameTimestamp, _time.GetTimestamp());
-                Interlocked.Increment(ref _receivedFrameCount);
-                Stats.RecordFrame(frame.Event, frame.Data.Length);
-                if (awaitingBootstrapSnapshot)
+                if (frame.Event != RemoteProtocol.Events.Snapshot
+                    || JsonSerializer.Deserialize(
+                           frame.Data,
+                           RemoteJsonContext.Default.RemoteSnapshot) is not { } snapshot
+                    || snapshot.IsPartial)
                 {
-                    if (frame.Event != RemoteProtocol.Events.Snapshot
-                        || JsonSerializer.Deserialize(
-                               frame.Data,
-                               RemoteJsonContext.Default.RemoteSnapshot) is not { } snapshot
-                        || snapshot.IsPartial)
-                    {
-                        _hasCompatibleBootstrap = false;
-                        throw new InvalidDataException(Strings.Get("InvalidBootstrap"));
-                    }
-
-                    if (!IsSupportedProtocol(snapshot.ProtocolVersion)
-                        || !RemoteProtocol.HasRequiredCapabilities(snapshot.Capabilities))
-                    {
-                        InvalidateCompatibility(BaseUrl ?? "");
-                        throw new RemoteProtocolMismatchException(
-                            Strings.Get("ProtocolRequired", RemoteProtocol.Version));
-                    }
-
-                    _compatibleBaseUrl = BaseUrl;
-                    _compatibleProtocolVersion = snapshot.ProtocolVersion;
-                    ApplyCapabilities(snapshot.Capabilities);
-                    _hasCompatibleBootstrap = true;
-                    awaitingBootstrapSnapshot = false;
-                    Stats.RecordBootstrap(snapshot.UnchangedSections?.Count ?? 0);
-                    ConfirmRouteSubscription(routeEpoch);
-                    SetState(RemoteLinkState.Connected, null);
-                    onBootstrap();
-                    StreamFrameReceived?.Invoke(frame, true);
-                    FrameReceived?.Invoke(frame);
-                    return;
+                    _hasCompatibleBootstrap = false;
+                    throw new InvalidDataException(Strings.Get("InvalidBootstrap"));
                 }
 
-                StreamFrameReceived?.Invoke(frame, false);
-                FrameReceived?.Invoke(frame);
-            },
-            cancellationToken).ConfigureAwait(false);
+                if (!IsSupportedProtocol(snapshot.ProtocolVersion)
+                    || !RemoteProtocol.HasRequiredCapabilities(snapshot.Capabilities))
+                {
+                    InvalidateCompatibility(BaseUrl ?? "");
+                    throw new RemoteProtocolMismatchException(
+                        Strings.Get("ProtocolRequired", RemoteProtocol.Version));
+                }
 
-        if (awaitingBootstrapSnapshot)
-            throw new InvalidDataException(Strings.Get("ConnectionClosedBeforeBootstrap"));
+                // Headers alone don't prove the connection works. Only a valid bootstrap ends the
+                // connection deadline; from then on the stream uses its normal silence deadline.
+                connectionDeadline.CancelAfter(Timeout.InfiniteTimeSpan);
+                _compatibleBaseUrl = BaseUrl;
+                _compatibleProtocolVersion = snapshot.ProtocolVersion;
+                ApplyCapabilities(snapshot.Capabilities);
+                _hasCompatibleBootstrap = true;
+                awaitingBootstrapSnapshot = false;
+                Stats.RecordBootstrap(snapshot.UnchangedSections?.Count ?? 0);
+                ConfirmRouteSubscription(routeEpoch);
+                SetState(RemoteLinkState.Connected, null);
+                onBootstrap();
+                StreamFrameReceived?.Invoke(frame, true);
+                FrameReceived?.Invoke(frame);
+                return;
+            }
+
+            StreamFrameReceived?.Invoke(frame, false);
+            FrameReceived?.Invoke(frame);
+        }
     }
 
     private async Task ReadEventLinesAsync(

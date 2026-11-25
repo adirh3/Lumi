@@ -330,12 +330,13 @@ public sealed class LumiRemoteClientDeadlineTests
     [Fact]
     public async Task EstablishedEventStreamDoesNotUseTheFiniteRequestDeadline()
     {
+        var requestDeadline = TimeSpan.FromSeconds(1);
         var handler = new RecoveringEventHandler();
         await using var client = new LumiRemoteClient(
             "device",
             "Phone",
             handler,
-            requestDeadline: TimeSpan.FromMilliseconds(40),
+            requestDeadline: requestDeadline,
             uploadDeadline: TimeSpan.FromMilliseconds(80));
         client.Configure("http://lumi.test", "token");
         var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -346,8 +347,8 @@ public sealed class LumiRemoteClientDeadlineTests
         };
 
         await client.StartEventStreamAsync();
-        await connected.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        await Task.Delay(150);
+        await connected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(requestDeadline + TimeSpan.FromMilliseconds(100));
 
         Assert.False(handler.CancellationObserved.Task.IsCompleted);
         Assert.Equal(RemoteLinkState.Connected, client.State);
