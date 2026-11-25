@@ -87,7 +87,14 @@ public partial class FilePreviewView : UserControl
         _messageTimer = null;
         _preview = DataContext as FilePreviewViewModel;
         if (this.FindControl<StrataImageViewport>("PreviewImage") is { } viewport)
-            viewport.CanSwipeBetweenImages = _preview?.HasImageGallery == true;
+        {
+            var preview = _preview;
+            viewport.SetGalleryNeighbors(
+                preview is { HasImageGallery: true, ImageGalleryIndex: > 0 }
+                    ? () => FindShell()?.Chat.GetAdjacentPreviewImage(preview, -1) : null,
+                preview is { HasImageGallery: true } && preview.ImageGalleryIndex + 1 < preview.ImageGallery.Count
+                    ? () => FindShell()?.Chat.GetAdjacentPreviewImage(preview, 1) : null);
+        }
         if (_preview is not null)
             _preview.PropertyChanged += OnPreviewPropertyChanged;
         this.FindControl<ContentControl>("PreviewHtml")!.Content = null;

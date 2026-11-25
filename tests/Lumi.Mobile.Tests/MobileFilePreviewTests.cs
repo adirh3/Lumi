@@ -502,14 +502,18 @@ public sealed class MobileFilePreviewTests
         Assert.Same(selected, chat.FilePreview);
 
         chat.StepImagePreview(selected, -1);
-        Assert.True(selected.IsClosed);
         var previous = Assert.IsType<FilePreviewViewModel>(chat.FilePreview);
         Assert.Same(first, previous.File);
         Assert.Contains("1 / 2", previous.Subtitle);
         chat.StepImagePreview(selected, -1);
         Assert.Same(previous, chat.FilePreview);
         await WaitUntilAsync(() => !previous.IsLoading);
+        chat.StepImagePreview(previous, 1);
+        Assert.Same(selected, chat.FilePreview);
+        Assert.Equal(2, sink.Downloads);
         chat.CloseFilePreviewCommand.Execute(null);
+        Assert.True(previous.IsClosed);
+        Assert.True(selected.IsClosed);
     }
 
     [Fact]
@@ -593,11 +597,11 @@ public sealed class MobileFilePreviewTests
 
             async Task SwipeAsync(bool forward)
             {
-                Point Start() => image.TranslatePoint(new Point(image.Bounds.Width * (forward ? 0.75 : 0.25),
+                Point Start() => image.TranslatePoint(new Point(image.Bounds.Width / 2,
                     image.Bounds.Height * 0.23), window)!.Value;
                 await SettleAsync(window, () => image.IsEffectivelyVisible && ReferenceEquals(image, window.InputHitTest(Start())));
                 var start = Start();
-                var end = start + new Vector(image.Bounds.Width * (forward ? -0.5 : 0.5), 0);
+                var end = start + new Vector(forward ? -56 : 56, 0);
                 var swipe = window.TouchBegin(start);
                 window.TouchMove(swipe, end);
                 window.TouchEnd(swipe, end);
