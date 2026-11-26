@@ -33,7 +33,8 @@ public partial class ChatViewModel
         bool consumeComposerPrompt,
         ChatMessage? queuedMessage = null,
         string? authorOverride = null,
-        IReadOnlyCollection<string>? explicitAttachmentPaths = null)
+        IReadOnlyCollection<string>? explicitAttachmentPaths = null,
+        string? remoteRequestId = null)
     {
         RestoreQueuedExternalModelSelection(activeChat, queuedMessage);
         if (BlockSendForByokOnly(
@@ -71,7 +72,7 @@ public partial class ChatViewModel
 
         if (hasQueuedSends || session is null || runtime is null || !CanSteerImmediately(runtime) || sessionProviderMismatch)
         {
-            QueueSteerPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths);
+            QueueSteerPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths, remoteRequestId);
             if (CurrentChat?.Id == chatId && CanStartTurnOnReadySession(activeChat))
                 ScheduleQueuedBusySendDrain(chatId);
             if (consumeComposerPrompt)
@@ -97,7 +98,7 @@ public partial class ChatViewModel
             queuedViewModel = ResolveQueuedViewModel(queuedMessage);
             if (queuedViewModel is null)
             {
-                QueueSteerPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths);
+                QueueSteerPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths, remoteRequestId);
                 return true;
             }
         }
@@ -107,6 +108,7 @@ public partial class ChatViewModel
             Role = "user",
             Content = prompt,
             Author = authorOverride ?? _dataStore.Data.Settings.UserName ?? Loc.Author_You,
+            RemoteRequestId = remoteRequestId,
             ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
             ReplyTo = consumeComposerPrompt ? TakePendingReply(chatId) : null,
             ReferencedChats = consumeComposerPrompt ? TakeReferencedChats(chatId) : null
@@ -224,11 +226,12 @@ public partial class ChatViewModel
         string prompt,
         ChatMessage? queuedMessage,
         string? authorOverride,
-        IReadOnlyCollection<string>? explicitAttachmentPaths)
+        IReadOnlyCollection<string>? explicitAttachmentPaths,
+        string? remoteRequestId)
     {
         if (queuedMessage is not null || explicitAttachmentPaths is null)
         {
-            return QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride);
+            return QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride, remoteRequestId);
         }
 
         // QueueBusySendPrompt intentionally snapshots the desktop composer. Present only the
@@ -239,7 +242,7 @@ public partial class ChatViewModel
         try
         {
             ReplacePendingAttachments(explicitAttachmentPaths);
-            return QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride);
+            return QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride, remoteRequestId);
         }
         finally
         {
@@ -256,7 +259,7 @@ public partial class ChatViewModel
     /// process the user's steering text only afterward. This method keeps all of the desktop path's
     /// routing, provider-consistency, queue-ordering, attachment, and confirmation safeguards.</para>
     /// </summary>
-    internal Task<bool> SteerExternalMessageAsync(Chat targetChat, string prompt, string author)
+    internal Task<bool> SteerExternalMessageAsync(Chat targetChat, string prompt, string author, string? requestId = null)
     {
         ArgumentNullException.ThrowIfNull(targetChat);
         if (CurrentChat?.Id != targetChat.Id)
@@ -268,7 +271,8 @@ public partial class ChatViewModel
             consumeComposerPrompt: false,
             queuedMessage: null,
             authorOverride: author,
-            explicitAttachmentPaths: []);
+            explicitAttachmentPaths: [],
+            remoteRequestId: requestId);
     }
 
     internal async Task<bool> StopAndSendExternalMessageAsync(
@@ -503,23 +507,29 @@ public partial class ChatViewModel
     /// SDK was still holding, so stopping without reclaiming destroyed the very message the user asked
     /// to deliver, leaving it badged "Steering…" forever.
     /// </remarks>
-    private async Task SendSteeredNowAsync(ChatMessageViewModel message)
+    internal Task<string?> TrySendExternalSteerNowAsync(Chat chat, Guid messageId) =>
+        CurrentChat?.Id == chat.Id
+        && Messages.FirstOrDefault(message => message.Message.Id == messageId && message.CanSendNow) is { } target
+            ? SendSteeredNowAsync(target)
+            : Task.FromResult<string?>(Loc.Remote_MessageStartFailed);
+
+    private async Task<string?> SendSteeredNowAsync(ChatMessageViewModel message)
     {
         if (message.SteerState is not (MessageSteerState.Steering or MessageSteerState.Queued))
-            return;
+            return Loc.Remote_MessageStartFailed;
 
         if (CurrentChat is not { } chat
             || chat.IsPaused
             || !chat.Messages.Contains(message.Message)
             || !IsChatRuntimeActive(chat.Id))
         {
-            return;
+            return Loc.Remote_MessageStartFailed;
         }
 
         if (message.SteerState is MessageSteerState.Queued)
         {
             if (!MoveQueuedBusySendToFront(chat.Id, message.Message))
-                return;
+                return Loc.Remote_MessageStartFailed;
 
             // Session/MCP setup cannot be skipped, but it also must not be cancelled: that destroys the
             // half-ready session and starts the same setup again. Latch the request instead. The first
@@ -529,7 +539,7 @@ public partial class ChatViewModel
             {
                 GetOrCreateRuntimeState(chat.Id).SendQueuedNowWhenTurnStarts = true;
                 message.CanSendNowWhenQueued = false;
-                return;
+                return null;
             }
         }
 
@@ -543,5 +553,6 @@ public partial class ChatViewModel
         // is already out of that set, and the drain scheduled by the stop starts its fresh turn.
         var error = await StopGenerationInternal(chat, resolvePendingSteersAsFailed: true);
         ApplyStopError(chat.Id, error);
+        return error;
     }
 }

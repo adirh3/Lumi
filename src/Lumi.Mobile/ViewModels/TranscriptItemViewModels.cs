@@ -61,6 +61,7 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
     [ObservableProperty] private string _author = Strings.Get("You");
     [ObservableProperty] private DateTimeOffset? _timestamp;
     [ObservableProperty] private string? _steerState;
+    [ObservableProperty] private bool _canSendNow;
 
     public ObservableCollection<RemoteAttachment> Attachments { get; } = [];
 
@@ -89,6 +90,7 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
         Author = string.IsNullOrWhiteSpace(item.Author) ? Strings.Get("You") : item.Author!;
         Timestamp = item.Timestamp;
         SteerState = item.SteerState;
+        CanSendNow = item.CanSendNow;
 
         Attachments.Clear();
         foreach (var attachment in (item.Attachments ?? []).Concat(content.Attachments.Where(file =>

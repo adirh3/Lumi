@@ -838,12 +838,13 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
-    public async Task UpdateSafetyTracksStopAndSendUntilFailureRestoresItsDraft()
+    public async Task UpdateSafetyTracksAnExplicitSendUntilFailureRestoresItsDraft()
     {
         var sink = new ControllableSink();
         var chat = new MobileChatViewModel(sink);
-        chat.Reset(Guid.NewGuid(), "Existing chat");
-        chat.IsBusy = true;
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Existing chat");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true });
         chat.PromptText = "Keep this replacement";
         chat.Attachments.Add(new PendingAttachment("notes.txt", @"C:\uploads\notes.txt"));
         var safetySignals = new List<bool>();
@@ -853,11 +854,14 @@ public sealed class MobileStateCorrectnessTests
                 safetySignals.Add(chat.HasUnsentWork);
         };
 
-        var send = chat.StopAndSendCommand.ExecuteAsync(null);
-        await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var sendCommand = chat.StopAndSendCommand;
+        var send = sendCommand.ExecuteAsync(null);
+        var request = await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
         try
         {
-            Assert.True(chat.StopAndSendCommand.IsRunning);
+            Assert.Equal(RemoteProtocol.Actions.SendMessage, request.Action);
+            Assert.Contains(@"C:\uploads\notes.txt", request.Get("message"));
+            Assert.True(sendCommand.IsRunning);
             Assert.False(chat.SendCommand.IsRunning);
             Assert.Empty(chat.PromptText);
             Assert.Empty(chat.Attachments);
@@ -1115,11 +1119,12 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
-    public async Task UnchangedAmbiguousTransportRetry_ReusesTheRequestId()
+    public async Task UnchangedAmbiguousTransportRetry_ReusesTheRequestIdAndAction()
     {
         var sink = new SequencedCommandSink(commandCount: 2);
         var chat = new MobileChatViewModel(sink);
-        chat.Reset(Guid.NewGuid(), "Existing chat");
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Existing chat");
         chat.PromptText = "retry exactly";
 
         var firstSend = chat.SendCommand.ExecuteAsync(null);
@@ -1141,6 +1146,61 @@ public sealed class MobileStateCorrectnessTests
         await retry;
 
         Assert.Equal(first.RequestId, second.RequestId);
+        Assert.Equal(first.Action, second.Action);
+    }
+
+    [Fact]
+    public async Task SendNowUsesTheAuthoritativeMessageIdAndHidesAfterDelivery()
+    {
+        var sink = new ScriptedCommandSink(new RemoteCommandResult { Ok = true }, new RemoteCommandResult { Ok = true });
+        var chatId = Guid.NewGuid();
+        var messageId = Guid.NewGuid().ToString("N");
+        var chat = new MobileChatViewModel(sink);
+        chat.Reset(chatId, "Existing chat");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true });
+        chat.PromptText = "change direction";
+        await chat.SendCommand.ExecuteAsync(null);
+        var steer = Assert.Single(sink.Commands);
+        var bubble = Assert.Single(Assert.Single(chat.Turns).Items.OfType<UserTurnItemViewModel>());
+        Assert.False(bubble.CanSendNow);
+
+        ApplySteer(revision: 1, "Steering", canSendNow: true);
+        Assert.Same(bubble, Assert.Single(Assert.Single(chat.Turns).Items.OfType<UserTurnItemViewModel>()));
+        Assert.True(bubble.CanSendNow);
+        Assert.Equal(messageId, bubble.Id);
+
+        await chat.SendSteeredNowCommand.ExecuteAsync(bubble);
+        var sendNow = sink.Commands.Last();
+        Assert.Equal(RemoteProtocol.Actions.SendSteeredNow, sendNow.Action);
+        Assert.Equal(chatId.ToString(), sendNow.Get("chatId"));
+        Assert.Equal(messageId, sendNow.Get("messageId"));
+        Assert.Null(sendNow.Get("message"));
+        Assert.False(bubble.CanSendNow);
+
+        ApplySteer(revision: 2, "Steered", canSendNow: false);
+        Assert.False(bubble.CanSendNow);
+        Assert.Same(bubble, Assert.Single(Assert.Single(chat.Turns).Items.OfType<UserTurnItemViewModel>()));
+
+        void ApplySteer(long revision, string state, bool canSendNow) => chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = revision,
+            TotalRawMessageCount = 1,
+            Status = new RemoteChatStatus { ChatId = chatId, IsBusy = true },
+            Turns = [new()
+            {
+                Id = "confirmed-turn",
+                Items = [new()
+                {
+                    Id = messageId,
+                    Kind = RemoteProtocol.ItemKinds.User,
+                    Text = "change direction",
+                    RequestId = steer.RequestId,
+                    SteerState = state,
+                    CanSendNow = canSendNow
+                }]
+            }]
+        });
     }
 
     [Fact]

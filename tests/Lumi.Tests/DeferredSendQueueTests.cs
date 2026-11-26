@@ -3312,7 +3312,7 @@ public sealed partial class DeferredSendQueueTests
         }
 
         public void QueuePrompt(string prompt, Guid? chatId = null, string? authorOverride = null)
-            => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null, authorOverride);
+            => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null, authorOverride, null);
 
         public void BeginEdit(ChatMessage message)
             => Invoke("BeginComposerEdit", message);

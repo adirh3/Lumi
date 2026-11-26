@@ -2346,6 +2346,45 @@ public sealed class RemoteCommandRouterSurfaceTests
     });
 
     [Fact]
+    public Task MobileSendNowReclaimsOnlyTheRequestedPendingSteer() => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync();
+        var runtime = MarkBusy(rig.DetachedSurface, rig.DetachedChat);
+        var mainRuntime = MarkBusy(rig.Main.ChatVM, rig.MainChat);
+        var router = new RemoteCommandRouter(rig.DataStore, rig.Main);
+        var steer = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.SendMessage) { RequestId = "mobile-steer" }
+                .With("chatId", rig.DetachedChat.Id.ToString())
+                .With("message", "change direction")
+                .With("steer", "true"),
+            CancellationToken.None);
+        Assert.True(steer.Ok, steer.Error);
+        var pending = rig.DetachedSurface.Messages.Single(message => message.Content == "change direction");
+        var cloned = LumiRemoteServer.CloneMessageForRemote(pending.Message);
+        Assert.Equal("mobile-steer", cloned.RemoteRequestId);
+        Assert.Equal(MessageSteerState.Queued, cloned.SteerDelivery);
+        Assert.True(cloned.CanSendNowWhenQueued);
+
+        Task<RemoteCommandResult> SendNowAsync(Guid chatId, Guid messageId) => router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.SendSteeredNow)
+                .With("chatId", chatId.ToString())
+                .With("messageId", messageId.ToString()),
+            CancellationToken.None);
+
+        Assert.False((await SendNowAsync(rig.MainChat.Id, pending.Message.Id)).Ok);
+        Assert.True(mainRuntime.IsBusy);
+        Assert.False(runtime.SendQueuedNowWhenTurnStarts);
+
+        var accepted = await SendNowAsync(rig.DetachedChat.Id, pending.Message.Id);
+        Assert.True(accepted.Ok, accepted.Error);
+        Assert.True(runtime.SendQueuedNowWhenTurnStarts);
+        Assert.False(pending.CanSendNow);
+        Assert.Same(pending.Message, Assert.Single(rig.DetachedChat.Messages, message => message.Content == "change direction"));
+        Assert.False((await SendNowAsync(rig.DetachedChat.Id, pending.Message.Id)).Ok);
+        Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
+    });
+
+    [Fact]
     public Task StopAndSendUsesTheDetachedRuntimeWithoutChangingTheMainSurface() => RunAsync(async () =>
     {
         using var rig = await DetachedRig.CreateAsync();

@@ -70,7 +70,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private Guid _chatId;
     [ObservableProperty] private string _title = "";
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopAndSendCommand))]
     [NotifyPropertyChangedFor(nameof(HasUnsentWork))]
     [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private string _promptText = "";
@@ -87,7 +87,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
     private bool _isSessionActive;
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopAndSendCommand))]
     [NotifyPropertyChangedFor(nameof(CanSubmitInteractions))]
     [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isLoading;
@@ -109,7 +109,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [ObservableProperty] private bool _hasEarlierMessages;
     [ObservableProperty] private bool _hasLaterMessages;
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopAndSendCommand))]
     [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isLatestWindow = true;
     [ObservableProperty] private bool _hasNewerActivity;
@@ -367,12 +367,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     public bool HasAttachments => Attachments.Count > 0;
 
+    private bool HasPendingSend =>
+        SendCommand.IsRunning || StopAndSendCommand.IsRunning;
+
     internal bool HasPendingOperation =>
         IsUploading
         || IsPickingAttachment
         || _uploadsInFlight > 0
-        || SendCommand.IsRunning
-        || StopAndSendCommand.IsRunning;
+        || HasPendingSend;
 
     internal bool HasUnsentWork =>
         PromptText.Length > 0
@@ -390,7 +392,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     /// <summary>An upload in flight, so the composer can show progress instead of appearing to hang.</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopAndSendCommand))]
     [NotifyPropertyChangedFor(nameof(HasUnsentWork))]
     [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isUploading;
@@ -555,7 +557,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         {
             ClearPendingRetryIfPayloadChanged();
             OnPropertyChanged(nameof(HasAttachments));
-            SendCommand.NotifyCanExecuteChanged();
+            NotifySendCommandsCanExecuteChanged();
         }
     }
 
@@ -594,9 +596,16 @@ public sealed partial class MobileChatViewModel : ObservableObject
     {
         if (e.PropertyName == nameof(SendCommand.IsRunning))
         {
+            NotifySendCommandsCanExecuteChanged();
             OnPropertyChanged(nameof(HasUnsentWork));
             OnPropertyChanged(nameof(ShowFollowUpSuggestions));
         }
+    }
+
+    private void NotifySendCommandsCanExecuteChanged()
+    {
+        SendCommand.NotifyCanExecuteChanged();
+        StopAndSendCommand.NotifyCanExecuteChanged();
     }
 
     private void PushChipAdditions(NotifyCollectionChangedEventArgs e, string key)
@@ -618,7 +627,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public bool ShowFollowUpSuggestions =>
         HasChat && Suggestions.Count > 0 && !IsWorking && !IsLoading && IsLatestWindow && !IsAwaitingInput
         && PromptText.Length == 0 && !HasAttachments && !IsUploading
-        && !SendCommand.IsRunning && !StopAndSendCommand.IsRunning;
+        && !HasPendingSend;
 
     /// <summary>The three static starters shown when the desktop has nothing more specific.</summary>
     private static ChatStarter[] DefaultStarters =>
@@ -771,6 +780,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public bool HasChat => ChatId != Guid.Empty;
 
     public bool HasBackgroundActivity => IsSessionActive && !IsBusy && !IsStreaming;
+
+    private bool HasSendDraft => !string.IsNullOrWhiteSpace(PromptText) || HasAttachments;
 
     /// <summary>
     /// True when the blank surface has become the user's work rather than the untouched launch
@@ -1979,7 +1990,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         OnPropertyChanged(nameof(HasAttachments));
         OnPropertyChanged(nameof(HasUnsentWork));
-        SendCommand.NotifyCanExecuteChanged();
+        NotifySendCommandsCanExecuteChanged();
     }
 
     private void RestorePendingConfigurationSelections()
@@ -2042,7 +2053,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
             ClearPendingRetryIfPayloadChanged();
             OnPropertyChanged(nameof(HasAttachments));
-            SendCommand.NotifyCanExecuteChanged();
+            NotifySendCommandsCanExecuteChanged();
             StoreDraft(surface, CaptureCurrentDraft());
             return;
         }
@@ -2575,7 +2586,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         foreach (var request in GetPendingSendReconciliations())
             TryReconcilePendingSend(request, transcript);
 
-        if (_pendingRetry is not { } pending || !epochChanged || SendCommand.IsRunning)
+        if (_pendingRetry is not { } pending || !epochChanged || HasPendingSend)
             return;
 
         var error = Strings.Get("SendRestarted");
@@ -2591,7 +2602,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     internal IReadOnlyList<PendingSendReconciliation> GetPendingSendReconciliations()
     {
-        if (SendCommand.IsRunning)
+        if (HasPendingSend)
             return [];
 
         var requests = new List<PendingSendReconciliation>();
@@ -2614,7 +2625,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     internal bool TryReconcilePendingSend(PendingSendReconciliation request, RemoteTranscript transcript)
     {
-        if (SendCommand.IsRunning || !IsCurrentHost(request.HostGeneration) || transcript.ChatId == Guid.Empty)
+        if (HasPendingSend || !IsCurrentHost(request.HostGeneration) || transcript.ChatId == Guid.Empty)
             return false;
 
         var surface = ResolveSurface(new ChatSurfaceIdentity(request.ChatId, request.BlankGeneration));
@@ -3379,27 +3390,17 @@ public sealed partial class MobileChatViewModel : ObservableObject
         return StreamDeltaOutcome.Applied;
     }
 
-    /// <summary>
-    /// Send, or steer if a turn is already running.
-    ///
-    /// <para>With <c>SteerWhileBusy</c> the composer routes a mid-turn Send through the ordinary
-    /// send command, so this has to notice the busy state itself. On the desktop steering injects
-    /// the draft into the live turn; the remote path cannot do that, so it means abort-and-replace —
-    /// which is the honest behaviour on a phone and, crucially, no longer just bounces off the
-    /// server with "that chat is already running".</para>
-    /// </summary>
     private bool CanSend() =>
         !IsLoading
         && IsLatestWindow
         && !IsUploading
-        && (PromptText.Trim().Length > 0 || HasAttachments);
+        && !HasPendingSend
+        && HasSendDraft;
 
     [RelayCommand(CanExecute = nameof(CanSend))]
-    private Task SendAsync() => SendAsync(steer: IsBusy || IsStreaming, stopAndSend: false);
+    private Task SendAsync() => SendCoreAsync(IsWorking ? SendMode.Steer : SendMode.Send);
 
-    private Task SendAsync(bool steer, bool stopAndSend = false) => SendCoreAsync(steer, stopAndSend);
-
-    private async Task SendCoreAsync(bool steer, bool stopAndSend)
+    private async Task SendCoreAsync(SendMode mode)
     {
         var hostGeneration = Volatile.Read(ref _hostGeneration);
         var surface = CurrentSurface;
@@ -3439,8 +3440,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                                    _pendingConfiguration.Clone();
         if (surface.IsBlank && matchingRetry is null)
             CaptureBlankModelSelection(pendingConfiguration);
-        var effectiveSteer = matchingRetry?.Steer ?? steer;
-        var effectiveStopAndSend = matchingRetry?.StopAndSend ?? stopAndSend;
+        var effectiveMode = matchingRetry?.Mode ?? mode;
 
         PromptText = "";
         ErrorText = null;
@@ -3452,25 +3452,13 @@ public sealed partial class MobileChatViewModel : ObservableObject
         Attachments.Clear();
         OnPropertyChanged(nameof(HasAttachments));
         OnPropertyChanged(nameof(CanChooseWorktree));
-        SendCommand.NotifyCanExecuteChanged();
+        NotifySendCommandsCanExecuteChanged();
 
-        // Optimistically flip to busy so the composer switches to Stop and the thinking row appears
-        // with no round-trip lag. It stays until a real response row can replace it.
         BeginAwaitingVisibleActivity();
         IsBusy = true;
-
-        // Paint the bubble NOW. The real one only arrives after an HTTP round trip, an SSE
-        // invalidation and a transcript refetch — three hops on a phone's Wi-Fi — and staring at an
-        // unchanged screen after tapping send is the single most damaging kind of latency, because
-        // the user cannot tell whether the tap registered. Confirmation applies the server's identity
-        // and content to this bubble in place.
-        var echo = AddPendingEcho(
-            text,
-            requestId,
-            effectiveSteer || effectiveStopAndSend,
-            attached);
+        var echo = AddPendingEcho(text, requestId, effectiveMode, attached);
         if (surface.ChatId != Guid.Empty)
-            ChatActivitySubmitted?.Invoke(surface.ChatId, echo?.Items.OfType<UserTurnItemViewModel>().FirstOrDefault()?.Text ?? text);
+            ChatActivitySubmitted?.Invoke(surface.ChatId, text);
 
         var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
         {
@@ -3490,9 +3478,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         pendingConfiguration.ApplyTo(command, includeCreationAliases: surface.IsBlank);
 
-        if (effectiveSteer)
+        if (effectiveMode == SendMode.Steer)
             command.With("steer", "true");
-        if (effectiveStopAndSend)
+        if (effectiveMode == SendMode.StopAndSend)
             command.With("stopAndSend", "true");
 
         // Capture the send and paint its feedback before waiting for a settings round trip.
@@ -3505,8 +3493,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 return;
             RestoreSendDraftForSurface(
                 surface, activation, payload, pendingConfiguration, requestId,
-                matchingRetry is not null, effectiveSteer, effectiveStopAndSend, null, echo);
-            if (!surface.IsBlank)
+                matchingRetry is not null, effectiveMode, null, echo);
+            if (!surface.IsBlank && echo is not null)
                 ChatActivitySubmissionFailed?.Invoke(surface.ChatId);
         }
         _stagedSends.Add(staged);
@@ -3552,11 +3540,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
                     pendingConfiguration,
                     requestId,
                     false,
-                    effectiveSteer,
-                    effectiveStopAndSend,
+                    effectiveMode,
                     Strings.Get("SendMessageFailed"),
                     echo);
-                if (!surface.IsBlank)
+                if (!surface.IsBlank && echo is not null)
                     ChatActivitySubmissionFailed?.Invoke(surface.ChatId);
                 Trace.TraceWarning($"[Mobile] Send failed: {ex}");
                 return;
@@ -3594,11 +3581,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
                     pendingConfiguration,
                     result.RequestId ?? requestId,
                     IsAmbiguousFailure(result),
-                    effectiveSteer,
-                    effectiveStopAndSend,
+                    effectiveMode,
                     result.Error ?? Strings.Get("SendMessageFailed"),
                     echo);
-                if (!surface.IsBlank)
+                if (!surface.IsBlank && echo is not null)
                     ChatActivitySubmissionFailed?.Invoke(surface.ChatId);
 
                 if (surface.IsBlank &&
@@ -3633,8 +3619,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         PendingChatConfiguration sentConfiguration,
         string requestId,
         bool preserveRequestIdentity,
-        bool steer,
-        bool stopAndSend,
+        SendMode mode,
         string? error,
         TranscriptTurnViewModel? echo)
     {
@@ -3663,8 +3648,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 requestId,
                 sentPayload,
                 sentConfiguration.Clone(),
-                steer,
-                stopAndSend,
+                mode,
                 _now(),
                 ReplayAllowed: true)
             {
@@ -3687,7 +3671,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             return;
 
         ApplyDraft(restored, restoreSelections: true);
-        if (isOriginalActivation)
+        if (isOriginalActivation && echo is not null)
         {
             ResetVisibleActivityProgress();
             IsBusy = false;
@@ -3851,7 +3835,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private TranscriptTurnViewModel? AddPendingEcho(
         string text,
         string requestId,
-        bool steer,
+        SendMode mode,
         IReadOnlyList<PendingAttachment>? attachments = null)
     {
         _pendingEchoBaselineRevision = _revision;
@@ -3886,7 +3870,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 Path = file.Path,
                 Extension = Path.GetExtension(file.FileName)
             }).ToList(),
-            SteerState = steer ? "Steering" : null
+            SteerState = mode switch
+            {
+                SendMode.Steer => "Steering",
+                SendMode.StopAndSend => "Queued",
+                _ => null
+            }
         });
         user.RequestEntranceAnimation();
         user.OpenActionsCommand = new RelayCommand(() => OpenMessageActions(user));
@@ -4126,19 +4115,41 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// Explicit Stop &amp; Send: abort the running desktop turn and submit this draft as a fresh turn.
     /// Ordinary mid-turn Send remains steering.
     /// </summary>
-    [RelayCommand]
-    private async Task StopAndSendAsync()
-    {
-        var text = PromptText.Trim();
+    [RelayCommand(CanExecute = nameof(CanSend))]
+    private Task StopAndSendAsync() => SendCoreAsync(SendMode.StopAndSend);
 
-        // With nothing typed, Send-while-busy just means Stop.
-        if (text.Length == 0)
-        {
-            await StopAsync();
+    [RelayCommand]
+    private async Task SendSteeredNowAsync(UserTurnItemViewModel? item)
+    {
+        if (item is not { CanSendNow: true } || !Guid.TryParse(item.Id, out _)
+            || ChatId == Guid.Empty || !Turns.Any(turn => turn.Items.Contains(item)))
             return;
+
+        var surface = CurrentSurface;
+        var activation = _surfaceActivationGeneration;
+        var host = Volatile.Read(ref _hostGeneration);
+        var command = new RemoteCommand(RemoteProtocol.Actions.SendSteeredNow)
+        {
+            RequestId = Guid.NewGuid().ToString("N")
+        }.With("chatId", surface.ChatId.ToString()).With("messageId", item.Id);
+
+        RemoteCommandResult result;
+        try
+        {
+            result = await _sink.SendCommandAsync(command);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"[Mobile] Send now failed: {ex}");
+            result = new RemoteCommandResult { Error = Strings.Get("SendMessageFailed") };
         }
 
-        await SendAsync(steer: false, stopAndSend: true);
+        if (!IsCurrentHost(host) || !IsCurrentSurfaceActivation(surface, activation))
+            return;
+
+        ErrorText = result.Ok ? null : result.Error ?? Strings.Get("SendMessageFailed");
+        if (result.Ok)
+            item.CanSendNow = false;
     }
 
     [RelayCommand]
@@ -4309,12 +4320,13 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 FileName = file.FileName
             }));
 
+    private enum SendMode { Send, Steer, StopAndSend }
+
     private sealed record PendingRetry(
         string RequestId,
         SendPayload Payload,
         PendingChatConfiguration Configuration,
-        bool Steer,
-        bool StopAndSend,
+        SendMode Mode,
         DateTimeOffset CreatedAtUtc,
         bool ReplayAllowed)
     {

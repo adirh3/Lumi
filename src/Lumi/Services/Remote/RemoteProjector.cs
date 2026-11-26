@@ -2233,6 +2233,8 @@ internal static class RemoteProjector
             SteerState = message.SteerDelivery == MessageSteerState.None
                 ? null
                 : message.SteerDelivery.ToString(),
+            CanSendNow = message.SteerDelivery == MessageSteerState.Steering
+                         || message.SteerDelivery == MessageSteerState.Queued && message.CanSendNowWhenQueued,
             Attachments = attachments.Count == 0 ? null : attachments
         };
     }

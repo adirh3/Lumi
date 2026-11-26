@@ -603,6 +603,29 @@
     </Style>
 
     <!--
+      ══ Send menu ══
+      Strata's send menu (Send to steer, Stop & send, Stop session),
+      which a hold on Send opens while Lumi works on a draft, at thumb size: 48 dp rows with words at body
+      size. Its keyboard shortcuts mean nothing on a phone, so they stay hidden. The view opens it from
+      Send, lifted clear of the draft's editor.
+    -->
+    <Style Selector="ContextMenu.mobile-send-menu">
+      <Setter Property="MinWidth" Value="200" />
+      <Setter Property="Padding" Value="4" />
+    </Style>
+    <Style Selector="ContextMenu.mobile-send-menu MenuItem">
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Padding" Value="12,8" />
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    </Style>
+    <Style Selector="ContextMenu.mobile-send-menu MenuItem /template/ ContentPresenter#PART_IconPresenter">
+      <Setter Property="Margin" Value="0,0,12,0" />
+    </Style>
+    <Style Selector="ContextMenu.mobile-send-menu MenuItem /template/ TextBlock#PART_InputGestureText">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+
+    <!--
       ══ Follow-up suggestions ══
       The desktop's chips at thumb size: one row of glass pills resting on the composer, each the reply
       arrow and one line of what to say next. A tap sends it, as the desktop's chip does; holding it puts
@@ -1619,12 +1642,16 @@
             </StackPanel>
           </sc:StrataChatMessage.Content>
         </sc:StrataChatMessage>
-        <TextBlock Text="{Binding SteerStatusText}"
-                   IsVisible="{Binding HasSteerStatus}"
-                   HorizontalAlignment="Right"
-                   Margin="0,-2,8,0"
-                   FontSize="{DynamicResource Font.SizeCaption}"
-                   Foreground="{DynamicResource Brush.TextTertiary}" />
+        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right"
+                    Margin="0,-2,8,0" IsVisible="{Binding HasSteerStatus}">
+          <TextBlock Text="{Binding SteerStatusText}" VerticalAlignment="Center"
+                     FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextTertiary}" />
+          <Button x:Name="SteerSendNowButton" Classes="subtle touch"
+                  Content="{loc:Str SendNow}" IsVisible="{Binding CanSendNow}"
+                  Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.SendSteeredNowCommand}"
+                  CommandParameter="{Binding}" />
+        </StackPanel>
       </StackPanel>
     </DataTemplate>
 
@@ -2276,11 +2303,12 @@
                                MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
                                PromptText="{Binding Chat.PromptText, Mode=TwoWay}"
                                PreferAutoCompleteAbove="True"
-                               IsBusy="{Binding Chat.IsBusy}"
+                               IsBusy="{Binding Chat.IsWorking}"
                                SendWithEnter="{Binding SendWithEnter}"
                                CanSendWithoutPrompt="{Binding Chat.HasAttachments}"
                                AdvancesFillInOnSend="True"
                                SteerWhileBusy="True"
+                               OffersStopInSendMenu="True"
                                CanAttach="True"
                                AttachCommand="{Binding Chat.PickAttachmentCommand}"
                                CanVoice="False"

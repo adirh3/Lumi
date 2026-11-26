@@ -99,6 +99,56 @@ public sealed class MobileLocalizationTests
     }
 
     [Theory]
+    [InlineData("en", "While Lumi is working, long press for send options",
+        new[] { "Send to steer", "Stop & send", "Stop session" }, FlowDirection.LeftToRight)]
+    [InlineData("he", "בזמן ש-Lumi עובד, לחיצה ארוכה לאפשרויות שליחה",
+        new[] { "שליחה להכוונה", "עצירה ושליחה", "עצירת ההפעלה" }, FlowDirection.RightToLeft)]
+    public async Task SendMenuFollowsTheInterfaceLanguage(
+        string language, string help, string[] rows, FlowDirection direction)
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            using var cultures = new CultureScope();
+            var store = new MemorySettingsStore();
+            store.Settings.Language = language;
+            await using var shell = new MobileShellViewModel(store: store, post: action => action());
+            shell.Chat.Reset(Guid.NewGuid(), "Original chat");
+            shell.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = shell.Chat.ChatId, IsBusy = true
+            });
+            shell.Chat.PromptText = "Draft";
+            var view = new ChatDetailView { DataContext = shell };
+            var window = new Window { Width = 360, Height = 780, Content = view };
+            try
+            {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                var button = view.GetVisualDescendants().OfType<Button>()
+                    .Single(control => control.Name == "PART_SendButton");
+                Assert.Equal(help, Avalonia.Automation.AutomationProperties.GetHelpText(button));
+                var menu = Assert.IsType<ContextMenu>(button.ContextMenu);
+                button.RaiseEvent(new Avalonia.Input.ContextRequestedEventArgs());
+                Dispatcher.UIThread.RunJobs();
+                Assert.True(menu.IsOpen);
+                // It opens from Send in either direction, since only the menu's own rows mirror.
+                Assert.Same(button, Assert.IsType<Popup>(menu.Parent).PlacementTarget);
+                // The rows are Strata's shared labels, and the menu reads in the interface's direction.
+                Assert.Equal(direction, menu.FlowDirection);
+                Assert.Equal(rows, menu.Items.OfType<MenuItem>().Where(item => item.IsVisible)
+                    .Select(item => item.Header as string ?? "").ToArray());
+                Assert.Equal("Draft", shell.Chat.PromptText);
+                menu.Close();
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
     [InlineData("en", "Copy")]
     [InlineData("he", "העתקה")]
     [InlineData("es", "Copiar")]

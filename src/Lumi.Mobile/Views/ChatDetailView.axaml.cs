@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.VisualTree;
 using System.Linq;
 using Avalonia.Controls;
@@ -36,6 +37,10 @@ public partial class ChatDetailView : UserControl
     private MobilePresenceController? _presence;
     private MobileShellViewModel? _shell;
     private StrataChatComposer? _composer;
+    private Button? _composerSendButton;
+    private ContextMenu? _composerSendMenu;
+    /// <summary>The send menu was asked for from a keyboard, so it opens on its first row and closing it returns to Send.</summary>
+    private bool _sendMenuFromKeyboard;
     private NativeComposerEditorHost? _nativeComposerEditor;
     private TextBox? _sharedComposerInput;
     private bool _isFullScreenPresented;
@@ -229,6 +234,30 @@ public partial class ChatDetailView : UserControl
         composer.SendRequested += OnComposerActionRequested;
         composer.StopRequested += OnComposerActionRequested;
         composer.StopAndSendRequested += OnComposerActionRequested;
+        composer.QueueRequested += OnComposerActionRequested;
+        _composerSendButton = composer.GetVisualDescendants().OfType<Button>()
+            .FirstOrDefault(button => button.Name == "PART_SendButton");
+        if (_composerSendButton is { } sendButton)
+        {
+            // The guard keeps the release that ends a hold from also sending or stopping.
+            TouchScrollClickGuard.SetIsEnabled(sendButton, true);
+            AutomationProperties.SetHelpText(sendButton, Strings.Get("HoldForSendOptions"));
+            sendButton.AddHandler(ContextCanceledEvent, OnSendMenuCanceled, RoutingStrategies.Tunnel);
+            sendButton.AddHandler(KeyUpEvent, OnSendButtonKeyUp);
+            sendButton.AddHandler(ContextRequestedEvent, OnSendMenuRequested, RoutingStrategies.Tunnel);
+            if (sendButton.ContextMenu is { } sendMenu)
+            {
+                // Strata's own send menu, opened by a hold as a right-click opens it on the desktop.
+                _composerSendMenu = sendMenu;
+                sendMenu.Classes.Add("mobile-send-menu");
+                sendMenu.FlowDirection = Strings.UiFlowDirection;
+                // Taking focus would close the soft keyboard under the draft the menu is about.
+                Popup.SetTakesFocusFromNativeControl(sendMenu, false);
+                sendMenu.Opening += OnSendMenuOpening;
+                sendMenu.Opened += OnSendMenuOpened;
+                sendMenu.Closed += OnSendMenuClosed;
+            }
+        }
         if (!MobilePlatformServices.NativeComposerEditorFactory.IsAvailable)
         {
             _sharedComposerInput = composer.GetVisualDescendants().OfType<TextBox>()
@@ -267,6 +296,27 @@ public partial class ChatDetailView : UserControl
             _composer.SendRequested -= OnComposerActionRequested;
             _composer.StopRequested -= OnComposerActionRequested;
             _composer.StopAndSendRequested -= OnComposerActionRequested;
+            _composer.QueueRequested -= OnComposerActionRequested;
+        }
+        if (_composerSendMenu is not null)
+        {
+            _composerSendMenu.Opening -= OnSendMenuOpening;
+            _composerSendMenu.Opened -= OnSendMenuOpened;
+            _composerSendMenu.Closed -= OnSendMenuClosed;
+            _composerSendMenu.Close();
+            _composerSendMenu.Classes.Remove("mobile-send-menu");
+            _composerSendMenu.ClearValue(FlowDirectionProperty);
+            _composerSendMenu.ClearValue(Popup.TakesFocusFromNativeControlProperty);
+            _composerSendMenu = null;
+        }
+        if (_composerSendButton is not null)
+        {
+            _composerSendButton.RemoveHandler(ContextCanceledEvent, OnSendMenuCanceled);
+            _composerSendButton.RemoveHandler(KeyUpEvent, OnSendButtonKeyUp);
+            _composerSendButton.RemoveHandler(ContextRequestedEvent, OnSendMenuRequested);
+            TouchScrollClickGuard.SetIsEnabled(_composerSendButton, false);
+            _composerSendButton.ClearValue(AutomationProperties.HelpTextProperty);
+            _composerSendButton = null;
         }
         if (_sharedComposerInput is not null)
             _sharedComposerInput.Classes.CollectionChanged -= OnSharedEditorClassesChanged;
@@ -286,6 +336,7 @@ public partial class ChatDetailView : UserControl
         _nativeComposerEditor = null;
         _sharedComposerInput = null;
         _composer = null;
+        _sendMenuFromKeyboard = false;
     }
 
     private void OnComposerPropertyChanged(
@@ -363,6 +414,131 @@ public partial class ChatDetailView : UserControl
     }
 
     private void OnComposerActionRequested(object? sender, RoutedEventArgs e) => ReleaseComposerFocus();
+
+    /// <summary>
+    /// While blanks are left the send button walks them, so the menu stays shut and the hold's release
+    /// takes the user to the next blank. Strata has already cancelled the menu when there is nothing to
+    /// choose; this only ever cancels more.
+    /// </summary>
+    private void OnSendMenuOpening(object? sender, CancelEventArgs e)
+    {
+        if (_composer?.Classes.Contains(":fill-in-next") == true)
+            e.Cancel = true;
+        if (e.Cancel)
+            _sendMenuFromKeyboard = false;
+    }
+
+    /// <summary>
+    /// A request without a pointer position came from a keyboard, as Avalonia tells them apart. A hold or a
+    /// right-click leaves focus where it is: focusing the menu would close the soft keyboard under the draft.
+    /// </summary>
+    private void OnSendMenuRequested(object? sender, ContextRequestedEventArgs e) =>
+        _sendMenuFromKeyboard = !e.TryGetPosition(null, out _);
+
+    /// <summary>
+    /// The menu opens from Send, as the desktop's does, whatever opened it: a hold may land on Send's icon,
+    /// and a keyboard asks Avalonia for a menu below. A draft's editor stands above Send, and the phone's
+    /// native editor or the browser's input draws over anything on it, so the menu rises clear of its top.
+    /// </summary>
+    private void OnSendMenuOpened(object? sender, RoutedEventArgs e)
+    {
+        if (_composerSendButton is { } sendButton)
+        {
+            TouchScrollClickGuard.ConsumeHold(sendButton);
+            if (_composerSendMenu is { Parent: Popup popup } menu)
+            {
+                popup.PlacementTarget = sendButton;
+                popup.Placement = menu.Placement;
+                popup.HorizontalOffset = menu.HorizontalOffset;
+                popup.VerticalOffset = menu.VerticalOffset + LiftAboveEditor(sendButton);
+            }
+        }
+        FocusFirstSendOption(retry: true);
+    }
+
+    /// <summary>How far the draft's editor reaches above Send, as an offset upward; nothing when it doesn't.</summary>
+    private double LiftAboveEditor(Visual sendButton)
+    {
+        Visual? editor = _nativeComposerEditor is { IsEffectivelyVisible: true } native ? native
+            : _sharedComposerInput is { IsEffectivelyVisible: true } input ? input
+            : null;
+        if (editor is null || TopLevel.GetTopLevel(sendButton) is not { } topLevel
+            || editor.TranslatePoint(default, topLevel) is not { } editorTop
+            || sendButton.TranslatePoint(default, topLevel) is not { } sendTop)
+            return 0;
+        return Math.Min(0, editorTop.Y - sendTop.Y);
+    }
+
+    /// <summary>
+    /// A keyboard opens the menu on its first row, so the arrows and Enter choose there rather than on Send.
+    /// The rows can join the window just after the menu opens, so it tries once more when they have.
+    /// </summary>
+    private void FocusFirstSendOption(bool retry)
+    {
+        if (!_sendMenuFromKeyboard || _composerSendMenu is not { IsOpen: true } menu)
+            return;
+
+        var first = menu.Items.OfType<MenuItem>()
+            .FirstOrDefault(item => item.IsVisible && item.IsEffectivelyEnabled);
+        if (first?.Focus(NavigationMethod.Tab) != true && retry)
+            Dispatcher.UIThread.Post(() => FocusFirstSendOption(retry: false), DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Closing a menu the keyboard opened gives the keyboard back to Send. Avalonia leaves focus nowhere once
+    /// the menu's rows are gone, so this only takes it back from there, never from wherever the user went next,
+    /// such as the phone's or the browser's own editor, which keep their focus outside Avalonia.
+    /// </summary>
+    private void OnSendMenuClosed(object? sender, RoutedEventArgs e)
+    {
+        var fromKeyboard = _sendMenuFromKeyboard;
+        _sendMenuFromKeyboard = false;
+        if (!fromKeyboard || sender is not ContextMenu menu || _composerSendButton is not { } sendButton
+            || _nativeComposerEditor?.IsInputFocused == true
+            || _sharedComposerInput?.Classes.Contains("native-input-focused") == true)
+            return;
+
+        var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
+        if (focused is null or TopLevel || ReferenceEquals(focused, menu)
+            || (focused is Visual visual && menu.IsVisualAncestorOf(visual)))
+            sendButton.Focus(NavigationMethod.Tab);
+    }
+
+    /// <summary>
+    /// Shift+F10 asks for the send options from a keyboard, as the menu key does. Avalonia maps only the menu
+    /// key on phones and in browsers. Asking (rather than opening the menu) keeps Strata's labels and gating
+    /// and the walk through blanks; on key up, so the menu doesn't see the release of the key that opened it.
+    /// </summary>
+    private static void OnSendButtonKeyUp(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled || e.Key != Key.F10 || e.KeyModifiers != KeyModifiers.Shift
+            || sender is not Control button || !ReferenceEquals(e.Source, button))
+            return;
+
+        var request = new ContextRequestedEventArgs();
+        button.RaiseEvent(request);
+        e.Handled = request.Handled;
+    }
+
+    /// <summary>A finger that moves on after the menu opened leaves it open, so the user can lift it and choose.</summary>
+    private void OnSendMenuCanceled(object? sender, RoutedEventArgs e)
+    {
+        if (_composerSendMenu?.IsOpen == true)
+            e.Handled = true;
+    }
+
+    /// <summary>
+    /// Back closes the send menu before it leaves the chat. A menu playing its exit has already closed
+    /// for the user, so Back goes on to the page.
+    /// </summary>
+    internal bool TryCloseSendMenu()
+    {
+        if (_composerSendMenu is not { IsOpen: true, Parent: Popup { IsOpen: true } } menu)
+            return false;
+
+        menu.Close();
+        return true;
+    }
 
     /// <summary>
     /// Holding a suggestion puts its words in the composer to finish first. A tap sends it, so holding,

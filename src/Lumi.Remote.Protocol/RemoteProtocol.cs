@@ -414,6 +414,7 @@ public static class RemoteProtocol
         public const string RenameChat = "rename_chat";
         public const string PinChat = "pin_chat";
         public const string SendMessage = "send_message";
+        public const string SendSteeredNow = "send_steered_now";
         public const string EditMessage = "edit_message";
         public const string StopGeneration = "stop_generation";
         public const string RevokeDevice = "revoke_device";

@@ -668,6 +668,12 @@ public partial class MobileShellView : UserControl
     private void OnBackRequested(object? sender, RoutedEventArgs e)
     {
         // The Android system back gesture must dismiss our own overlays before leaving the app.
+        if (!e.Handled && this.FindControl<ChatDetailView>("ChatSurface")?.TryCloseSendMenu() == true)
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (!e.Handled && DataContext is MobileShellViewModel { CanGoBack: true } shell)
         {
             shell.GoBackCommand.Execute(null);

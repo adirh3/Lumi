@@ -263,6 +263,8 @@ public sealed class RemoteTranscriptItem
     public DateTimeOffset? Timestamp { get; set; }
     /// <summary>None | Queued | Steering | Steered | Failed for a mid-turn user message.</summary>
     public string? SteerState { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CanSendNow { get; set; }
     public bool IsStreaming { get; set; }
     /// <summary>
     /// The desktop's recorded assistant role: true for progress, false for an answer part. Null for

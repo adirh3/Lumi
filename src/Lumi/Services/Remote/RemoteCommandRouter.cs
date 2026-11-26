@@ -67,6 +67,7 @@ internal sealed class RemoteCommandRouter
             RemoteProtocol.Actions.RenameChat => await RenameChatAsync(command),
             RemoteProtocol.Actions.PinChat => await PinChatAsync(command),
             RemoteProtocol.Actions.SendMessage => await SendMessageAsync(command, cancellationToken),
+            RemoteProtocol.Actions.SendSteeredNow => await SendSteeredNowAsync(command),
             RemoteProtocol.Actions.EditMessage => await EditMessageAsync(command, cancellationToken),
             RemoteProtocol.Actions.StopGeneration => await StopGenerationAsync(command),
             RemoteProtocol.Actions.AnswerQuestion => await AnswerQuestionAsync(command),
@@ -523,9 +524,13 @@ internal sealed class RemoteCommandRouter
             : Fail(result.Error ?? Loc.Remote_MessageStartFailed, chat.Id);
     }
 
-    private async Task<RemoteCommandResult> SendMessageAsync(RemoteCommand command, CancellationToken cancellationToken, InteractionReceipt? interactionReceipt = null)
+    private async Task<RemoteCommandResult> SendMessageAsync(
+        RemoteCommand command,
+        CancellationToken cancellationToken,
+        InteractionReceipt? interactionReceipt = null)
     {
-        if (command.Get("message") is not { Length: > 0 } message)
+        var message = command.Get("message");
+        if (string.IsNullOrWhiteSpace(message))
             return Fail(Loc.Get("Remote_ArgumentRequired", "message"));
 
         if (command is
@@ -611,7 +616,7 @@ internal sealed class RemoteCommandRouter
                 // Real steering injects into the live Copilot turn. Route through the surface that
                 // owns that runtime; a detached chat must never steer the main window's surface.
                 var accepted = await owner
-                    .SteerExternalMessageAsync(chat, message, "Lumi Mobile")
+                    .SteerExternalMessageAsync(chat, message, "Lumi Mobile", command.RequestId)
                     .ConfigureAwait(true);
                 return accepted
                     ? Success(Loc.Remote_MessageSteered, chat.Id)
@@ -856,6 +861,24 @@ internal sealed class RemoteCommandRouter
         var error = await owner.TryStopGenerationAsync().ConfigureAwait(true);
         return error is null
             ? Success(Loc.Remote_GenerationStopped, chat.Id)
+            : Fail(error, chat.Id);
+    }
+
+    private async Task<RemoteCommandResult> SendSteeredNowAsync(RemoteCommand command)
+    {
+        if (ResolveExplicitChat(command) is not { } chat)
+            return Fail(Loc.Remote_ChatNotFound);
+        if (command.GetGuid("messageId") is not { } messageId)
+            return Fail(Loc.Get("Remote_ArgumentRequired", "messageId"), chat.Id);
+
+        // A pending steer already has a live owner. A stale request must not open a historical chat.
+        var owner = TryResolveRegisteredOwner(chat.Id);
+        if (owner is null || owner.CurrentChat?.Id != chat.Id)
+            return Fail(Loc.Remote_MessageStartFailed, chat.Id);
+
+        var error = await owner.TrySendExternalSteerNowAsync(chat, messageId).ConfigureAwait(true);
+        return error is null
+            ? Success(Loc.Remote_TurnStoppedMessageQueued, chat.Id)
             : Fail(error, chat.Id);
     }
 
