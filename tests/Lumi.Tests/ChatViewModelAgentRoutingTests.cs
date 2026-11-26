@@ -308,12 +308,11 @@ public sealed class ChatViewModelAgentRoutingTests
         harness.ViewModel.CurrentChat = currentChat;
         harness.ViewModel.SelectedModel = "byok:glm51";
 
-        // EnsureSessionAsync will fail (no real Copilot connection), but the signature
-        // mismatch check runs BEFORE the network call. After the check, the stale session
-        // ID must be cleared.
-        await InvokeEnsureSessionAsync(
-            harness.ViewModel, currentChat, CancellationToken.None, allowCreateFallback: false);
+        Assert.NotNull(currentChat.CopilotSessionId);
+        var resumed = await harness.ViewModel.EnsureSessionAsync(
+            currentChat, CancellationToken.None, allowCreateFallback: false);
 
+        Assert.False(resumed);
         Assert.Null(currentChat.CopilotSessionId);
         Assert.Null(currentChat.SessionProviderSignature);
     }
@@ -1376,20 +1375,6 @@ public sealed class ChatViewModelAgentRoutingTests
         var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         return Assert.IsType<T>(field!.GetValue(target));
-    }
-
-    private static async Task<bool> InvokeEnsureSessionAsync(
-        ChatViewModel viewModel, Chat chat, CancellationToken ct, bool allowCreateFallback)
-    {
-        var method = typeof(ChatViewModel).GetMethod(
-            "EnsureSessionAsync",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(method);
-        // Reflection does not apply optional defaults, so pass holdForConnectorSignIn explicitly.
-        var result = method!.Invoke(viewModel, [chat, ct, allowCreateFallback, false]);
-        // Not IsType: .NET 11 may hand back a runtime-async task subtype rather than a plain
-        // Task<bool>, and which one appears depends on JIT tiering — an implementation detail.
-        return await Assert.IsAssignableFrom<Task<bool>>(result);
     }
 
     private static async Task InvokeSendMessageCoreAsync(

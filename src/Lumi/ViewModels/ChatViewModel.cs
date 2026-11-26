@@ -2391,7 +2391,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// The user's own send from this chat: its message waits while they finish a connector sign-in, and
     /// its typing indicator offers to send without it. Every other setup hands sign-ins off at once.
     /// </param>
-    private async Task<bool> EnsureSessionAsync(
+    internal async Task<bool> EnsureSessionAsync(
         Chat chat,
         CancellationToken ct,
         bool allowCreateFallback = true,

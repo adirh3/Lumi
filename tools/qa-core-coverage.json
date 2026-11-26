@@ -249,6 +249,7 @@
     "Lumi.Tests.SessionConfigBuilderTests.McpToolTimeout_ReachesBothCreateAndResumeConfigurations",
     "Lumi.Tests.SessionConfigBuilderTests.PreloadedLumiTools_PropagateErrorsAndCancellation",
     "Lumi.Tests.SessionConfigBuilderTests.ReadOnlyResume_CarriesTheChatsAccountAndNothingElse",
+    "Lumi.Tests.SessionConfigBuilderTests.ReadOnlyResume_UsesTheSavedModelForCopilot",
     "Lumi.Tests.SessionConfigBuilderTests.SessionConfigs_ApplyModelCapabilitiesOverride",
     "Lumi.Tests.SessionConfigBuilderTests.SessionTelemetry_IsDisabledWithoutDisablingHistory",
     "Lumi.Tests.SessionConfigBuilderTests.SkillProvider_ReachesCreateAndResumeWithoutReplacingNativeSkillRoots",
