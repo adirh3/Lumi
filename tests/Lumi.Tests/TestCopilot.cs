@@ -45,7 +45,7 @@ public static class TestCopilot
     internal static string BundledRuntimePath => CopilotService.BundledRuntimePath
         ?? throw new FileNotFoundException("The SDK-bundled Copilot runtime was not copied to the test output.");
 
-    // Use only in the non-parallel Headless UI collection. No CLI process is started.
+    // Use only in the non-parallel Headless UI collection. With no supplied client, no CLI starts.
     internal sealed class SimulatedConnection : IAsyncDisposable
     {
         private static readonly FieldInfo ClientField = Field("_client");
@@ -54,14 +54,17 @@ public static class TestCopilot
         private readonly object? _previousClient = ClientField.GetValue(Shared);
         private readonly object? _previousState = StateField.GetValue(Shared);
         private readonly object? _previousGeneration = GenerationField.GetValue(Shared);
-        private readonly CopilotClient _client = new(new CopilotClientOptions
-        {
-            Mode = CopilotClientMode.CodingAgent,
-            Runtime = RuntimeConnection.ForTcp("127.0.0.1", 1)
-        });
+        private readonly CopilotClient _client;
+        private readonly bool _ownsClient;
 
-        public SimulatedConnection()
+        public SimulatedConnection(CopilotClient? client = null)
         {
+            _ownsClient = client is null;
+            _client = client ?? new CopilotClient(new CopilotClientOptions
+            {
+                Mode = CopilotClientMode.CodingAgent,
+                Runtime = RuntimeConnection.ForTcp("127.0.0.1", 1)
+            });
             ClientField.SetValue(Shared, _client);
             SetState(ConnectionState.Connected);
         }
@@ -76,7 +79,8 @@ public static class TestCopilot
             ClientField.SetValue(Shared, _previousClient);
             StateField.SetValue(Shared, _previousState);
             GenerationField.SetValue(Shared, _previousGeneration);
-            await _client.DisposeAsync();
+            if (_ownsClient)
+                await _client.DisposeAsync();
         }
 
         private static FieldInfo Field(string name)

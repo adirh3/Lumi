@@ -30,6 +30,18 @@ pwsh tools\Test-LumiQa.ps1 -Suite Core
 pwsh tools\Test-LumiQa.ps1 -Suite Headed
 ```
 
+Run the end-to-end connector suite on Windows without a Copilot account:
+
+```powershell
+dotnet test tests\Lumi.Tests\Lumi.Tests.csproj -c Release --filter "Category=ConnectorIntegration"
+```
+
+The suite drives the real Lumi send path and bundled Copilot runtime with scripted
+inference and local MCP servers. It checks direct and proxied stdio, HTTP connector
+discovery from a workspace and an installed plugin, invocation arguments and results,
+and whether enabled and opted-out connectors stay that way after an idle session
+is resumed.
+
 For the on-demand Windows desktop memory budget and retention workload:
 
 ```powershell
@@ -430,6 +442,8 @@ and update-channel checks on Windows x64/ARM64, Linux x64/ARM64, macOS Apple
 Silicon, and macOS Intel. ARM64 uses `windows-11-arm` and `ubuntu-24.04-arm`
 native runners. The longer Windows desktop batches and
 complete mobile suite run nightly, or via **Run workflow > full_suite**.
+The end-to-end connector suite runs separately on the same Windows lanes and
+publishes `connectors.trx` alongside the other results.
 This removes account/native/animation-sensitive tests from the ordinary PR
 critical path without deleting their broader coverage.
 After a successful build, independent test steps still run if another suite

@@ -3,6 +3,7 @@ param(
     [string]$Project = "tests/Lumi.Tests/Lumi.Tests.csproj",
     [string]$Configuration = "Release",
     [string]$ResultsDirectory = "TestResults",
+    [switch]$ExcludeConnectorIntegration,
     [ValidateRange(1, 100)]
     [int]$BatchSize = 20
 )
@@ -33,6 +34,7 @@ $classes = $testNames |
             $matches[1]
         }
     } |
+    Where-Object { -not $ExcludeConnectorIntegration -or $_ -ne "Lumi.Tests.ConnectorIntegrationTests" } |
     Sort-Object -Unique
 
 if ($classes.Count -eq 0) {
@@ -74,8 +76,9 @@ $isolatedClasses = @(
     "Lumi.Tests.OnboardingPersonalizerTests",
     "Lumi.Tests.OnboardingTests",
     "Lumi.Tests.WorkspaceDiscoveryTests",
-    # Connector issue and picker tests run in their own hosts for the same reason.
+    # Connector issue, picker and real-runtime tests run in their own hosts.
     "Lumi.Tests.ChatViewModelConnectorTests",
+    "Lumi.Tests.ConnectorIntegrationTests",
     "Lumi.Tests.McpConnectorIssuesTests",
     # Chat reference tests run in their own hosts for the same reason.
     "Lumi.Tests.ChatReferenceTests",

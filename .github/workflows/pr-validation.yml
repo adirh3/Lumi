@@ -83,6 +83,7 @@ jobs:
           ./tools/Test-LumiTestsInBatches.ps1
           -Configuration Release
           -ResultsDirectory TestResults
+          -ExcludeConnectorIntegration
 
       - name: Test (mobile Windows suite)
         if: ${{ !cancelled() && steps.build.outcome == 'success' && runner.os == 'Windows' && (github.event_name == 'schedule' || inputs.full_suite == true) }}
@@ -92,6 +93,18 @@ jobs:
           --no-build
           --logger "trx;LogFileName=lumi-mobile.trx"
           --results-directory TestResults
+
+      - name: Test (end-to-end connector integration)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && runner.os == 'Windows' && (github.event_name == 'schedule' || inputs.full_suite == true) }}
+        timeout-minutes: 10
+        run: >
+          dotnet test tests/Lumi.Tests/Lumi.Tests.csproj
+          --configuration Release
+          --no-build
+          --filter "Category=ConnectorIntegration"
+          --logger "trx;LogFileName=connectors.trx"
+          --results-directory TestResults
+          -- RunConfiguration.TreatNoTestsAsError=true
 
       - name: Test (deterministic desktop and mobile QA)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
