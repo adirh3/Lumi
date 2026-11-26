@@ -16,6 +16,60 @@ namespace Lumi.Tests;
 public sealed class RemoteEventHubObserverTests
 {
     [Fact]
+    public async Task QueueChangesReachThePhoneWithoutTouchingTheTranscript()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            var chat = Chat("Queued messages");
+            var store = new DataStore(new AppData { Chats = [chat] });
+            using var main = new MainViewModel(
+                store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+            main.ChatVM.CurrentChat = chat;
+            using var hub = new RemoteEventHub(store, main, () => []);
+            Dispatcher.UIThread.RunJobs();
+            var stream = new RecordingStream();
+            using var client = hub.AddClient(stream, "queue-fixture",
+                subscription: new RemoteEventSubscription { ChatId = chat.Id, IsForeground = true });
+            using var cancellation = new CancellationTokenSource();
+            var writer = client.RunAsync(cancellation.Token);
+            try
+            {
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                var baseline = stream.Text.Length;
+
+                Assert.True(main.ChatVM.QueueExternalMessage(chat, "first", "Lumi Mobile"));
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                var first = Assert.Single(LastStatus(stream.Text[baseline..]).QueuedMessages!);
+                Assert.Equal("first", first.Text);
+                Assert.NotNull(main.ChatVM.FindWaitingSend(chat.Id, first.Id));
+
+                baseline = stream.Text.Length;
+                Assert.True(main.ChatVM.QueueExternalMessage(chat, "second", "Lumi Mobile"));
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                Assert.Equal(["first", "second"],
+                    LastStatus(stream.Text[baseline..]).QueuedMessages!.Select(message => message.Text));
+
+                baseline = stream.Text.Length;
+                Assert.True(main.ChatVM.RemoveWaitingSendById(chat.Id, first.Id));
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                Assert.Equal("second", Assert.Single(LastStatus(stream.Text[baseline..]).QueuedMessages!).Text);
+                Assert.DoesNotContain($"event: {RemoteProtocol.Events.TranscriptInvalidated}", stream.Text[baseline..]);
+                Assert.DoesNotContain(chat.Messages, message => message.Id == first.Id);
+            }
+            finally
+            {
+                cancellation.Cancel();
+                Pump(writer);
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task SuggestionsGeneratedForAnInactiveChatReachItsPhoneWithoutReloadingTheTranscript()
     {
         using var session = HeadlessTestSession.Start();
@@ -161,13 +215,6 @@ public sealed class RemoteEventHubObserverTests
         }, CancellationToken.None);
         failure?.Throw();
 
-        static RemoteChatStatus LastStatus(string wire)
-        {
-            var statusFrame = wire.Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
-                .Last(frame => frame.StartsWith($"event: {RemoteProtocol.Events.ChatStatus}\n", StringComparison.Ordinal));
-            var json = statusFrame.Split('\n').Single(line => line.StartsWith("data: ", StringComparison.Ordinal))[6..];
-            return JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteChatStatus)!;
-        }
     }
 
     [Fact]
@@ -1490,6 +1537,14 @@ public sealed class RemoteEventHubObserverTests
         typeof(RemoteEventHub)
             .GetMethod("FlushPending", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(hub, null);
+
+    private static RemoteChatStatus LastStatus(string wire)
+    {
+        var statusFrame = wire.Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
+            .Last(frame => frame.StartsWith($"event: {RemoteProtocol.Events.ChatStatus}\n", StringComparison.Ordinal));
+        var json = statusFrame.Split('\n').Single(line => line.StartsWith("data: ", StringComparison.Ordinal))[6..];
+        return JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteChatStatus)!;
+    }
 
     private static void MarkLibraryDirtyAndFlush(RemoteEventHub hub)
     {
