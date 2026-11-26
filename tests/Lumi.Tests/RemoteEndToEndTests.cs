@@ -18,6 +18,7 @@ using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services;
 using Lumi.Services.Remote;
+using Lumi.Services.Storage;
 using Lumi.ViewModels;
 using Xunit;
 
@@ -68,7 +69,8 @@ public sealed class RemoteEndToEndTests
         Action<AppData>? seed = null,
         Func<IReadOnlySet<IPAddress>>? tailscaleAddressProvider = null,
         IDesktopPresenceProbe? presence = null,
-        WebPushSender? webPush = null)
+        WebPushSender? webPush = null,
+        ChatStore? chatStore = null)
     {
         using var session = HeadlessTestSession.Start();
         ExceptionDispatchInfo? failure = null;
@@ -95,7 +97,7 @@ public sealed class RemoteEndToEndTests
             Rig? rig = null;
             try
             {
-                rig = CreateRig(seed, tailscaleAddressProvider, presence, webPush);
+                rig = CreateRig(seed, tailscaleAddressProvider, presence, webPush, chatStore);
                 await body(rig);
             }
             finally
@@ -134,13 +136,14 @@ public sealed class RemoteEndToEndTests
         Action<AppData>? seed,
         Func<IReadOnlySet<IPAddress>>? tailscaleAddressProvider,
         IDesktopPresenceProbe? presence = null,
-        WebPushSender? webPush = null)
+        WebPushSender? webPush = null,
+        ChatStore? chatStore = null)
     {
         var data = new AppData
         {
             Settings = new UserSettings
             {
-                AutoSaveChats = false,
+                AutoSaveChats = chatStore is not null,
                 EnableMemoryAutoSave = false,
                 UserName = "Adir",
                 RemoteAccessEnabled = true,
@@ -156,8 +159,10 @@ public sealed class RemoteEndToEndTests
 
         seed?.Invoke(data);
 
-        var dataStore = new DataStore(data, Path.Combine(
-            TestProfile.Root, "remote-e2e-skills", Guid.NewGuid().ToString("N")));
+        var skillsDirectory = Path.Combine(TestProfile.Root, "remote-e2e-skills", Guid.NewGuid().ToString("N"));
+        var dataStore = chatStore is null
+            ? new DataStore(data, skillsDirectory)
+            : new DataStore(data, chatStore, skillsDirectory);
         var main = new MainViewModel(
             dataStore,
             TestCopilot.Shared,
@@ -700,6 +705,124 @@ public sealed class RemoteEndToEndTests
             UpdatedAt = DateTimeOffset.Now,
             HasUnreadMessages = true
         });
+    });
+
+    [Fact]
+    public async Task OpeningAnUnreadChatOnThePhoneIncludesInputMissingFromTheCachedDesktopList()
+    {
+        using var store = new ChatStore(Path.Combine(TestProfile.Root, $"remote-unread-{Guid.NewGuid():N}.db"));
+        await RunAsync(async rig =>
+        {
+            var chat = await OpenChatWithStoredHistoryAsync(rig);
+            var owner = rig.Main.ChatVM;
+            rig.Main.NewChatCommand.Execute(null);
+            Assert.Null(rig.Main.ActiveChatId);
+
+            using var cancellation = new CancellationTokenSource();
+            var waiting = owner.AskInputAsync(chat.Id, "form",
+                """{"id":"trip","title":"Trip preferences","fields":[{"id":"city","label":"City"}]}""",
+                cancellation.Token);
+            try
+            {
+                await WaitAsync(() => chat.MessageCount == 5, "the input request to be saved");
+                chat.HasUnreadMessages = true;
+                await PairAsync(rig);
+
+                var transcript = Assert.IsType<RemoteTranscript>(
+                    await rig.Client.GetTranscriptAsync(chat.Id, CancellationToken.None));
+                Assert.Equal(chat.MessageCount, transcript.TotalRawMessageCount);
+                Assert.Contains(transcript.Turns.SelectMany(turn => turn.Items),
+                    item => item.Kind == RemoteProtocol.ItemKinds.Input);
+                var row = Assert.IsType<ChatListItemViewModel>(rig.Shell.ChatList.FindChat(chat.Id));
+                Assert.True(row.HasUnreadMessages);
+                rig.Shell.ChatList.OpenChatCommand.Execute(row);
+                await WaitAsync(() => !chat.HasUnreadMessages && !row.HasUnreadMessages,
+                    "the phone to acknowledge the latest transcript on both devices");
+                Assert.Null(rig.Main.ActiveChatId);
+            }
+            finally
+            {
+                await cancellation.CancelAsync();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
+            }
+        }, seed: SeedUnreadChat, chatStore: store);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AReadFromAStreamingWindowDoesNotClearTheJustFinishedReply(bool recordedByQueuedFollowUp)
+    {
+        using var store = new ChatStore(Path.Combine(TestProfile.Root, $"remote-unread-{Guid.NewGuid():N}.db"));
+        await RunAsync(async rig =>
+        {
+            var chat = await OpenChatWithStoredHistoryAsync(rig);
+            await PairAsync(rig);
+
+            var owner = rig.Main.ChatVM;
+            var streams = Assert.IsType<Dictionary<Guid, ChatMessage>>(typeof(ChatViewModel)
+                .GetField("_inProgressMessages", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(owner));
+            var reply = new ChatMessage { Role = "assistant", Content = "Part of the reply", IsStreaming = true };
+            streams.Add(chat.Id, reply);
+            if (recordedByQueuedFollowUp)
+            {
+                chat.Messages.Add(reply);
+                chat.Messages.Add(new ChatMessage { Role = "user", Content = "Queued follow-up", SteerDelivery = MessageSteerState.Queued });
+                await rig.DataStore.SaveChatAsync(chat);
+            }
+            var during = Assert.IsType<RemoteTranscript>(
+                await rig.Client.GetTranscriptAsync(chat.Id, CancellationToken.None));
+            Assert.Contains(during.Turns.SelectMany(turn => turn.Items),
+                item => item.Id == reply.Id.ToString("N") && item.IsStreaming);
+            Assert.Equal(recordedByQueuedFollowUp ? 6 : 5, during.TotalRawMessageCount);
+            var readThrough = Assert.IsType<int>(during.ReadThroughMessageCount);
+            Assert.Equal(4, readThrough);
+
+            // Completion can grow the chat before a save or update an existing row in place.
+            streams.Remove(chat.Id);
+            reply.Content = "The complete reply";
+            Assert.True(ChatViewModel.FinalizeTerminalAssistantMessage(chat, reply));
+            chat.HasUnreadMessages = true;
+            Assert.Equal(recordedByQueuedFollowUp ? 6 : 4, chat.MessageCount);
+
+            var delayed = await AcknowledgeAsync(readThrough);
+            Assert.True(delayed.Ok, delayed.Error);
+            Assert.True(delayed.HasUnreadMessages);
+
+            var latest = Assert.IsType<RemoteTranscript>(
+                await rig.Client.GetTranscriptAsync(chat.Id, CancellationToken.None));
+            Assert.Contains(latest.Turns.SelectMany(turn => turn.Items), item => item.Text == reply.Content);
+            var caughtUp = await AcknowledgeAsync(latest.ReadThroughMessageCount ?? latest.TotalRawMessageCount);
+            Assert.True(caughtUp.Ok, caughtUp.Error);
+            Assert.False(chat.HasUnreadMessages);
+
+            Task<RemoteCommandResult> AcknowledgeAsync(int count) => rig.Client.SendCommandAsync(
+                new RemoteCommand(RemoteProtocol.Actions.OpenChat).With("chatId", chat.Id.ToString())
+                    .With("readThroughMessageCount", count.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                CancellationToken.None);
+        }, seed: SeedUnreadChat, chatStore: store);
+    }
+
+    private static async Task<Chat> OpenChatWithStoredHistoryAsync(Rig rig)
+    {
+        var chat = Assert.Single(rig.DataStore.Data.Chats);
+        await rig.DataStore.SaveChatAsync(chat);
+        Assert.True(rig.DataStore.TryReleaseChatMessages(chat));
+        Assert.True(await rig.Main.OpenChatByIdAsync(chat.Id));
+        Assert.True(rig.DataStore.GetTranscriptWindow(chat).HasHistory);
+        return chat;
+    }
+
+    private static void SeedUnreadChat(AppData data) => data.Chats.Add(new Chat
+    {
+        Title = "Unread conversation",
+        Messages =
+        [
+            new ChatMessage { Role = "user", Content = "Plan a trip" },
+            new ChatMessage { Role = "assistant", Content = "Let's plan it" },
+            new ChatMessage { Role = "user", Content = "What do I need to decide?" },
+            new ChatMessage { Role = "assistant", Content = "Start with the destination." },
+        ]
     });
 
     [Theory]

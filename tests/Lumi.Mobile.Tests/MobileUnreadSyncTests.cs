@@ -170,6 +170,42 @@ public sealed class MobileUnreadSyncTests
     }
 
     [Fact]
+    public async Task UnchangedStreamingWindowAcknowledgesOnlyItsRecordedMessages()
+    {
+        var chatId = Guid.NewGuid();
+        var streaming = Transcript(chatId, unread: true);
+        streaming.TranscriptVersion = "streaming";
+        streaming.TotalRawMessageCount = streaming.WindowEndMessageIndex = 3;
+        streaming.ReadThroughMessageCount = 2;
+        streaming.Turns[0].Items.Add(new RemoteTranscriptItem
+        {
+            Id = "streaming-answer", Kind = RemoteProtocol.ItemKinds.Assistant, Text = "Partial answer", IsStreaming = true
+        });
+        await using var desktop = new FakeLumiDesktop { Snapshot = Snapshot(chatId, unread: true) };
+        desktop.Capabilities.Add(RemoteProtocol.Capabilities.ConditionalTranscriptV1);
+        desktop.TranscriptResponseFactory = request => Task.FromResult(
+            request.QueryString["known"] == streaming.TranscriptVersion
+                ? new RemoteTranscript
+                {
+                    ChatId = chatId, IsUnchanged = true, TranscriptVersion = streaming.TranscriptVersion,
+                    Revision = streaming.Revision, Status = streaming.Status
+                }
+                : streaming);
+        desktop.CommandResultFactory = _ => new RemoteCommandResult { Ok = true, HasUnreadMessages = true };
+        desktop.Start();
+        await using var shell = CreateShell();
+        await PairAsync(shell, desktop);
+        shell.ChatList.OpenChatCommand.Execute(Assert.Single(Assert.Single(shell.ChatList.Groups).Chats));
+        await WaitAsync(() => ReadCommands(desktop).Any(command => command.Action == RemoteProtocol.Actions.OpenChat));
+
+        await shell.RefreshTranscriptAsync();
+        await WaitAsync(() => shell.Client.Stats.Snapshot().TranscriptsUnchanged > 0
+                              && ReadCommands(desktop).Count(command => command.Action == RemoteProtocol.Actions.OpenChat) >= 2);
+        Assert.All(ReadCommands(desktop).Where(command => command.Action == RemoteProtocol.Actions.OpenChat),
+            command => Assert.Equal("2", command.Get("readThroughMessageCount")));
+    }
+
+    [Fact]
     public async Task LegacyReadWatermarkDoesNotLeakAcrossHostSwitch()
     {
         var chatId = Guid.NewGuid();

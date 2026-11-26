@@ -805,7 +805,11 @@ public sealed class RemoteCommandRouterSurfaceTests
             {
                 Title = "Unread",
                 HasUnreadMessages = true,
-                MessageCount = 2
+                Messages =
+                [
+                    new ChatMessage { Role = "user", Content = "Question" },
+                    new ChatMessage { Role = "assistant", Content = "New answer" }
+                ]
             };
             var dataStore = new DataStore(new AppData
             {
@@ -826,6 +830,7 @@ public sealed class RemoteCommandRouterSurfaceTests
                 CancellationToken.None);
 
             Assert.True(result.Ok, result.Error);
+            Assert.True(result.HasUnreadMessages);
             Assert.True(chat.HasUnreadMessages);
         }
         finally

@@ -339,6 +339,9 @@ public sealed class RemoteTranscript
     /// <summary>Exclusive zero-based index immediately after the last raw message in this window.</summary>
     public int WindowEndMessageIndex { get; set; }
     public int TotalRawMessageCount { get; set; }
+    /// <summary>Exclusive raw position before the live assistant reply, when one is still streaming.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ReadThroughMessageCount { get; set; }
     public bool HasEarlierMessages { get; set; }
     public bool HasLaterMessages { get; set; }
     /// <summary>True when this response represents the current tail of the chat.</summary>

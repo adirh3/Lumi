@@ -2259,6 +2259,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             WindowStartMessageIndex = 0;
             WindowEndMessageIndex = 0;
             TotalRawMessageCount = 0;
+            ReadThroughMessageCount = 0;
             HasEarlierMessages = false;
             HasLaterMessages = false;
             IsLatestWindow = true;
@@ -2374,6 +2375,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         WindowStartMessageIndex = transcript.WindowStartMessageIndex;
         WindowEndMessageIndex = transcript.WindowEndMessageIndex;
         TotalRawMessageCount = transcript.TotalRawMessageCount;
+        ReadThroughMessageCount = transcript.ReadThroughMessageCount ?? transcript.TotalRawMessageCount;
         HasEarlierMessages = transcript.HasEarlierMessages;
         HasLaterMessages = transcript.HasLaterMessages;
         IsLatestWindow = transcript.IsLatestWindow;
@@ -2676,6 +2678,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     /// <summary>The desktop's version of the latest window this phone shows, for conditional refreshes.</summary>
     internal string? TranscriptVersion => IsLatestWindow ? _transcriptVersion : null;
+
+    internal int ReadThroughMessageCount { get; private set; }
 
     /// <summary>The next refresh must read the whole window.</summary>
     internal void ForgetTranscriptVersion() => _transcriptVersion = null;

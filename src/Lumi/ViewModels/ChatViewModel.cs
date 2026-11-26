@@ -1999,6 +1999,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         errorItem.ShowRetryButton = true;
     }
 
+    internal ChatMessage? GetStreamingAssistantMessage(Guid chatId) =>
+        _inProgressMessages.GetValueOrDefault(chatId);
+
     private IReadOnlyList<ChatMessage> GetDisplayMessagesForChat(Chat chat)
     {
         var displayMessages = chat.Messages

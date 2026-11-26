@@ -95,6 +95,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         string WorkingDirectory,
         IReadOnlySet<string> RunningBackgroundToolCallIds,
         string? TranscriptVersion = null,
+        int UnacknowledgedTailCount = 0,
         bool IsUnchanged = false);
 
     private sealed record ActivityCapture(
@@ -1817,9 +1818,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             : null;
         var scoped = context.Request.QueryValue("scoped") == "true";
 
-        // Capture mutable desktop state on the UI thread, then do the potentially large persisted
-        // read and bounded projection away from it. A live/detached owner still wins so streaming and
-        // unsaved messages remain visible without disturbing any desktop surface.
+        // Capture the chat's live tail on the UI thread, then page the persisted history off it.
+        // The owner supplies a reply still streaming outside that tail, not the desktop display list.
         var capture = await Dispatcher.UIThread.InvokeAsync(() =>
         {
             var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
@@ -1827,7 +1827,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 return null;
 
             var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
-            var isActive = owner?.CurrentChat?.Id == chatId;
+            var (liveMessages, unacknowledgedTailCount) = GetLiveTranscript(chat, owner);
             var settings = _dataStore.Data.Settings;
             var workingDirectory = ChatViewModel.ResolveEffectiveWorkingDirectory(
                 _dataStore,
@@ -1851,9 +1851,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                     _instanceId,
                     hub.GetChatVersion(chatId),
                     chat,
-                    isActive
-                        ? owner!.Messages.Select(static message => message.Message)
-                        : chat.Messages.Count > 0 ? chat.Messages : null,
+                    liveMessages,
+                    unacknowledgedTailCount,
                     compact,
                     maxMessages,
                     settings.ShowReasoning,
@@ -1881,16 +1880,10 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 }
             }
 
-            IReadOnlyList<ChatMessage>? loadedMessages = isActive
-                ? owner!.Messages.Select(message => CloneMessageForRemote(message.Message)).ToList()
-                : chat.Messages.Count > 0
-                    ? chat.Messages.Select(CloneMessageForRemote).ToList()
-                    : null;
-
             var transcriptWindow = _dataStore.GetTranscriptWindow(chat);
             return new TranscriptCapture(
                 new Chat { Id = chat.Id, Title = chat.Title },
-                loadedMessages,
+                liveMessages?.Select(CloneMessageForRemote).ToList(),
                 new TranscriptSource(transcriptWindow.IsLoaded, transcriptWindow.HistoryCount),
                 status,
                 settings.ShowReasoning,
@@ -1899,7 +1892,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 _instanceId,
                 workingDirectory,
                 runningBackgroundToolCallIds,
-                version);
+                version,
+                unacknowledgedTailCount);
         });
 
         if (capture is null)
@@ -1975,6 +1969,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             activitySource,
             capture.RunningBackgroundToolCallIds,
             imagePaths);
+        if (transcript.IsLatestWindow && capture.UnacknowledgedTailCount > 0)
+            transcript.ReadThroughMessageCount = window.TotalMessageCount - capture.UnacknowledgedTailCount;
         if (scoped)
         {
             if (!transcript.Status.IsPlanOmitted)
@@ -2070,12 +2066,6 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 return null;
 
             var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
-            var isActive = owner?.CurrentChat?.Id == chatId;
-            IReadOnlyList<ChatMessage>? loadedMessages = isActive
-                ? owner!.Messages.Select(message => CloneMessageForRemote(message.Message)).ToList()
-                : chat.Messages.Count > 0
-                    ? chat.Messages.Select(CloneMessageForRemote).ToList()
-                    : null;
             var workingDirectory = ChatViewModel.ResolveEffectiveWorkingDirectory(
                 _dataStore,
                 chat.ProjectId,
@@ -2086,7 +2076,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             var transcriptWindow = _dataStore.GetTranscriptWindow(chat);
             return new ActivityCapture(
                 new Chat { Id = chat.Id, Title = chat.Title },
-                loadedMessages,
+                GetLiveTranscript(chat, owner).Messages?.Select(CloneMessageForRemote).ToList(),
                 new TranscriptSource(transcriptWindow.IsLoaded, transcriptWindow.HistoryCount),
                 workingDirectory,
                 runningBackgroundToolCallIds);
@@ -2138,6 +2128,20 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     // ── Transcript sources ──────────────────────────────────────────────────
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, (long Version, IReadOnlySet<string> Paths)> _imagePathCache = new();
+
+    private static (IEnumerable<ChatMessage>? Messages, int UnacknowledgedTailCount) GetLiveTranscript(
+        Chat chat, ChatViewModel? owner)
+    {
+        if (owner?.GetStreamingAssistantMessage(chat.Id) is not { } streaming)
+            return (chat.Messages.Count > 0 ? chat.Messages : null, 0);
+
+        // A queued follow-up can record the partial reply before it finishes. In either case,
+        // stop the read acknowledgement before the reply, not after its current position.
+        var index = chat.Messages.IndexOf(streaming);
+        return index < 0
+            ? (chat.Messages.Append(streaming), 1)
+            : (chat.Messages, chat.Messages.Count - index);
+    }
 
     /// <summary>
     /// The chat's transcript by absolute position: the captured live messages after the stored

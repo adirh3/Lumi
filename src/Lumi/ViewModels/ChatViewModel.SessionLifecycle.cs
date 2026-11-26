@@ -1352,7 +1352,6 @@ public partial class ChatViewModel
                         else
                         {
                             streamingMsg.Content = finalContent;
-                            streamingMsg.IsStreaming = false;
                             streamingMsg.IsProgress = capturedIsProgress;
                             streamingMsg.ApiCallId = capturedApiCallId;
                             streamingMsg.Model = turnModelId;
@@ -1361,7 +1360,7 @@ public partial class ChatViewModel
                                 streamingMsg.ActiveSkills.AddRange(pendingFetchedSkillRefs);
                                 pendingFetchedSkillRefs.Clear();
                             }
-                            chat.Messages.Add(streamingMsg);
+                            FinalizeTerminalAssistantMessage(chat, streamingMsg);
                             if (IsDisplayedSession())
                                 DisplayedStream(streamingMsg)?.NotifyStreamingEnded();
                         }

@@ -215,7 +215,7 @@ internal sealed class RemoteCommandRouter
         // A refresh (including one already in flight) cannot undo a deliberate mark.
         if (chat.MobileUnreadMark != command.GetGuid("mobileUnreadMark")
             || (command.GetInt("readThroughMessageCount") is { } readThroughMessageCount
-                && RemoteProjector.GetEffectiveMessageCount(chat) > readThroughMessageCount))
+                && _dataStore.GetTotalMessageCount(chat) > readThroughMessageCount))
         {
             return Result(Loc.Remote_NewerActivityUnread);
         }

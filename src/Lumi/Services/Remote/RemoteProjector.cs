@@ -852,7 +852,7 @@ internal static class RemoteProjector
                     turn.Items.Add(BuildUserItem(message));
                     break;
 
-                case "assistant":
+                case "assistant" when !string.IsNullOrWhiteSpace(message.Content):
                     toolGroup = null;
                     EnsureTurn().Items.Add(BuildAssistantItem(
                         message,
@@ -1479,7 +1479,8 @@ internal static class RemoteProjector
     private static bool ProducesCompactTranscriptItem(ChatMessage message) =>
         message.Role switch
         {
-            "user" or "assistant" or "error" => true,
+            "user" or "error" => true,
+            "assistant" => !string.IsNullOrWhiteSpace(message.Content),
             "tool" => IsQuestion(message) || IsAnnouncedFile(message),
             "reasoning" => false,
             _ => !string.IsNullOrWhiteSpace(message.Content)

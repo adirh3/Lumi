@@ -3373,7 +3373,7 @@ public sealed partial class MobileShellViewModel :
                     _readWatermarks[chatId] = messageCount;
                 // Do not clear a newer desktop read-state update that arrived during the request.
                 if (Chat.StatusVersion == statusVersion && CanReadChatTranscript
-                    && Chat.IsLatestWindow && Chat.TotalRawMessageCount <= messageCount)
+                    && Chat.IsLatestWindow && Chat.ReadThroughMessageCount <= messageCount)
                 {
                     if (result.HasUnreadMessages.HasValue)
                         Chat.HasUnreadMessages = false;
@@ -3694,7 +3694,7 @@ public sealed partial class MobileShellViewModel :
                             && CanReadChatTranscript
                             && request.StatusVersion == Chat.StatusVersion)
                         {
-                            _ = MarkChatReadAsync(transcript.Status, transcript.ChatId, Chat.TotalRawMessageCount);
+                            _ = MarkChatReadAsync(transcript.Status, transcript.ChatId, Chat.ReadThroughMessageCount);
                         }
 
                         ReplayHeldDeltas(request.ChatId, heldWatermark);
@@ -3708,7 +3708,8 @@ public sealed partial class MobileShellViewModel :
                             && request.StatusVersion == Chat.StatusVersion
                             && transcript.IsLatestWindow)
                         {
-                            _ = MarkChatReadAsync(transcript.Status, transcript.ChatId, transcript.TotalRawMessageCount);
+                            _ = MarkChatReadAsync(transcript.Status, transcript.ChatId,
+                                transcript.ReadThroughMessageCount ?? transcript.TotalRawMessageCount);
                         }
 
                         if (transcript.IsLatestWindow)

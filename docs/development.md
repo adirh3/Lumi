@@ -793,6 +793,10 @@ disclosures (activity inputs/outputs, source excerpts, inline images) only when 
 these paths must preserve the capability fallback for older peers. Measure compressed HTTP bytes
 and request counts on the same replay and visibility scopes, not the decoded diagnostic counters.
 
+Remote transcript windows combine paged SQLite history and the chat's live records, not the
+desktop view's message list. The latest window can show a streaming reply, but its read
+acknowledgement stops before that reply, even if a queued follow-up has already recorded it.
+
 The shared mobile UI and desktop simulator build with the ordinary desktop
 solution. A simulator development run should use its own settings and pairing
 directory as well as an isolated desktop profile.

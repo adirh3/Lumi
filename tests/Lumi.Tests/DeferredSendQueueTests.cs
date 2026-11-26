@@ -562,6 +562,39 @@ public sealed partial class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task CompletingAStreamingReplyAfterQueuingAFollowUpDoesNotRecordItTwice()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            rpc.Emit(new AssistantMessageDeltaEvent
+            {
+                Data = new AssistantMessageDeltaData { MessageId = "reply", DeltaContent = "Partial answer" }
+            });
+            Dispatcher.UIThread.RunJobs();
+            Assert.Empty(host.Chat.Messages);
+            Assert.True(Assert.Single(host.ViewModel.Messages).IsStreaming);
+
+            host.QueuePrompt("Follow-up");
+            Assert.Equal(["Partial answer", "Follow-up"], host.Chat.Messages.Select(message => message.Content));
+
+            rpc.Emit(new AssistantMessageEvent
+            {
+                Data = new AssistantMessageData { MessageId = "reply", Content = "Complete answer" }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(["Complete answer", "Follow-up"], host.Chat.Messages.Select(message => message.Content));
+            Assert.False(host.Chat.Messages[0].IsStreaming);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task StopDuringManualCompaction_WaitsForCompactionTermination()
     {
         using var host = DeferredSendHost.Create();

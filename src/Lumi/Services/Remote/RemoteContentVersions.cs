@@ -73,6 +73,7 @@ internal static class RemoteContentVersions
         long chatVersion,
         Chat chat,
         IEnumerable<ChatMessage>? liveMessages,
+        int unacknowledgedTailCount,
         bool compact,
         int limit,
         bool showReasoning,
@@ -94,6 +95,7 @@ internal static class RemoteContentVersions
         hash.Add(status.IsStreaming);
         hash.Add(status.IsSessionActive);
         hash.Add(status.IsAwaitingInput);
+        hash.Add(unacknowledgedTailCount);
 
         if (runningBackgroundToolCallIds is { Count: > 0 })
         {
