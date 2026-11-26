@@ -1033,16 +1033,13 @@ While Lumi is replying, tap the arrow with a draft to steer the reply. Press and
 arrow instead (or right-click it with a mouse) for a menu above the composer: **Send to steer**,
 **Add to queue** and **Stop & send**. While a starter still has blanks, the arrow moves to the
 next blank and the menu waits until they're filled in; Back closes it. A queued message waits
-on the PC and starts a new turn after the current reply. Queued messages are listed above the
-composer, oldest first, as on the PC, and each offers **Steer now**, **Edit** (back into the
-composer, ahead of anything already typed there) and **Remove**. **Edit** isn't offered for a
-message with files, a reply or chats added on the PC, which the phone's composer can't hold.
-If the PC turns down a queued message (say, the chat was just paused), it returns to the
-composer ahead of anything you typed since, with its files. **Stop & send** interrupts the
-current work and sends the draft as a fresh turn; with no draft, the square in the composer
-stops the session. If a steered message is still waiting to take effect, **Send now** beside
-it interrupts the current turn and sends that same message as a fresh turn. Queuing, the
-queue list and **Send now** require an updated Lumi desktop.
+in the chat's queue on the PC, where you can steer, edit or remove it, and starts a new turn
+after the current reply. If the PC turns down a queued message (say, the chat was just paused),
+it returns to the composer ahead of anything you typed since, with its files. **Stop & send**
+interrupts the current work and sends the draft as a fresh turn; with no draft, the square in
+the composer stops the session. If a steered message is still waiting to take effect,
+**Send now** beside it interrupts the current turn and sends that same message as a fresh turn.
+Queuing and **Send now** require an updated Lumi desktop.
 
 After a reply, Lumi's suggested replies from your PC sit as a row of pills on the composer; swipe
 sideways for more. Tap one to send it as it reads, just as clicking a suggestion does on the desktop,

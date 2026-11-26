@@ -592,7 +592,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
             OnPropertyChanged(nameof(ShowFollowUpSuggestions));
         };
         Suggestions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowFollowUpSuggestions));
-        QueuedMessages.CollectionChanged += OnQueuedMessagesChanged;
         SendCommand.PropertyChanged += OnSendActivityChanged;
         QueueSendCommand.PropertyChanged += OnSendActivityChanged;
         StopAndSendCommand.PropertyChanged += OnSendActivityChanged;
@@ -2261,7 +2260,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsBusy = false;
             IsStreaming = false;
             QueuedMessageCount = null;
-            QueuedMessages.Clear();
             IsUploading = false;
             _revision = -1;
             _transcriptVersion = null;
@@ -2303,7 +2301,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
     {
         Interlocked.Increment(ref _hostGeneration);
         _pendingStopRequestIds.Clear();
-        _queuedActionRequestIds.Clear();
         _drafts.Clear();
         _surfaceMappings.Clear();
         _preferredModel = null;
@@ -2799,7 +2796,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
             HasUnreadMessages = unread;
         IsAwaitingInput = status.IsAwaitingInput;
         QueuedMessageCount = status.QueuedMessageCount;
-        SyncQueuedMessages(status.QueuedMessages);
         ContextCurrentTokens = status.ContextCurrentTokens;
         ContextTokenLimit = status.ContextTokenLimit;
         // A compact status frame leaves an unchanged plan out instead of repeating it.
@@ -3663,8 +3659,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 attachments.Add(attachment);
         }
 
-        // A queue request the PC turned down returns ahead of anything typed since, as Edit
-        // returns a queued message. One whose outcome is unknown may be in the PC's queue.
+        // A queue request the PC turned down returns ahead of anything typed since. One whose
+        // outcome is unknown may be in the PC's queue.
         var promptText = mode == SendMode.Queue && !preserveRequestIdentity
             ? PrependReturnedText(sentPayload.PromptText, draft.PromptText)
             : draft.PromptText.Length == 0
@@ -3712,6 +3708,17 @@ public sealed partial class MobileChatViewModel : ObservableObject
             RemovePendingEcho(echo);
         }
     }
+
+    /// <summary>
+    /// A queue request the PC turned down put its text back ahead of the draft, so typing should go on
+    /// after it, without focusing the composer.
+    /// </summary>
+    public event Action? ComposerCaretToEndRequested;
+
+    private static string PrependReturnedText(string returned, string draft) =>
+        string.IsNullOrWhiteSpace(draft) ? returned
+        : string.IsNullOrWhiteSpace(returned) || string.Equals(returned, draft, StringComparison.Ordinal) ? draft
+        : returned + "\n\n" + draft;
 
     private void CompleteSuccessfulSend(
         ChatSurfaceIdentity surface,

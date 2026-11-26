@@ -561,34 +561,14 @@ public partial class ChatDetailView : UserControl
             if (_shell?.Chat != chat || chat.ChatId != chatId || chat.PromptText != suggestion
                 || !this.IsAttachedToVisualTree())
                 return;
-            FocusComposerAtEnd();
+            if (_nativeComposerEditor is { } editor)
+                editor.FocusAtEnd();
+            else if (_sharedComposerInput is { } input)
+            {
+                input.Focus();
+                input.CaretIndex = input.Text?.Length ?? 0;
+            }
         }, DispatcherPriority.Loaded);
-    }
-
-    /// <summary>Edit put a queued message back in the composer: the caret follows it there.</summary>
-    private void OnComposerFocusRequested()
-    {
-        if (_shell?.Chat is not { } chat)
-            return;
-
-        var chatId = chat.ChatId;
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_shell?.Chat != chat || chat.ChatId != chatId || !this.IsAttachedToVisualTree())
-                return;
-            FocusComposerAtEnd();
-        }, DispatcherPriority.Loaded);
-    }
-
-    private void FocusComposerAtEnd()
-    {
-        if (_nativeComposerEditor is { } editor)
-            editor.FocusAtEnd();
-        else if (_sharedComposerInput is { } input)
-        {
-            input.Focus();
-            input.CaretIndex = input.Text?.Length ?? 0;
-        }
     }
 
     /// <summary>
@@ -1420,7 +1400,6 @@ public partial class ChatDetailView : UserControl
         shell.Chat.ChatSurfaceReset += OnChatSurfaceReset;
         shell.Chat.TranscriptApplied += OnTranscriptApplied;
         shell.Chat.AttachmentPickRequested += OnPickAttachment;
-        shell.Chat.ComposerFocusRequested += OnComposerFocusRequested;
         shell.Chat.ComposerCaretToEndRequested += OnComposerCaretToEndRequested;
         shell.StarterApplied += OnStarterApplied;
         shell.StarterNameFocusRequested += OnStarterNameFocusRequested;
@@ -1440,7 +1419,6 @@ public partial class ChatDetailView : UserControl
         _shell.Chat.ChatSurfaceReset -= OnChatSurfaceReset;
         _shell.Chat.TranscriptApplied -= OnTranscriptApplied;
         _shell.Chat.AttachmentPickRequested -= OnPickAttachment;
-        _shell.Chat.ComposerFocusRequested -= OnComposerFocusRequested;
         _shell.Chat.ComposerCaretToEndRequested -= OnComposerCaretToEndRequested;
         _shell.StarterApplied -= OnStarterApplied;
         _shell.StarterNameFocusRequested -= OnStarterNameFocusRequested;

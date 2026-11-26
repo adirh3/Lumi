@@ -623,22 +623,15 @@ public class RemoteClientEndToEndTests
     }
 
     [Fact]
-    public async Task QueueingWhileBusy_ListsTheDesktopQueueAndActsOnItsRowsById()
+    public async Task QueueingWhileBusy_AsksTheDesktopToQueueTheDraft()
     {
         await using var desktop = new FakeLumiDesktop();
         var chatId = Guid.NewGuid();
-        var firstId = Guid.NewGuid();
-        var secondId = Guid.NewGuid();
-        var thirdId = Guid.NewGuid();
         desktop.Snapshot = new RemoteSnapshot
         {
             Chats = OneChatPage(new RemoteChat { Id = chatId, Title = "Queue" })
         };
         desktop.Transcript = new RemoteTranscript { ChatId = chatId, Title = "Queue", Revision = 1 };
-        // Edit takes the message out of the PC's queue and returns its text with the answer.
-        desktop.CommandResultFactory = command => command?.Action == RemoteProtocol.Actions.EditQueuedMessage
-            ? new RemoteCommandResult { Ok = true, ChatId = chatId, Text = "ask this next" }
-            : new RemoteCommandResult { Ok = true, Message = "ok" };
         desktop.Start();
 
         await using var shell = CreateShell();
@@ -655,90 +648,43 @@ public class RemoteClientEndToEndTests
         Assert.Null(chat.ComposerQueueCommand);
         Assert.False(chat.QueueSendCommand.CanExecute(null));
 
-        await PushQueueAsync([]);
+        await PushQueueCountAsync(0);
         Assert.Same(chat.QueueSendCommand, chat.ComposerQueueCommand);
         Assert.True(chat.QueueSendCommand.CanExecute(null));
         await chat.QueueSendCommand.ExecuteAsync(null);
 
-        var sent = LastCommand(RemoteProtocol.Actions.QueueMessage);
+        RemoteCommand sent;
+        lock (desktop.ReceivedCommands)
+            sent = desktop.ReceivedCommands.Last(command => command.Action == RemoteProtocol.Actions.QueueMessage);
         Assert.Equal("ask this next", sent.Get("message"));
         Assert.Equal(chatId.ToString(), sent.Get("chatId"));
         Assert.Null(sent.GetBool("steer"));
         Assert.Null(sent.GetBool("stopAndSend"));
+        Assert.False(string.IsNullOrEmpty(sent.RequestId));
         Assert.Empty(chat.PromptText);
-        Assert.Empty(chat.Turns);
-        Assert.Empty(chat.QueuedMessages);
-
-        await PushQueueAsync(
-        [
-            new RemoteQueuedMessage { Id = firstId, Text = "ask this next", CanEdit = true },
-            new RemoteQueuedMessage { Id = secondId, Text = "and then this", AttachmentCount = 1 }
-        ]);
-        Assert.Collection(
-            chat.QueuedMessages,
-            first =>
-            {
-                Assert.Equal(1, first.Position);
-                Assert.Equal("ask this next", first.Text);
-                Assert.True(first.EditCommand.CanExecute(null));
-            },
-            second =>
-            {
-                Assert.Equal(2, second.Position);
-                Assert.True(second.HasAttachments);
-                Assert.False(second.EditCommand.CanExecute(null));
-            });
-        Assert.Equal("2", chat.QueuedMessagesCountText);
+        // The PC holds the queued draft; it enters the transcript only once the PC sends it.
         Assert.Empty(chat.Turns);
 
-        await chat.QueuedMessages[1].RemoveCommand.ExecuteAsync(null);
-        AssertTargets(LastCommand(RemoteProtocol.Actions.RemoveQueuedMessage), secondId);
-        Assert.Equal(firstId, Assert.Single(chat.QueuedMessages).Id);
-
-        chat.PromptText = "typed meanwhile";
-        await chat.QueuedMessages[0].EditCommand.ExecuteAsync(null);
-        AssertTargets(LastCommand(RemoteProtocol.Actions.EditQueuedMessage), firstId);
-        Assert.Empty(chat.QueuedMessages);
-        Assert.Equal("ask this next\n\ntyped meanwhile", chat.PromptText);
-
-        await PushQueueAsync([new RemoteQueuedMessage { Id = thirdId, Text = "steer this in" }]);
-        await Assert.Single(chat.QueuedMessages).SteerNowCommand.ExecuteAsync(null);
-        AssertTargets(LastCommand(RemoteProtocol.Actions.SteerQueuedMessage), thirdId);
-        Assert.Empty(chat.QueuedMessages);
+        await PushQueueCountAsync(1);
         Assert.Empty(chat.Turns);
 
-        RemoteCommand LastCommand(string action)
-        {
-            lock (desktop.ReceivedCommands)
-                return desktop.ReceivedCommands.Last(command => command.Action == action);
-        }
-
-        void AssertTargets(RemoteCommand command, Guid messageId)
-        {
-            Assert.Equal(chatId.ToString(), command.Get("chatId"));
-            Assert.Equal(messageId.ToString(), command.Get("messageId"));
-            Assert.False(string.IsNullOrEmpty(command.RequestId));
-        }
-
-        async Task PushQueueAsync(List<RemoteQueuedMessage> queued)
+        async Task PushQueueCountAsync(int count)
         {
             // The status is applied on the event stream's thread; its context figure is set just
-            // after the queue, so seeing this push's figure means the rows are all in place.
+            // after the queue's count, so seeing this push's figure means the count is in place.
             var marker = ++statusPushes;
             var status = new RemoteChatStatus
             {
                 ChatId = chatId,
                 IsBusy = true,
-                QueuedMessageCount = queued.Count,
-                QueuedMessages = queued.Count > 0 ? queued : null,
+                QueuedMessageCount = count,
                 ContextCurrentTokens = marker
             };
             await desktop.PushAsync(RemoteProtocol.Events.ChatStatus,
                 JsonSerializer.Serialize(status, RemoteJsonContext.Default.RemoteChatStatus));
             await WaitAsync(() => chat.ContextCurrentTokens == marker,
-                $"the desktop queue of {queued.Count} messages to be applied");
-            Assert.Equal(queued.Count, chat.QueuedMessageCount);
-            Assert.Equal(queued.Select(message => message.Id), chat.QueuedMessages.Select(item => item.Id));
+                $"the desktop's queue of {count} messages to be applied");
+            Assert.Equal(count, chat.QueuedMessageCount);
         }
     }
 
