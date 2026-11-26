@@ -604,7 +604,7 @@
 
     <!--
       ══ Send menu ══
-      Strata's send menu (Send to steer, Stop & send, Stop session),
+      Strata's send menu (Send to steer, Add to queue when the PC can queue, Stop & send, Stop session),
       which a hold on Send opens while Lumi works on a draft, at thumb size: 48 dp rows with words at body
       size. Its keyboard shortcuts mean nothing on a phone, so they stay hidden. The view opens it from
       Send, lifted clear of the draft's editor.
@@ -623,6 +623,177 @@
     </Style>
     <Style Selector="ContextMenu.mobile-send-menu MenuItem /template/ TextBlock#PART_InputGestureText">
       <Setter Property="IsVisible" Value="False" />
+    </Style>
+
+    <!--
+      ══ Queued messages ══
+      The desktop's queue at thumb size, on the composer's glass: what the PC sends once this reply
+      finishes, in its order. A row is its place in line, its words on up to two lines and its files,
+      then Steer now, Edit and Remove, each drawn inside a 48 dp target. The PC owns the queue; a row
+      only asks it to act on that message.
+    -->
+    <Style Selector="Panel#QueuedMessagesHost">
+      <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel">
+      <Setter Property="Padding" Value="12,8,4,2" />
+      <Setter Property="CornerRadius" Value="22" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel sc|StrataLineIcon.queue-glyph">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="StrokeThickness" Value="1.9" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel TextBlock.queue-title">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Border.queue-count">
+      <Setter Property="MinWidth" Value="20" />
+      <Setter Property="MinHeight" Value="20" />
+      <Setter Property="Padding" Value="6,0" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Border.queue-count > TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel TextBlock.queue-subtitle">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <!-- Three rows and a half show at once, so a longer queue says it scrolls. -->
+    <Style Selector="Border#QueuedMessagesPanel ScrollViewer#QueuedMessagesScroller">
+      <Setter Property="MaxHeight" Value="172" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Grid.queue-row">
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <!-- The PC is still answering a tap on this row. -->
+    <Style Selector="Border#QueuedMessagesPanel Grid.queue-row.pending">
+      <Setter Property="Opacity" Value="0.55" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Border.queue-position">
+      <Setter Property="MinWidth" Value="22" />
+      <Setter Property="MinHeight" Value="22" />
+      <Setter Property="Padding" Value="4,0" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1.2" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Border.queue-position > TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel TextBlock.queue-text">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="MaxLines" Value="2" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel StackPanel.queue-attachments">
+      <Setter Property="Margin" Value="0,0,6,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel StackPanel.queue-attachments sc|StrataLineIcon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="StrokeThickness" Value="1.8" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel StackPanel.queue-attachments > TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <!-- Each action is a 36 dp disc inside its 48 dp target: Steer now in the accent, Edit and Remove
+         quiet until the finger darkens them. Edit stays in its place, dimmed, for a message the phone
+         can't hold (files, a reply or chats picked on the PC), so the actions line up from row to row. -->
+    <Style Selector="Border#QueuedMessagesPanel Button.queue-action">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Button.queue-action /template/ Border#PART_Surface,
+                     Border#QueuedMessagesPanel Button.queue-action:pointerover /template/ Border#PART_Surface,
+                     Border#QueuedMessagesPanel Button.queue-action:pressed /template/ Border#PART_Surface,
+                     Border#QueuedMessagesPanel Button.queue-action:disabled /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="none" />
+      <Setter Property="RenderTransform" Value="none" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Button.queue-action /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Border.queue-action-disc">
+      <Setter Property="Width" Value="36" />
+      <Setter Property="Height" Value="36" />
+      <Setter Property="CornerRadius" Value="18" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Button.queue-action:pressed Border.queue-action-disc">
+      <Setter Property="Background" Value="{DynamicResource Brush.ControlPressed}" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Button.queue-steer Border.queue-action-disc">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Button.queue-steer:pressed Border.queue-action-disc">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Button.queue-action sc|StrataLineIcon">
+      <Setter Property="Width" Value="18" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="StrokeThickness" Value="1.8" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border#QueuedMessagesPanel Button.queue-steer sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <!-- A pending row is dimmed as a whole; its buttons, disabled meanwhile, don't dim again. -->
+    <Style Selector="Border#QueuedMessagesPanel Grid.queue-row.pending Button.queue-action:disabled">
+      <Setter Property="Opacity" Value="1" />
     </Style>
 
     <!--
@@ -2221,6 +2392,70 @@
         <Border x:Name="ComposerInset">
           <Border x:Name="ComposerSideInset">
           <StackPanel MaxWidth="{DynamicResource Chat.ReadingColumnWidth}">
+          <!-- What the PC sends once this reply finishes, as the desktop lists it above its composer. -->
+          <Panel x:Name="QueuedMessagesHost" IsVisible="{Binding Chat.HasQueuedMessageItems}">
+            <sc:StrataBackdropBlur Classes="floating-frost"
+                                   CornerRadius="{Binding #QueuedMessagesPanel.CornerRadius}" />
+            <Border x:Name="QueuedMessagesPanel">
+              <StackPanel Spacing="2">
+                <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="8" Margin="2,2,10,2" MinHeight="24">
+                  <sc:StrataLineIcon Classes="queue-glyph" Data="{x:Static sc:StrataIcons.Clock}" />
+                  <TextBlock Grid.Column="1" Classes="queue-title" Text="{loc:Str QueuedTitle}" />
+                  <Border Grid.Column="2" Classes="queue-count">
+                    <TextBlock Text="{Binding Chat.QueuedMessagesCountText}" />
+                  </Border>
+                  <TextBlock Grid.Column="3" Classes="queue-subtitle" Text="{loc:Str QueuedSubtitle}" />
+                </Grid>
+                <ScrollViewer x:Name="QueuedMessagesScroller"
+                              HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                  <ItemsControl x:Name="QueuedMessageItems" ItemsSource="{Binding Chat.QueuedMessages}"
+                                AutomationProperties.Name="{loc:Str QueuedTitle}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:QueuedMessageItemViewModel">
+                        <Grid Classes="queue-row" Classes.pending="{Binding IsPending}"
+                              ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+                          <Border Classes="queue-position" Margin="0,0,10,0">
+                            <TextBlock Text="{Binding Position}" />
+                          </Border>
+                          <TextBlock Grid.Column="1" Classes="queue-text" Text="{Binding Text}" Margin="0,0,6,0" />
+                          <StackPanel Grid.Column="2" Classes="queue-attachments" Orientation="Horizontal" Spacing="3"
+                                      IsVisible="{Binding HasAttachments}">
+                            <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Paperclip}" />
+                            <TextBlock Text="{Binding AttachmentCount}" />
+                          </StackPanel>
+                          <Button x:Name="QueuedSteerNowButton" Grid.Column="3" Classes="queue-action queue-steer"
+                                  behaviors:TouchScrollClickGuard.IsEnabled="True"
+                                  Command="{Binding SteerNowCommand}"
+                                  AutomationProperties.Name="{loc:Str QueuedSteerNow}"
+                                  AutomationProperties.HelpText="{loc:Str QueuedSteerNowHelp}">
+                            <Border Classes="queue-action-disc">
+                              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Bolt}" />
+                            </Border>
+                          </Button>
+                          <Button x:Name="QueuedEditButton" Grid.Column="4" Classes="queue-action"
+                                  behaviors:TouchScrollClickGuard.IsEnabled="True"
+                                  Command="{Binding EditCommand}"
+                                  AutomationProperties.Name="{loc:Str Edit}">
+                            <Border Classes="queue-action-disc">
+                              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Pencil}" />
+                            </Border>
+                          </Button>
+                          <Button x:Name="QueuedRemoveButton" Grid.Column="5" Classes="queue-action"
+                                  behaviors:TouchScrollClickGuard.IsEnabled="True"
+                                  Command="{Binding RemoveCommand}"
+                                  AutomationProperties.Name="{loc:Str QueuedRemove}">
+                            <Border Classes="queue-action-disc">
+                              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Cross}" />
+                            </Border>
+                          </Button>
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </StackPanel>
+            </Border>
+          </Panel>
           <sc:StrataTypingIndicator x:Name="ChatTyping" Classes="mobile-working" Margin="8,0,8,8"
                                     Label="{Binding Chat.WorkingStatusText}"
                                     IsActive="{Binding Chat.IsWorking}"
@@ -2316,6 +2551,7 @@
                                SendCommand="{Binding Chat.SendCommand}"
                                StopCommand="{Binding Chat.StopCommand}"
                                StopAndSendCommand="{Binding Chat.StopAndSendCommand}"
+                               QueueCommand="{Binding Chat.ComposerQueueCommand}"
                                Models="{Binding Chat.AvailableModels}"
                                SelectedModel="{Binding Chat.Model, Mode=TwoWay}"
                                QualityLevels="{Binding Chat.QualityLevels}"

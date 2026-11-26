@@ -100,9 +100,9 @@ public sealed class MobileLocalizationTests
 
     [Theory]
     [InlineData("en", "While Lumi is working, long press for send options",
-        new[] { "Send to steer", "Stop & send", "Stop session" }, FlowDirection.LeftToRight)]
+        new[] { "Send to steer", "Add to queue", "Stop & send", "Stop session" }, FlowDirection.LeftToRight)]
     [InlineData("he", "בזמן ש-Lumi עובד, לחיצה ארוכה לאפשרויות שליחה",
-        new[] { "שליחה להכוונה", "עצירה ושליחה", "עצירת ההפעלה" }, FlowDirection.RightToLeft)]
+        new[] { "שליחה להכוונה", "הוספה לתור", "עצירה ושליחה", "עצירת ההפעלה" }, FlowDirection.RightToLeft)]
     public async Task SendMenuFollowsTheInterfaceLanguage(
         string language, string help, string[] rows, FlowDirection direction)
     {
@@ -116,7 +116,7 @@ public sealed class MobileLocalizationTests
             shell.Chat.Reset(Guid.NewGuid(), "Original chat");
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
-                ChatId = shell.Chat.ChatId, IsBusy = true
+                ChatId = shell.Chat.ChatId, IsBusy = true, SupportsQueuedSends = true
             });
             shell.Chat.PromptText = "Draft";
             var view = new ChatDetailView { DataContext = shell };
@@ -136,10 +136,62 @@ public sealed class MobileLocalizationTests
                 Assert.Same(button, Assert.IsType<Popup>(menu.Parent).PlacementTarget);
                 // The rows are Strata's shared labels, and the menu reads in the interface's direction.
                 Assert.Equal(direction, menu.FlowDirection);
-                Assert.Equal(rows, menu.Items.OfType<MenuItem>().Where(item => item.IsVisible)
-                    .Select(item => item.Header as string ?? "").ToArray());
+                Assert.Equal(rows, menu.Items.OfType<MenuItem>().Select(item => item.Header as string ?? "").ToArray());
                 Assert.Equal("Draft", shell.Chat.PromptText);
                 menu.Close();
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData("en", "Queued", "Steer now", "Edit", "Remove", FlowDirection.LeftToRight)]
+    [InlineData("he", "בתור", "הכוונה עכשיו", "עריכה", "הסרה", FlowDirection.RightToLeft)]
+    public async Task QueuedRowsTranslateTheirActionsButKeepTheMessage(
+        string language, string title, string steer, string edit, string remove, FlowDirection direction)
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            using var cultures = new CultureScope();
+            var store = new MemorySettingsStore();
+            store.Settings.Language = language;
+            await using var shell = new MobileShellViewModel(store: store, post: action => action());
+            const string text = "Keep the original message";
+            shell.Chat.Reset(Guid.NewGuid(), "Queue");
+            shell.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = shell.Chat.ChatId,
+                IsBusy = true,
+                SupportsQueuedSends = true,
+                QueuedMessages = [new RemoteQueuedMessage { Id = Guid.NewGuid(), Text = text, CanEdit = true }]
+            });
+            var view = new ChatDetailView { DataContext = shell };
+            var window = new Window { Width = 360, Height = 780, Content = view };
+            try
+            {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                var rows = view.FindControl<ItemsControl>("QueuedMessageItems")!;
+                Assert.True(rows.IsEffectivelyVisible);
+                Assert.Equal(direction, rows.FlowDirection);
+                Assert.Equal(title, Avalonia.Automation.AutomationProperties.GetName(rows));
+                var buttons = rows.GetVisualDescendants().OfType<Button>().ToList();
+                Assert.Equal([steer, edit, remove],
+                    buttons.Select(Avalonia.Automation.AutomationProperties.GetName));
+                Assert.All(buttons, button =>
+                {
+                    Assert.True(button.IsEffectivelyVisible);
+                    Assert.True(button.IsEnabled);
+                    Assert.True(button.Bounds.Width >= 44);
+                    Assert.True(button.Bounds.Height >= 44);
+                });
+                Assert.Contains(rows.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == text);
+                Assert.Equal(text, Assert.Single(shell.Chat.QueuedMessages).Text);
+                Assert.Empty(shell.Chat.PromptText);
             }
             finally
             {

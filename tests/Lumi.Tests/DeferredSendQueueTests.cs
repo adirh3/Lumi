@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using CommunityToolkit.Mvvm.Input;
 using Microsoft.Copilot;
 using Microsoft.Copilot.Rpc;
 using Lumi.Localization;
@@ -14,6 +15,7 @@ using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services;
 using Lumi.Services.Remote;
+using Lumi.Services.Storage;
 using Lumi.ViewModels;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -3082,12 +3084,13 @@ public sealed partial class DeferredSendQueueTests
             host.ViewModel.PromptText = "and then  write\nthe tests";
             await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
 
+            Assert.True(await host.ViewModel.QueueExternalMessageAsync(
+                host.Chat, "then check them", "Lumi Mobile", remoteRequestId: "phone-queue"));
             Assert.Equal("", host.ViewModel.PromptText);
             Assert.Equal(0, rpc.SendCount);
             Assert.Empty(host.QueuedPrompts());
             Assert.Empty(host.Chat.Messages);
-            var queued = Assert.Single(host.ViewModel.QueuedSends);
-            Assert.Equal("and then write the tests", queued.Text);
+            Assert.Equal(["and then write the tests", "then check them"], host.ViewModel.QueuedSends.Select(item => item.Text));
             Assert.True(host.ViewModel.HasQueuedSends);
 
             // The reply keeps writing while the message waits; it stays above the queued message.
@@ -3099,8 +3102,9 @@ public sealed partial class DeferredSendQueueTests
             Assert.NotEqual("immediate", rpc.LastSendMode);
             Assert.Equal(["the answer", "and then  write\nthe tests"], host.Chat.Messages.Select(message => message.Content));
             Assert.Equal(MessageSteerState.None, host.Chat.Messages[1].SteerDelivery);
-            Assert.Empty(host.ViewModel.QueuedSends);
-            Assert.False(host.ViewModel.HasQueuedSends);
+            var next = Assert.Single(host.ViewModel.QueuedSends);
+            Assert.Equal("then check them", next.Text);
+            Assert.Equal("phone-queue", next.Message.RemoteRequestId);
         }, CancellationToken.None);
     }
 
@@ -3268,6 +3272,170 @@ public sealed partial class DeferredSendQueueTests
         Assert.Equal([("two", 1), ("three", 2)], host.ViewModel.QueuedSends.Select(item => (item.Text, item.Position)));
     }
 
+    [Fact]
+    [Trait("Category", "CoreQA")]
+    public async Task AcceptedMobileQueue_SurvivesRestartWithoutPersistingDesktopQueuedDrafts()
+    {
+        var directory = System.IO.Path.Combine(TestProfile.Root, "mobile-queue-restart", Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(directory);
+        var database = System.IO.Path.Combine(directory, "lumi.db");
+        using var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                await TestCopilot.Shared.ConnectAsync();
+                var chat = new Chat { Title = "Mobile queue" };
+                Guid[] ids;
+                using (var store = new ChatStore(database))
+                using (var host = DeferredSendHost.Create(chat, OpenQueueDataStore(store)))
+                {
+                    host.MarkRuntimeBusy(turnInProgress: true);
+                    host.ViewModel.PromptText = "desktop-only draft";
+                    await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
+                    Assert.True(await host.ViewModel.QueueExternalMessageAsync(
+                        chat, "phone first", "Lumi Mobile", "q1", "phone"));
+                    Assert.True(await host.ViewModel.QueueExternalMessageAsync(
+                        chat, "phone second", "Lumi Mobile", "q2", "phone"));
+                    ids = chat.RemoteQueuedSends!.Select(message => message.Id).ToArray();
+                    Assert.Equal(3, host.ViewModel.QueuedSends.Count);
+                    Assert.Empty(chat.Messages);
+                    // Read the committed queue while its original writer is still open, before shutdown can flush it.
+                    using var reader = new ChatStore(database);
+                    var accepted = Assert.Single(OpenQueueDataStore(reader).Data.Chats);
+                    Assert.Equal(ids, accepted.RemoteQueuedSends!.Select(message => message.Id));
+                }
+
+                using (var store = new ChatStore(database))
+                {
+                    var data = OpenQueueDataStore(store);
+                    var reopened = Assert.Single(data.Data.Chats);
+                    Assert.Equal(ids, reopened.RemoteQueuedSends!.Select(message => message.Id));
+                    Assert.Equal(["q1", "q2"], reopened.RemoteQueuedSends!.Select(message => message.RemoteRequestId));
+                    Assert.All(reopened.RemoteQueuedSends!, message => Assert.Equal("phone", message.RemoteDeviceId));
+                    using var host = DeferredSendHost.Create(reopened, data);
+                    host.ViewModel.CurrentChat = null;
+                    host.MarkRuntimeBusy(turnInProgress: true);
+                    await host.ViewModel.LoadChatAsync(reopened);
+                    await host.ViewModel.LoadChatAsync(reopened);
+                    Assert.Equal(ids, host.ViewModel.QueuedSends.Select(item => item.Message.Id));
+
+                    using var rpc = new AbortRpc();
+                    host.AttachSession(rpc);
+                    host.MarkRuntimeTerminal();
+                    host.ApplyDisplayedRuntimeState();
+                    await host.DrainAsync();
+                    Assert.Equal(1, rpc.SendCount);
+                    Assert.Equal(ids[0], Assert.Single(reopened.Messages, message => message.Role == "user").Id);
+                    Assert.Equal([ids[1]], reopened.RemoteQueuedSends!.Select(message => message.Id));
+                }
+
+                using (var store = new ChatStore(database))
+                {
+                    var data = OpenQueueDataStore(store);
+                    var reopened = Assert.Single(data.Data.Chats);
+                    await data.LoadChatMessagesAsync(reopened);
+                    Assert.Equal(ids[0], Assert.Single(reopened.Messages, message => message.Role == "user").Id);
+                    Assert.Equal([ids[1]], reopened.RemoteQueuedSends!.Select(message => message.Id));
+                    Assert.DoesNotContain(reopened.Messages, message => message.Content == "desktop-only draft");
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            System.IO.Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("enqueue")]
+    [InlineData("remove")]
+    [InlineData("steer")]
+    public async Task FailedMobileQueueWrite_DoesNotAcknowledgeTheChange(string action)
+    {
+        var directory = System.IO.Path.Combine(TestProfile.Root, "mobile-queue-failed", Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(directory);
+        using var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                var store = new ChatStore(System.IO.Path.Combine(directory, "lumi.db"));
+                var chat = new Chat { Title = "Failed queue", LastRemoteDeviceId = "phone", LastRemoteRequestId = "before" };
+                using var host = DeferredSendHost.Create(chat, OpenQueueDataStore(store));
+                host.MarkRuntimeBusy(turnInProgress: true);
+                if (action != "enqueue")
+                    Assert.True(await host.ViewModel.QueueExternalMessageAsync(chat, "keep me", "Lumi Mobile", "q1", "phone"));
+                if (action == "steer")
+                    Assert.True(await host.ViewModel.QueueExternalMessageAsync(chat, "keep my position", "Lumi Mobile", "q2", "phone"));
+                var ids = chat.RemoteQueuedSends?.Select(message => message.Id).ToArray() ?? [];
+                store.Dispose();
+
+                if (action == "remove")
+                    await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+                        host.ViewModel.RemoveWaitingSendByIdAsync(chat.Id, ids[0]));
+                else if (action == "steer")
+                    await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+                        host.ViewModel.SteerWaitingSendNowAsync(chat, ids[1]));
+                else
+                    await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+                        host.ViewModel.QueueExternalMessageAsync(chat, "keep me", "Lumi Mobile", "q1", "phone"));
+
+                Assert.Equal(ids, chat.RemoteQueuedSends?.Select(message => message.Id) ?? []);
+                Assert.Equal(ids, host.ViewModel.QueuedSends.Select(item => item.Message.Id));
+                Assert.Equal(("phone", action == "enqueue" ? "before" : action == "steer" ? "q2" : "q1"),
+                    (chat.LastRemoteDeviceId, chat.LastRemoteRequestId));
+                Assert.Empty(chat.Messages);
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            System.IO.Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task EditingAndRemovingMobileQueuedMessages_DoNotBringThemBackOnRestart()
+    {
+        var directory = System.IO.Path.Combine(TestProfile.Root, "mobile-queue-edited", Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(directory);
+        var database = System.IO.Path.Combine(directory, "lumi.db");
+        using var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                var chat = new Chat { Title = "Queue edits" };
+                using (var store = new ChatStore(database))
+                using (var host = DeferredSendHost.Create(chat, OpenQueueDataStore(store)))
+                {
+                    host.MarkRuntimeBusy(turnInProgress: true);
+                    Assert.True(await host.ViewModel.QueueExternalMessageAsync(chat, "remove me", "Lumi Mobile", "q1", "phone"));
+                    Assert.True(await host.ViewModel.QueueExternalMessageAsync(chat, "edit me", "Lumi Mobile", "q2", "phone"));
+                    await Assert.IsAssignableFrom<IAsyncRelayCommand>(host.ViewModel.QueuedSends[0].RemoveCommand).ExecuteAsync(null);
+                    host.ViewModel.PromptText = "newer draft";
+                    await Assert.IsAssignableFrom<IAsyncRelayCommand>(host.ViewModel.QueuedSends[0].EditCommand).ExecuteAsync(null);
+                    Assert.Equal($"edit me{Environment.NewLine}{Environment.NewLine}newer draft", host.ViewModel.PromptText);
+                    Assert.Empty(host.ViewModel.QueuedSends);
+                    Assert.Null(chat.RemoteQueuedSends);
+                }
+
+                using var reopenedStore = new ChatStore(database);
+                var reopened = Assert.Single(OpenQueueDataStore(reopenedStore).Data.Chats);
+                Assert.Null(reopened.RemoteQueuedSends);
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            System.IO.Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static DataStore OpenQueueDataStore(ChatStore store) => new(new AppData
+    {
+        Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false, NotificationsEnabled = false }
+    }, store);
+
     private sealed partial class DeferredSendHost : IDisposable
     {
         private DeferredSendHost(ChatViewModel viewModel, Chat chat)
@@ -3288,9 +3456,9 @@ public sealed partial class DeferredSendQueueTests
 
         public ChatMessage QuestionMessage { get; private set; } = null!;
 
-        public static DeferredSendHost Create(Chat? restoredChat = null)
+        public static DeferredSendHost Create(Chat? restoredChat = null, DataStore? dataStore = null)
         {
-            var dataStore = new DataStore(new AppData
+            dataStore ??= new DataStore(new AppData
             {
                 Settings = new UserSettings
                 {
@@ -3301,7 +3469,8 @@ public sealed partial class DeferredSendQueueTests
             });
 
             var chat = restoredChat ?? new Chat { Title = "deferred" };
-            dataStore.Data.Chats.Add(chat);
+            if (!dataStore.Data.Chats.Exists(candidate => candidate.Id == chat.Id))
+                dataStore.Data.Chats.Add(chat);
 
             var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared)
             {

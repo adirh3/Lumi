@@ -253,6 +253,7 @@ public partial class ChatViewModel
                 QueueSaveChat(chat, saveIndex: false);
         }
         QueueSaveChatIndex(chat);
+        _ = PersistTransferredRemoteSendsAsync(chat);
         if (!paused)
             ScheduleQueuedBusySendDrain(chat.Id);
     }

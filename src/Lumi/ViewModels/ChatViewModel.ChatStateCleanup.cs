@@ -451,7 +451,7 @@ public partial class ChatViewModel
     }
 
     /// <summary>Shows a waiting send at the end of the transcript with its "Queued…" pill.</summary>
-    private void AddQueuedSendToTranscript(Chat chat, ChatMessage message)
+    private void AddQueuedSendToTranscript(Chat chat, ChatMessage message, bool save = true)
     {
         var chatId = chat.Id;
 
@@ -470,7 +470,10 @@ public partial class ChatViewModel
         if (CurrentChat?.Id == chatId)
             Messages.Add(new ChatMessageViewModel(message));
 
-        QueueSaveChat(chat, saveIndex: true, touchIndex: true);
+        if (save)
+            QueueSaveChat(chat, saveIndex: true, touchIndex: true);
+        else
+            chat.UpdatedAt = DateTimeOffset.Now;
         ChatUpdated?.Invoke();
         UserMessageSent?.Invoke();
     }
@@ -517,9 +520,12 @@ public partial class ChatViewModel
 
         // Dequeue only once the send is certain, so the message cannot lose its place in the queue.
         // Deferred sends go first; a message queued to follow the reply enters the transcript only now.
-        if (!TryDequeueBusySend(chatId, out var message)
-            && !TryTakeWaitingSend(CurrentChat, out message))
-            return;
+        if (!TryDequeueBusySend(chatId, out var message))
+        {
+            message = await TakeWaitingSendAsync(CurrentChat);
+            if (message is null)
+                return;
+        }
 
         await SendMessageCore(message.Content, consumeComposerPrompt: false, message);
     }

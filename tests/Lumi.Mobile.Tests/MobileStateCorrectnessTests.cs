@@ -837,14 +837,16 @@ public sealed class MobileStateCorrectnessTests
         Assert.True(safetySignals >= 4);
     }
 
-    [Fact]
-    public async Task UpdateSafetyTracksAnExplicitSendUntilFailureRestoresItsDraft()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdateSafetyTracksAnExplicitSendUntilFailureRestoresItsDraft(bool queue)
     {
         var sink = new ControllableSink();
         var chat = new MobileChatViewModel(sink);
         var chatId = Guid.NewGuid();
         chat.Reset(chatId, "Existing chat");
-        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true });
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, SupportsQueuedSends = true });
         chat.PromptText = "Keep this replacement";
         chat.Attachments.Add(new PendingAttachment("notes.txt", @"C:\uploads\notes.txt"));
         var safetySignals = new List<bool>();
@@ -854,12 +856,12 @@ public sealed class MobileStateCorrectnessTests
                 safetySignals.Add(chat.HasUnsentWork);
         };
 
-        var sendCommand = chat.StopAndSendCommand;
+        var sendCommand = queue ? chat.QueueSendCommand : chat.StopAndSendCommand;
         var send = sendCommand.ExecuteAsync(null);
         var request = await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
         try
         {
-            Assert.Equal(RemoteProtocol.Actions.SendMessage, request.Action);
+            Assert.Equal(queue ? RemoteProtocol.Actions.QueueMessage : RemoteProtocol.Actions.SendMessage, request.Action);
             Assert.Contains(@"C:\uploads\notes.txt", request.Get("message"));
             Assert.True(sendCommand.IsRunning);
             Assert.False(chat.SendCommand.IsRunning);
@@ -1118,16 +1120,20 @@ public sealed class MobileStateCorrectnessTests
         Assert.Null(second.GetBool("steer"));
     }
 
-    [Fact]
-    public async Task UnchangedAmbiguousTransportRetry_ReusesTheRequestIdAndAction()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UnchangedAmbiguousTransportRetry_ReusesTheRequestIdAndAction(bool queue)
     {
         var sink = new SequencedCommandSink(commandCount: 2);
         var chat = new MobileChatViewModel(sink);
         var chatId = Guid.NewGuid();
         chat.Reset(chatId, "Existing chat");
+        if (queue)
+            chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, SupportsQueuedSends = true });
         chat.PromptText = "retry exactly";
 
-        var firstSend = chat.SendCommand.ExecuteAsync(null);
+        var firstSend = (queue ? chat.QueueSendCommand : chat.SendCommand).ExecuteAsync(null);
         var first = await sink.WaitForCommandAsync(0);
         sink.Complete(
             0,
@@ -1723,6 +1729,177 @@ public sealed class MobileStateCorrectnessTests
 
         Assert.Equal("newer draft", chat.PromptText);
         Assert.Equal("send failed", chat.ErrorText);
+    }
+
+    [Fact]
+    public async Task RejectedQueueRequest_ReturnsAheadOfANewerDraftWithEveryFile()
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Existing chat");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, SupportsQueuedSends = true });
+        var queuedFile = new PendingAttachment("first.txt", @"C:\uploads\first.txt");
+        chat.PromptText = "first";
+        chat.Attachments.Add(queuedFile);
+        var caretMoves = 0;
+        chat.ComposerCaretToEndRequested += () => caretMoves++;
+
+        var queue = chat.QueueSendCommand.ExecuteAsync(null);
+        var request = await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(RemoteProtocol.Actions.QueueMessage, request.Action);
+
+        var newerFile = new PendingAttachment("second.txt", @"C:\uploads\second.txt");
+        chat.PromptText = "second";
+        chat.Attachments.Add(newerFile);
+        sink.CommandResult.SetResult(new RemoteCommandResult { Ok = false, Error = "This chat is paused." });
+        await queue;
+
+        Assert.Equal("first\n\nsecond", chat.PromptText);
+        Assert.Equal([newerFile, queuedFile], chat.Attachments);
+        Assert.Equal("This chat is paused.", chat.ErrorText);
+        Assert.Equal(1, caretMoves);
+        Assert.True(chat.IsBusy);
+        Assert.Empty(chat.Turns);
+    }
+
+    [Fact]
+    public async Task QueuedEditWithALostAnswer_KeepsItsRowAndAsksAgainWithTheSameRequest()
+    {
+        const string gone = "That queued message was already sent or removed.";
+        var sink = new ScriptedCommandSink(
+            new RemoteCommandResult { Error = "connection lost", IsOutcomeUnknown = true },
+            new RemoteCommandResult { Ok = true, Text = "ask this next" },
+            new RemoteCommandResult { Error = "connection lost", IsOutcomeUnknown = true },
+            new RemoteCommandResult { Ok = false, Error = gone });
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Queue");
+        var (returned, expired) = (Guid.NewGuid(), Guid.NewGuid());
+        ApplyQueue(returned, expired);
+        var returnedRow = chat.QueuedMessages.Single(item => item.Id == returned);
+        var expiredRow = chat.QueuedMessages.Single(item => item.Id == expired);
+        chat.PromptText = "typed meanwhile";
+
+        // The PC took the message out of its queue but its answer never arrived, so the row stays:
+        // the PC now holds the message's text only in that answer.
+        await returnedRow.EditCommand.ExecuteAsync(null);
+        Assert.Equal("connection lost", chat.ErrorText);
+        ApplyQueue(expired);
+        Assert.Contains(returnedRow, chat.QueuedMessages);
+
+        // Asking again with the same request gets the PC's first answer, which brings the text back.
+        await returnedRow.EditCommand.ExecuteAsync(null);
+        Assert.Equal(sink.Commands[0].RequestId, sink.Commands[1].RequestId);
+        Assert.Equal(returned.ToString(), sink.Commands[1].Get("messageId"));
+        Assert.Equal("ask this next\n\ntyped meanwhile", chat.PromptText);
+        Assert.Null(chat.ErrorText);
+        Assert.Same(expiredRow, Assert.Single(chat.QueuedMessages));
+
+        // Once the PC answers that it no longer has the message, the row kept for it goes too.
+        await expiredRow.EditCommand.ExecuteAsync(null);
+        ApplyQueue();
+        Assert.Same(expiredRow, Assert.Single(chat.QueuedMessages));
+        await expiredRow.EditCommand.ExecuteAsync(null);
+        Assert.Equal(sink.Commands[2].RequestId, sink.Commands[3].RequestId);
+        Assert.Empty(chat.QueuedMessages);
+        Assert.Equal(gone, chat.ErrorText);
+        Assert.Equal("ask this next\n\ntyped meanwhile", chat.PromptText);
+        Assert.All(sink.Commands, command => Assert.Equal(RemoteProtocol.Actions.EditQueuedMessage, command.Action));
+
+        void ApplyQueue(params Guid[] ids) => chat.ApplyStatus(new RemoteChatStatus
+        {
+            ChatId = chatId,
+            IsBusy = true,
+            SupportsQueuedSends = true,
+            QueuedMessages = ids.Length > 0
+                ? ids.Select(id => new RemoteQueuedMessage { Id = id, Text = $"message {id}", CanEdit = true }).ToList()
+                : null
+        });
+    }
+
+    [Fact]
+    public async Task QueuedEditWithALostAnswerSurvivesChatSwitchAndRetriesOnlyInItsChat()
+    {
+        var sink = new SequencedCommandSink(2);
+        var chat = new MobileChatViewModel(sink);
+        var queuedChatId = Guid.NewGuid();
+        var otherChatId = Guid.NewGuid();
+        var messageId = Guid.NewGuid();
+        chat.Reset(queuedChatId, "Queue");
+        chat.ApplyStatus(new RemoteChatStatus
+        {
+            ChatId = queuedChatId,
+            SupportsQueuedSends = true,
+            QueuedMessages = [new RemoteQueuedMessage { Id = messageId, Text = "queued draft", CanEdit = true }]
+        });
+        var row = Assert.Single(chat.QueuedMessages);
+        chat.PromptText = "newer draft";
+        var file = new PendingAttachment("notes.txt", @"C:\uploads\notes.txt");
+        chat.Attachments.Add(file);
+
+        var edit = row.EditCommand.ExecuteAsync(null);
+        var original = await sink.WaitForCommandAsync(0);
+        chat.Reset(otherChatId, "Other");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = otherChatId, SupportsQueuedSends = true });
+        sink.Complete(0, new RemoteCommandResult { Error = "connection lost", IsOutcomeUnknown = true });
+        await edit;
+        Assert.Empty(chat.QueuedMessages);
+        Assert.Empty(chat.PromptText);
+
+        chat.Reset(queuedChatId, "Queue");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = queuedChatId, SupportsQueuedSends = true });
+        Assert.Same(row, Assert.Single(chat.QueuedMessages));
+        Assert.Equal("queued draft", row.Text);
+        Assert.True(row.EditCommand.CanExecute(null));
+        Assert.False(row.RemoveCommand.CanExecute(null));
+        Assert.False(row.SteerNowCommand.CanExecute(null));
+
+        var retry = row.EditCommand.ExecuteAsync(null);
+        var repeated = await sink.WaitForCommandAsync(1);
+        Assert.Equal(original.RequestId, repeated.RequestId);
+        Assert.Equal(queuedChatId.ToString(), repeated.Get("chatId"));
+        Assert.Equal(messageId.ToString(), repeated.Get("messageId"));
+        chat.Reset(otherChatId, "Other");
+        chat.PromptText = "unrelated draft";
+        sink.Complete(1, new RemoteCommandResult { Ok = true, Text = "queued draft" });
+        await retry;
+        Assert.Equal("unrelated draft", chat.PromptText);
+        Assert.Empty(chat.QueuedMessages);
+
+        chat.Reset(queuedChatId, "Queue");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = queuedChatId, SupportsQueuedSends = true });
+        Assert.Empty(chat.QueuedMessages);
+        Assert.Equal("queued draft\n\nnewer draft", chat.PromptText);
+        Assert.Equal(file, Assert.Single(chat.Attachments));
+    }
+
+    [Fact]
+    public async Task QueuedEditRetryIsClearedWhenTheConnectedPcChanges()
+    {
+        var sink = new ScriptedCommandSink(new RemoteCommandResult
+        {
+            Error = "connection lost",
+            IsOutcomeUnknown = true
+        });
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Old PC");
+        chat.ApplyStatus(new RemoteChatStatus
+        {
+            ChatId = chatId,
+            SupportsQueuedSends = true,
+            QueuedMessages = [new RemoteQueuedMessage { Id = Guid.NewGuid(), Text = "old PC", CanEdit = true }]
+        });
+        await Assert.Single(chat.QueuedMessages).EditCommand.ExecuteAsync(null);
+        Assert.True(chat.HasUnsentWork);
+
+        chat.ResetHostState();
+        chat.Reset(chatId, "New PC");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, SupportsQueuedSends = true });
+
+        Assert.Empty(chat.QueuedMessages);
+        Assert.False(chat.HasUnsentWork);
     }
 
     [Fact]
