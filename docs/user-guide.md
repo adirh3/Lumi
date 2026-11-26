@@ -1030,16 +1030,17 @@ that device; it is off by default. When it is on, Shift+Enter inserts a new line
 choice is independent of the desktop's send-key setting.
 
 While Lumi is replying, tap the arrow with a draft to steer the reply. Press and hold the
-arrow instead (or right-click it with a mouse) for a menu above the composer: **Send to steer**,
-**Add to queue** and **Stop & send**. While a starter still has blanks, the arrow moves to the
-next blank and the menu waits until they're filled in; Back closes it. A queued message waits
-in the chat's queue on the PC, where you can steer, edit or remove it, and starts a new turn
-after the current reply. If the PC turns down a queued message (say, the chat was just paused),
-it returns to the composer ahead of anything you typed since, with its files. **Stop & send**
-interrupts the current work and sends the draft as a fresh turn; with no draft, the square in
-the composer stops the session. If a steered message is still waiting to take effect,
-**Send now** beside it interrupts the current turn and sends that same message as a fresh turn.
-Queuing and **Send now** require an updated Lumi desktop.
+arrow instead (or right-click it with a mouse) for a menu that opens from it, above your draft:
+**Send to steer**, **Add to queue**, **Stop & send** and **Stop session**. While a starter still
+has blanks, the arrow moves to the next blank and the menu waits until they're filled in; Back
+closes it. A queued message waits in the chat's queue on the PC, where you can steer, edit or
+remove it, and starts a new turn after the current reply. If the PC turns down a queued message
+(say, the chat was just paused), it returns to the composer ahead of anything you typed since,
+with its files. **Stop & send** interrupts the current work and sends the draft as a fresh turn.
+**Stop session** stops the work and keeps the draft; with no draft, the square in the composer
+does the same. If a steered message is still waiting to take effect, **Send now** beside it
+interrupts the current turn and sends that same message as a fresh turn. Queuing and
+**Send now** require an updated Lumi desktop; until then the menu leaves out **Add to queue**.
 
 After a reply, Lumi's suggested replies from your PC sit as a row of pills on the composer; swipe
 sideways for more. Tap one to send it as it reads, just as clicking a suggestion does on the desktop,

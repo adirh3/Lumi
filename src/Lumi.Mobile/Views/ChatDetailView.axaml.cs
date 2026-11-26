@@ -436,19 +436,37 @@ public partial class ChatDetailView : UserControl
         _sendMenuFromKeyboard = !e.TryGetPosition(null, out _);
 
     /// <summary>
-    /// The menu rises above the composer on Send's side, as the desktop's does, whatever opened it. Above
-    /// the composer is the only place it can show: the phone's native editor draws over anything on top of it.
+    /// The menu opens from Send, as the desktop's does, whatever opened it: a hold may land on Send's icon,
+    /// and a keyboard asks Avalonia for a menu below. A draft's editor stands above Send, and the phone's
+    /// native editor or the browser's input draws over anything on it, so the menu rises clear of its top.
     /// </summary>
     private void OnSendMenuOpened(object? sender, RoutedEventArgs e)
     {
         if (_composerSendButton is { } sendButton)
-            TouchScrollClickGuard.ConsumeHold(sendButton);
-        if (_composerSendMenu?.Parent is Popup popup && _composer is { } composer)
         {
-            popup.PlacementTarget = composer;
-            popup.Placement = PlacementMode.TopEdgeAlignedRight;
+            TouchScrollClickGuard.ConsumeHold(sendButton);
+            if (_composerSendMenu is { Parent: Popup popup } menu)
+            {
+                popup.PlacementTarget = sendButton;
+                popup.Placement = menu.Placement;
+                popup.HorizontalOffset = menu.HorizontalOffset;
+                popup.VerticalOffset = menu.VerticalOffset + LiftAboveEditor(sendButton);
+            }
         }
         FocusFirstSendOption(retry: true);
+    }
+
+    /// <summary>How far the draft's editor reaches above Send, as an offset upward; nothing when it doesn't.</summary>
+    private double LiftAboveEditor(Visual sendButton)
+    {
+        Visual? editor = _nativeComposerEditor is { IsEffectivelyVisible: true } native ? native
+            : _sharedComposerInput is { IsEffectivelyVisible: true } input ? input
+            : null;
+        if (editor is null || TopLevel.GetTopLevel(sendButton) is not { } topLevel
+            || editor.TranslatePoint(default, topLevel) is not { } editorTop
+            || sendButton.TranslatePoint(default, topLevel) is not { } sendTop)
+            return 0;
+        return Math.Min(0, editorTop.Y - sendTop.Y);
     }
 
     /// <summary>

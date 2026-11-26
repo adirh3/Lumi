@@ -1298,7 +1298,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         });
 
     [Fact]
-    public Task HoldingSendOpensStrataMenuAboveTheComposerWithTouchRows() =>
+    public Task HoldingSendOpensStrataMenuFromSendAboveTheDraftWithTouchRows() =>
         RunUiAsync(412, async (shell, view, window) =>
         {
             var composer = Required<StrataChatComposer>(view, "Composer");
@@ -1327,15 +1327,14 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(menu.IsKeyboardFocusWithin);
             // The release that ends the hold neither steers the draft nor stops Lumi.
             Assert.Equal((0, 0, 0), (sends, stops, queues));
-            // Above the composer the menu leaves the draft in view, where a sheet hid it.
+            // The menu opens from Send and rises clear of the draft's editor, so the draft stays in view.
             Assert.True(editor.IsVisible);
             var popup = Assert.IsType<Avalonia.Controls.Primitives.Popup>(menu.Parent);
-            Assert.Same(composer, popup.PlacementTarget);
-            Assert.Equal(PlacementMode.TopEdgeAlignedRight, popup.Placement);
+            AssertSendMenuOpensFromSendAboveTheEditor(window, menu, button, editor);
             var labels = InteractiveLabels.Current;
             var items = menu.Items.OfType<MenuItem>().ToList();
             Assert.Equal(
-                new string?[] { labels["sendToSteer"], labels["addToQueue"], labels["stopAndSend"] },
+                new string?[] { labels["sendToSteer"], labels["addToQueue"], labels["stopAndSend"], labels["stopSession"] },
                 items.Select(item => item.Header as string).ToArray());
             PumpFrame(window);
             Assert.All(items, item =>
@@ -1406,7 +1405,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(menu.IsOpen);
             Assert.Equal((1, 1), (sends, stops));
 
-            // A secondary click asks for the same menu, and it rises above the composer as a hold's does.
+            // A secondary click asks for the same menu, and it opens from Send as a hold's does.
             editor.SetTextFromNative("then this");
             PumpFrame(window);
             var point = HitPoint(window, button, null);
@@ -1415,9 +1414,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Pump(window);
             Assert.True(menu.IsOpen);
             Assert.False(menu.IsKeyboardFocusWithin);
-            var popup = Assert.IsType<Avalonia.Controls.Primitives.Popup>(menu.Parent);
-            Assert.Same(composer, popup.PlacementTarget);
-            Assert.Equal(PlacementMode.TopEdgeAlignedRight, popup.Placement);
+            AssertSendMenuOpensFromSendAboveTheEditor(window, menu, button, editor);
             Assert.Equal((1, 1), (sends, stops));
             Assert.Equal("then this", shell.Chat.PromptText);
 
@@ -1501,16 +1498,14 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.True(KeyboardNavigation.GetIsTabStop(button));
             Assert.True(button.Focus(NavigationMethod.Tab));
 
-            // Shift+F10 opens the send options above the composer as a hold does, though phones and
-            // browsers map only the menu key to a context menu.
+            // Shift+F10 opens the send options from Send as a hold does, not below it where Avalonia puts a
+            // keyboard's menu, though phones and browsers map only the menu key to a context menu.
             PressKey(window, Key.F10, RawInputModifiers.Shift, PhysicalKey.F10);
             Assert.True(menu.IsOpen);
-            var popup = Assert.IsType<Avalonia.Controls.Primitives.Popup>(menu.Parent);
-            Assert.Same(composer, popup.PlacementTarget);
-            Assert.Equal(PlacementMode.TopEdgeAlignedRight, popup.Placement);
+            AssertSendMenuOpensFromSendAboveTheEditor(window, menu, button, editor);
             var labels = InteractiveLabels.Current;
             Assert.Equal(
-                new string?[] { labels["sendToSteer"], labels["addToQueue"], labels["stopAndSend"] },
+                new string?[] { labels["sendToSteer"], labels["addToQueue"], labels["stopAndSend"], labels["stopSession"] },
                 menu.Items.OfType<MenuItem>().Select(item => item.Header as string).ToArray());
             Assert.Equal((0, 0, 0), (sends, stops, queues));
 
@@ -1554,6 +1549,91 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(menu.IsOpen);
             Assert.Equal("Plan [where?] for [when?]", shell.Chat.PromptText);
             Assert.Equal((0, 0, 1), (sends, stops, queues));
+        }, nativeFactory: new FocusEditorFactory(), setup: shell =>
+        {
+            shell.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = shell.Chat.ChatId, IsBusy = true, QueuedMessageCount = 0
+            });
+        });
+
+    [Fact]
+    public Task HoldingSendOnAnOlderPcStillOffersStopAndSendWithoutQueueing() =>
+        RunUiAsync(412, async (shell, view, window) =>
+        {
+            // A PC from before queueing reports no queue, so the phone has nothing to queue with.
+            Assert.Null(shell.Chat.ComposerQueueCommand);
+            var composer = Required<StrataChatComposer>(view, "Composer");
+            var editor = Assert.IsType<NativeComposerEditorHost>(composer.EditorContent);
+            var button = Required<Button>(composer, "PART_SendButton");
+            var menu = Assert.IsType<ContextMenu>(button.ContextMenu);
+            var sends = 0;
+            var stops = 0;
+            var stopAndSends = 0;
+            composer.SetCurrentValue(StrataChatComposer.SendCommandProperty, new RelayCommand(() => sends++));
+            composer.SetCurrentValue(StrataChatComposer.StopCommandProperty, new RelayCommand(() => stops++));
+            composer.SetCurrentValue(StrataChatComposer.StopAndSendCommandProperty,
+                new RelayCommand<string?>(_ => stopAndSends++));
+            editor.SetTextFromNative("stop and send this");
+            PumpFrame(window);
+            await Task.Delay(320);
+            PumpFrame(window);
+
+            // Every released PC takes Stop & send and Stop, so a hold still opens the menu, only without queueing.
+            Hold(window, button);
+            Assert.True(menu.IsOpen);
+            AssertSendMenuOpensFromSendAboveTheEditor(window, menu, button, editor);
+            var labels = InteractiveLabels.Current;
+            var items = menu.Items.OfType<MenuItem>().ToList();
+            Assert.Equal(
+                new string?[] { labels["sendToSteer"], labels["stopAndSend"], labels["stopSession"] },
+                items.Where(item => item.IsVisible).Select(item => item.Header as string).ToArray());
+            Assert.Equal(labels["addToQueue"], items[1].Header);
+            Assert.False(items[1].IsVisible);
+            Assert.Equal((0, 0, 0), (sends, stops, stopAndSends));
+
+            Assert.IsAssignableFrom<Avalonia.Automation.Provider.IInvokeProvider>(
+                Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(items[2])).Invoke();
+            await WaitForMenuToCloseAsync(window, menu);
+            Assert.False(menu.IsOpen);
+            Assert.Equal((0, 0, 1), (sends, stops, stopAndSends));
+        }, nativeFactory: new FocusEditorFactory(), setup: shell =>
+        {
+            shell.Chat.ApplyStatus(new RemoteChatStatus { ChatId = shell.Chat.ChatId, IsBusy = true });
+        });
+
+    [Fact]
+    public Task StopSessionFromTheSendMenuKeepsTheDraft() =>
+        RunUiAsync(412, async (shell, view, window) =>
+        {
+            var composer = Required<StrataChatComposer>(view, "Composer");
+            var editor = Assert.IsType<NativeComposerEditorHost>(composer.EditorContent);
+            var button = Required<Button>(composer, "PART_SendButton");
+            var menu = Assert.IsType<ContextMenu>(button.ContextMenu);
+            var sends = 0;
+            var stops = 0;
+            composer.SetCurrentValue(StrataChatComposer.SendCommandProperty, new RelayCommand(() => sends++));
+            composer.SetCurrentValue(StrataChatComposer.StopCommandProperty, new RelayCommand(() => stops++));
+            editor.SetTextFromNative("keep this draft");
+            PumpFrame(window);
+            await Task.Delay(320);
+            PumpFrame(window);
+
+            // With a draft, Send steers, so stopping without sending is a row of its own.
+            Hold(window, button);
+            Assert.True(menu.IsOpen);
+            var stop = menu.Items.OfType<MenuItem>().ToList()[3];
+            Assert.Equal(InteractiveLabels.Current["stopSession"], stop.Header);
+            Assert.True(stop.IsVisible);
+            Assert.IsAssignableFrom<Avalonia.Automation.Provider.IInvokeProvider>(
+                Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(stop)).Invoke();
+            await WaitForMenuToCloseAsync(window, menu);
+            Assert.False(menu.IsOpen);
+
+            // It stops Lumi and leaves the draft to send later.
+            Assert.Equal((0, 1), (sends, stops));
+            Assert.Equal("keep this draft", editor.Text);
+            Assert.Equal("keep this draft", shell.Chat.PromptText);
         }, nativeFactory: new FocusEditorFactory(), setup: shell =>
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
@@ -4464,6 +4544,20 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
 
     // Strata plays a menu's exit before closing it for good: a rendered frame starts the motion, and
     // a timer closes the menu once it has played.
+    // The send menu opens from Send, at Strata's own placement, and rises clear of the draft's editor above it.
+    private static void AssertSendMenuOpensFromSendAboveTheEditor(
+        Window window, ContextMenu menu, Button button, Control editor)
+    {
+        var popup = Assert.IsType<Avalonia.Controls.Primitives.Popup>(menu.Parent);
+        Assert.Same(button, popup.PlacementTarget);
+        Assert.Equal(PlacementMode.TopEdgeAlignedRight, popup.Placement);
+        Assert.Equal(menu.HorizontalOffset, popup.HorizontalOffset);
+        var editorTop = editor.TranslatePoint(default, window)!.Value;
+        var sendTop = button.TranslatePoint(default, window)!.Value;
+        Assert.True(editorTop.Y < sendTop.Y, $"The editor's top is at {editorTop.Y}, Send's at {sendTop.Y}.");
+        Assert.Equal(menu.VerticalOffset + editorTop.Y - sendTop.Y, popup.VerticalOffset, tolerance: 0.5);
+    }
+
     private static async Task WaitForMenuToCloseAsync(Window window, ContextMenu menu)
     {
         var deadline = DateTime.UtcNow + PopupAnimationHelper.CloseDuration + TimeSpan.FromSeconds(5);

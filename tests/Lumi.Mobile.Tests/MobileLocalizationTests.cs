@@ -100,9 +100,9 @@ public sealed class MobileLocalizationTests
 
     [Theory]
     [InlineData("en", "While Lumi is working, long press for send options",
-        new[] { "Send to steer", "Add to queue", "Stop & send" }, FlowDirection.LeftToRight)]
+        new[] { "Send to steer", "Add to queue", "Stop & send", "Stop session" }, FlowDirection.LeftToRight)]
     [InlineData("he", "בזמן ש-Lumi עובד, לחיצה ארוכה לאפשרויות שליחה",
-        new[] { "שליחה להכוונה", "הוספה לתור", "עצירה ושליחה" }, FlowDirection.RightToLeft)]
+        new[] { "שליחה להכוונה", "הוספה לתור", "עצירה ושליחה", "עצירת ההפעלה" }, FlowDirection.RightToLeft)]
     public async Task SendMenuFollowsTheInterfaceLanguage(
         string language, string help, string[] rows, FlowDirection direction)
     {
@@ -132,6 +132,8 @@ public sealed class MobileLocalizationTests
                 button.RaiseEvent(new Avalonia.Input.ContextRequestedEventArgs());
                 Dispatcher.UIThread.RunJobs();
                 Assert.True(menu.IsOpen);
+                // It opens from Send in either direction, since only the menu's own rows mirror.
+                Assert.Same(button, Assert.IsType<Popup>(menu.Parent).PlacementTarget);
                 // The rows are Strata's shared labels, and the menu reads in the interface's direction.
                 Assert.Equal(direction, menu.FlowDirection);
                 Assert.Equal(rows, menu.Items.OfType<MenuItem>().Select(item => item.Header as string ?? "").ToArray());

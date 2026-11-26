@@ -604,9 +604,10 @@
 
     <!--
       ══ Send menu ══
-      Strata's send menu (Send to steer, Add to queue, Stop & send), which a hold on Send opens while
-      Lumi works, at thumb size: 48 dp rows with words at body size. Its keyboard shortcuts mean nothing
-      on a phone, so they stay hidden. The view raises it above the composer on Send's side.
+      Strata's send menu (Send to steer, Add to queue when the PC can queue, Stop & send, Stop session),
+      which a hold on Send opens while Lumi works on a draft, at thumb size: 48 dp rows with words at body
+      size. Its keyboard shortcuts mean nothing on a phone, so they stay hidden. The view opens it from
+      Send, lifted clear of the draft's editor.
     -->
     <Style Selector="ContextMenu.mobile-send-menu">
       <Setter Property="MinWidth" Value="200" />
@@ -2307,6 +2308,7 @@
                                CanSendWithoutPrompt="{Binding Chat.HasAttachments}"
                                AdvancesFillInOnSend="True"
                                SteerWhileBusy="True"
+                               OffersStopInSendMenu="True"
                                CanAttach="True"
                                AttachCommand="{Binding Chat.PickAttachmentCommand}"
                                CanVoice="False"
