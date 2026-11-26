@@ -846,7 +846,7 @@ public sealed class MobileStateCorrectnessTests
         var chat = new MobileChatViewModel(sink);
         var chatId = Guid.NewGuid();
         chat.Reset(chatId, "Existing chat");
-        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, QueuedMessageCount = 0 });
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, SupportsQueuedSends = true });
         chat.PromptText = "Keep this replacement";
         chat.Attachments.Add(new PendingAttachment("notes.txt", @"C:\uploads\notes.txt"));
         var safetySignals = new List<bool>();
@@ -1130,7 +1130,7 @@ public sealed class MobileStateCorrectnessTests
         var chatId = Guid.NewGuid();
         chat.Reset(chatId, "Existing chat");
         if (queue)
-            chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, QueuedMessageCount = 0 });
+            chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, SupportsQueuedSends = true });
         chat.PromptText = "retry exactly";
 
         var firstSend = (queue ? chat.QueueSendCommand : chat.SendCommand).ExecuteAsync(null);
@@ -1738,7 +1738,7 @@ public sealed class MobileStateCorrectnessTests
         var chat = new MobileChatViewModel(sink);
         var chatId = Guid.NewGuid();
         chat.Reset(chatId, "Existing chat");
-        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, QueuedMessageCount = 0 });
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, SupportsQueuedSends = true });
         var queuedFile = new PendingAttachment("first.txt", @"C:\uploads\first.txt");
         chat.PromptText = "first";
         chat.Attachments.Add(queuedFile);

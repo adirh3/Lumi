@@ -1373,7 +1373,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
-                ChatId = shell.Chat.ChatId, IsBusy = true, QueuedMessageCount = 0
+                ChatId = shell.Chat.ChatId, IsBusy = true, SupportsQueuedSends = true
             });
         });
 
@@ -1428,7 +1428,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
-                ChatId = shell.Chat.ChatId, IsBusy = true, QueuedMessageCount = 0
+                ChatId = shell.Chat.ChatId, IsBusy = true, SupportsQueuedSends = true
             });
         });
 
@@ -1470,7 +1470,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
-                ChatId = shell.Chat.ChatId, IsBusy = true, QueuedMessageCount = 0
+                ChatId = shell.Chat.ChatId, IsBusy = true, SupportsQueuedSends = true
             });
         });
 
@@ -1553,7 +1553,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
-                ChatId = shell.Chat.ChatId, IsBusy = true, QueuedMessageCount = 0
+                ChatId = shell.Chat.ChatId, IsBusy = true, SupportsQueuedSends = true
             });
         });
 
@@ -1638,7 +1638,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
-                ChatId = shell.Chat.ChatId, IsBusy = true, QueuedMessageCount = 0
+                ChatId = shell.Chat.ChatId, IsBusy = true, SupportsQueuedSends = true
             });
         });
 

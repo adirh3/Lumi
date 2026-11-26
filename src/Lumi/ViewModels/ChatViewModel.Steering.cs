@@ -72,7 +72,7 @@ public partial class ChatViewModel
 
         if (hasQueuedSends || session is null || runtime is null || !CanSteerImmediately(runtime) || sessionProviderMismatch)
         {
-            QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths, remoteRequestId);
+            QueueSteerPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths, remoteRequestId);
             if (CurrentChat?.Id == chatId && CanStartTurnOnReadySession(activeChat))
                 ScheduleQueuedBusySendDrain(chatId);
             if (consumeComposerPrompt)
@@ -98,7 +98,7 @@ public partial class ChatViewModel
             queuedViewModel = ResolveQueuedViewModel(queuedMessage);
             if (queuedViewModel is null)
             {
-                QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths, remoteRequestId);
+                QueueSteerPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths, remoteRequestId);
                 return true;
             }
         }
@@ -145,6 +145,8 @@ public partial class ChatViewModel
             Messages.Add(messageViewModel);
         }
 
+        // Register before SendAsync so a consumption event cannot race ahead of the pending entry.
+        RegisterPendingSteer(chatId, messageViewModel);
         QueueSaveChat(activeChat, saveIndex: true, touchIndex: true);
         ChatUpdated?.Invoke();
         UserMessageSent?.Invoke();
@@ -184,14 +186,8 @@ public partial class ChatViewModel
             // SendAsync confirms queue acceptance; the event stream confirms actual consumption.
             await AcquireByokRateSlotAsync(activeChat, token);
 
-            // Send now may have reclaimed this message while the original steer was still preparing.
-            if (userMsg.SteerDelivery != MessageSteerState.Steering)
-                return true;
-
-            token.ThrowIfCancellationRequested();
-
-            // The reply can finish, or Stop or session setup can change ownership, during preparation.
-            if (CanStartTurnOnReadySession(activeChat) || !CanSteerImmediately(runtime))
+            // Stop or session setup may have changed ownership while skills/rate limiting were awaited.
+            if (!CanSteerImmediately(runtime))
             {
                 RequeueMaterializedSteer(chatId, prompt, userMsg, messageViewModel);
                 return true;
@@ -199,15 +195,14 @@ public partial class ChatViewModel
 
             // Revalidate the route/session consistency after the rate-limit await: the user (or a
             // configuration change) could have flipped the model/provider while we were waiting for a
-            // slot. If so, do NOT inject into the now-stale session — requeue it for a fresh turn.
+            // slot. If so, do NOT inject into the now-stale session — unregister the pending steer,
+            // restore its state, and requeue the prompt for a fresh turn.
             if (!IsCachedSessionProviderConsistentWithSelection(chatId, session!))
             {
                 RequeueMaterializedSteer(chatId, prompt, userMsg, messageViewModel);
                 return true;
             }
 
-            // A turn ending during preparation cannot confirm a steer the SDK hasn't received.
-            RegisterPendingSteer(chatId, messageViewModel);
             await session.SendAsync(sendOptions, token);
             ClearPendingExternalSkillInjections();
             return true;
@@ -215,7 +210,7 @@ public partial class ChatViewModel
         catch (Exception ex)
         {
             UnregisterPendingSteer(chatId, messageViewModel);
-            if (userMsg.SteerDelivery == MessageSteerState.Steering)
+            if (messageViewModel.SteerState == MessageSteerState.Steering)
                 messageViewModel.SteerState = MessageSteerState.Failed;
 
             Debug.WriteLine($"[Steer] Immediate send failed for chat {chatId}: {ex.Message}");
@@ -223,6 +218,35 @@ public partial class ChatViewModel
             // command as accepted so the phone does not restore the same text into the composer and
             // duplicate it on retry; the transcript-level status is the delivery result.
             return true;
+        }
+    }
+
+    private ChatMessage? QueueSteerPrompt(
+        Guid chatId,
+        string prompt,
+        ChatMessage? queuedMessage,
+        string? authorOverride,
+        IReadOnlyCollection<string>? explicitAttachmentPaths,
+        string? remoteRequestId)
+    {
+        if (queuedMessage is not null || explicitAttachmentPaths is null)
+        {
+            return QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride, remoteRequestId);
+        }
+
+        // QueueBusySendPrompt intentionally snapshots the desktop composer. Present only the
+        // explicitly supplied steering attachments while it materializes the queued message, then
+        // restore the desktop draft synchronously. An explicit empty collection is how remote
+        // steering says "no attachments"; it must never consume files staged in the local composer.
+        var pendingAttachmentPaths = PendingAttachments.ToList();
+        try
+        {
+            ReplacePendingAttachments(explicitAttachmentPaths);
+            return QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride, remoteRequestId);
+        }
+        finally
+        {
+            ReplacePendingAttachments(pendingAttachmentPaths);
         }
     }
 
@@ -272,7 +296,7 @@ public partial class ChatViewModel
             targetChat.LastRemoteRequestId = remoteRequestId;
         }
 
-        var queuedMessage = BuildQueuedSend(targetChat, prompt, author, explicitAttachmentPaths: []);
+        var queuedMessage = CreateQueuedBusySend(targetChat.Id, prompt, author, explicitAttachmentPaths: []);
         if (queuedMessage is null)
         {
             targetChat.LastRemoteDeviceId = previousDeviceId;
@@ -281,9 +305,6 @@ public partial class ChatViewModel
         }
 
         queuedMessage.RemoteRequestId = remoteRequestId;
-        queuedMessage.CanSendNowWhenQueued = false;
-        AddQueuedSendToTranscript(targetChat, queuedMessage);
-
         if (!string.IsNullOrWhiteSpace(remoteDeviceId)
             && !string.IsNullOrWhiteSpace(remoteRequestId))
         {
@@ -486,22 +507,18 @@ public partial class ChatViewModel
     /// SDK was still holding, so stopping without reclaiming destroyed the very message the user asked
     /// to deliver, leaving it badged "Steering…" forever.
     /// </remarks>
-    private async Task SendSteeredNowAsync(ChatMessageViewModel message)
-    {
-        var chatId = CurrentChat?.Id;
-        var error = await TrySendSteeredNowAsync(message);
-        ApplyStopError(chatId, error);
-    }
-
     internal Task<string?> TrySendExternalSteerNowAsync(Chat chat, Guid messageId) =>
-        CurrentChat?.Id == chat.Id && Messages.FirstOrDefault(message => message.Message.Id == messageId) is { } target
-            ? TrySendSteeredNowAsync(target)
+        CurrentChat?.Id == chat.Id
+        && Messages.FirstOrDefault(message => message.Message.Id == messageId && message.CanSendNow) is { } target
+            ? SendSteeredNowAsync(target)
             : Task.FromResult<string?>(Loc.Remote_MessageStartFailed);
 
-    private async Task<string?> TrySendSteeredNowAsync(ChatMessageViewModel message)
+    private async Task<string?> SendSteeredNowAsync(ChatMessageViewModel message)
     {
-        if (!message.CanSendNow
-            || CurrentChat is not { } chat
+        if (message.SteerState is not (MessageSteerState.Steering or MessageSteerState.Queued))
+            return Loc.Remote_MessageStartFailed;
+
+        if (CurrentChat is not { } chat
             || chat.IsPaused
             || !chat.Messages.Contains(message.Message)
             || !IsChatRuntimeActive(chat.Id))
@@ -530,11 +547,12 @@ public partial class ChatViewModel
         // SDK and has to be taken back.
         if (message.SteerState is MessageSteerState.Steering)
             RequeueMaterializedSteer(chat.Id, message.Message.Content, message.Message, message);
-        message.CanSendNowWhenQueued = false;
 
         // Any OTHER steer the SDK was still holding dies with this abort, so mark those "Not delivered"
         // rather than leaving them pending against a turn that no longer exists. The reclaimed message
         // is already out of that set, and the drain scheduled by the stop starts its fresh turn.
-        return await StopGenerationInternal(chat, resolvePendingSteersAsFailed: true);
+        var error = await StopGenerationInternal(chat, resolvePendingSteersAsFailed: true);
+        ApplyStopError(chat.Id, error);
+        return error;
     }
 }

@@ -402,16 +402,24 @@ public sealed class RemoteProjectionTests
         Assert.Equal(1, transcript.Revision);
     }
 
-    [Fact]
-    public void Transcript_CarriesSteerDeliveryStateForMobileFeedback()
+    [Theory]
+    [InlineData(MessageSteerState.Steering, false)]
+    [InlineData(MessageSteerState.Queued, true)]
+    [InlineData(MessageSteerState.Queued, false)]
+    [InlineData(MessageSteerState.Steered, false)]
+    public void Transcript_CarriesSteerDeliveryStateForMobileFeedback(
+        MessageSteerState state, bool canSendNowWhenQueued)
     {
         var chat = new Chat { Id = Guid.NewGuid(), Title = "Steer" };
         var user = Message("user", "change direction");
-        user.SteerDelivery = MessageSteerState.Steered;
+        user.SteerDelivery = state;
+        user.CanSendNowWhenQueued = canSendNowWhenQueued;
 
         var transcript = Build(chat, [user]);
 
-        Assert.Equal("Steered", transcript.Turns[0].Items[0].SteerState);
+        var projected = Assert.Single(Assert.Single(transcript.Turns).Items);
+        Assert.Equal(state.ToString(), projected.SteerState);
+        Assert.Equal(new ChatMessageViewModel(user).CanSendNow, projected.CanSendNow);
     }
 
     [Fact]

@@ -679,18 +679,15 @@ internal sealed class RemoteCommandRouter
             // StartExternalMessageAsync snapshots model/provider/effort/context/agent/skill/MCP state.
             ApplyChatConfiguration(owner, command, projectSelection, agentSelection);
 
-            if (queue && owner.ShouldQueueSend(chat))
+            if (queue && owner.CanQueueExternalMessage(chat))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                return await owner
-                    .QueueExternalMessageAsync(
+                return owner
+                    .QueueExternalMessage(
                         chat,
                         message,
                         "Lumi Mobile",
-                        command.AuthenticatedDeviceId,
-                        command.RequestId,
-                        cancellationToken)
-                    .ConfigureAwait(true)
+                        command.RequestId)
                     ? Success(Loc.Steer_Queued, chat.Id)
                     : Fail(Loc.Remote_MessageStartFailed, chat.Id);
             }

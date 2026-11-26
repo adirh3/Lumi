@@ -648,7 +648,7 @@ public class RemoteClientEndToEndTests
         Assert.Null(chat.ComposerQueueCommand);
         Assert.False(chat.QueueSendCommand.CanExecute(null));
 
-        await PushQueueCountAsync(0);
+        await PushQueueSupportAsync();
         Assert.Same(chat.QueueSendCommand, chat.ComposerQueueCommand);
         Assert.True(chat.QueueSendCommand.CanExecute(null));
         await chat.QueueSendCommand.ExecuteAsync(null);
@@ -665,26 +665,26 @@ public class RemoteClientEndToEndTests
         // The PC holds the queued draft; it enters the transcript only once the PC sends it.
         Assert.Empty(chat.Turns);
 
-        await PushQueueCountAsync(1);
+        await PushQueueSupportAsync();
         Assert.Empty(chat.Turns);
 
-        async Task PushQueueCountAsync(int count)
+        async Task PushQueueSupportAsync()
         {
             // The status is applied on the event stream's thread; its context figure is set just
-            // after the queue's count, so seeing this push's figure means the count is in place.
+            // after queue support, so seeing this push's figure means support is in place.
             var marker = ++statusPushes;
             var status = new RemoteChatStatus
             {
                 ChatId = chatId,
                 IsBusy = true,
-                QueuedMessageCount = count,
+                SupportsQueuedSends = true,
                 ContextCurrentTokens = marker
             };
             await desktop.PushAsync(RemoteProtocol.Events.ChatStatus,
                 JsonSerializer.Serialize(status, RemoteJsonContext.Default.RemoteChatStatus));
             await WaitAsync(() => chat.ContextCurrentTokens == marker,
-                $"the desktop's queue of {count} messages to be applied");
-            Assert.Equal(count, chat.QueuedMessageCount);
+                "the desktop's queue support to be applied");
+            Assert.True(chat.SupportsQueuedSends);
         }
     }
 

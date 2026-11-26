@@ -2378,7 +2378,14 @@ public sealed class RemoteCommandRouterSurfaceTests
 
         Assert.True(result.Ok, result.Error);
         Assert.Equal(busy ? 0 : 1, starts);
-        Assert.Equal(busy ? 1 : 0, RemoteProjector.BuildStatus(rig.DataStore, owner, rig.DetachedChat).QueuedMessageCount);
+        Assert.Equal(busy ? 1 : 0, owner.QueuedSends.Count);
+        if (busy)
+        {
+            var queued = Assert.Single(owner.QueuedSends);
+            Assert.Equal("from my phone", queued.Text);
+            Assert.Empty(queued.Message.Attachments);
+            Assert.Equal("mobile-queue", queued.Message.RemoteRequestId);
+        }
         Assert.Equal("desktop draft", owner.PromptText);
         Assert.Equal([file], owner.PendingAttachments);
         Assert.DoesNotContain(rig.DetachedChat.Messages, message => message.Content == "from my phone");
@@ -2402,7 +2409,8 @@ public sealed class RemoteCommandRouterSurfaceTests
         var pending = rig.DetachedSurface.Messages.Single(message => message.Content == "change direction");
         var cloned = LumiRemoteServer.CloneMessageForRemote(pending.Message);
         Assert.Equal("mobile-steer", cloned.RemoteRequestId);
-        Assert.True(cloned.CanSendSteerNow);
+        Assert.Equal(MessageSteerState.Queued, cloned.SteerDelivery);
+        Assert.True(cloned.CanSendNowWhenQueued);
 
         Task<RemoteCommandResult> SendNowAsync(Guid chatId, Guid messageId) => router.ExecuteAsync(
             new RemoteCommand(RemoteProtocol.Actions.SendSteeredNow)
@@ -2442,10 +2450,9 @@ public sealed class RemoteCommandRouterSurfaceTests
             CancellationToken.None);
 
         Assert.True(result.Ok, result.Error);
-        var replacement = Assert.Single(
+        Assert.Contains(
             rig.DetachedChat.Messages,
             message => message.Content == "replace the running turn" && message.Author == "Lumi Mobile");
-        Assert.False(replacement.CanSendSteerNow);
         Assert.True(runtime.SendQueuedNowWhenTurnStarts);
         Assert.True(runtime.IsBusy);
         Assert.Equal("phone-stop-send", rig.DetachedChat.LastRemoteDeviceId);

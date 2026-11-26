@@ -14,7 +14,6 @@ using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services;
 using Lumi.Services.Remote;
-using Lumi.Services.Storage;
 using Lumi.ViewModels;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -666,40 +665,6 @@ public sealed partial class DeferredSendQueueTests
         // Reclaimed, not destroyed: it is back in the queue the post-stop drain reads from.
         Assert.Equal(MessageSteerState.Queued, message.SteerState);
         Assert.Contains("answer me now", host.QueuedPrompts());
-    }
-
-    [Fact]
-    public async Task ReplyFinishingBeforeSteerSubmission_SendsTheSteerAsTheNextTurn()
-    {
-        using var ui = HeadlessTestSession.Start();
-        await ui.Dispatch(async () =>
-        {
-            await TestCopilot.Shared.ConnectAsync();
-            using var host = DeferredSendHost.Create();
-            using var rpc = new AbortRpc();
-            host.AttachSession(rpc, subscribe: true);
-            host.PrepareFreshTurn();
-            host.MarkRuntimeBusy();
-            host.Runtime.PendingSessionUserMessageCount = 1;
-
-            void FinishReply()
-            {
-                host.ViewModel.UserMessageSent -= FinishReply;
-                rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
-                Dispatcher.UIThread.RunJobs();
-                Assert.True(host.CanStartTurnOnReadySession());
-                Assert.Equal(MessageSteerState.Steering, Assert.Single(host.ViewModel.Messages).SteerState);
-            }
-            host.ViewModel.UserMessageSent += FinishReply;
-
-            Assert.True(await host.ViewModel.SteerExternalMessageAsync(host.Chat, "next question", "Lumi Mobile"));
-            await rpc.SendReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
-
-            var message = Assert.Single(host.Chat.Messages, message => message.Content == "next question");
-            Assert.Equal(1, rpc.SendCount);
-            Assert.Null(rpc.LastSendMode);
-            Assert.Equal(MessageSteerState.None, message.SteerDelivery);
-        }, CancellationToken.None);
     }
 
     /// <summary>
@@ -3117,7 +3082,7 @@ public sealed partial class DeferredSendQueueTests
             host.ViewModel.PromptText = "and then  write\nthe tests";
             await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
 
-            Assert.True(await host.ViewModel.QueueExternalMessageAsync(
+            Assert.True(host.ViewModel.QueueExternalMessage(
                 host.Chat, "then check them", "Lumi Mobile", remoteRequestId: "phone-queue"));
             Assert.Equal("", host.ViewModel.PromptText);
             Assert.Equal(0, rpc.SendCount);
@@ -3305,126 +3270,6 @@ public sealed partial class DeferredSendQueueTests
         Assert.Equal([("two", 1), ("three", 2)], host.ViewModel.QueuedSends.Select(item => (item.Text, item.Position)));
     }
 
-    [Fact]
-    public async Task QueuedFromAnotherDevice_SurvivesARestart_WithItsIdsInOrderAndItsReceipt()
-    {
-        var directory = System.IO.Path.Combine(TestProfile.Root, "queued-restart", Guid.NewGuid().ToString("N"));
-        System.IO.Directory.CreateDirectory(directory);
-        var databasePath = System.IO.Path.Combine(directory, "lumi.db");
-        using var ui = HeadlessTestSession.Start();
-        try
-        {
-            await ui.Dispatch(async () =>
-            {
-                await TestCopilot.Shared.ConnectAsync();
-                var chat = new Chat { Title = "restart" };
-                Guid[] ids;
-                using (var store = new ChatStore(databasePath))
-                {
-                    using var host = DeferredSendHost.Create(chat, OpenStoredDataStore(store));
-                    using var rpc = new AbortRpc();
-                    host.AttachSession(rpc);
-                    host.MarkRuntimeBusy(turnInProgress: true);
-                    host.Runtime.PendingSessionUserMessageCount = 1;
-
-                    Assert.True(await host.ViewModel.QueueExternalMessageAsync(
-                        chat, "first", "Lumi Mobile", remoteDeviceId: "phone", remoteRequestId: "q1"));
-                    Assert.True(await host.ViewModel.QueueExternalMessageAsync(
-                        chat, "second", "Lumi Mobile", remoteDeviceId: "phone", remoteRequestId: "q2"));
-                    ids = host.ViewModel.QueuedSends.Select(item => item.Message.Id).ToArray();
-                    Assert.Equal(2, ids.Length);
-                    Assert.Equal(0, rpc.SendCount);
-                }
-
-                // Lumi restarts: everything below comes from the database alone.
-                using (var store = new ChatStore(databasePath))
-                {
-                    var dataStore = OpenStoredDataStore(store);
-                    var reopened = Assert.Single(dataStore.Data.Chats, candidate => candidate.Id == chat.Id);
-                    Assert.Equal(ids, reopened.QueuedSends!.Select(message => message.Id));
-                    Assert.Equal(["first", "second"], reopened.QueuedSends!.Select(message => message.Content));
-                    Assert.Equal(["q1", "q2"], reopened.QueuedSends!.Select(message => message.RemoteRequestId));
-                    Assert.Equal(("phone", "q2"), (reopened.LastRemoteDeviceId, reopened.LastRemoteRequestId));
-
-                    using var host = DeferredSendHost.Create(reopened, dataStore);
-                    // A window opened after a restart starts with no chat on screen.
-                    host.ViewModel.CurrentChat = null;
-                    // A reply still runs, so the restored queue waits for it instead of sending at once.
-                    host.MarkRuntimeBusy(turnInProgress: true);
-                    await host.ViewModel.LoadChatAsync(reopened);
-                    await host.ViewModel.LoadChatAsync(reopened);
-                    Assert.Equal(ids, host.ViewModel.QueuedSends.Select(item => item.Message.Id));
-
-                    using var rpc = new AbortRpc();
-                    host.AttachSession(rpc);
-                    host.MarkRuntimeTerminal();
-                    host.ApplyDisplayedRuntimeState();
-                    await host.DrainAsync();
-
-                    Assert.Equal(1, rpc.SendCount);
-                    Assert.Contains("first", rpc.SentMessages[0].GetProperty("prompt").GetString());
-                    Assert.Equal(ids[0], Assert.Single(reopened.Messages, message => message.Role == "user").Id);
-                    Assert.Equal([ids[1]], host.ViewModel.QueuedSends.Select(item => item.Message.Id));
-                    Assert.Equal([ids[1]], reopened.QueuedSends!.Select(message => message.Id));
-                }
-            }, CancellationToken.None);
-        }
-        finally
-        {
-            try { System.IO.Directory.Delete(directory, recursive: true); } catch (System.IO.IOException) { }
-        }
-    }
-
-    [Fact]
-    public async Task QueuedFromAnotherDevice_WhenItsReceiptCannotBeSaved_IsNotQueued()
-    {
-        var directory = System.IO.Path.Combine(TestProfile.Root, "queued-unsaved", Guid.NewGuid().ToString("N"));
-        System.IO.Directory.CreateDirectory(directory);
-        using var ui = HeadlessTestSession.Start();
-        try
-        {
-            await ui.Dispatch(async () =>
-            {
-                await TestCopilot.Shared.ConnectAsync();
-                var store = new ChatStore(System.IO.Path.Combine(directory, "lumi.db"));
-                var chat = new Chat { Title = "unsaved", LastRemoteDeviceId = "phone", LastRemoteRequestId = "q0" };
-                using var host = DeferredSendHost.Create(chat, OpenStoredDataStore(store));
-                using var rpc = new AbortRpc();
-                host.AttachSession(rpc);
-                host.MarkRuntimeBusy(turnInProgress: true);
-                host.Runtime.PendingSessionUserMessageCount = 1;
-                // Every write now fails, as on a full or vanished disk.
-                store.Dispose();
-
-                await Assert.ThrowsAsync<ObjectDisposedException>(() => host.ViewModel.QueueExternalMessageAsync(
-                    chat, "lost", "Lumi Mobile", remoteDeviceId: "phone", remoteRequestId: "q1"));
-
-                // Not acknowledged, so nothing waits and a retry of q1 is not mistaken for a duplicate.
-                Assert.Null(chat.QueuedSends);
-                Assert.Empty(host.ViewModel.QueuedSends);
-                Assert.Equal(("phone", "q0"), (chat.LastRemoteDeviceId, chat.LastRemoteRequestId));
-                host.MarkRuntimeTerminal();
-                host.ApplyDisplayedRuntimeState();
-                await host.DrainAsync();
-                Assert.Equal(0, rpc.SendCount);
-            }, CancellationToken.None);
-        }
-        finally
-        {
-            try { System.IO.Directory.Delete(directory, recursive: true); } catch (System.IO.IOException) { }
-        }
-    }
-
-    private static UserSettings QuietSettings() => new()
-    {
-        AutoSaveChats = false,
-        EnableMemoryAutoSave = false,
-        NotificationsEnabled = false
-    };
-
-    private static DataStore OpenStoredDataStore(ChatStore store)
-        => new(new AppData { Settings = QuietSettings() }, store);
-
     private sealed partial class DeferredSendHost : IDisposable
     {
         private DeferredSendHost(ChatViewModel viewModel, Chat chat)
@@ -3445,13 +3290,20 @@ public sealed partial class DeferredSendQueueTests
 
         public ChatMessage QuestionMessage { get; private set; } = null!;
 
-        public static DeferredSendHost Create(Chat? restoredChat = null, DataStore? dataStore = null)
+        public static DeferredSendHost Create(Chat? restoredChat = null)
         {
-            dataStore ??= new DataStore(new AppData { Settings = QuietSettings() });
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false,
+                    NotificationsEnabled = false
+                }
+            });
 
             var chat = restoredChat ?? new Chat { Title = "deferred" };
-            if (!dataStore.Data.Chats.Exists(candidate => candidate.Id == chat.Id))
-                dataStore.Data.Chats.Add(chat);
+            dataStore.Data.Chats.Add(chat);
 
             var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared)
             {
@@ -3462,7 +3314,7 @@ public sealed partial class DeferredSendQueueTests
         }
 
         public void QueuePrompt(string prompt, Guid? chatId = null, string? authorOverride = null)
-            => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null, authorOverride, null, null);
+            => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null, authorOverride, null);
 
         public void BeginEdit(ChatMessage message)
             => Invoke("BeginComposerEdit", message);

@@ -949,8 +949,7 @@ reply still being written never appears beneath them. Each one offers **Steer no
 From the composer, **Alt+↑** (**⌥↑** on macOS) selects the newest queued message; then
 **Enter** steers it now, **E** edits it, **Delete** removes it, **↑**/**↓** move between them
 and **Esc** returns to the composer. When the reply finishes, the oldest enters the
-transcript and is sent as the next turn. Queued messages survive a restart of Lumi, in order,
-and the oldest is sent once the chat opens again. If the reply fails, queued messages enter the transcript
+transcript and is sent as the next turn. If the reply fails, queued messages enter the transcript
 marked **Not delivered**, so their text is kept.
 
 ### Edit an earlier message
@@ -1034,7 +1033,8 @@ arrow instead (or right-click it with a mouse) for a menu that opens from it, ab
 **Send to steer**, **Add to queue**, **Stop & send** and **Stop session**. While a starter still
 has blanks, the arrow moves to the next blank and the menu waits until they're filled in; Back
 closes it. A queued message waits in the chat's queue on the PC, where you can steer, edit or
-remove it, and starts a new turn after the current reply. If the PC turns down a queued message
+remove it, and starts a new turn after the current reply. Like messages queued on the desktop,
+it waits in the running app, not across a PC restart. If the PC turns down a queued message
 (say, the chat was just paused), it returns to the composer ahead of anything you typed since,
 with its files. **Stop & send** interrupts the current work and sends the draft as a fresh turn.
 **Stop session** stops the work and keeps the draft; with no draft, the square in the composer

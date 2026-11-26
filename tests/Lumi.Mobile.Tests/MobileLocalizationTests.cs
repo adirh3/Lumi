@@ -116,7 +116,7 @@ public sealed class MobileLocalizationTests
             shell.Chat.Reset(Guid.NewGuid(), "Original chat");
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
-                ChatId = shell.Chat.ChatId, IsBusy = true, QueuedMessageCount = 0
+                ChatId = shell.Chat.ChatId, IsBusy = true, SupportsQueuedSends = true
             });
             shell.Chat.PromptText = "Draft";
             var view = new ChatDetailView { DataContext = shell };

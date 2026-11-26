@@ -2855,12 +2855,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 _suggestionDisplayChatId = chat.Id;
                 chat.HasUnreadMessages = false;
                 RestorePausedSendQueue(chat);
-                RestoreWaitingSends(chat);
-                SyncQueuedSends();
                 SynchronizeDisplayedMessagesFromChat(chat, forceRebuild: true);
                 RestoreSuggestionsForChat(chat);
                 SweepInactiveChatStates();
-                ScheduleRestoredWaitingSends(chat);
             }
             finally
             {
@@ -2916,7 +2913,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 return;
 
             RestorePausedSendQueue(chat);
-            RestoreWaitingSends(chat);
 
             // Yield so the UI thread can render the loading overlay before heavy synchronous work
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
@@ -3102,8 +3098,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // without making chat opening (or forking) wait on the Copilot runtime.
             RefreshComposerCatalogs();
             QueueCapabilityRefresh(BuildCapabilityQuery(), forceRefresh: true);
-            // A queue saved while a reply ran follows it; once the chat is back with nothing running, it goes next.
-            ScheduleRestoredWaitingSends(chat);
         }
         catch (OperationCanceledException) when (loadToken.IsCancellationRequested)
         {
@@ -7992,7 +7986,8 @@ public partial class ChatMessageViewModel : ObservableObject
     /// True while "Send now" can be requested. During session/MCP setup the click is latched and this
     /// hides until the first SDK turn starts, when Lumi can interrupt without recreating the session.
     /// </summary>
-    public bool CanSendNow => Message.CanSendSteerNow;
+    public bool CanSendNow => SteerState is MessageSteerState.Steering
+                              || (SteerState is MessageSteerState.Queued && CanSendNowWhenQueued);
 
     /// <summary>True once the agent has actually consumed the steered message into the running turn.</summary>
     public bool IsSteerDelivered => SteerState is MessageSteerState.Steered;

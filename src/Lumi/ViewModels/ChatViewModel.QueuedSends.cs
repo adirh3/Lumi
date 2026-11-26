@@ -52,12 +52,8 @@ public partial class ChatViewModel
 
     public bool HasQueuedSends => QueuedSends.Count > 0;
 
-    internal int GetWaitingSendCount(Guid chatId) =>
-        _waitingSends.TryGetValue(chatId, out var waiting) ? waiting.Count : 0;
-
-    internal bool ShouldQueueSend(Chat chat) =>
-        !chat.IsPaused && (HasWaitingSends(chat.Id)
-                           || IsChatRuntimeActive(chat.Id) && !CanStartTurnOnReadySession(chat));
+    internal bool CanQueueExternalMessage(Chat chat) =>
+        !chat.IsPaused && IsChatRuntimeActive(chat.Id) && !CanStartTurnOnReadySession(chat);
 
     /// <summary>
     /// Queues the draft to be sent after the reply Lumi is writing, instead of steering it into that reply.
@@ -74,7 +70,10 @@ public partial class ChatViewModel
             return;
 
         // A paused chat already holds every send until it resumes.
-        if (CurrentChat is not { } chat || !ShouldQueueSend(chat))
+        if (CurrentChat is not { } chat
+            || chat.IsPaused
+            || !IsChatRuntimeActive(chat.Id)
+            || CanStartTurnOnReadySession(chat))
         {
             await SendMessageCore(prompt, consumeComposerPrompt: true);
             return;
@@ -87,23 +86,20 @@ public partial class ChatViewModel
         if (message is null)
             return;
 
-        AddWaitingSend(chat.Id, message);
+        if (!_waitingSends.TryGetValue(chat.Id, out var waiting))
+            _waitingSends[chat.Id] = waiting = [];
+        waiting.Add(message);
         PromptText = "";
         _chatDrafts.Remove(chat.Id);
         SyncQueuedSends();
     }
 
-    /// <summary>
-    /// Queues a message from another device. With a receipt, the queue is saved with the receipt before the
-    /// message counts as accepted, so a restart keeps it and a retried request finds it already queued.
-    /// </summary>
-    internal async Task<bool> QueueExternalMessageAsync(
+    /// <summary>Adds a phone message to the existing queue without consuming the desktop draft.</summary>
+    internal bool QueueExternalMessage(
         Chat chat,
         string prompt,
         string author,
-        string? remoteDeviceId = null,
-        string? remoteRequestId = null,
-        CancellationToken cancellationToken = default)
+        string? remoteRequestId = null)
     {
         ArgumentNullException.ThrowIfNull(chat);
         if (BlockSendForByokOnly(chat, ResolveSelectedModelForChat(chat), prompt, consumeComposerPrompt: false)
@@ -113,99 +109,15 @@ public partial class ChatViewModel
         }
 
         message.RemoteRequestId = remoteRequestId;
-        var saveRequired = true;
-        if (!string.IsNullOrWhiteSpace(remoteDeviceId) && !string.IsNullOrWhiteSpace(remoteRequestId))
-        {
-            var previousDeviceId = chat.LastRemoteDeviceId;
-            var previousRequestId = chat.LastRemoteRequestId;
-            chat.LastRemoteDeviceId = remoteDeviceId;
-            chat.LastRemoteRequestId = remoteRequestId;
-            // Saved before it joins the queue, so a drain can never send a message whose receipt failed.
-            var saved = chat.QueuedSends = [.. chat.QueuedSends ?? [], message.Clone()];
-            try
-            {
-                _dataStore.MarkChatChanged(chat);
-                await _dataStore.SaveChatAsync(chat, cancellationToken).ConfigureAwait(true);
-                await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(true);
-            }
-            catch
-            {
-                chat.LastRemoteDeviceId = previousDeviceId;
-                chat.LastRemoteRequestId = previousRequestId;
-                PersistWaitingSends(chat.Id, save: false);
-                throw;
-            }
-
-            // Unless the queue changed while it was saving, what was saved is already the queue.
-            saveRequired = !ReferenceEquals(chat.QueuedSends, saved);
-        }
-
-        AddWaitingSend(chat.Id, message, saveRequired);
+        if (!_waitingSends.TryGetValue(chat.Id, out var waiting))
+            _waitingSends[chat.Id] = waiting = [];
+        waiting.Add(message);
         SyncQueuedSends();
-        if (!IsChatRuntimeActive(chat.Id) || CanStartTurnOnReadySession(chat))
-            ScheduleQueuedBusySendDrain(chat.Id);
         return true;
     }
 
-    private void AddWaitingSend(Guid chatId, ChatMessage message, bool save = true)
-    {
-        if (!_waitingSends.TryGetValue(chatId, out var waiting))
-            _waitingSends[chatId] = waiting = [];
-        waiting.Add(message);
-        PersistWaitingSends(chatId, save);
-    }
-
-    /// <summary>
-    /// Keeps the chat's saved queue in step with the messages waiting here, as copies, so a restart or
-    /// another window finds them in the same order with the same ids.
-    /// </summary>
-    private void PersistWaitingSends(Guid chatId, bool save)
-    {
-        var chat = CurrentChat?.Id == chatId
-            ? CurrentChat
-            : _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
-        if (chat is null)
-            return;
-
-        var waiting = _waitingSends.GetValueOrDefault(chatId);
-        if (chat.QueuedSends is null && waiting is not { Count: > 0 })
-            return;
-
-        chat.QueuedSends = waiting is { Count: > 0 }
-            ? waiting.ConvertAll(static message => message.Clone())
-            : null;
-        if (save)
-            QueueSaveChat(chat, saveIndex: false);
-    }
-
-    /// <summary>Brings back the queue a chat saved, unless its messages are already waiting here.</summary>
-    private void RestoreWaitingSends(Chat chat)
-    {
-        if (_waitingSends.ContainsKey(chat.Id) || chat.QueuedSends is not { Count: > 0 } saved)
-            return;
-
-        _waitingSends[chat.Id] = saved.ConvertAll(static message =>
-        {
-            var restored = message.Clone();
-            restored.SteerDelivery = MessageSteerState.Queued;
-            restored.CanSendNowWhenQueued = false;
-            return restored;
-        });
-    }
-
-    /// <summary>Sends a restored queue's first message when nothing is running for it to follow.</summary>
-    private void ScheduleRestoredWaitingSends(Chat chat)
-    {
-        if (HasWaitingSends(chat.Id)
-            && !chat.IsPaused
-            && (!IsChatRuntimeActive(chat.Id) || CanStartTurnOnReadySession(chat)))
-        {
-            ScheduleQueuedBusySendDrain(chat.Id);
-        }
-    }
-
     private bool HasWaitingSends(Guid chatId)
-        => GetWaitingSendCount(chatId) > 0;
+        => _waitingSends.TryGetValue(chatId, out var waiting) && waiting.Count > 0;
 
     private bool HasPendingSends(Guid chatId)
         => _queuedBusySendPrompts.ContainsKey(chatId) || HasWaitingSends(chatId);
@@ -218,8 +130,7 @@ public partial class ChatViewModel
             return false;
 
         message = waiting[0];
-        // Entering the transcript saves the chat, and with it the shorter queue.
-        RemoveWaitingSend(chat.Id, message, save: false);
+        RemoveWaitingSend(chat.Id, message);
         EnterTranscript(chat, message);
         return true;
     }
@@ -233,14 +144,13 @@ public partial class ChatViewModel
         SyncQueuedSends();
     }
 
-    private bool RemoveWaitingSend(Guid chatId, ChatMessage message, bool save = true)
+    private bool RemoveWaitingSend(Guid chatId, ChatMessage message)
     {
         if (!_waitingSends.TryGetValue(chatId, out var waiting) || !waiting.Remove(message))
             return false;
 
         if (waiting.Count == 0)
             _waitingSends.Remove(chatId);
-        PersistWaitingSends(chatId, save);
         return true;
     }
 
@@ -253,8 +163,6 @@ public partial class ChatViewModel
         if (!_waitingSends.Remove(chatId, out var waiting))
             return;
 
-        // Each message entering the transcript saves the chat, and with it the emptied queue.
-        PersistWaitingSends(chatId, save: false);
         if (_dataStore.Data.Chats.Find(chat => chat.Id == chatId) is { } owner)
         {
             foreach (var message in waiting)
@@ -270,11 +178,8 @@ public partial class ChatViewModel
     /// <summary>Drops a deleted chat's queued messages without writing them into it.</summary>
     private void DiscardWaitingSends(Guid chatId)
     {
-        if (!_waitingSends.Remove(chatId))
-            return;
-
-        PersistWaitingSends(chatId, save: false);
-        SyncQueuedSends();
+        if (_waitingSends.Remove(chatId))
+            SyncQueuedSends();
     }
 
     /// <summary>
@@ -286,8 +191,6 @@ public partial class ChatViewModel
         if (!_waitingSends.Remove(chat.Id, out var waiting))
             return;
 
-        // They are saved again as held sends when they enter the transcript.
-        PersistWaitingSends(chat.Id, save: false);
         if (!_queuedBusySendPrompts.TryGetValue(chat.Id, out var deferred))
             _queuedBusySendPrompts[chat.Id] = deferred = [];
 
@@ -329,8 +232,7 @@ public partial class ChatViewModel
     /// <summary>Steers a queued message into the running reply now, instead of waiting for it to finish.</summary>
     internal async Task SteerQueuedSendNowAsync(ChatMessage message)
     {
-        // Entering the transcript saves the chat, and with it the shorter queue.
-        if (CurrentChat is not { } chat || !RemoveWaitingSend(chat.Id, message, save: false))
+        if (CurrentChat is not { } chat || !RemoveWaitingSend(chat.Id, message))
             return;
 
         EnterTranscript(chat, message);

@@ -1708,7 +1708,7 @@ public sealed class MobileShellViewTests
                 Layout(window, shell, 412, 892);
                 await Task.Delay(360);
                 Pump(window);
-                shell.Chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, QueuedMessageCount = 0 });
+                shell.Chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, SupportsQueuedSends = true });
                 Pump(window);
 
                 var composer = window.GetVisualDescendants().OfType<StrataChatComposer>().Single();

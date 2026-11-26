@@ -94,7 +94,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(QueueSendCommand))]
     [NotifyPropertyChangedFor(nameof(ComposerQueueCommand))]
-    private int? _queuedMessageCount;
+    private bool _supportsQueuedSends;
     [ObservableProperty] private string? _statusText;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ReadStateActionLabel))]
@@ -789,8 +789,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     private bool HasSendDraft => !string.IsNullOrWhiteSpace(PromptText) || HasAttachments;
 
-    /// <summary>A PC that says how many messages it holds for after the reply can queue one.</summary>
-    public IAsyncRelayCommand? ComposerQueueCommand => QueuedMessageCount.HasValue ? QueueSendCommand : null;
+    /// <summary>Offers queueing only when the PC accepts that action.</summary>
+    public IAsyncRelayCommand? ComposerQueueCommand => SupportsQueuedSends ? QueueSendCommand : null;
 
     /// <summary>
     /// True when the blank surface has become the user's work rather than the untouched launch
@@ -2259,7 +2259,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsSessionActive = false;
             IsBusy = false;
             IsStreaming = false;
-            QueuedMessageCount = null;
+            SupportsQueuedSends = false;
             IsUploading = false;
             _revision = -1;
             _transcriptVersion = null;
@@ -2795,7 +2795,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (status.HasUnreadMessages is { } unread)
             HasUnreadMessages = unread;
         IsAwaitingInput = status.IsAwaitingInput;
-        QueuedMessageCount = status.QueuedMessageCount;
+        SupportsQueuedSends = status.SupportsQueuedSends;
         ContextCurrentTokens = status.ContextCurrentTokens;
         ContextTokenLimit = status.ContextTokenLimit;
         // A compact status frame leaves an unchanged plan out instead of repeating it.
@@ -3411,7 +3411,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanSend))]
     private Task SendAsync() => SendCoreAsync(IsWorking ? SendMode.Steer : SendMode.Send);
 
-    private bool CanQueueSend() => HasChat && QueuedMessageCount.HasValue && CanSend();
+    private bool CanQueueSend() => HasChat && SupportsQueuedSends && CanSend();
 
     [RelayCommand(CanExecute = nameof(CanQueueSend))]
     private Task QueueSendAsync() => SendCoreAsync(SendMode.Queue);
@@ -3470,8 +3470,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(CanChooseWorktree));
         NotifySendCommandsCanExecuteChanged();
 
-        // The desktop publishes queued drafts separately; they don't enter the transcript
-        // or start a new Thinking indicator until the desktop sends them.
+        // Queued drafts don't enter the transcript or start a Thinking indicator until the PC sends them.
         TranscriptTurnViewModel? echo = null;
         if (effectiveMode != SendMode.Queue)
         {

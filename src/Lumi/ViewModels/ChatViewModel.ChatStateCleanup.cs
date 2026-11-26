@@ -346,13 +346,12 @@ public partial class ChatViewModel
         string prompt,
         ChatMessage? existing = null,
         string? authorOverride = null,
-        IReadOnlyCollection<string>? explicitAttachmentPaths = null,
         string? remoteRequestId = null)
     {
         if (existing is null && string.IsNullOrWhiteSpace(prompt))
             return null;
 
-        var message = existing ?? CreateQueuedBusySend(chatId, prompt, authorOverride, explicitAttachmentPaths, remoteRequestId);
+        var message = existing ?? CreateQueuedBusySend(chatId, prompt, authorOverride, remoteRequestId: remoteRequestId);
         if (message is null)
             return null;
 
