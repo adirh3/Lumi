@@ -65,9 +65,6 @@ public sealed class RemoteChatStatus
     public bool IsAwaitingInput { get; set; }
     /// <summary>Remains true after the main assistant is ready until all session work finishes.</summary>
     public bool IsSessionActive { get; set; }
-    /// <summary>Whether this host accepts the mobile queue action.</summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public bool SupportsQueuedSends { get; set; }
     /// <summary>Desktop-owned read state. Null when connected to a host predating read-state status.</summary>
     public bool? HasUnreadMessages { get; set; }
     /// <summary>An explicit mobile mark that a background transcript refresh must not acknowledge.</summary>

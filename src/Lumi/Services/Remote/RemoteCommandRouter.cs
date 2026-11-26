@@ -67,7 +67,6 @@ internal sealed class RemoteCommandRouter
             RemoteProtocol.Actions.RenameChat => await RenameChatAsync(command),
             RemoteProtocol.Actions.PinChat => await PinChatAsync(command),
             RemoteProtocol.Actions.SendMessage => await SendMessageAsync(command, cancellationToken),
-            RemoteProtocol.Actions.QueueMessage => await SendMessageAsync(command, cancellationToken, queue: true),
             RemoteProtocol.Actions.SendSteeredNow => await SendSteeredNowAsync(command),
             RemoteProtocol.Actions.EditMessage => await EditMessageAsync(command, cancellationToken),
             RemoteProtocol.Actions.StopGeneration => await StopGenerationAsync(command),
@@ -528,14 +527,11 @@ internal sealed class RemoteCommandRouter
     private async Task<RemoteCommandResult> SendMessageAsync(
         RemoteCommand command,
         CancellationToken cancellationToken,
-        InteractionReceipt? interactionReceipt = null,
-        bool queue = false)
+        InteractionReceipt? interactionReceipt = null)
     {
         var message = command.Get("message");
         if (string.IsNullOrWhiteSpace(message))
             return Fail(Loc.Get("Remote_ArgumentRequired", "message"));
-        if (queue && !command.Arguments.ContainsKey("chatId"))
-            return Fail(Loc.Get("Remote_ArgumentRequired", "chatId"));
 
         if (command is
             {
@@ -553,7 +549,7 @@ internal sealed class RemoteCommandRouter
         // A phone that defers chat creation has no id to send. Falling through to ResolveChat there
         // would resolve to "whichever chat the desktop currently has open" and post into an unrelated
         // conversation, so the intent is explicit rather than inferred from a missing field.
-        var startsNewChat = !queue && command.GetBool("newChat") == true;
+        var startsNewChat = command.GetBool("newChat") == true;
         var chat = startsNewChat ? null : ResolveChat(command);
         if (!startsNewChat && command.Arguments.ContainsKey("chatId") && chat is null)
             return Fail(Loc.Remote_ChatNotFound);
@@ -595,7 +591,7 @@ internal sealed class RemoteCommandRouter
             if (owner.IsExternalSendReserved(chat.Id))
                 return Fail(Loc.Remote_ChatAlreadyStartingTurn, chat.Id);
 
-            if (!queue && command.GetBool("stopAndSend") == true && owner.IsChatBusy(chat.Id))
+            if (command.GetBool("stopAndSend") == true && owner.IsChatBusy(chat.Id))
             {
                 var stopAndSendAccepted = await owner
                     .StopAndSendExternalMessageAsync(
@@ -612,7 +608,7 @@ internal sealed class RemoteCommandRouter
             }
 
             // Readiness chooses send versus steer, never whether to honor an explicit session Stop.
-            if (!queue && owner.IsAssistantBusy(chat.Id))
+            if (owner.IsAssistantBusy(chat.Id))
             {
                 if (command.GetBool("steer") != true)
                     return Fail(Loc.Remote_ChatAlreadyRunning, chat.Id);
@@ -678,19 +674,6 @@ internal sealed class RemoteCommandRouter
             // A deferred phone chat is created by this send. Apply every staged run-setting before
             // StartExternalMessageAsync snapshots model/provider/effort/context/agent/skill/MCP state.
             ApplyChatConfiguration(owner, command, projectSelection, agentSelection);
-
-            if (queue && owner.CanQueueExternalMessage(chat))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                return owner
-                    .QueueExternalMessage(
-                        chat,
-                        message,
-                        "Lumi Mobile",
-                        command.RequestId)
-                    ? Success(Loc.Steer_Queued, chat.Id)
-                    : Fail(Loc.Remote_MessageStartFailed, chat.Id);
-            }
 
             var project = chat.ProjectId is { } projectId
                 ? _dataStore.Data.Projects.FirstOrDefault(candidate => candidate.Id == projectId)

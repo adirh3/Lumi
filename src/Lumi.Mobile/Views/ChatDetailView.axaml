@@ -604,7 +604,7 @@
 
     <!--
       ══ Send menu ══
-      Strata's send menu (Send to steer, Add to queue when the PC can queue, Stop & send, Stop session),
+      Strata's send menu (Send to steer, Stop & send, Stop session),
       which a hold on Send opens while Lumi works on a draft, at thumb size: 48 dp rows with words at body
       size. Its keyboard shortcuts mean nothing on a phone, so they stay hidden. The view opens it from
       Send, lifted clear of the draft's editor.
@@ -2316,7 +2316,6 @@
                                SendCommand="{Binding Chat.SendCommand}"
                                StopCommand="{Binding Chat.StopCommand}"
                                StopAndSendCommand="{Binding Chat.StopAndSendCommand}"
-                               QueueCommand="{Binding Chat.ComposerQueueCommand}"
                                Models="{Binding Chat.AvailableModels}"
                                SelectedModel="{Binding Chat.Model, Mode=TwoWay}"
                                QualityLevels="{Binding Chat.QualityLevels}"

@@ -2345,53 +2345,6 @@ public sealed class RemoteCommandRouterSurfaceTests
         Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
     });
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public Task MobileQueueUsesTheOwningSurfaceAndSendsNormallyIfTheReplyHasEnded(bool busy) => RunAsync(async () =>
-    {
-        using var rig = await DetachedRig.CreateAsync();
-        var owner = rig.DetachedSurface;
-        if (busy)
-        {
-            MarkBusy(owner, rig.DetachedChat);
-            owner.IsBusy = true;
-        }
-        owner.PromptText = "desktop draft";
-        var file = Path.Combine(Path.GetTempPath(), "desktop-draft.txt");
-        owner.AddAttachment(file);
-        int starts = 0;
-        var router = new RemoteCommandRouter(rig.DataStore, rig.Main, (vm, chat, prompt, _, _, _) =>
-        {
-            Assert.Same(owner, vm);
-            Assert.Same(rig.DetachedChat, chat);
-            Assert.Equal("from my phone", prompt);
-            starts++;
-            return Task.FromResult<string?>(null);
-        });
-
-        var result = await router.ExecuteAsync(
-            new RemoteCommand(RemoteProtocol.Actions.QueueMessage) { RequestId = "mobile-queue" }
-                .With("chatId", rig.DetachedChat.Id.ToString())
-                .With("message", "from my phone"),
-            CancellationToken.None);
-
-        Assert.True(result.Ok, result.Error);
-        Assert.Equal(busy ? 0 : 1, starts);
-        Assert.Equal(busy ? 1 : 0, owner.QueuedSends.Count);
-        if (busy)
-        {
-            var queued = Assert.Single(owner.QueuedSends);
-            Assert.Equal("from my phone", queued.Text);
-            Assert.Empty(queued.Message.Attachments);
-            Assert.Equal("mobile-queue", queued.Message.RemoteRequestId);
-        }
-        Assert.Equal("desktop draft", owner.PromptText);
-        Assert.Equal([file], owner.PendingAttachments);
-        Assert.DoesNotContain(rig.DetachedChat.Messages, message => message.Content == "from my phone");
-        Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
-    });
-
     [Fact]
     public Task MobileSendNowReclaimsOnlyTheRequestedPendingSteer() => RunAsync(async () =>
     {

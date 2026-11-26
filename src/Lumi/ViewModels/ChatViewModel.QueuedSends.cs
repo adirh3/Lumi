@@ -52,9 +52,6 @@ public partial class ChatViewModel
 
     public bool HasQueuedSends => QueuedSends.Count > 0;
 
-    internal bool CanQueueExternalMessage(Chat chat) =>
-        !chat.IsPaused && IsChatRuntimeActive(chat.Id) && !CanStartTurnOnReadySession(chat);
-
     /// <summary>
     /// Queues the draft to be sent after the reply Lumi is writing, instead of steering it into that reply.
     /// When nothing is running it is an ordinary send.
@@ -92,28 +89,6 @@ public partial class ChatViewModel
         PromptText = "";
         _chatDrafts.Remove(chat.Id);
         SyncQueuedSends();
-    }
-
-    /// <summary>Adds a phone message to the existing queue without consuming the desktop draft.</summary>
-    internal bool QueueExternalMessage(
-        Chat chat,
-        string prompt,
-        string author,
-        string? remoteRequestId = null)
-    {
-        ArgumentNullException.ThrowIfNull(chat);
-        if (BlockSendForByokOnly(chat, ResolveSelectedModelForChat(chat), prompt, consumeComposerPrompt: false)
-            || BuildQueuedSend(chat, prompt, author, explicitAttachmentPaths: []) is not { } message)
-        {
-            return false;
-        }
-
-        message.RemoteRequestId = remoteRequestId;
-        if (!_waitingSends.TryGetValue(chat.Id, out var waiting))
-            _waitingSends[chat.Id] = waiting = [];
-        waiting.Add(message);
-        SyncQueuedSends();
-        return true;
     }
 
     private bool HasWaitingSends(Guid chatId)

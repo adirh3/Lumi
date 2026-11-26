@@ -3082,13 +3082,12 @@ public sealed partial class DeferredSendQueueTests
             host.ViewModel.PromptText = "and then  write\nthe tests";
             await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
 
-            Assert.True(host.ViewModel.QueueExternalMessage(
-                host.Chat, "then check them", "Lumi Mobile", remoteRequestId: "phone-queue"));
             Assert.Equal("", host.ViewModel.PromptText);
             Assert.Equal(0, rpc.SendCount);
             Assert.Empty(host.QueuedPrompts());
             Assert.Empty(host.Chat.Messages);
-            Assert.Equal(["and then write the tests", "then check them"], host.ViewModel.QueuedSends.Select(item => item.Text));
+            var queued = Assert.Single(host.ViewModel.QueuedSends);
+            Assert.Equal("and then write the tests", queued.Text);
             Assert.True(host.ViewModel.HasQueuedSends);
 
             // The reply keeps writing while the message waits; it stays above the queued message.
@@ -3100,9 +3099,8 @@ public sealed partial class DeferredSendQueueTests
             Assert.NotEqual("immediate", rpc.LastSendMode);
             Assert.Equal(["the answer", "and then  write\nthe tests"], host.Chat.Messages.Select(message => message.Content));
             Assert.Equal(MessageSteerState.None, host.Chat.Messages[1].SteerDelivery);
-            var next = Assert.Single(host.ViewModel.QueuedSends);
-            Assert.Equal("then check them", next.Text);
-            Assert.Equal("phone-queue", next.Message.RemoteRequestId);
+            Assert.Empty(host.ViewModel.QueuedSends);
+            Assert.False(host.ViewModel.HasQueuedSends);
         }, CancellationToken.None);
     }
 
