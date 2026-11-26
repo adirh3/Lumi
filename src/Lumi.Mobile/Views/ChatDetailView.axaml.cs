@@ -579,14 +579,46 @@ public partial class ChatDetailView : UserControl
             if (_shell?.Chat != chat || chat.ChatId != chatId || chat.PromptText != suggestion
                 || !this.IsAttachedToVisualTree())
                 return;
-            if (_nativeComposerEditor is { } editor)
-                editor.FocusAtEnd();
-            else if (_sharedComposerInput is { } input)
-            {
-                input.Focus();
-                input.CaretIndex = input.Text?.Length ?? 0;
-            }
+            FocusComposerAtEnd();
         }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Edit put a queued message back in the composer: the caret follows it there.</summary>
+    private void OnComposerFocusRequested()
+    {
+        if (_shell?.Chat is not { } chat)
+            return;
+
+        var chatId = chat.ChatId;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_shell?.Chat != chat || chat.ChatId != chatId || !this.IsAttachedToVisualTree())
+                return;
+            FocusComposerAtEnd();
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void FocusComposerAtEnd()
+    {
+        if (_nativeComposerEditor is { } editor)
+            editor.FocusAtEnd();
+        else if (_sharedComposerInput is { } input)
+        {
+            input.Focus();
+            input.CaretIndex = input.Text?.Length ?? 0;
+        }
+    }
+
+    /// <summary>
+    /// A turned-down queue request came back ahead of the draft. The browser's editor keeps its caret
+    /// where it was, now inside the returned text, so the caret moves to the end; it reaches the
+    /// browser only while the composer has focus, so this never raises the keyboard. Android's editor
+    /// already puts the caret after text the model sets.
+    /// </summary>
+    private void OnComposerCaretToEndRequested()
+    {
+        if (_nativeComposerEditor is null && _sharedComposerInput is { } input)
+            input.CaretIndex = input.Text?.Length ?? 0;
     }
 
     /// <summary>New suggestions rise onto the composer from its start, as a finished reply settles.</summary>
@@ -1406,6 +1438,8 @@ public partial class ChatDetailView : UserControl
         shell.Chat.ChatSurfaceReset += OnChatSurfaceReset;
         shell.Chat.TranscriptApplied += OnTranscriptApplied;
         shell.Chat.AttachmentPickRequested += OnPickAttachment;
+        shell.Chat.ComposerFocusRequested += OnComposerFocusRequested;
+        shell.Chat.ComposerCaretToEndRequested += OnComposerCaretToEndRequested;
         shell.StarterApplied += OnStarterApplied;
         shell.StarterNameFocusRequested += OnStarterNameFocusRequested;
         SynchronizeObservers();
@@ -1424,6 +1458,8 @@ public partial class ChatDetailView : UserControl
         _shell.Chat.ChatSurfaceReset -= OnChatSurfaceReset;
         _shell.Chat.TranscriptApplied -= OnTranscriptApplied;
         _shell.Chat.AttachmentPickRequested -= OnPickAttachment;
+        _shell.Chat.ComposerFocusRequested -= OnComposerFocusRequested;
+        _shell.Chat.ComposerCaretToEndRequested -= OnComposerCaretToEndRequested;
         _shell.StarterApplied -= OnStarterApplied;
         _shell.StarterNameFocusRequested -= OnStarterNameFocusRequested;
         _shell.PropertyChanged -= OnShellPropertyChanged;

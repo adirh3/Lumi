@@ -2385,6 +2385,124 @@ public sealed class RemoteCommandRouterSurfaceTests
     });
 
     [Fact]
+    public Task MobileQueueActionsReachTheWindowHoldingTheQueueById() => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync();
+        var owner = rig.DetachedSurface;
+        MarkBusy(owner, rig.DetachedChat);
+        owner.IsBusy = true;
+        var router = new RemoteCommandRouter(rig.DataStore, rig.Main);
+        var chatId = rig.DetachedChat.Id.ToString();
+        foreach (var text in new[] { "one", "two", "three" })
+        {
+            var queued = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.QueueMessage) { RequestId = $"queue-{text}" }
+                    .With("chatId", chatId)
+                    .With("message", text),
+                CancellationToken.None);
+            Assert.True(queued.Ok, queued.Error);
+        }
+
+        // Queued on the PC with a file, which the phone's composer could not take back.
+        owner.PromptText = "with a file";
+        owner.AddAttachment(Path.Combine(Path.GetTempPath(), "queued-on-the-pc.txt"));
+        await owner.QueueMessageCommand.ExecuteAsync(null);
+
+        Guid IdOf(string text) => owner.QueuedSends.Single(item => item.Text == text).Message.Id;
+        string[] Queue() => owner.QueuedSends.Select(item => item.Text).ToArray();
+        Task<RemoteCommandResult> ActAsync(string action, Guid messageId) => router.ExecuteAsync(
+            new RemoteCommand(action)
+                .With("chatId", chatId)
+                .With("messageId", messageId.ToString()),
+            CancellationToken.None);
+        var (one, two, three, withFile) = (IdOf("one"), IdOf("two"), IdOf("three"), IdOf("with a file"));
+
+        var removed = await ActAsync(RemoteProtocol.Actions.RemoveQueuedMessage, two);
+        Assert.True(removed.Ok, removed.Error);
+        Assert.Equal(Loc.Remote_QueuedMessageRemoved, removed.Message);
+        Assert.Equal(["one", "three", "with a file"], Queue());
+        Assert.Equal([one, three, withFile], owner.GetWaitingSends(rig.DetachedChat.Id).Select(message => message.Id));
+        Assert.Equal(Loc.Remote_QueuedMessageGone, (await ActAsync(RemoteProtocol.Actions.RemoveQueuedMessage, two)).Error);
+
+        var notEditable = await ActAsync(RemoteProtocol.Actions.EditQueuedMessage, withFile);
+        Assert.False(notEditable.Ok);
+        Assert.Equal(Loc.Remote_QueuedMessageNotEditable, notEditable.Error);
+
+        // The phone takes the message back into its own composer, not the PC's.
+        var edited = await ActAsync(RemoteProtocol.Actions.EditQueuedMessage, three);
+        Assert.True(edited.Ok, edited.Error);
+        Assert.Equal(Loc.Remote_QueuedMessageReturned, edited.Message);
+        Assert.Equal("three", edited.Text);
+        Assert.Equal(["one", "with a file"], Queue());
+        Assert.True(string.IsNullOrEmpty(owner.PromptText));
+
+        var steered = await ActAsync(RemoteProtocol.Actions.SteerQueuedMessage, one);
+        Assert.True(steered.Ok, steered.Error);
+        Assert.Equal(Loc.Remote_MessageSteered, steered.Message);
+        Assert.Equal(["with a file"], Queue());
+        Assert.Contains(rig.DetachedChat.Messages, message => message.Id == one);
+
+        var withoutId = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.RemoveQueuedMessage).With("chatId", chatId),
+            CancellationToken.None);
+        Assert.Equal(Loc.Get("Remote_ArgumentRequired", "messageId"), withoutId.Error);
+        await Task.Yield();
+        Assert.Equal([withFile], owner.GetWaitingSends(rig.DetachedChat.Id).Select(message => message.Id));
+        Assert.Equal([withFile],
+            RemoteProjector.BuildStatus(rig.DataStore, owner, rig.DetachedChat).QueuedMessages!.Select(message => message.Id));
+        Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
+    });
+
+    [Fact]
+    public Task MobileQueueActionsReachABackgroundChatWithoutOpeningIt() => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync();
+        var owner = rig.DetachedSurface;
+        var queuedChat = rig.DetachedChat;
+        MarkBusy(owner, queuedChat);
+        owner.IsBusy = true;
+        Assert.True(owner.QueueExternalMessage(queuedChat, "first", "Lumi Mobile"));
+        Assert.True(owner.QueueExternalMessage(queuedChat, "second", "Lumi Mobile"));
+        owner.PromptText = "with a file";
+        owner.AddAttachment(Path.Combine(Path.GetTempPath(), "queued-on-the-pc.txt"));
+        await owner.QueueMessageCommand.ExecuteAsync(null);
+        var (first, second, withFile) = (
+            owner.QueuedSends[0].Message, owner.QueuedSends[1].Message, owner.QueuedSends[2].Message);
+        var elsewhere = new Chat { Title = "Currently displayed" };
+        rig.DataStore.Data.Chats.Add(elsewhere);
+        owner.CurrentChat = elsewhere;
+        var router = new RemoteCommandRouter(rig.DataStore, rig.Main);
+        Task<RemoteCommandResult> ActAsync(string action, Guid messageId) => router.ExecuteAsync(
+            new RemoteCommand(action)
+                .With("chatId", queuedChat.Id.ToString())
+                .With("messageId", messageId.ToString()),
+            CancellationToken.None);
+        Guid[] Queue() => owner.GetWaitingSends(queuedChat.Id).Select(message => message.Id).ToArray();
+        Assert.Equal([first.Id, second.Id, withFile.Id],
+            RemoteProjector.BuildStatus(rig.DataStore, owner, queuedChat).QueuedMessages!.Select(message => message.Id));
+
+        var removed = await ActAsync(RemoteProtocol.Actions.RemoveQueuedMessage, second.Id);
+        Assert.True(removed.Ok, removed.Error);
+        Assert.Equal([first.Id, withFile.Id], Queue());
+
+        Assert.Equal(Loc.Remote_QueuedMessageNotEditable, (await ActAsync(RemoteProtocol.Actions.EditQueuedMessage, withFile.Id)).Error);
+        var edited = await ActAsync(RemoteProtocol.Actions.EditQueuedMessage, first.Id);
+        Assert.True(edited.Ok, edited.Error);
+        Assert.Equal("first", edited.Text);
+        Assert.Equal([withFile.Id], Queue());
+
+        var unknown = Guid.NewGuid();
+        Assert.Equal(Loc.Remote_QueuedMessageGone, (await ActAsync(RemoteProtocol.Actions.RemoveQueuedMessage, unknown)).Error);
+        Assert.Equal(Loc.Remote_QueuedMessageGone, (await ActAsync(RemoteProtocol.Actions.SteerQueuedMessage, unknown)).Error);
+
+        Assert.True((await ActAsync(RemoteProtocol.Actions.RemoveQueuedMessage, withFile.Id)).Ok);
+        Assert.Empty(Queue());
+
+        Assert.Same(elsewhere, owner.CurrentChat);
+        Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
+    });
+
+    [Fact]
     public Task StopAndSendUsesTheDetachedRuntimeWithoutChangingTheMainSurface() => RunAsync(async () =>
     {
         using var rig = await DetachedRig.CreateAsync();

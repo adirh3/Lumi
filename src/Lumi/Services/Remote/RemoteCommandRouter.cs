@@ -68,6 +68,9 @@ internal sealed class RemoteCommandRouter
             RemoteProtocol.Actions.PinChat => await PinChatAsync(command),
             RemoteProtocol.Actions.SendMessage => await SendMessageAsync(command, cancellationToken),
             RemoteProtocol.Actions.SendSteeredNow => await SendSteeredNowAsync(command),
+            RemoteProtocol.Actions.SteerQueuedMessage => await SteerQueuedMessageAsync(command),
+            RemoteProtocol.Actions.EditQueuedMessage => EditQueuedMessage(command),
+            RemoteProtocol.Actions.RemoveQueuedMessage => RemoveQueuedMessage(command),
             RemoteProtocol.Actions.EditMessage => await EditMessageAsync(command, cancellationToken),
             RemoteProtocol.Actions.StopGeneration => await StopGenerationAsync(command),
             RemoteProtocol.Actions.AnswerQuestion => await AnswerQuestionAsync(command),
@@ -880,6 +883,75 @@ internal sealed class RemoteCommandRouter
         return error is null
             ? Success(Loc.Remote_TurnStoppedMessageQueued, chat.Id)
             : Fail(error, chat.Id);
+    }
+
+    /// <summary>
+    /// The window holding a queued message, which may show another chat by now.
+    /// </summary>
+    private ChatViewModel? FindQueuedMessageHolder(Guid chatId, Guid messageId) =>
+        _main.ChatSurfaceRegistry
+            .SnapshotSurfaces()
+            .FirstOrDefault(surface => surface.FindWaitingSend(chatId, messageId) is not null);
+
+    private RemoteCommandResult RemoveQueuedMessage(RemoteCommand command)
+    {
+        if (ResolveExplicitChat(command) is not { } chat)
+            return Fail(Loc.Remote_ChatNotFound);
+        if (command.GetGuid("messageId") is not { } messageId)
+            return Fail(Loc.Get("Remote_ArgumentRequired", "messageId"), chat.Id);
+
+        return FindQueuedMessageHolder(chat.Id, messageId)?.RemoveWaitingSendById(chat.Id, messageId) == true
+            ? Success(Loc.Remote_QueuedMessageRemoved, chat.Id)
+            : Fail(Loc.Remote_QueuedMessageGone, chat.Id);
+    }
+
+    /// <summary>
+    /// Takes a queued message back into the phone's composer, as Edit on the PC takes it into the PC's: it
+    /// leaves the queue and its text returns with the result. Only a message the phone can hold whole goes.
+    /// </summary>
+    private RemoteCommandResult EditQueuedMessage(RemoteCommand command)
+    {
+        if (ResolveExplicitChat(command) is not { } chat)
+            return Fail(Loc.Remote_ChatNotFound);
+        if (command.GetGuid("messageId") is not { } messageId)
+            return Fail(Loc.Get("Remote_ArgumentRequired", "messageId"), chat.Id);
+
+        var holder = FindQueuedMessageHolder(chat.Id, messageId);
+        if (holder?.FindWaitingSend(chat.Id, messageId) is not { } message)
+            return Fail(Loc.Remote_QueuedMessageGone, chat.Id);
+        if (!RemoteProjector.CanEditQueuedMessage(message))
+            return Fail(Loc.Remote_QueuedMessageNotEditable, chat.Id);
+
+        if (!holder.RemoveWaitingSendById(chat.Id, messageId))
+            return Fail(Loc.Remote_QueuedMessageGone, chat.Id);
+
+        return new RemoteCommandResult
+        {
+            Ok = true,
+            Message = Loc.Remote_QueuedMessageReturned,
+            ChatId = chat.Id,
+            Text = message.Content
+        };
+    }
+
+    /// <summary>Steers a queued message into the running reply now, as Steer now on the PC does.</summary>
+    private async Task<RemoteCommandResult> SteerQueuedMessageAsync(RemoteCommand command)
+    {
+        if (ResolveExplicitChat(command) is not { } chat)
+            return Fail(Loc.Remote_ChatNotFound);
+        if (command.GetGuid("messageId") is not { } messageId)
+            return Fail(Loc.Get("Remote_ArgumentRequired", "messageId"), chat.Id);
+
+        var owner = FindQueuedMessageHolder(chat.Id, messageId);
+        if (owner is null)
+            return Fail(Loc.Remote_QueuedMessageGone, chat.Id);
+
+        if (owner.CurrentChat?.Id != chat.Id)
+            return Fail(Loc.Remote_MessageSteerFailed, chat.Id);
+
+        return await owner.SteerWaitingSendNowAsync(chat, messageId).ConfigureAwait(true)
+            ? Success(Loc.Remote_MessageSteered, chat.Id)
+            : Fail(Loc.Remote_QueuedMessageGone, chat.Id);
     }
 
     private async Task<RemoteCommandResult> UpdateInteractionAsync(RemoteCommand command, CancellationToken cancellationToken)

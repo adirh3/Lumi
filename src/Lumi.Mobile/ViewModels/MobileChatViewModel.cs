@@ -382,6 +382,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         || HasPendingOperation
         || HasPendingConfiguration
         || HasPendingReplay
+        || _queuedActionRequests.Any(request => request.Key.Action == RemoteProtocol.Actions.EditQueuedMessage)
         || Turns.SelectMany(turn => turn.Items).OfType<QuestionItemViewModel>()
             .Any(question => question.HasAnswerDraft && !question.IsAnswered)
         || _drafts.Any(draft => !IsCurrentSurface(draft.Key) && draft.Value.HasUnsentWork);
@@ -588,6 +589,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             OnPropertyChanged(nameof(ShowFollowUpSuggestions));
         };
         Suggestions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowFollowUpSuggestions));
+        QueuedMessages.CollectionChanged += OnQueuedMessagesChanged;
         SendCommand.PropertyChanged += OnSendActivityChanged;
         StopAndSendCommand.PropertyChanged += OnSendActivityChanged;
     }
@@ -2250,6 +2252,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsSessionActive = false;
             IsBusy = false;
             IsStreaming = false;
+            SupportsQueuedSends = false;
+            QueuedMessages.Clear();
+            SyncQueuedMessages(null);
             IsUploading = false;
             _revision = -1;
             _transcriptVersion = null;
@@ -2291,6 +2296,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     {
         Interlocked.Increment(ref _hostGeneration);
         _pendingStopRequestIds.Clear();
+        _queuedActionRequests.Clear();
         _drafts.Clear();
         _surfaceMappings.Clear();
         _preferredModel = null;
@@ -2785,6 +2791,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (status.HasUnreadMessages is { } unread)
             HasUnreadMessages = unread;
         IsAwaitingInput = status.IsAwaitingInput;
+        SupportsQueuedSends = status.SupportsQueuedSends;
+        SyncQueuedMessages(status.QueuedMessages);
         ContextCurrentTokens = status.ContextCurrentTokens;
         ContextTokenLimit = status.ContextTokenLimit;
         // A compact status frame leaves an unchanged plan out instead of repeating it.
@@ -3635,9 +3643,13 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 attachments.Add(attachment);
         }
 
-        var promptText = draft.PromptText.Length == 0
-            ? sentPayload.PromptText
-            : draft.PromptText;
+        // A queue request the PC turned down returns ahead of anything typed since, as Edit
+        // returns a queued message. One whose outcome is unknown may be in the PC's queue.
+        var promptText = mode == SendMode.Queue && !preserveRequestIdentity
+            ? PrependReturnedText(sentPayload.PromptText, draft.PromptText)
+            : draft.PromptText.Length == 0
+                ? sentPayload.PromptText
+                : draft.PromptText;
         var configuration = draft.Configuration.Clone();
         configuration.MergeFrom(
             sentConfiguration,

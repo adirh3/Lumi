@@ -52,6 +52,12 @@ public partial class ChatViewModel
 
     public bool HasQueuedSends => QueuedSends.Count > 0;
 
+    internal IReadOnlyList<ChatMessage> GetWaitingSends(Guid chatId)
+        => _waitingSends.TryGetValue(chatId, out var waiting) ? waiting : [];
+
+    internal bool CanQueueExternalMessage(Chat chat) =>
+        !chat.IsPaused && IsChatRuntimeActive(chat.Id) && !CanStartTurnOnReadySession(chat);
+
     /// <summary>
     /// Queues the draft to be sent after the reply Lumi is writing, instead of steering it into that reply.
     /// When nothing is running it is an ordinary send.
@@ -221,6 +227,32 @@ public partial class ChatViewModel
         }
 
         await SteerActiveTurnAsync(chat, message.Content, consumeComposerPrompt: false, message);
+    }
+
+    /// <summary>The queued message with this id, while it still waits here.</summary>
+    internal ChatMessage? FindWaitingSend(Guid chatId, Guid messageId)
+        => _waitingSends.TryGetValue(chatId, out var waiting)
+            ? waiting.Find(message => message.Id == messageId)
+            : null;
+
+    /// <summary>Drops a queued message another device chose to remove.</summary>
+    internal bool RemoveWaitingSendById(Guid chatId, Guid messageId)
+    {
+        if (FindWaitingSend(chatId, messageId) is not { } message || !RemoveWaitingSend(chatId, message))
+            return false;
+
+        SyncQueuedSends();
+        return true;
+    }
+
+    /// <summary>Steers a queued message another device chose to send now; the chat must be open here.</summary>
+    internal async Task<bool> SteerWaitingSendNowAsync(Chat chat, Guid messageId)
+    {
+        if (CurrentChat?.Id != chat.Id || FindWaitingSend(chat.Id, messageId) is not { } message)
+            return false;
+
+        await SteerQueuedSendNowAsync(message);
+        return true;
     }
 
     /// <summary>Shows the current chat's queued messages, updating the list in place.</summary>
