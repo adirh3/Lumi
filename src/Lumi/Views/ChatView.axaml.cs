@@ -2191,7 +2191,7 @@ public partial class ChatView : UserControl
             if (!textBlock.IsEffectivelyVisible)
                 continue;
 
-            var raw = textBlock.Inlines is { Count: > 0 } inlines ? inlines.Text : textBlock.Text;
+            var raw = StrataTextSelection.GetSelectableText(textBlock);
             if (string.IsNullOrEmpty(raw))
                 continue;
 

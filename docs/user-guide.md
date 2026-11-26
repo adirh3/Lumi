@@ -35,7 +35,7 @@ Quick links: [AI accounts](#ai-accounts), [voice input](#voice-input),
 - **Background AI model** — One configurable model for internal AI helpers, with cost-first Auto selection independent of chat and job models
 - **Context awareness** — Lumi assembles context from the active project and its brief, agent, time of day, user name, skills, and memories into every interaction
 - **System tray** — Minimize to tray with global hotkey for instant access. On macOS, clicking the Dock icon or opening Lumi again restores the hidden window and keeps the current chat, draft, and maximized or full-screen state. Quit and operating-system shutdown still exit normally when minimize-to-tray is enabled.
-- **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
+- **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat. Point at a chart, or tap it on a phone, to read its values; its quiet toolbar switches it to a table, copies its data or opens it full screen
 - **Image galleries** — Open an inline image and use the arrows or Left/Right keys to browse the pictures in that reply on desktop. On a phone, drag the fitted image sideways to bring the next or previous photo into view, or flick to turn the page. A small drag snaps back; a zoomed-in image pans instead. Image attachments have their own gallery within the same attachment list; other files still open normally.
 - **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, option explorers for researched products, stays, and plans (cards or a sortable table, filters, details, and side-by-side comparison), what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback
 - **MCP Apps & canvases** — Connector-provided interactive apps and Copilot canvas extensions open in Workspace, with lightweight reopen cards in the transcript. App tool calls reuse the chat's Copilot connection; canvas behavior and data stay with the extension.
@@ -1412,7 +1412,7 @@ Pinch and move your fingers to zoom and pan photos and diagrams in one gesture. 
 lift one finger to keep dragging with the other. You can drag a zoomed photo past the screen
 edge to inspect its borders in the center of the viewer. In chat, use two fingers on an inline diagram
 so one-finger swipes still scroll the conversation. Double-tap an image to zoom or fit it;
-double-tap a diagram, or use **Fit**, to reset its view. Viewer actions have
+double-tap a diagram, or use **Fit** in full screen, to reset its view. Viewer actions have
 48-DIP touch targets and stay clear of the system bars, and native text editors step aside
 while a viewer is open.
 

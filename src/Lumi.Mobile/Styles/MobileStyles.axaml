@@ -95,6 +95,7 @@
   </Style>
 
   <Style Selector="sc|StrataMermaid /template/ Button,
+                   sc|StrataChart /template/ Button,
                    :is(sc|StrataMarkdown) Button.strata-md-image-expand,
                    Grid#MarkdownImageViewer Button.strata-md-image-viewer-close,
                    Grid#MarkdownImageViewer Button.strata-md-image-viewer-action">
@@ -102,12 +103,53 @@
     <Setter Property="MinHeight" Value="48" />
   </Style>
 
-  <Style Selector="sc|StrataMermaid /template/ TextBlock#PART_ZoomLabel">
+  <!-- The class in each selector below is what lets it outrank values the controls' templates set. -->
+  <Style Selector="sc|StrataMermaid /template/ Button.mermaid-tool TextBlock#PART_ZoomLabel">
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
   </Style>
 
-  <!-- A phone's touch-sized toolbar keeps zoom, copy and full screen; the source view stays on the desktop. -->
+  <!-- A diagram's and a chart's toolbar keep the desktop's quiet ink on a phone: a finger never raises its glass,
+       only full screen does, where the pills are about the desktop's height, 40dp. Each button keeps its 48dp touch
+       target, reaching 4dp past its pill (the pill's margin keeps that inside the block), and its lit and pressed
+       surface stays inside the pill. -->
+  <Style Selector="sc|StrataMermaid /template/ Border.mermaid-pill,
+                   sc|StrataChart /template/ Border.chart-pill">
+    <Setter Property="Margin" Value="0,2,0,4" />
+  </Style>
+  <Style Selector="sc|StrataMermaid /template/ StackPanel.mermaid-row,
+                   sc|StrataChart /template/ StackPanel.chart-row">
+    <Setter Property="Margin" Value="3,1" />
+  </Style>
+  <Style Selector="sc|StrataMermaid /template/ Button.mermaid-tool,
+                   sc|StrataMermaid /template/ Button.mermaid-segment,
+                   sc|StrataChart /template/ Button.chart-tool,
+                   sc|StrataChart /template/ Button.chart-segment">
+    <Setter Property="MinWidth" Value="48" />
+    <Setter Property="MinHeight" Value="48" />
+    <Setter Property="Margin" Value="0,-5" />
+  </Style>
+  <Style Selector="sc|StrataMermaid /template/ Button.mermaid-tool /template/ Border#PART_Surface,
+                   sc|StrataMermaid /template/ Button.mermaid-segment /template/ Border,
+                   sc|StrataChart /template/ Button.chart-tool /template/ Border#PART_Surface,
+                   sc|StrataChart /template/ Button.chart-segment /template/ Border">
+    <Setter Property="Margin" Value="0,7" />
+  </Style>
+  <Style Selector="sc|StrataMermaid /template/ Button.mermaid-tool sc|StrataLineIcon,
+                   sc|StrataChart /template/ Button.chart-tool sc|StrataLineIcon">
+    <Setter Property="Width" Value="18" />
+    <Setter Property="Height" Value="18" />
+  </Style>
+  <Style Selector="sc|StrataMermaid /template/ Button.mermaid-segment,
+                   sc|StrataChart /template/ Button.chart-segment">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+  </Style>
+
+  <!-- A phone's toolbar keeps copy and full screen. The source view stays on the desktop, and zoom in full screen,
+       where a pinch does it too. -->
   <Style Selector="sc|StrataMermaid /template/ Border#PART_ViewSwitch">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="sc|StrataMermaid:not(:fullscreen) /template/ Border#PART_ZoomGroup">
     <Setter Property="IsVisible" Value="False" />
   </Style>
 
@@ -115,6 +157,12 @@
   <Style Selector="sc|StrataCard /template/ Button#PART_MoreButton">
     <Setter Property="MinHeight" Value="48" />
     <Setter Property="Margin" Value="16,-9,0,5" />
+  </Style>
+
+  <!-- So does a table's copy chip, in the header's corner: its touch target reaches into the table. -->
+  <Style Selector=":is(sc|StrataMarkdown) Button.strata-md-table-copy-button">
+    <Setter Property="MinWidth" Value="48" />
+    <Setter Property="Height" Value="48" />
   </Style>
 
   <Style Selector="Button.nav-item">

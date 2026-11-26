@@ -380,6 +380,40 @@ public static class DebugAgentHarness
             {"header":"Weather in Amsterdam","summary":"☀️ 22°C, sunny with a light breeze","detail":"- **Humidity:** 45%\n- **Wind:** 12 km/h NW\n- **UV index:** 6 (high)\n- **Sunset:** 21:42\n- **Tomorrow:** cloudy, 19°C"}
             ```
 
+            Charts carry a diagram's toolbar (Chart | Table, copy and full screen) and show the values under the pointer on glass:
+
+            ```chart
+            {"type":"bar","labels":["Jan","Feb","Mar","Apr","May","Jun"],"series":[{"name":"Revenue","values":[18200,21400,19800,24600,27100,29400]},{"name":"Costs","values":[12100,13900,13400,15800,16300,17100]}]}
+            ```
+
+            ```chart
+            {"type":"line","labels":["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],"series":[{"name":"Active users","values":[820,932,901,934,1290,1330,1320]}]}
+            ```
+
+            ```chart
+            {"type":"donut","labels":["Engineering","Design","Marketing","Support"],"series":[{"name":"Budget","values":[45,20,25,10]}],"donutCenterValue":"$2.4M","donutCenterLabel":"Total budget"}
+            ```
+
+            ```chart
+            {"type":"pie","labels":["Desktop","Mobile","Tablet"],"series":[{"name":"Sessions","values":[58,34,8]}]}
+            ```
+
+            Task lists draw Strata checkboxes, and a table's copy button keeps clear of its last header:
+
+            - [x] Ship the transcript facelift
+            - [x] Review the diagram toolbar
+            - [ ] Polish charts and tables
+            - [ ] Write the release notes
+
+            - [x] משימה שהושלמה
+            - [ ] משימה פתוחה בעברית
+
+            | Block | What it shows now, and why that reads better than it did |
+            | --- | --- |
+            | Charts | A toolbar, a table view, narrower bars and glass hover values |
+            | Tables | A copy button that never covers the header |
+            | Task lists | Checkboxes instead of text characters |
+
             The two-option comparison control (StrataFork) should switch when either tab is clicked:
 
             ```comparison

@@ -400,7 +400,7 @@ public static class DesignPreview
     /// <summary>
     /// A conversation that shows every kind of item the phone's transcript draws: an attachment, finished
     /// work folded behind its summary with the files it changed, a multi-part answer, sources and the
-    /// files Lumi made, an answered question, and work still under way.
+    /// files Lumi made, an answered question, an answer of native blocks, and work still under way.
     /// </summary>
     private static List<RemoteTranscriptTurn> TranscriptTurns(DateTimeOffset now, string viewerImage) =>
     [
@@ -514,6 +514,28 @@ public static class DesignPreview
                         new() { FileName = "interactive-report.html", Extension = ".html", MessageId = Guid.NewGuid() },
                         new() { FileName = "Lumi-1.0-release-notes.docx", Extension = ".docx", MessageId = Guid.NewGuid() }
                     ]
+                }
+            ]
+        },
+        // An answer made of the blocks a phone draws natively: a chart, a diagram, a checklist and a table.
+        new()
+        {
+            Id = "turn-blocks",
+            FinalAnswerId = "answer-blocks",
+            Items =
+            [
+                new() { Id = Guid.NewGuid().ToString("N"), Kind = RemoteProtocol.ItemKinds.User, Timestamp = now.AddMinutes(-8), Text = "How did this week's test runs go?" },
+                new()
+                {
+                    Id = "answer-blocks", Kind = RemoteProtocol.ItemKinds.Assistant, Author = "Lumi", Model = "gpt-6.1-sol", Timestamp = now.AddMinutes(-7),
+                    IsProgress = false,
+                    Text = "**Steady week** — only Wednesday's Fold run had failures, all from the stale keyboard gap.\n\n"
+                        + "```chart\n{\"type\":\"bar\",\"labels\":[\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\"],\"series\":[{\"name\":\"Passed\",\"values\":[684,691,652,699,699]},{\"name\":\"Failed\",\"values\":[15,8,47,0,0]}]}\n```\n\n"
+                        + "Each build goes through the same gate before it reaches your Fold:\n\n"
+                        + "```mermaid\nflowchart LR\n    Build[Build APK] --> Tests{Tests pass?}\n    Tests -->|Yes| Fold[Install on Fold]\n    Tests -->|No| Fix[Fix and rerun]\n    Fix --> Build\n```\n\n"
+                        + "**Next**\n\n- [x] Rerun the Fold layout tests\n- [x] Clear cached insets on resume\n- [ ] Check the tablet layout\n- [ ] Ship the test APK\n\n"
+                        + "| Run | Device | Passed | Failed | Duration |\n|---|---|---:|---:|---:|\n"
+                        + "| Mon | Pixel 8 Pro | 684 | 15 | 6m 12s |\n| Wed | Galaxy Z Fold 7 | 652 | 47 | 7m 40s |\n| Fri | Galaxy Z Fold 7 | 699 | 0 | 6m 05s |"
                 }
             ]
         },

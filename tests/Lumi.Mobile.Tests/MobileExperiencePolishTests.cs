@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Platform;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Input.Raw;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Platform;
@@ -3760,6 +3761,225 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             return Task.CompletedTask;
         });
 
+    [Fact]
+    public Task ChartToolbarIsFingertipSized_AndTheTableGivesTheValuesTouchCannotHover() =>
+        RunUiAsync(360, (shell, view, window) =>
+        {
+            shell.IsDrawerOpen = false;
+            var chart = new StrataChart
+            {
+                ChartType = StrataChartType.Bar,
+                Labels = ["Q1", "Q2"],
+                Series = [new StrataChartSeries { Name = "Revenue", Values = [12, 20] }],
+                ShowToolbar = true,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Required<Panel>(view, "Root").Children.Add(chart);
+            PumpFrame(window);
+            foreach (var name in new[] { "PART_ChartView", "PART_TableView", "PART_CopyData", "PART_Expand" })
+            {
+                var button = Required<Button>(chart, name);
+                Assert.True(button.Bounds.Width >= 48 && button.Bounds.Height >= 48,
+                    $"{name} is a {button.Bounds.Width:0.#}x{button.Bounds.Height:0.#} dp target");
+            }
+
+            Tap(window, Required<Button>(chart, "PART_TableView"));
+            PumpFrame(window);
+            Assert.True(chart.IsTableView);
+            return Task.CompletedTask;
+        });
+
+    [Theory]
+    [InlineData("diagram")]
+    [InlineData("chart")]
+    public Task ToolbarPillsStayCompactWhileEveryButtonIsAFingertipTarget(string block) =>
+        RunUiAsync(360, async (shell, view, window) =>
+        {
+            shell.IsDrawerOpen = false;
+            var owner = ToolbarBlock(block);
+            Required<Panel>(view, "Root").Children.Add(owner);
+            PumpFrame(window);
+
+            var buttons = owner.GetVisualDescendants().OfType<Button>().Where(button => button.IsEffectivelyVisible).ToList();
+            Assert.NotEmpty(buttons);
+            foreach (var button in buttons)
+            {
+                Assert.True(button.Bounds is { Width: >= 48, Height: >= 48 },
+                    $"{button.Name} is a {button.Bounds.Width:0.#}x{button.Bounds.Height:0.#} dp target");
+                var pill = button.GetVisualAncestors().OfType<Border>()
+                    .First(border => border.Classes.Contains("mermaid-pill") || border.Classes.Contains("chart-pill"));
+                Assert.True(pill.Bounds.Height <= 42, $"{button.Name}'s pill is {pill.Bounds.Height:0.#} dp tall");
+
+                // The target reaches past the pill, and a touch there still lands on the button.
+                AssertReaches(window, button, new Point(button.Bounds.Width / 2, 1));
+                AssertReaches(window, button, new Point(button.Bounds.Width / 2, button.Bounds.Height - 1));
+                var surface = Required<Border>(button, "PART_Surface");
+                var top = surface.TranslatePoint(default, pill)!.Value.Y;
+                Assert.True(top >= 0 && top + surface.Bounds.Height <= pill.Bounds.Height,
+                    $"{button.Name}'s surface spans {top:0.#}–{top + surface.Bounds.Height:0.#} in a {pill.Bounds.Height:0.#} dp pill");
+            }
+
+            // Inline, a diagram leaves zoom to full screen, and a finger never raises the toolbar's glass.
+            if (owner is StrataMermaid)
+                Assert.False(Required<Border>(owner, "PART_ZoomGroup").IsEffectivelyVisible);
+            TouchTap(window, owner.TranslatePoint(new Point(owner.Bounds.Width / 2, owner.Bounds.Height / 3), window)!.Value);
+            await Task.Delay(300);
+            PumpFrame(window);
+            Assert.DoesNotContain(":engaged", owner.Classes);
+            Assert.All(ToolbarGlass(owner), glass => Assert.Equal(0, glass.Opacity));
+        });
+
+    [Theory]
+    [InlineData("diagram")]
+    [InlineData("chart")]
+    public Task FullScreenRaisesTheToolbarsGlass_AndGivesADiagramItsZoom(string block) =>
+        RunUiAsync(360, async (shell, view, window) =>
+        {
+            shell.IsDrawerOpen = false;
+            var owner = ToolbarBlock(block);
+            Required<Panel>(view, "Root").Children.Add(owner);
+            PumpFrame(window);
+
+            Tap(window, Required<Button>(owner, "PART_Expand"));
+            PumpFrame(window);
+            var expanded = window.GetVisualDescendants().OfType<Control>()
+                .Single(control => control.Name is "ExpandedMermaid" or "ExpandedChart");
+            var glass = ToolbarGlass(expanded);
+            Assert.NotEmpty(glass);
+            for (var frame = 0; frame < 60 && glass.Any(pane => pane.Opacity < 1); frame++)
+            {
+                await Task.Delay(16);
+                PumpFrame(window);
+            }
+            Assert.All(glass, pane => Assert.Equal(1, pane.Opacity));
+            if (expanded is StrataMermaid)
+                Assert.True(Required<Border>(expanded, "PART_ZoomGroup").IsEffectivelyVisible);
+        });
+
+    private static Control ToolbarBlock(string block) => block == "chart"
+        ? new StrataChart
+        {
+            ChartType = StrataChartType.Bar,
+            Labels = ["Q1", "Q2"],
+            Series = [new StrataChartSeries { Name = "Revenue", Values = [12, 20] }],
+            ShowToolbar = true,
+            VerticalAlignment = VerticalAlignment.Center
+        }
+        : new StrataMermaid
+        {
+            Source = "flowchart LR\nA[Phone] --> B[Desktop]",
+            Height = 250,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+    // The panes of glass behind a diagram's or a chart's toolbar pills that are on screen.
+    private static List<Border> ToolbarGlass(Control owner) =>
+        owner.GetVisualDescendants().OfType<Border>()
+            .Where(border => (border.Classes.Contains("mermaid-glass") || border.Classes.Contains("chart-glass"))
+                && border.IsEffectivelyVisible)
+            .ToList();
+
+    [Fact]
+    public Task TableCopyChipKeepsItsSizeWhileItsTouchTargetReachesIntoTheTable() =>
+        RunUiAsync(360, (shell, view, window) =>
+        {
+            shell.IsDrawerOpen = false;
+            var markdown = new StrataMarkdown
+            {
+                Markdown = "| Run | Device |\n|---|---|\n| Mon | Pixel 8 Pro |\n| Wed | Galaxy Z Fold 7 |",
+                IsInline = true,
+                StreamingRebuildThrottleMs = 0,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Required<Panel>(view, "Root").Children.Add(markdown);
+            PumpFrame(window);
+
+            var copy = Required<Button>(markdown, "PART_CopyTableButton");
+            var chip = Required<Panel>(copy, "PART_Chip");
+            Assert.True(copy.Bounds is { Width: >= 48, Height: >= 48 },
+                $"Copy table is a {copy.Bounds.Width:0.#}x{copy.Bounds.Height:0.#} dp target");
+            Assert.Equal(26, chip.Bounds.Height, precision: 1);
+            // The chip stays in the target's top corner, where the desktop shows it, at the header.
+            var corner = chip.TranslatePoint(new Point(chip.Bounds.Width, 0), copy)!.Value;
+            Assert.Equal(copy.Bounds.Width, corner.X, precision: 1);
+            Assert.Equal(0, corner.Y, precision: 1);
+            AssertReaches(window, copy, new Point(2, copy.Bounds.Height - 2));
+            return Task.CompletedTask;
+        });
+
+    [Fact]
+    public Task TappingABarInAnAnswerKeepsItsValuesAfterTheFingerLifts() =>
+        RunUiAsync(360, (shell, view, window) =>
+        {
+            shell.IsDrawerOpen = false;
+            shell.Chat.ApplyTranscript(new RemoteTranscript
+            {
+                ChatId = shell.Chat.ChatId, Revision = 1,
+                Status = new RemoteChatStatus { ChatId = shell.Chat.ChatId },
+                Turns =
+                [
+                    new RemoteTranscriptTurn
+                    {
+                        Id = "chart-turn", FinalAnswerId = "chart-answer",
+                        Items =
+                        [
+                            new RemoteTranscriptItem { Id = "chart-question", Kind = RemoteProtocol.ItemKinds.User, Text = "How did the quarter go?" },
+                            new RemoteTranscriptItem
+                            {
+                                Id = "chart-answer", Kind = RemoteProtocol.ItemKinds.Assistant,
+                                Text = "Revenue by quarter:\n\n```chart\n{\"type\":\"bar\",\"labels\":[\"Q1\",\"Q2\",\"Q3\"],"
+                                    + "\"series\":[{\"name\":\"Revenue\",\"values\":[12,20,16]}]}\n```"
+                            }
+                        ]
+                    }
+                ]
+            });
+            PumpFrame(window);
+
+            var chart = view.GetVisualDescendants().OfType<StrataChart>().Single();
+            var plot = Required<Panel>(chart, "PART_ChartHost");
+            var tip = Required<Panel>(chart, "PART_Tip");
+            Assert.False(tip.IsVisible);
+            var middleBar = plot.TranslatePoint(new Point(plot.Bounds.Width / 2, plot.Bounds.Height / 2), window)!.Value;
+            AssertReaches(window, plot, new Point(plot.Bounds.Width / 2, plot.Bounds.Height / 2));
+
+            // A finger that lands on the chart to scroll the conversation shows nothing.
+            Touch(window, [middleBar, middleBar - new Vector(0, 15), middleBar - new Vector(0, 30)]);
+            PumpFrame(window);
+            Assert.False(tip.IsVisible, "A swipe across the chart is a scroll, not a tap.");
+
+            TouchTap(window, middleBar, at: 2000);
+            PumpFrame(window);
+            Assert.True(tip.IsVisible, "A finger never hovers: the values it tapped stay on screen once it lifts.");
+            var tipText = Required<StackPanel>(chart, "PART_TipRows").GetVisualDescendants().OfType<TextBlock>().ToList();
+            Assert.Contains("Q2", tipText.Select(text => text.Text));
+            var caption = (double)window.FindResource("Font.SizeCaption")!;
+            Assert.All(tipText, text => Assert.True(text.FontSize >= caption, $"\"{text.Text}\" is {text.FontSize}px"));
+
+            TouchTap(window, middleBar, at: 4000);
+            PumpFrame(window);
+            Assert.False(tip.IsVisible, "A second tap on the same values puts them away.");
+
+            // Tapping twice in quick succession reads as a double tap, yet each tap still counts.
+            using var finger = (TouchDevice)Activator.CreateInstance(typeof(TouchDevice), nonPublic: true)!;
+            TouchTap(window, middleBar, at: 6000, finger);
+            PumpFrame(window);
+            Assert.True(tip.IsVisible, "The first tap shows the values.");
+            TouchTap(window, middleBar, at: 6150, finger);
+            PumpFrame(window);
+            Assert.False(tip.IsVisible, "A quick second tap puts them away too.");
+
+            // ...and counts once, even when the finger drifts a little before it lifts. (Sideways, the drawer's
+            // swipe would take the finger.)
+            TouchTap(window, middleBar, at: 8000, finger);
+            PumpFrame(window);
+            Assert.True(tip.IsVisible, "A tap shows the values again.");
+            Touch(window, [middleBar, middleBar + new Vector(0, 6)], at: 8150, finger);
+            PumpFrame(window);
+            Assert.False(tip.IsVisible, "A quick second tap that drifts puts them away, and only once.");
+            return Task.CompletedTask;
+        });
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -3887,18 +4107,55 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
 
     private static void Tap(Window window, Button button, Point? position = null)
     {
-        var center = button.TranslatePoint(
-            position ?? new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window);
-        Assert.NotNull(center);
-        var hit = Assert.IsAssignableFrom<Visual>(window.InputHitTest(center.Value));
-        Assert.True(ReferenceEquals(hit, button) || hit.GetVisualAncestors().Contains(button),
-            $"{button.Name ?? "Action"} at {center} is covered by {hit.GetType().Name} "
-            + $"{(hit as Control)?.Name}; button bounds: {button.Bounds}; "
-            + $"hit ancestry: {string.Join(" > ", hit.GetVisualAncestors().OfType<Control>().Select(control => control.Name ?? control.GetType().Name))}.");
-        window.MouseDown(center.Value, MouseButton.Left);
-        window.MouseUp(center.Value, MouseButton.Left);
+        var point = AssertReaches(window, button,
+            position ?? new Point(button.Bounds.Width / 2, button.Bounds.Height / 2));
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
         Pump(window);
     }
+
+    // Hit testing at this point of the control reaches the control, as a finger landing there would.
+    private static Point AssertReaches(Window window, Control control, Point position)
+    {
+        var point = control.TranslatePoint(position, window);
+        Assert.NotNull(point);
+        var hit = Assert.IsAssignableFrom<Visual>(window.InputHitTest(point.Value));
+        Assert.True(ReferenceEquals(hit, control) || hit.GetVisualAncestors().Contains(control),
+            $"{control.Name ?? "Action"} at {point} is covered by {hit.GetType().Name} "
+            + $"{(hit as Control)?.Name}; bounds: {control.Bounds}; "
+            + $"hit ancestry: {string.Join(" > ", hit.GetVisualAncestors().OfType<Control>().Select(ancestor => ancestor.Name ?? ancestor.GetType().Name))}.");
+        return point.Value;
+    }
+
+    // A finger's touch, through the platform's raw input, so hit testing, gesture recognizers and every
+    // tunnelling handler take part as on a phone: down at the first point, along the rest, up at the last.
+    // The same finger tapping again soon is counted as a double tap, as a phone counts it.
+    private static void Touch(Window window, IReadOnlyList<Point> path, ulong at = 1000, TouchDevice? finger = null)
+    {
+        using var newFinger = finger is null ? (TouchDevice)Activator.CreateInstance(typeof(TouchDevice), nonPublic: true)! : null;
+        var touch = finger ?? newFinger!;
+        var input = (Action<RawInputEventArgs>)typeof(ITopLevelImpl).GetProperty("Input")!.GetValue(window.PlatformImpl)!;
+        var inputRoot = typeof(TopLevel).GetProperty("InputRoot",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(window)!;
+        Send(RawPointerEventType.TouchBegin, path[0], at);
+        for (var step = 1; step < path.Count; step++)
+        {
+            Send(RawPointerEventType.TouchUpdate, path[step], at + (ulong)(20 * step));
+            Dispatcher.UIThread.RunJobs();
+        }
+        Send(RawPointerEventType.TouchEnd, path[^1], at + (ulong)(20 * path.Count + 60));
+        Dispatcher.UIThread.RunJobs();
+
+        void Send(RawPointerEventType type, Point point, ulong timestamp) =>
+            input((RawInputEventArgs)Activator.CreateInstance(
+                typeof(RawTouchEventArgs),
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+                binder: null, [touch, timestamp, inputRoot, type, point, RawInputModifiers.None, 1L], culture: null)!);
+    }
+
+    private static void TouchTap(Window window, Point point, ulong at = 1000, TouchDevice? finger = null) =>
+        Touch(window, [point], at, finger);
 
     // The Android navigation manager raises this event directly on the top level.
     private static void PressAndroidBack(Window window, MobileShellViewModel shell)
