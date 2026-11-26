@@ -414,6 +414,7 @@ public static class RemoteProtocol
         public const string RenameChat = "rename_chat";
         public const string PinChat = "pin_chat";
         public const string SendMessage = "send_message";
+        public const string QueueMessage = "queue_message";
         public const string SendSteeredNow = "send_steered_now";
         /// <summary>Steers a queued message (<c>messageId</c>) into the running reply now.</summary>
         public const string SteerQueuedMessage = "steer_queued_message";

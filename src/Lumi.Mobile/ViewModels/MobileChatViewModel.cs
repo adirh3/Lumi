@@ -70,7 +70,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private Guid _chatId;
     [ObservableProperty] private string _title = "";
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopAndSendCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(QueueSendCommand), nameof(StopAndSendCommand))]
     [NotifyPropertyChangedFor(nameof(HasUnsentWork))]
     [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private string _promptText = "";
@@ -87,10 +87,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
     private bool _isSessionActive;
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopAndSendCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(QueueSendCommand), nameof(StopAndSendCommand))]
     [NotifyPropertyChangedFor(nameof(CanSubmitInteractions))]
     [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isLoading;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(QueueSendCommand))]
+    [NotifyPropertyChangedFor(nameof(ComposerQueueCommand))]
+    private bool _supportsQueuedSends;
     [ObservableProperty] private string? _statusText;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ReadStateActionLabel))]
@@ -109,7 +113,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [ObservableProperty] private bool _hasEarlierMessages;
     [ObservableProperty] private bool _hasLaterMessages;
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopAndSendCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(QueueSendCommand), nameof(StopAndSendCommand))]
     [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isLatestWindow = true;
     [ObservableProperty] private bool _hasNewerActivity;
@@ -368,7 +372,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public bool HasAttachments => Attachments.Count > 0;
 
     private bool HasPendingSend =>
-        SendCommand.IsRunning || StopAndSendCommand.IsRunning;
+        SendCommand.IsRunning || QueueSendCommand.IsRunning || StopAndSendCommand.IsRunning;
 
     internal bool HasPendingOperation =>
         IsUploading
@@ -393,7 +397,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     /// <summary>An upload in flight, so the composer can show progress instead of appearing to hang.</summary>
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(StopAndSendCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand), nameof(QueueSendCommand), nameof(StopAndSendCommand))]
     [NotifyPropertyChangedFor(nameof(HasUnsentWork))]
     [NotifyPropertyChangedFor(nameof(ShowFollowUpSuggestions))]
     private bool _isUploading;
@@ -591,6 +595,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         Suggestions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowFollowUpSuggestions));
         QueuedMessages.CollectionChanged += OnQueuedMessagesChanged;
         SendCommand.PropertyChanged += OnSendActivityChanged;
+        QueueSendCommand.PropertyChanged += OnSendActivityChanged;
         StopAndSendCommand.PropertyChanged += OnSendActivityChanged;
     }
 
@@ -607,6 +612,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private void NotifySendCommandsCanExecuteChanged()
     {
         SendCommand.NotifyCanExecuteChanged();
+        QueueSendCommand.NotifyCanExecuteChanged();
         StopAndSendCommand.NotifyCanExecuteChanged();
     }
 
@@ -784,6 +790,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public bool HasBackgroundActivity => IsSessionActive && !IsBusy && !IsStreaming;
 
     private bool HasSendDraft => !string.IsNullOrWhiteSpace(PromptText) || HasAttachments;
+
+    /// <summary>Offers queueing only when the PC accepts that action.</summary>
+    public IAsyncRelayCommand? ComposerQueueCommand => SupportsQueuedSends ? QueueSendCommand : null;
 
     /// <summary>
     /// True when the blank surface has become the user's work rather than the untouched launch
@@ -3408,6 +3417,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanSend))]
     private Task SendAsync() => SendCoreAsync(IsWorking ? SendMode.Steer : SendMode.Send);
 
+    private bool CanQueueSend() => HasChat && SupportsQueuedSends && CanSend();
+
+    [RelayCommand(CanExecute = nameof(CanQueueSend))]
+    private Task QueueSendAsync() => SendCoreAsync(SendMode.Queue);
+
     private async Task SendCoreAsync(SendMode mode)
     {
         var hostGeneration = Volatile.Read(ref _hostGeneration);
@@ -3462,13 +3476,20 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(CanChooseWorktree));
         NotifySendCommandsCanExecuteChanged();
 
-        BeginAwaitingVisibleActivity();
-        IsBusy = true;
-        var echo = AddPendingEcho(text, requestId, effectiveMode, attached);
-        if (surface.ChatId != Guid.Empty)
-            ChatActivitySubmitted?.Invoke(surface.ChatId, text);
+        // Queued drafts don't enter the transcript or start a Thinking indicator until the PC sends them.
+        TranscriptTurnViewModel? echo = null;
+        if (effectiveMode != SendMode.Queue)
+        {
+            BeginAwaitingVisibleActivity();
+            IsBusy = true;
+            echo = AddPendingEcho(text, requestId, effectiveMode, attached);
+            if (surface.ChatId != Guid.Empty)
+                ChatActivitySubmitted?.Invoke(surface.ChatId, text);
+        }
 
-        var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+        var command = new RemoteCommand(effectiveMode == SendMode.Queue
+            ? RemoteProtocol.Actions.QueueMessage
+            : RemoteProtocol.Actions.SendMessage)
         {
             RequestId = requestId
         }.With("message", prompt);
@@ -3683,6 +3704,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
             return;
 
         ApplyDraft(restored, restoreSelections: true);
+        if (mode == SendMode.Queue && !preserveRequestIdentity)
+            ComposerCaretToEndRequested?.Invoke();
         if (isOriginalActivation && echo is not null)
         {
             ResetVisibleActivityProgress();
@@ -4332,7 +4355,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 FileName = file.FileName
             }));
 
-    private enum SendMode { Send, Steer, StopAndSend }
+    private enum SendMode { Send, Steer, Queue, StopAndSend }
 
     private sealed record PendingRetry(
         string RequestId,

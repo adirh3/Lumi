@@ -1312,9 +1312,10 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Contains("mobile-send-menu", menu.Classes);
             var sends = 0;
             var stops = 0;
+            var queues = 0;
             composer.SetCurrentValue(StrataChatComposer.SendCommandProperty, new RelayCommand(() => sends++));
             composer.SetCurrentValue(StrataChatComposer.StopCommandProperty, new RelayCommand(() => stops++));
-            Assert.Null(composer.QueueCommand);
+            composer.SetCurrentValue(StrataChatComposer.QueueCommandProperty, new RelayCommand(() => queues++));
 
             editor.SetTextFromNative("keep this draft");
             PumpFrame(window);
@@ -1325,15 +1326,15 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             // A hold leaves focus out of the menu: moving it there would close the soft keyboard under the draft.
             Assert.False(menu.IsKeyboardFocusWithin);
             // The release that ends the hold neither steers the draft nor stops Lumi.
-            Assert.Equal((0, 0), (sends, stops));
+            Assert.Equal((0, 0, 0), (sends, stops, queues));
             // The menu opens from Send and rises clear of the draft's editor, so the draft stays in view.
             Assert.True(editor.IsVisible);
             var popup = Assert.IsType<Avalonia.Controls.Primitives.Popup>(menu.Parent);
             AssertSendMenuOpensFromSendAboveTheEditor(window, menu, button, editor);
             var labels = InteractiveLabels.Current;
-            var items = menu.Items.OfType<MenuItem>().Where(item => item.IsVisible).ToList();
+            var items = menu.Items.OfType<MenuItem>().ToList();
             Assert.Equal(
-                new string?[] { labels["sendToSteer"], labels["stopAndSend"], labels["stopSession"] },
+                new string?[] { labels["sendToSteer"], labels["addToQueue"], labels["stopAndSend"], labels["stopSession"] },
                 items.Select(item => item.Header as string).ToArray());
             PumpFrame(window);
             Assert.All(items, item =>
@@ -1345,11 +1346,11 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
 
             // Choosing a row runs Strata's own action for it and closes the menu.
             Assert.IsAssignableFrom<Avalonia.Automation.Provider.IInvokeProvider>(
-                Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(items[0])).Invoke();
+                Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(items[1])).Invoke();
             Assert.False(popup.IsOpen);
             await WaitForMenuToCloseAsync(window, menu);
             Assert.False(menu.IsOpen);
-            Assert.Equal((1, 0), (sends, stops));
+            Assert.Equal((0, 0, 1), (sends, stops, queues));
 
             // Back closes the menu and nothing else: the chat, its draft and the drawer stay as they were.
             Hold(window, button);
@@ -1360,19 +1361,19 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(shell.IsDrawerOpen);
             Assert.True(editor.IsVisible);
             Assert.Equal("keep this draft", editor.Text);
-            Assert.Equal((1, 0), (sends, stops));
+            Assert.Equal((0, 0, 1), (sends, stops, queues));
 
             // While its exit plays the menu is already gone for the user, so the next Back is the page's.
             PressAndroidBack(window, shell);
             Assert.True(shell.IsDrawerOpen);
             await WaitForMenuToCloseAsync(window, menu);
             Assert.False(menu.IsOpen);
-            Assert.Equal((1, 0), (sends, stops));
+            Assert.Equal((0, 0, 1), (sends, stops, queues));
         }, nativeFactory: new FocusEditorFactory(), setup: shell =>
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
-                ChatId = shell.Chat.ChatId, IsBusy = true
+                ChatId = shell.Chat.ChatId, IsBusy = true, SupportsQueuedSends = true
             });
         });
 
@@ -1427,7 +1428,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
-                ChatId = shell.Chat.ChatId, IsBusy = true
+                ChatId = shell.Chat.ChatId, IsBusy = true, SupportsQueuedSends = true
             });
         });
 
@@ -1441,8 +1442,10 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             var menu = Assert.IsType<ContextMenu>(button.ContextMenu);
             var sends = 0;
             var stops = 0;
+            var queues = 0;
             composer.SetCurrentValue(StrataChatComposer.SendCommandProperty, new RelayCommand(() => sends++));
             composer.SetCurrentValue(StrataChatComposer.StopCommandProperty, new RelayCommand(() => stops++));
+            composer.SetCurrentValue(StrataChatComposer.QueueCommandProperty, new RelayCommand(() => queues++));
             editor.SetTextFromNative("Plan [where?] for [when?]");
             PumpFrame(window);
             await Task.Delay(320);
@@ -1455,19 +1458,19 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Hold(window, button);
             Assert.False(menu.IsOpen);
             Assert.DoesNotContain(":fill-in-next", composer.Classes);
-            Assert.Equal((0, 0), (sends, stops));
+            Assert.Equal((0, 0, 0), (sends, stops, queues));
 
             // Once every blank has had its turn, a hold offers the send options as usual.
             Hold(window, button);
             Assert.True(menu.IsOpen);
-            Assert.Equal((0, 0), (sends, stops));
+            Assert.Equal((0, 0, 0), (sends, stops, queues));
             menu.Close();
             Pump(window);
         }, nativeFactory: new FocusEditorFactory(), setup: shell =>
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
-                ChatId = shell.Chat.ChatId, IsBusy = true
+                ChatId = shell.Chat.ChatId, IsBusy = true, SupportsQueuedSends = true
             });
         });
 
@@ -1481,11 +1484,10 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             var menu = Assert.IsType<ContextMenu>(button.ContextMenu);
             var sends = 0;
             var stops = 0;
-            var stopAndSends = 0;
+            var queues = 0;
             composer.SetCurrentValue(StrataChatComposer.SendCommandProperty, new RelayCommand(() => sends++));
             composer.SetCurrentValue(StrataChatComposer.StopCommandProperty, new RelayCommand(() => stops++));
-            composer.SetCurrentValue(StrataChatComposer.StopAndSendCommandProperty,
-                new RelayCommand<string?>(_ => stopAndSends++));
+            composer.SetCurrentValue(StrataChatComposer.QueueCommandProperty, new RelayCommand(() => queues++));
             editor.SetTextFromNative("keep this draft");
             PumpFrame(window);
             await Task.Delay(320);
@@ -1503,9 +1505,9 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             AssertSendMenuOpensFromSendAboveTheEditor(window, menu, button, editor);
             var labels = InteractiveLabels.Current;
             Assert.Equal(
-                new string?[] { labels["sendToSteer"], labels["stopAndSend"], labels["stopSession"] },
-                menu.Items.OfType<MenuItem>().Where(item => item.IsVisible).Select(item => item.Header as string).ToArray());
-            Assert.Equal((0, 0, 0), (sends, stops, stopAndSends));
+                new string?[] { labels["sendToSteer"], labels["addToQueue"], labels["stopAndSend"], labels["stopSession"] },
+                menu.Items.OfType<MenuItem>().Select(item => item.Header as string).ToArray());
+            Assert.Equal((0, 0, 0), (sends, stops, queues));
 
             // A keyboard opens the menu on its first row, so the arrows and Enter choose there rather than on Send.
             Assert.Equal(labels["sendToSteer"],
@@ -1520,7 +1522,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(shell.IsDrawerOpen);
             Assert.Equal("keep this draft", editor.Text);
             Assert.Same(button, window.FocusManager?.GetFocusedElement());
-            Assert.Equal((0, 0, 0), (sends, stops, stopAndSends));
+            Assert.Equal((0, 0, 0), (sends, stops, queues));
 
             // The menu key opens them too; Down then Enter chooses the next row without steering through Send.
             PressKey(window, Key.Apps, RawInputModifiers.None, PhysicalKey.ContextMenu);
@@ -1528,10 +1530,10 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal(labels["sendToSteer"],
                 Assert.IsType<MenuItem>(window.FocusManager?.GetFocusedElement()).Header);
             PressKey(window, Key.Down, RawInputModifiers.None, PhysicalKey.ArrowDown);
-            Assert.Equal(labels["stopAndSend"],
+            Assert.Equal(labels["addToQueue"],
                 Assert.IsType<MenuItem>(window.FocusManager?.GetFocusedElement()).Header);
             PressKey(window, Key.Enter, RawInputModifiers.None, PhysicalKey.Enter);
-            Assert.Equal((0, 0, 1), (sends, stops, stopAndSends));
+            Assert.Equal((0, 0, 1), (sends, stops, queues));
             await WaitForMenuToCloseAsync(window, menu);
             Assert.False(menu.IsOpen);
             Assert.Same(button, window.FocusManager?.GetFocusedElement());
@@ -1546,12 +1548,12 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             PressKey(window, Key.F10, RawInputModifiers.Shift, PhysicalKey.F10);
             Assert.False(menu.IsOpen);
             Assert.Equal("Plan [where?] for [when?]", shell.Chat.PromptText);
-            Assert.Equal((0, 0, 1), (sends, stops, stopAndSends));
+            Assert.Equal((0, 0, 1), (sends, stops, queues));
         }, nativeFactory: new FocusEditorFactory(), setup: shell =>
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
-                ChatId = shell.Chat.ChatId, IsBusy = true
+                ChatId = shell.Chat.ChatId, IsBusy = true, SupportsQueuedSends = true
             });
         });
 
@@ -1559,8 +1561,9 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
     public Task HoldingSendOnAnOlderPcStillOffersStopAndSendWithoutQueueing() =>
         RunUiAsync(412, async (shell, view, window) =>
         {
+            // A PC from before queueing reports no queue, so the phone has nothing to queue with.
+            Assert.Null(shell.Chat.ComposerQueueCommand);
             var composer = Required<StrataChatComposer>(view, "Composer");
-            Assert.Null(composer.QueueCommand);
             var editor = Assert.IsType<NativeComposerEditorHost>(composer.EditorContent);
             var button = Required<Button>(composer, "PART_SendButton");
             var menu = Assert.IsType<ContextMenu>(button.ContextMenu);
@@ -1635,7 +1638,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         {
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
-                ChatId = shell.Chat.ChatId, IsBusy = true
+                ChatId = shell.Chat.ChatId, IsBusy = true, SupportsQueuedSends = true
             });
         });
 

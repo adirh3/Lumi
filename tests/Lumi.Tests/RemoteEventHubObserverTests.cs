@@ -19,7 +19,7 @@ public sealed class RemoteEventHubObserverTests
     public async Task QueueChangesReachThePhoneWithoutTouchingTheTranscript()
     {
         using var session = HeadlessTestSession.Start();
-        await session.Dispatch(() =>
+        await session.Dispatch(async () =>
         {
             var chat = Chat("Queued messages");
             var store = new DataStore(new AppData { Chats = [chat] });
@@ -39,7 +39,7 @@ public sealed class RemoteEventHubObserverTests
                 WriteBarrierAndWait(hub, stream);
                 var baseline = stream.Text.Length;
 
-                Assert.True(main.ChatVM.QueueExternalMessage(chat, "first", "Lumi Mobile"));
+                Assert.True(await main.ChatVM.QueueExternalMessageAsync(chat, "first", "Lumi Mobile"));
                 Flush(hub);
                 WriteBarrierAndWait(hub, stream);
                 var first = Assert.Single(LastStatus(stream.Text[baseline..]).QueuedMessages!);
@@ -47,14 +47,14 @@ public sealed class RemoteEventHubObserverTests
                 Assert.NotNull(main.ChatVM.FindWaitingSend(chat.Id, first.Id));
 
                 baseline = stream.Text.Length;
-                Assert.True(main.ChatVM.QueueExternalMessage(chat, "second", "Lumi Mobile"));
+                Assert.True(await main.ChatVM.QueueExternalMessageAsync(chat, "second", "Lumi Mobile"));
                 Flush(hub);
                 WriteBarrierAndWait(hub, stream);
                 Assert.Equal(["first", "second"],
                     LastStatus(stream.Text[baseline..]).QueuedMessages!.Select(message => message.Text));
 
                 baseline = stream.Text.Length;
-                Assert.True(main.ChatVM.RemoveWaitingSendById(chat.Id, first.Id));
+                Assert.True(await main.ChatVM.RemoveWaitingSendByIdAsync(chat.Id, first.Id));
                 Flush(hub);
                 WriteBarrierAndWait(hub, stream);
                 Assert.Equal("second", Assert.Single(LastStatus(stream.Text[baseline..]).QueuedMessages!).Text);

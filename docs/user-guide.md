@@ -1030,10 +1030,12 @@ choice is independent of the desktop's send-key setting.
 
 While Lumi is replying, tap the arrow with a draft to steer the reply. Press and hold the
 arrow instead (or right-click it with a mouse) for a menu that opens from it, above your draft:
-**Send to steer**, **Stop & send** and **Stop session**. While a starter still
+**Send to steer**, **Add to queue**, **Stop & send** and **Stop session**. While a starter still
 has blanks, the arrow moves to the next blank and the menu waits until they're filled in; Back
 closes it. A queued message waits on the PC and starts a new turn after the current reply.
-Like messages queued on the desktop, it waits in the running app, not across a PC restart.
+The PC saves a phone-queued message before accepting it. After a PC restart, those messages
+return in the same order when their chat opens again; ordinary desktop queued drafts keep
+their existing lifetime. Edit and Remove are saved too, so they do not come back on restart.
 Queued messages appear above the phone's composer, oldest first, with **Steer now**, **Edit**
 and **Remove**, as on the PC. **Edit** returns the message ahead of any current draft; if its
 answer is lost, its row stays available to retry even after switching chats. Editing is not

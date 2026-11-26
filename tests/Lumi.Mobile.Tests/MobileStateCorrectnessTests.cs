@@ -837,14 +837,16 @@ public sealed class MobileStateCorrectnessTests
         Assert.True(safetySignals >= 4);
     }
 
-    [Fact]
-    public async Task UpdateSafetyTracksAnExplicitSendUntilFailureRestoresItsDraft()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdateSafetyTracksAnExplicitSendUntilFailureRestoresItsDraft(bool queue)
     {
         var sink = new ControllableSink();
         var chat = new MobileChatViewModel(sink);
         var chatId = Guid.NewGuid();
         chat.Reset(chatId, "Existing chat");
-        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true });
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, SupportsQueuedSends = true });
         chat.PromptText = "Keep this replacement";
         chat.Attachments.Add(new PendingAttachment("notes.txt", @"C:\uploads\notes.txt"));
         var safetySignals = new List<bool>();
@@ -854,12 +856,12 @@ public sealed class MobileStateCorrectnessTests
                 safetySignals.Add(chat.HasUnsentWork);
         };
 
-        var sendCommand = chat.StopAndSendCommand;
+        var sendCommand = queue ? chat.QueueSendCommand : chat.StopAndSendCommand;
         var send = sendCommand.ExecuteAsync(null);
         var request = await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
         try
         {
-            Assert.Equal(RemoteProtocol.Actions.SendMessage, request.Action);
+            Assert.Equal(queue ? RemoteProtocol.Actions.QueueMessage : RemoteProtocol.Actions.SendMessage, request.Action);
             Assert.Contains(@"C:\uploads\notes.txt", request.Get("message"));
             Assert.True(sendCommand.IsRunning);
             Assert.False(chat.SendCommand.IsRunning);
@@ -1118,16 +1120,20 @@ public sealed class MobileStateCorrectnessTests
         Assert.Null(second.GetBool("steer"));
     }
 
-    [Fact]
-    public async Task UnchangedAmbiguousTransportRetry_ReusesTheRequestIdAndAction()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UnchangedAmbiguousTransportRetry_ReusesTheRequestIdAndAction(bool queue)
     {
         var sink = new SequencedCommandSink(commandCount: 2);
         var chat = new MobileChatViewModel(sink);
         var chatId = Guid.NewGuid();
         chat.Reset(chatId, "Existing chat");
+        if (queue)
+            chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true, SupportsQueuedSends = true });
         chat.PromptText = "retry exactly";
 
-        var firstSend = chat.SendCommand.ExecuteAsync(null);
+        var firstSend = (queue ? chat.QueueSendCommand : chat.SendCommand).ExecuteAsync(null);
         var first = await sink.WaitForCommandAsync(0);
         sink.Complete(
             0,

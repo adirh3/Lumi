@@ -139,6 +139,8 @@ public class ChatMessage
     private string? _remoteRequestId;
     /// <summary>Authenticated mobile request that created this user message, when applicable.</summary>
     public string? RemoteRequestId { get => _remoteRequestId; set => SetPersisted(ref _remoteRequestId, value); }
+    private string? _remoteDeviceId;
+    public string? RemoteDeviceId { get => _remoteDeviceId; set => SetPersisted(ref _remoteDeviceId, value); }
     private DateTimeOffset _timestamp = DateTimeOffset.Now;
     public DateTimeOffset Timestamp { get => _timestamp; set => SetPersisted(ref _timestamp, value); }
     private string? _toolName;
@@ -398,6 +400,7 @@ public class ChatMessage
         Content = Content,
         Author = Author,
         RemoteRequestId = RemoteRequestId,
+        RemoteDeviceId = RemoteDeviceId,
         Timestamp = Timestamp,
         ToolName = ToolName,
         ToolSkillName = ToolSkillName,
@@ -1139,6 +1142,9 @@ public class Chat : INotifyPropertyChanged
     /// <summary>Last accepted mobile send receipt, persisted for idempotency across desktop restarts.</summary>
     public string? LastRemoteDeviceId { get; set; }
     public string? LastRemoteRequestId { get; set; }
+
+    /// <summary>Accepted phone-queued messages that have not entered the transcript, oldest first.</summary>
+    public List<ChatMessage>? RemoteQueuedSends { get; set; }
 
     /// <summary>Last model used in this chat. Restored as the selected model when the chat is reopened.</summary>
     public string? LastModelUsed { get; set; }

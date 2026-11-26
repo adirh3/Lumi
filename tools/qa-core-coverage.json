@@ -136,6 +136,7 @@
     "Lumi.Tests.CopilotModelCatalogTests.NativeCatalogAddsOnlyAdvertisedEnabledPickerTiersAndRetainsConcreteMetadata",
     "Lumi.Tests.CopilotModelCatalogTests.NativeSnapshotRetainsItsDefaultTierAndContextMetadata",
     "Lumi.Tests.CopilotModelCatalogTests.RefreshCanAddNewConcreteModelsAndRemoveUnavailableTiers",
+    "Lumi.Tests.DeferredSendQueueTests.AcceptedMobileQueue_SurvivesRestartWithoutPersistingDesktopQueuedDrafts",
     "Lumi.Tests.DeferredSendQueueTests.AssistantIdle_WithBackgroundWork_ReadiesTheAssistantWithoutReleasingTheSession",
     "Lumi.Tests.DeferredSendQueueTests.AssistantTurnEnd_IsAStepBoundary_NotAssistantReadiness",
     "Lumi.Tests.DeferredSendQueueTests.ChildActivity_AfterAssistantIdle_DoesNotRestartTheAssistantSpinner",

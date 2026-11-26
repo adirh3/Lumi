@@ -67,10 +67,11 @@ internal sealed class RemoteCommandRouter
             RemoteProtocol.Actions.RenameChat => await RenameChatAsync(command),
             RemoteProtocol.Actions.PinChat => await PinChatAsync(command),
             RemoteProtocol.Actions.SendMessage => await SendMessageAsync(command, cancellationToken),
+            RemoteProtocol.Actions.QueueMessage => await SendMessageAsync(command, cancellationToken, queue: true),
             RemoteProtocol.Actions.SendSteeredNow => await SendSteeredNowAsync(command),
             RemoteProtocol.Actions.SteerQueuedMessage => await SteerQueuedMessageAsync(command),
-            RemoteProtocol.Actions.EditQueuedMessage => EditQueuedMessage(command),
-            RemoteProtocol.Actions.RemoveQueuedMessage => RemoveQueuedMessage(command),
+            RemoteProtocol.Actions.EditQueuedMessage => await EditQueuedMessageAsync(command),
+            RemoteProtocol.Actions.RemoveQueuedMessage => await RemoveQueuedMessageAsync(command),
             RemoteProtocol.Actions.EditMessage => await EditMessageAsync(command, cancellationToken),
             RemoteProtocol.Actions.StopGeneration => await StopGenerationAsync(command),
             RemoteProtocol.Actions.AnswerQuestion => await AnswerQuestionAsync(command),
@@ -530,11 +531,14 @@ internal sealed class RemoteCommandRouter
     private async Task<RemoteCommandResult> SendMessageAsync(
         RemoteCommand command,
         CancellationToken cancellationToken,
-        InteractionReceipt? interactionReceipt = null)
+        InteractionReceipt? interactionReceipt = null,
+        bool queue = false)
     {
         var message = command.Get("message");
         if (string.IsNullOrWhiteSpace(message))
             return Fail(Loc.Get("Remote_ArgumentRequired", "message"));
+        if (queue && !command.Arguments.ContainsKey("chatId"))
+            return Fail(Loc.Get("Remote_ArgumentRequired", "chatId"));
 
         if (command is
             {
@@ -544,7 +548,10 @@ internal sealed class RemoteCommandRouter
         {
             var acceptedChat = _dataStore.Data.Chats.FirstOrDefault(candidate =>
                 string.Equals(candidate.LastRemoteDeviceId, deviceId, StringComparison.Ordinal)
-                && string.Equals(candidate.LastRemoteRequestId, requestId, StringComparison.Ordinal));
+                && string.Equals(candidate.LastRemoteRequestId, requestId, StringComparison.Ordinal)
+                || candidate.RemoteQueuedSends?.Any(queued =>
+                    string.Equals(queued.RemoteDeviceId, deviceId, StringComparison.Ordinal)
+                    && string.Equals(queued.RemoteRequestId, requestId, StringComparison.Ordinal)) == true);
             if (acceptedChat is not null)
                 return Success(Loc.Remote_MessageAlreadyAccepted, acceptedChat.Id);
         }
@@ -552,7 +559,7 @@ internal sealed class RemoteCommandRouter
         // A phone that defers chat creation has no id to send. Falling through to ResolveChat there
         // would resolve to "whichever chat the desktop currently has open" and post into an unrelated
         // conversation, so the intent is explicit rather than inferred from a missing field.
-        var startsNewChat = command.GetBool("newChat") == true;
+        var startsNewChat = !queue && command.GetBool("newChat") == true;
         var chat = startsNewChat ? null : ResolveChat(command);
         if (!startsNewChat && command.Arguments.ContainsKey("chatId") && chat is null)
             return Fail(Loc.Remote_ChatNotFound);
@@ -594,7 +601,7 @@ internal sealed class RemoteCommandRouter
             if (owner.IsExternalSendReserved(chat.Id))
                 return Fail(Loc.Remote_ChatAlreadyStartingTurn, chat.Id);
 
-            if (command.GetBool("stopAndSend") == true && owner.IsChatBusy(chat.Id))
+            if (!queue && command.GetBool("stopAndSend") == true && owner.IsChatBusy(chat.Id))
             {
                 var stopAndSendAccepted = await owner
                     .StopAndSendExternalMessageAsync(
@@ -611,7 +618,7 @@ internal sealed class RemoteCommandRouter
             }
 
             // Readiness chooses send versus steer, never whether to honor an explicit session Stop.
-            if (owner.IsAssistantBusy(chat.Id))
+            if (!queue && owner.IsAssistantBusy(chat.Id))
             {
                 if (command.GetBool("steer") != true)
                     return Fail(Loc.Remote_ChatAlreadyRunning, chat.Id);
@@ -677,6 +684,21 @@ internal sealed class RemoteCommandRouter
             // A deferred phone chat is created by this send. Apply every staged run-setting before
             // StartExternalMessageAsync snapshots model/provider/effort/context/agent/skill/MCP state.
             ApplyChatConfiguration(owner, command, projectSelection, agentSelection);
+
+            if (queue && owner.CanQueueExternalMessage(chat))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return await owner
+                    .QueueExternalMessageAsync(
+                        chat,
+                        message,
+                        "Lumi Mobile",
+                        command.RequestId,
+                        command.AuthenticatedDeviceId,
+                        cancellationToken)
+                    ? Success(Loc.Steer_Queued, chat.Id)
+                    : Fail(Loc.Remote_MessageStartFailed, chat.Id);
+            }
 
             var project = chat.ProjectId is { } projectId
                 ? _dataStore.Data.Projects.FirstOrDefault(candidate => candidate.Id == projectId)
@@ -893,14 +915,24 @@ internal sealed class RemoteCommandRouter
             .SnapshotSurfaces()
             .FirstOrDefault(surface => surface.FindWaitingSend(chatId, messageId) is not null);
 
-    private RemoteCommandResult RemoveQueuedMessage(RemoteCommand command)
+    private async Task<ChatViewModel?> ResolveQueuedMessageHolderAsync(Chat chat, Guid messageId)
+    {
+        var holder = FindQueuedMessageHolder(chat.Id, messageId);
+        if (holder is not null || chat.RemoteQueuedSends?.Any(message => message.Id == messageId) != true)
+            return holder;
+        var owner = await ResolveChatOwnerAsync(chat);
+        return owner?.FindWaitingSend(chat.Id, messageId) is not null ? owner : null;
+    }
+
+    private async Task<RemoteCommandResult> RemoveQueuedMessageAsync(RemoteCommand command)
     {
         if (ResolveExplicitChat(command) is not { } chat)
             return Fail(Loc.Remote_ChatNotFound);
         if (command.GetGuid("messageId") is not { } messageId)
             return Fail(Loc.Get("Remote_ArgumentRequired", "messageId"), chat.Id);
 
-        return FindQueuedMessageHolder(chat.Id, messageId)?.RemoveWaitingSendById(chat.Id, messageId) == true
+        return await ResolveQueuedMessageHolderAsync(chat, messageId) is { } holder
+               && await holder.RemoveWaitingSendByIdAsync(chat.Id, messageId)
             ? Success(Loc.Remote_QueuedMessageRemoved, chat.Id)
             : Fail(Loc.Remote_QueuedMessageGone, chat.Id);
     }
@@ -909,20 +941,20 @@ internal sealed class RemoteCommandRouter
     /// Takes a queued message back into the phone's composer, as Edit on the PC takes it into the PC's: it
     /// leaves the queue and its text returns with the result. Only a message the phone can hold whole goes.
     /// </summary>
-    private RemoteCommandResult EditQueuedMessage(RemoteCommand command)
+    private async Task<RemoteCommandResult> EditQueuedMessageAsync(RemoteCommand command)
     {
         if (ResolveExplicitChat(command) is not { } chat)
             return Fail(Loc.Remote_ChatNotFound);
         if (command.GetGuid("messageId") is not { } messageId)
             return Fail(Loc.Get("Remote_ArgumentRequired", "messageId"), chat.Id);
 
-        var holder = FindQueuedMessageHolder(chat.Id, messageId);
+        var holder = await ResolveQueuedMessageHolderAsync(chat, messageId);
         if (holder?.FindWaitingSend(chat.Id, messageId) is not { } message)
             return Fail(Loc.Remote_QueuedMessageGone, chat.Id);
         if (!RemoteProjector.CanEditQueuedMessage(message))
             return Fail(Loc.Remote_QueuedMessageNotEditable, chat.Id);
 
-        if (!holder.RemoveWaitingSendById(chat.Id, messageId))
+        if (!await holder.RemoveWaitingSendByIdAsync(chat.Id, messageId))
             return Fail(Loc.Remote_QueuedMessageGone, chat.Id);
 
         return new RemoteCommandResult
@@ -942,7 +974,7 @@ internal sealed class RemoteCommandRouter
         if (command.GetGuid("messageId") is not { } messageId)
             return Fail(Loc.Get("Remote_ArgumentRequired", "messageId"), chat.Id);
 
-        var owner = FindQueuedMessageHolder(chat.Id, messageId);
+        var owner = await ResolveQueuedMessageHolderAsync(chat, messageId);
         if (owner is null)
             return Fail(Loc.Remote_QueuedMessageGone, chat.Id);
 
