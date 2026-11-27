@@ -50,6 +50,7 @@ $isolatedClasses = @(
     "Lumi.Tests.RtlTextSelectionTests",
     # Its native STA dispatcher must not reset dispatcher state owned by earlier headless tests.
     "Lumi.Tests.BrowserServiceIntegrationTests",
+    "Lumi.Tests.NativeWindowPlacementTests",
     "Lumi.Tests.ChatViewClipboardTests",
     "Lumi.Tests.ChatViewScrollBehaviorTests",
     "Lumi.Tests.DesktopPreviewUiTests",

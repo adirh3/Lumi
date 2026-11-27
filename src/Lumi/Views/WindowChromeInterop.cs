@@ -1,3 +1,7 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using Avalonia;
 using Avalonia.Controls;
 
 namespace Lumi.Views;
@@ -27,8 +31,37 @@ internal static class WindowChromeInterop
     private const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
     private const int DWMWA_CLOAK = 13;
 
-    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect { public int Left, Top, Right, Bottom; }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetClientRect(nint hwnd, out NativeRect rect);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetWindowRect(nint hwnd, out NativeRect rect);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool ClientToScreen(nint hwnd, ref PixelPointNative point);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PixelPointNative { public int X, Y; }
+
+    [SupportedOSPlatform("windows")]
+    internal static bool TryGetBounds(nint hwnd, out PixelRect frame, out PixelRect client)
+    {
+        var origin = new PixelPointNative();
+        if (!GetClientRect(hwnd, out var inner) || !GetWindowRect(hwnd, out var outer) || !ClientToScreen(hwnd, ref origin))
+        {
+            Trace.TraceWarning("[Window placement] Cannot read native bounds: {0}", Marshal.GetLastWin32Error());
+            frame = client = default;
+            return false;
+        }
+
+        frame = new PixelRect(outer.Left, outer.Top, outer.Right - outer.Left, outer.Bottom - outer.Top);
+        client = new PixelRect(origin.X, origin.Y, inner.Right - inner.Left, inner.Bottom - inner.Top);
+        return true;
+    }
 
     /// <summary>
     /// Turns off (or back on) the animations Windows plays when <paramref name="window"/> opens, closes,

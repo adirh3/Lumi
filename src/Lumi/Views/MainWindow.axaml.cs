@@ -35,7 +35,7 @@ using StrataTheme.Controls;
 
 namespace Lumi.Views;
 
-public partial class MainWindow : Window
+public partial class MainWindow : DpiAwareWindow
 {
     private const double DefaultSidebarWidth = 280;
     private const double MinSidebarWidth = 240;
@@ -144,6 +144,7 @@ public partial class MainWindow : Window
     private sealed record ProjectFilterCandidate(Project Project, int ChatCount, DateTimeOffset? LastActivity, double SearchScore);
 
     private MainViewModel? _wiredVm;
+    private WindowDisplayLossRecovery? _windowDisplayLossRecovery;
     private const int NavHoverIntentDelayMs = 85;
     // How far the pointer must travel after a switch before the bar's tips come back.
     private const double NavTipResumeDistance = 12;
@@ -218,14 +219,28 @@ public partial class MainWindow : Window
 
         Opened += (_, _) =>
         {
-            if (IsPrimaryWindow && !_startupBoundsPrepared)
-                RestoreWindowBounds();
-            else if (!IsPrimaryWindow)
-                PlaceSecondaryWindow();
+            if (!_startupBoundsPrepared && DataContext is MainViewModel)
+            {
+                if (IsPrimaryWindow)
+                    RestoreWindowBounds();
+                else
+                    PlaceSecondaryWindow();
+                _startupBoundsPrepared = true;
+            }
             UpdateTransparencyFallbackOpacity();
             ApplyWindowContentPaddingForState();
+            if (OperatingSystem.IsWindows() && TryGetPlatformHandle()?.HandleDescriptor == "HWND")
+                _windowDisplayLossRecovery ??= new WindowDisplayLossRecovery(this, Screens);
         };
         Deactivated += (_, _) => DismissChatHoverPreview();
+    }
+
+    public override void Show()
+    {
+        // Win32 records the normal HWND bounds during Show, before the first maximize.
+        if (OperatingSystem.IsWindows() && IsPrimaryWindow && !_startupBoundsPrepared && DataContext is MainViewModel)
+            PrepareStartupBounds(out _);
+        base.Show();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -570,70 +585,45 @@ public partial class MainWindow : Window
             return;
         }
 
-        var scaling = screen.Scaling;
-        if (scaling <= 0)
-            scaling = 1.0;
+        var chrome = default(Size);
+        var clientOffset = default(Vector);
+        if (OperatingSystem.IsWindows() && TryGetPlatformHandle() is { HandleDescriptor: "HWND", Handle: var hwnd }
+            && hwnd != 0 && WindowChromeInterop.TryGetBounds(hwnd, out var frame, out var client))
+        {
+            var scale = DesktopScaling;
+            chrome = new Size(Math.Max(0, frame.Width - client.Width) / scale, Math.Max(0, frame.Height - client.Height) / scale);
+            clientOffset = new Vector((client.X - frame.X) / scale, (client.Y - frame.Y) / scale);
+        }
 
+        var savedSize = new Size(settings.WindowWidth ?? defaultWidth, settings.WindowHeight ?? defaultHeight);
+        PixelPoint? savedPosition = null;
+        if (settings.WindowLeft is { } left && settings.WindowTop is { } top)
+        {
+            // Legacy saved coordinates can match more than one screen at different scales.
+            foreach (var candidate in Screens.All.Prepend(screen))
+            {
+                var candidateScaling = candidate.Scaling > 0 ? candidate.Scaling : 1.0;
+                var point = WindowPlacement.DecodeSavedPosition(new Point(left, top), savedSize + chrome, candidateScaling,
+                    bounds => Screens.ScreenFromBounds(bounds) == candidate);
+                if (point is null)
+                    continue;
+
+                screen = candidate;
+                savedPosition = point;
+                break;
+            }
+        }
+
+        var scaling = screen.Scaling > 0 ? screen.Scaling : 1.0;
         var workArea = screen.WorkingArea;
-        var maxW = Math.Max(1.0, workArea.Width / scaling);
-        var maxH = Math.Max(1.0, workArea.Height / scaling);
+        var (size, position) = WindowPlacement.RestoreNormalBounds(
+            savedSize, new Size(MinWidth, MinHeight), savedPosition, workArea, scaling, chrome,
+            Screens.All.Select(display => display.WorkingArea), clientOffset);
+        Width = size.Width;
+        Height = size.Height;
+        Position = position;
 
-        var w = settings.WindowWidth ?? defaultWidth;
-        var h = settings.WindowHeight ?? defaultHeight;
-
-        // Clamp to screen working area; on small displays max can be below MinWidth/MinHeight.
-        var minW = Math.Min(MinWidth, maxW);
-        var minH = Math.Min(MinHeight, maxH);
-        w = Math.Clamp(w, minW, maxW);
-        h = Math.Clamp(h, minH, maxH);
-
-        Width = w;
-        Height = h;
-
-        if (settings.WindowLeft.HasValue && settings.WindowTop.HasValue)
-        {
-            var left = settings.WindowLeft.Value;
-            var top = settings.WindowTop.Value;
-
-            // Ensure at least 100px of the window is visible on any screen
-            bool isVisible = false;
-            foreach (var s in Screens.All)
-            {
-                var wa = s.WorkingArea;
-                var waLeft = wa.X / s.Scaling;
-                var waTop = wa.Y / s.Scaling;
-                var waRight = waLeft + wa.Width / s.Scaling;
-                var waBottom = waTop + wa.Height / s.Scaling;
-
-                if (left + 100 > waLeft && left < waRight - 50 &&
-                    top + 50 > waTop && top < waBottom - 50)
-                {
-                    isVisible = true;
-                    break;
-                }
-            }
-
-            if (isVisible)
-            {
-                Position = new PixelPoint((int)(left * scaling), (int)(top * scaling));
-            }
-            else
-            {
-                // Saved position is off-screen, center on current screen
-                var cx = workArea.X + (workArea.Width - (int)(w * scaling)) / 2;
-                var cy = workArea.Y + (workArea.Height - (int)(h * scaling)) / 2;
-                Position = new PixelPoint(cx, cy);
-            }
-        }
-        else
-        {
-            // No saved position — center on screen
-            var cx = workArea.X + (workArea.Width - (int)(w * scaling)) / 2;
-            var cy = workArea.Y + (workArea.Height - (int)(h * scaling)) / 2;
-            Position = new PixelPoint(cx, cy);
-        }
-
-        if (settings.IsMaximized)
+        if (settings.IsMaximized && WindowState != WindowState.Minimized)
             WindowState = WindowState.Maximized;
     }
 

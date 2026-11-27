@@ -15,7 +15,7 @@ using Lumi.ViewModels;
 
 namespace Lumi.Views;
 
-public partial class ChatWindow : Window
+public partial class ChatWindow : DpiAwareWindow
 {
     private const double BaseTitleBarHeight = 38;
     private readonly ChatWindowViewModel? _viewModel;

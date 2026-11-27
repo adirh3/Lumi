@@ -6,7 +6,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Threading;
 using Lumi.Services;
 using Microsoft.Web.WebView2.Core;
 using Xunit;
@@ -14,16 +13,8 @@ using Xunit.Abstractions;
 
 namespace Lumi.Tests;
 
-// Use a REAL Win32 platform and dedicated STA dispatcher (HeadlessUnitTestSession is MTA).
-// Headless HWNDs cannot host WebView2. No production App, Copilot, profile or network is used.
-public sealed class BrowserNativeTestApp : Application
-{
-    public static AppBuilder BuildAvaloniaApp() =>
-        AppBuilder.Configure<BrowserNativeTestApp>().UsePlatformDetect();
-}
-
-[Collection("Headless UI")]
-public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
+[Collection(nameof(NativeWindowTestSession))]
+public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output, NativeWindowTestSession session)
 {
     [SkippableFact]
     public async Task RealWebView2PreservesReferencesSafetyTabsAndNativeLifecycle()
@@ -47,7 +38,7 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         var completed = false;
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
 
-        await RunOnNativeStaAsync(async () =>
+        await session.RunAsync(async () =>
         {
             Window? window = null;
             BrowserService? browser = null;
@@ -269,55 +260,6 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
 
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr handle);
-
-    private static Task RunOnNativeStaAsync(Func<Task> body, CancellationToken cancellationToken)
-    {
-        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var thread = new Thread(() =>
-        {
-            Exception? error = null;
-            var bodyCompleted = false;
-            // The batch runner gives this STA fixture a fresh host: a prior headless dispatcher
-            // cannot be reset here. The collection also excludes concurrent Avalonia tests.
-            var reset = typeof(Dispatcher).GetMethod("ResetForUnitTests",
-                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
-            var enterScope = typeof(AvaloniaLocator).GetMethod("EnterScope",
-                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)!;
-            using ((IDisposable)enterScope.Invoke(null, null)!)
-            {
-                try
-                {
-                    reset.Invoke(null, null);
-                    BrowserNativeTestApp.BuildAvaloniaApp().SetupWithoutStarting();
-                    var dispatcher = Dispatcher.UIThread;
-                    dispatcher.Post(async () =>
-                    {
-                        try { await body(); }
-                        catch (Exception ex) { error = ex; }
-                        finally
-                        {
-                            bodyCompleted = true;
-                            dispatcher.InvokeShutdown();
-                        }
-                    });
-                    dispatcher.MainLoop(cancellationToken);
-                }
-                catch (Exception ex) { error = ex; }
-                finally
-                {
-                    try { reset.Invoke(null, null); }
-                    catch (Exception ex) { error ??= ex; }
-                }
-            }
-            // Complete only AFTER the native loop and scoped state are torn down.
-            if (error is not null) completion.TrySetException(error);
-            else if (!bodyCompleted) completion.TrySetCanceled(cancellationToken);
-            else completion.TrySetResult();
-        }) { IsBackground = true, Name = "Lumi browser integration STA" };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        return completion.Task;
-    }
 
     private async Task VerifyBlurNotifications(BrowserService browser)
     {

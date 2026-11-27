@@ -453,7 +453,6 @@ public sealed class ManagementPagesUiTests
                         AutoSaveChats = false,
                         EnableMemoryAutoSave = false,
                         ShowAnimations = false,
-                        WindowWidth = 800,
                         WindowHeight = 860
                     },
                     Projects = [project],
@@ -468,7 +467,8 @@ public sealed class ManagementPagesUiTests
                     new UpdateService(),
                     startBackgroundJobs: false,
                     initializeCopilotOnStartup: false);
-                var window = new MainWindow { DataContext = vm, Width = 800, Height = 860 };
+                var window = new MainWindow { DataContext = vm, Height = 860 };
+                data.Settings.WindowWidth = window.Width = window.MinWidth;
                 window.Show();
 
                 try

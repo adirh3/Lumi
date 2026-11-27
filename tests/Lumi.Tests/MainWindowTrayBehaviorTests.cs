@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
@@ -132,6 +133,35 @@ public sealed class MainWindowTrayBehaviorTests
             finally
             {
                 CloseWindow(window, viewModel);
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ReopeningAPromotedSecondaryKeepsItsOwnPlacement()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var (window, vm) = CreateWindow(minimizeToTray: false);
+            window.IsPrimaryWindow = false;
+            var app = CreateAppWithWindow(window);
+            window.Show();
+            try
+            {
+                var chosen = new PixelPoint(160, 90);
+                window.Position = chosen;
+                vm.DataStore.Data.Settings.IsMaximized = true;
+                window.IsPrimaryWindow = true;
+                Activate(app, ActivationKind.Reopen);
+                await PumpAsync();
+
+                Assert.Equal(WindowState.Normal, window.WindowState);
+                Assert.Equal(chosen, window.Position);
+            }
+            finally
+            {
+                CloseWindow(window, vm);
             }
         }, CancellationToken.None);
     }

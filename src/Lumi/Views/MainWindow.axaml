@@ -14,7 +14,7 @@
         x:DataType="vm:MainViewModel"
         x:CompileBindings="True"
         Title="Lumi"
-        MinWidth="800" MinHeight="560"
+        MinWidth="720" MinHeight="480"
         WindowStartupLocation="Manual"
         TransparencyLevelHint="{OnPlatform Default='AcrylicBlur,Mica,Blur', macOS='AcrylicBlur'}"
         UseLayoutRounding="True"
