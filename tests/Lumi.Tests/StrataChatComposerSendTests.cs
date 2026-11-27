@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
@@ -241,6 +242,65 @@ public sealed class StrataChatComposerSendTests
             Assert.Equal("hello @agent", command.Parameter);
 
             window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ComposerStrategy_OpensInsideAddMenu_AndOnlySelectionTouchesTheDraft()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var toggle = new CaptureCommand();
+            var send = new CaptureCommand();
+            var composer = new StrataChatComposer
+            {
+                PromptText = "Existing draft",
+                SendCommand = send,
+                DraftOptionsLabel = "Strategy",
+                DraftOptions = [new("parallel", "Parallel", "Delegate independent steps", static () => StrataIcons.Branch, false)],
+                ToggleDraftOptionCommand = toggle,
+            };
+            var window = new Window { Width = 480, Height = 360, Content = composer };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                var add = composer.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "PART_AddButton");
+                var popup = composer.GetVisualDescendants().OfType<Popup>().Single(control => control.Name == "PART_AddPopup");
+                Button? Row(string name) => popup.Child!.GetVisualDescendants().OfType<Button>().SingleOrDefault(button => button.Name == name);
+
+                new ButtonAutomationPeer(add).Invoke();
+                await PumpAsync();
+                Assert.Null(Row("ComposerOptionparallel"));
+
+                new ButtonAutomationPeer(Row("PART_DraftOptionsButton")!).Invoke();
+                await PumpAsync();
+                Assert.True(popup.IsOpen);
+                Assert.NotNull(Row("ComposerOptionparallel"));
+                Assert.Null(toggle.Parameter);
+
+                var escape = new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape };
+                Row("PART_DraftOptionsBackButton")!.RaiseEvent(escape);
+                await PumpAsync();
+                Assert.True(escape.Handled);
+                Assert.True(popup.IsOpen);
+                Assert.Null(Row("ComposerOptionparallel"));
+
+                new ButtonAutomationPeer(Row("PART_DraftOptionsButton")!).Invoke();
+                await PumpAsync();
+                new ButtonAutomationPeer(Row("ComposerOptionparallel")!).Invoke();
+                await PumpAsync();
+                Assert.False(popup.IsOpen);
+                Assert.Equal("parallel", toggle.Parameter);
+                Assert.Equal("Existing draft", composer.PromptText);
+                Assert.Null(send.Parameter);
+            }
+            finally
+            {
+                window.Close();
+            }
         }, CancellationToken.None);
     }
 

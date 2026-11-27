@@ -1386,9 +1386,7 @@ public sealed class ChatViewModelAgentRoutingTests
             "SendMessageCore",
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
-        // SendMessageCore has an optional `queuedMessage` parameter (added by main); Reflection
-        // does not apply optional defaults, so pass it explicitly.
-        var result = method!.Invoke(viewModel, [prompt, consumeComposerPrompt, null]);
+        var result = method!.Invoke(viewModel, [prompt, consumeComposerPrompt, null, false]);
         await Assert.IsAssignableFrom<Task>(result);
     }
 

@@ -782,4 +782,13 @@
   <data name="WebAppInstallOpenStep" xml:space="preserve"><value>从主屏幕上的新图标打开 Lumi。</value></data>
   <data name="WebAppInstallFallback" xml:space="preserve"><value>找不到该选项？请在 iPhone/iPad 上用 Safari，或在 Android 上用 Chrome 打开此页面。</value></data>
   <data name="WebAppInstallFailed" xml:space="preserve"><value>无法打开安装对话框。你可以按照以下步骤添加 Lumi。</value></data>
+  <data name="Strategy" xml:space="preserve"><value>策略</value></data>
+  <data name="StrategyPickerDescription" xml:space="preserve"><value>选择 Lumi 处理下一条消息的策略。</value></data>
+  <data name="Autopilot" xml:space="preserve"><value>自动运行</value></data>
+  <data name="AutopilotDetail" xml:space="preserve"><value>无需等待下一条消息即可继续</value></data>
+  <data name="Parallel" xml:space="preserve"><value>并行运行</value></data>
+  <data name="ParallelDetail" xml:space="preserve"><value>将独立步骤交给不同的智能体</value></data>
+  <data name="Research" xml:space="preserve"><value>研究</value></data>
+  <data name="ResearchDetail" xml:space="preserve"><value>生成带引用的报告，单独运行。</value></data>
+  <data name="ResearchRequiresCopilot" xml:space="preserve"><value>研究需要使用已登录的 GitHub Copilot 模型。草稿未发送。</value></data>
 </root>

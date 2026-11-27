@@ -281,30 +281,41 @@ public partial class ChatViewModel
         string author,
         string? remoteDeviceId = null,
         string? remoteRequestId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ChatRunOptions runOptions = ChatRunOptions.None)
     {
         ArgumentNullException.ThrowIfNull(targetChat);
         if (CurrentChat?.Id != targetChat.Id)
             throw new InvalidOperationException("The target chat must be active before it can be stopped.");
+        if ((runOptions & ChatRunOptions.Research) != 0
+            && ResearchUnavailableReason(ResolveSelectedModelForChat(targetChat)) is not null)
+            return false;
 
         var previousDeviceId = targetChat.LastRemoteDeviceId;
         var previousRequestId = targetChat.LastRemoteRequestId;
+        var previousDraftRunOptions = targetChat.DraftRunOptions;
+        var clearedDraftRunOptions = remoteDeviceId is not null
+            && runOptions != ChatRunOptions.None && previousDraftRunOptions == runOptions;
         if (!string.IsNullOrWhiteSpace(remoteDeviceId)
             && !string.IsNullOrWhiteSpace(remoteRequestId))
         {
             targetChat.LastRemoteDeviceId = remoteDeviceId;
             targetChat.LastRemoteRequestId = remoteRequestId;
         }
+        if (clearedDraftRunOptions)
+            targetChat.DraftRunOptions = ChatRunOptions.None;
 
-        var queuedMessage = CreateQueuedBusySend(targetChat.Id, prompt, author, explicitAttachmentPaths: []);
+        var queuedMessage = CreateQueuedBusySend(
+            targetChat.Id, prompt, author, explicitAttachmentPaths: [], remoteRequestId: remoteRequestId, runOptions: runOptions);
         if (queuedMessage is null)
         {
             targetChat.LastRemoteDeviceId = previousDeviceId;
             targetChat.LastRemoteRequestId = previousRequestId;
+            if (clearedDraftRunOptions && targetChat.DraftRunOptions == ChatRunOptions.None)
+                targetChat.DraftRunOptions = previousDraftRunOptions;
             return false;
         }
 
-        queuedMessage.RemoteRequestId = remoteRequestId;
         if (!string.IsNullOrWhiteSpace(remoteDeviceId)
             && !string.IsNullOrWhiteSpace(remoteRequestId))
         {
@@ -318,10 +329,14 @@ public partial class ChatViewModel
             {
                 targetChat.LastRemoteDeviceId = previousDeviceId;
                 targetChat.LastRemoteRequestId = previousRequestId;
+                if (clearedDraftRunOptions)
+                    targetChat.DraftRunOptions = previousDraftRunOptions;
                 RemoveQueuedBusySend(targetChat.Id, queuedMessage);
                 throw;
             }
         }
+        if (clearedDraftRunOptions && !IsEditingMessage)
+            OnPropertyChanged(nameof(ComposerRunOptions));
 
         // Only make the message eligible for an idle drain after its receipt is durable.
         if (!_queuedBusySendPrompts.TryGetValue(targetChat.Id, out var pending))

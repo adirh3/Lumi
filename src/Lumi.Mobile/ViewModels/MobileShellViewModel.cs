@@ -561,6 +561,7 @@ public sealed partial class MobileShellViewModel :
     public bool SupportsInteractiveResponses => Client.SupportsInteractiveResponses;
     public bool SupportsModelPins => Client.SupportsModelPins;
     public bool SupportsMessageEditing => Client.SupportsMessageEditing;
+    public bool SupportsRunOptions => Client.SupportsRunOptions;
 
     public ILumiDiscoveryClient Discovery { get; }
 

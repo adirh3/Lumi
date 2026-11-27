@@ -78,6 +78,9 @@ internal sealed class ChatRuntimeState
     /// </summary>
     public bool TurnInProgress { get; set; }
     public bool IsContinuationTurn { get; set; }
+    public bool IsComposerAutopilot { get; set; }
+    public bool NeedsInteractiveModeRestore { get; set; }
+    public Task? InteractiveModeRestore { get; set; }
 
     public bool IsPreparingModelForTurn { get; set; }
 

@@ -782,4 +782,13 @@
   <data name="WebAppInstallOpenStep" xml:space="preserve"><value>Open Lumi from its new Home Screen icon.</value></data>
   <data name="WebAppInstallFallback" xml:space="preserve"><value>Can't find the option? Open this page in Safari on iPhone/iPad or Chrome on Android.</value></data>
   <data name="WebAppInstallFailed" xml:space="preserve"><value>The install dialog couldn't open. You can add Lumi using the steps below.</value></data>
+  <data name="Strategy" xml:space="preserve"><value>Strategy</value></data>
+  <data name="StrategyPickerDescription" xml:space="preserve"><value>Choose how Lumi tackles your next message.</value></data>
+  <data name="Autopilot" xml:space="preserve"><value>Autopilot</value></data>
+  <data name="AutopilotDetail" xml:space="preserve"><value>Keep going without another prompt</value></data>
+  <data name="Parallel" xml:space="preserve"><value>Parallel</value></data>
+  <data name="ParallelDetail" xml:space="preserve"><value>Delegate independent steps to agents</value></data>
+  <data name="Research" xml:space="preserve"><value>Research</value></data>
+  <data name="ResearchDetail" xml:space="preserve"><value>Get a cited report. Runs on its own.</value></data>
+  <data name="ResearchRequiresCopilot" xml:space="preserve"><value>Research needs a signed-in GitHub Copilot model. Your draft hasn't been sent.</value></data>
 </root>

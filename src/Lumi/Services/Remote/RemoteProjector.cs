@@ -312,6 +312,7 @@ internal static class RemoteProjector
                     .. chat.ActiveExternalSkillNames
                 ],
             McpNames = isActive ? ChipNames(chatVm.ActiveMcpChips) : [.. chat.ActiveMcpServerNames],
+            RunOptions = FormatRunOptions(isActive && !chatVm.IsEditingMessage ? chatVm.DraftRunOptions : chat.DraftRunOptions),
             AvailableAgents = isActive ? BuildChips(chatVm.AvailableAgentChips) : [],
             AvailableSkills = isActive ? BuildChips(chatVm.AvailableSkillChips) : [],
             AvailableMcps = isActive ? BuildChips(chatVm.AvailableMcpChips) : [],
@@ -644,6 +645,7 @@ internal static class RemoteProjector
             ShowToolCalls = settings.ShowToolCalls,
             ShowReasoning = settings.ShowReasoning,
             ShowTimestamps = settings.ShowTimestamps,
+            UseByokOnly = settings.UseBYOKOnly,
             AvailableModels = models.ToList(),
             ModelDisplayNames = models
                 .Select(model => $"{model}={ChatViewModel.FormatModelDisplay(model) ?? model}")
@@ -2236,8 +2238,31 @@ internal static class RemoteProjector
                 : message.SteerDelivery.ToString(),
             CanSendNow = message.SteerDelivery == MessageSteerState.Steering
                          || message.SteerDelivery == MessageSteerState.Queued && message.CanSendNowWhenQueued,
-            Attachments = attachments.Count == 0 ? null : attachments
+            Attachments = attachments.Count == 0 ? null : attachments,
+            RunOptions = FormatRunOptionsOrNull(message.RunOptions)
         };
+    }
+
+    private static List<string> FormatRunOptions(ChatRunOptions options)
+    {
+        if (options == ChatRunOptions.None)
+            return [];
+
+        if (options.HasFlag(ChatRunOptions.Research))
+            return [RemoteProtocol.RunOptions.Research];
+
+        var result = new List<string>(2);
+        if (options.HasFlag(ChatRunOptions.Autopilot))
+            result.Add(RemoteProtocol.RunOptions.Autopilot);
+        if (options.HasFlag(ChatRunOptions.Parallel))
+            result.Add(RemoteProtocol.RunOptions.Parallel);
+        return result;
+    }
+
+    private static List<string>? FormatRunOptionsOrNull(ChatRunOptions options)
+    {
+        var formatted = FormatRunOptions(options);
+        return formatted.Count == 0 ? null : formatted;
     }
 
     private static RemoteTranscriptItem BuildAssistantItem(
@@ -2738,6 +2763,7 @@ internal static class RemoteProjector
             McpNames = BoundStrings(
                 status.McpNames,
                 RemoteProtocol.MobileMetadataTextLimit),
+            RunOptions = RemoteProtocol.RunOptions.Normalize(status.RunOptions),
             AvailableAgents = BoundChips(status.AvailableAgents),
             AvailableSkills = BoundChips(status.AvailableSkills),
             AvailableMcps = BoundChips(status.AvailableMcps),

@@ -30,4 +30,6 @@ public static class TranscriptIcons
     public const string Question = "question";
     public const string Mixed = "mixed";
     public const string Tool = "tool";
+    public const string Bolt = "bolt";
+    public const string Branch = "branch";
 }

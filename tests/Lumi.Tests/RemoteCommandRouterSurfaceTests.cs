@@ -90,6 +90,59 @@ public sealed class RemoteCommandRouterSurfaceTests
     });
 
     [Fact]
+    public Task ConfigureChatPersistsAndValidatesRemoteRunOptions() => RunAsync(async () =>
+    {
+        var settings = TestSettings();
+        settings.PreferredModel = "gpt-6-luna";
+        var chat = new Chat { Title = "Remote Strategy", LastModelUsed = "gpt-6-luna" };
+        var store = new DataStore(new AppData { Settings = settings, Chats = [chat] });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(),
+            startBackgroundJobs: false, initializeCopilotOnStartup: false);
+        await main.OpenChatByIdAsync(chat.Id);
+        var router = new RemoteCommandRouter(store, main);
+
+        // Set Autopilot + Parallel on the chat draft.
+        var combined = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.ConfigureChat)
+                .With("chatId", chat.Id.ToString())
+                .WithList("runOptions", [RemoteProtocol.RunOptions.Autopilot, RemoteProtocol.RunOptions.Parallel]),
+            CancellationToken.None);
+        Assert.True(combined.Ok, combined.Error);
+        Assert.Equal(ChatRunOptions.Autopilot | ChatRunOptions.Parallel, chat.DraftRunOptions);
+        Assert.Equal(ChatRunOptions.Autopilot | ChatRunOptions.Parallel, main.ChatVM.DraftRunOptions);
+
+        // Reject combining Research with Autopilot.
+        var invalid = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.ConfigureChat)
+                .With("chatId", chat.Id.ToString())
+                .WithList("runOptions", [RemoteProtocol.RunOptions.Autopilot, RemoteProtocol.RunOptions.Research]),
+            CancellationToken.None);
+        Assert.False(invalid.Ok);
+        Assert.Equal(ChatRunOptions.Autopilot | ChatRunOptions.Parallel, chat.DraftRunOptions);
+
+        // Reject Research when UseBYOKOnly is enabled without mutating other fields in the same request.
+        settings.UseBYOKOnly = true;
+        var blocked = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.ConfigureChat)
+                .With("chatId", chat.Id.ToString())
+                .With("model", "claude-sonnet-5")
+                .With("runOptions", RemoteProtocol.RunOptions.Research),
+            CancellationToken.None);
+        Assert.False(blocked.Ok);
+        Assert.Equal("gpt-6-luna", chat.LastModelUsed);
+        Assert.Equal("gpt-6-luna", main.ChatVM.SelectedModel);
+
+        // Clear draft options with an empty value.
+        var cleared = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.ConfigureChat)
+                .With("chatId", chat.Id.ToString())
+                .With("runOptions", ""),
+            CancellationToken.None);
+        Assert.True(cleared.Ok, cleared.Error);
+        Assert.Equal(ChatRunOptions.None, chat.DraftRunOptions);
+    });
+
+    [Fact]
     public Task SetupOnlyFusionEffortEditPersistsTheTierWithoutChangingDefaults() => RunAsync(async () =>
     {
         var settings = TestSettings();
@@ -2192,7 +2245,7 @@ public sealed class RemoteCommandRouterSurfaceTests
                 BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(rig.DetachedSurface, automaticSteering
                 ? [rig.DetachedChat.Id]
-                : [queued.Content, false, queued]));
+                : [queued.Content, false, queued, false]));
         await redelivery;
         Assert.Equal(privateSelection, rig.DetachedSurface.SelectedModel);
         Assert.Equal(privateSelection, rig.DetachedSurface.ResolveSelectedModelForChat(rig.DetachedChat));

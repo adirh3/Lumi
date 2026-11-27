@@ -83,6 +83,10 @@ public sealed class RemoteSettings
     public bool ShowToolCalls { get; set; } = true;
     public bool ShowReasoning { get; set; } = true;
     public bool ShowTimestamps { get; set; }
+
+    /// <summary>True when the desktop restricts chats to the user's own accounts (disabling Copilot-only features like Research).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool UseByokOnly { get; set; }
     public List<string> AvailableModels { get; set; } = [];
 
     /// <summary>Friendly model labels as <c>model-id=Display Name</c> lines.</summary>

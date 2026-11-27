@@ -1576,4 +1576,37 @@ public sealed class RemoteProjectionTests
 
         Assert.True(LumiRemoteServer.IsPrivateCaller(endPoint));
     }
+
+    [Fact]
+    public void RunOptionsProjectOnUserMessagesChatStatusSettingsAndTranscriptVersion()
+    {
+        var user = Message("user", "Run everything");
+        user.RunOptions = ChatRunOptions.Autopilot | ChatRunOptions.Parallel;
+        var chat = new Chat { DraftRunOptions = ChatRunOptions.Research };
+        var data = new AppData();
+        data.Settings.UseBYOKOnly = true;
+        var store = new DataStore(data);
+
+        var settings = RemoteProjector.BuildSettings(store, ["gpt-6-luna"]);
+        Assert.True(settings.UseByokOnly);
+
+        using var chatVm = new ChatViewModel(store, TestCopilot.Shared);
+        var status = RemoteProjector.BuildStatus(store, chatVm, chat);
+        Assert.Equal([RemoteProtocol.RunOptions.Research], status.RunOptions);
+
+        var transcript = Build(chat, [LumiRemoteServer.CloneMessageForRemote(user)]);
+        var projected = Assert.Single(Assert.Single(transcript.Turns).Items);
+        Assert.Equal([RemoteProtocol.RunOptions.Autopilot, RemoteProtocol.RunOptions.Parallel], projected.RunOptions);
+
+        var v1 = RemoteContentVersions.ComputeTranscriptVersion(
+            "epoch123", 1, chat, [user], unacknowledgedTailCount: 0, compact: true, limit: 48,
+            showReasoning: true, showToolCalls: true, workingDirectory: null,
+            runningBackgroundToolCallIds: null, status);
+        user.RunOptions = ChatRunOptions.Research;
+        var v2 = RemoteContentVersions.ComputeTranscriptVersion(
+            "epoch123", 1, chat, [user], unacknowledgedTailCount: 0, compact: true, limit: 48,
+            showReasoning: true, showToolCalls: true, workingDirectory: null,
+            runningBackgroundToolCallIds: null, status);
+        Assert.NotEqual(v1, v2);
+    }
 }

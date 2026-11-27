@@ -315,6 +315,12 @@ public static class RemoteProtocol
         public const string LaunchpadV2 = "launchpad-v2";
         public const string ScopedPayloadsV1 = "scoped-payloads-v1";
 
+        /// <summary>
+        /// Per-message execution strategies (<see cref="RunOptions"/>: Autopilot, Parallel, Research) travel on chat
+        /// status drafts, sent user messages, <see cref="Actions.ConfigureChat"/>, and <see cref="Actions.SendMessage"/>.
+        /// </summary>
+        public const string RunOptionsV1 = "run-options-v1";
+
         public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
         public static IReadOnlyList<string> Server { get; } =
         [
@@ -331,8 +337,68 @@ public static class RemoteProtocol
             PhoneNotificationsV1,
             ExplorerPicturesV1,
             LaunchpadV2,
-            ScopedPayloadsV1
+            ScopedPayloadsV1,
+            RunOptionsV1
         ];
+    }
+
+    /// <summary>
+    /// Canonical per-message execution strategy tokens shared across desktop and mobile.
+    /// Autopilot and Parallel may combine; Research is exclusive.
+    /// </summary>
+    public static class RunOptions
+    {
+        public const string Autopilot = "Autopilot";
+        public const string Parallel = "Parallel";
+        public const string Research = "Research";
+
+        public static string? Canonicalize(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return null;
+            return raw.Trim() switch
+            {
+                var value when value.Equals(Autopilot, StringComparison.OrdinalIgnoreCase) => Autopilot,
+                var value when value.Equals(Parallel, StringComparison.OrdinalIgnoreCase) => Parallel,
+                var value when value.Equals(Research, StringComparison.OrdinalIgnoreCase) => Research,
+                _ => null
+            };
+        }
+
+        public static List<string> Normalize(IEnumerable<string?>? values)
+        {
+            if (values is null)
+                return [];
+
+            var hasAutopilot = false;
+            var hasParallel = false;
+            var hasResearch = false;
+            foreach (var raw in values)
+            {
+                switch (Canonicalize(raw))
+                {
+                    case Autopilot: hasAutopilot = true; break;
+                    case Parallel: hasParallel = true; break;
+                    case Research: hasResearch = true; break;
+                }
+            }
+
+            if (hasResearch)
+                return [Research];
+
+            var result = new List<string>(2);
+            if (hasAutopilot) result.Add(Autopilot);
+            if (hasParallel) result.Add(Parallel);
+            return result;
+        }
+
+        public static string Format(IEnumerable<string?>? values) =>
+            string.Join('\n', Normalize(values));
+
+        public static List<string> Parse(string? raw) =>
+            string.IsNullOrWhiteSpace(raw)
+                ? []
+                : Normalize(raw.Split(['\r', '\n', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
     }
 
     /// <summary>

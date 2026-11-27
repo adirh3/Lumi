@@ -782,4 +782,13 @@
   <data name="WebAppInstallOpenStep" xml:space="preserve"><value>פתחו את Lumi מהסמל החדש במסך הבית.</value></data>
   <data name="WebAppInstallFallback" xml:space="preserve"><value>האפשרות לא מופיעה? פתחו את הדף ב־Safari ב־iPhone או ב־iPad, או ב־Chrome ב־Android.</value></data>
   <data name="WebAppInstallFailed" xml:space="preserve"><value>לא ניתן לפתוח את חלון ההתקנה. אפשר להוסיף את Lumi לפי השלבים הבאים.</value></data>
+  <data name="Strategy" xml:space="preserve"><value>אסטרטגיה</value></data>
+  <data name="StrategyPickerDescription" xml:space="preserve"><value>בחר כיצד Lumi תטפל בהודעה הבאה שלך.</value></data>
+  <data name="Autopilot" xml:space="preserve"><value>אוטומטי</value></data>
+  <data name="AutopilotDetail" xml:space="preserve"><value>להמשיך בלי לחכות להודעה נוספת</value></data>
+  <data name="Parallel" xml:space="preserve"><value>במקביל</value></data>
+  <data name="ParallelDetail" xml:space="preserve"><value>לחלק שלבים עצמאיים בין סוכנים</value></data>
+  <data name="Research" xml:space="preserve"><value>מחקר</value></data>
+  <data name="ResearchDetail" xml:space="preserve"><value>לקבל דוח עם מקורות. פועל בנפרד.</value></data>
+  <data name="ResearchRequiresCopilot" xml:space="preserve"><value>מחקר דורש מודל של GitHub Copilot וחשבון מחובר. הטיוטה לא נשלחה.</value></data>
 </root>

@@ -64,7 +64,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private bool _isRefreshingCopilotState;
     private bool _wasExternalOnly;
     private bool _isSyncingDefaultModelSelectionFromChat;
-    private (string? Prompt, Guid? ProjectId)? _parkedNewChat;
+    private (string? Prompt, Guid? ProjectId, ChatRunOptions RunOptions)? _parkedNewChat;
 
     private const int ChatPageSize = 50;
     private int _chatLoadLimit = ChatPageSize;
@@ -637,7 +637,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             else if (args.PropertyName == nameof(SettingsViewModel.UserName))
                 UserName = SettingsVM.UserName;
             else if (args.PropertyName == nameof(SettingsViewModel.UseBYOKOnly))
+            {
                 InjectByokModels();
+                _chatSessionStore.ApplyToSurfaces(static surface => surface.RefreshComposerRunOptions());
+            }
             else if (args.PropertyName == nameof(SettingsViewModel.EnableDailyBriefs))
             {
                 MemoriesVM.RefreshFromStore();
@@ -1004,18 +1007,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // The unhosted new-chat surface is disposed. Keep its text and any project picked independently
-        // of the sidebar. A specific sidebar filter still supplies the project when the draft returns.
+        // The new-chat draft survives its surface, including a project picked independently of the sidebar.
         if (surface.CurrentChat is null)
         {
             surface.PromptText = _parkedNewChat?.Prompt;
+            surface.SetDraftRunOptions(_parkedNewChat?.RunOptions ?? ChatRunOptions.None);
             _parkedNewChat = null;
         }
         else if (previous.CurrentChat is null)
         {
             var prompt = previous.PromptText is { Length: > 0 } text ? text : null;
             var projectId = SelectedProjectFilter is null ? previous.GetCurrentProject()?.Id : null;
-            _parkedNewChat = prompt is not null || projectId.HasValue ? (prompt, projectId) : null;
+            var runOptions = previous.DraftRunOptions;
+            _parkedNewChat = prompt is not null || projectId.HasValue || runOptions != ChatRunOptions.None
+                ? (prompt, projectId, runOptions)
+                : null;
         }
 
         DetachChatViewModel(previous);
@@ -2066,10 +2072,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void OpenNewChat(bool restoreDraftProject)
     {
+        if (restoreDraftProject && ChatVM.CurrentChat is null)
+        {
+            SelectedNavIndex = 0;
+            return;
+        }
+
         // Reuse an empty chat unless there's a separate draft to come back to.
         if (_parkedNewChat is null
-            && ChatVM.CurrentChat is not null
-            && ChatVM.CurrentChat.Messages.Count == 0
+            && ChatVM.CurrentChat is { Messages.Count: 0 }
             && !ChatVM.OwnsAnyLiveChat())
         {
             // Still update the project assignment if a filter is active
@@ -2381,7 +2392,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // editable draft. Set after navigation, and only if the fork is what actually opened —
             // otherwise the draft would land in whichever chat is on screen.
             if (opened && plan.ComposerPrefill is { Length: > 0 } draft)
-                ChatVM.SetComposerDraft(draft, plan.ComposerReply, plan.ComposerReferencedChats);
+                ChatVM.SetComposerDraft(draft, plan.ComposerReply, plan.ComposerReferencedChats, plan.ComposerRunOptions);
 
             return fork;
         }

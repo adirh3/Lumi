@@ -136,6 +136,7 @@ public partial class ChatViewModel
 
         // Chats brought into a draft stay with that draft, like its reply below.
         SwapChatReferenceDrafts(oldValue, newValue);
+        OnPropertyChanged(nameof(ComposerRunOptions));
 
         if (oldValue is not null)
         {

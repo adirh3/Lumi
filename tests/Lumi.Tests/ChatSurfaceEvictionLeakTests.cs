@@ -98,11 +98,15 @@ public sealed class ChatSurfaceEvictionLeakTests
                 maxIdleCachedSurfaces: 0);
 
             var surface = await store.AcquireChatAsync(chat);
+            surface.ToggleComposerRunOptionCommand.Execute(nameof(ChatRunOptions.Autopilot));
             store.Release(surface);
             await Task.Yield();
 
             Assert.Equal(2, chat.Messages.Count);
             Assert.False(dataStore.HasStoredMessages(chat.Id));
+            var reopened = await store.AcquireChatAsync(chat);
+            Assert.NotSame(surface, reopened);
+            Assert.Equal(ChatRunOptions.Autopilot, reopened.DraftRunOptions);
         }, CancellationToken.None);
     }
 

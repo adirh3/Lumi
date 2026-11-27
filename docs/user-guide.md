@@ -939,6 +939,15 @@ with a clear paused-chat message until resumed.
 
 ### Steer or queue while Lumi works
 
+The composer's **+ → Strategy** menu offers **Autopilot** (keep working without another
+prompt), **Parallel** (delegate independent steps), and **Research** (produce a report with sources).
+Pick a chip, write your request and send normally. Click its **×** to remove it before sending.
+Autopilot and Parallel can be used together. Research runs on its own and requires a GitHub Copilot
+model. Chips stay with their own draft when you switch chats and apply to just the message you send.
+If a reply is already running, a message with a chip can't steer it. Desktop queues the draft;
+on mobile, the send button becomes **Stop & send** to start a fresh turn. You can still stop the
+running session and keep the draft from the mobile send menu.
+
 While Lumi is replying, **Enter** steers the message into the running reply. **Ctrl+Enter**
 (**Cmd+Enter** on macOS; **Ctrl+Shift+Enter** when Ctrl+Enter is the send key) queues it
 instead, and right-clicking the send button offers **Send to steer**, **Add to queue** and

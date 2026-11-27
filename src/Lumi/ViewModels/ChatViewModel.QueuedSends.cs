@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Lumi.Localization;
 using Lumi.Models;
 
 using ChatMessage = Lumi.Models.ChatMessage;
@@ -32,6 +33,7 @@ public sealed partial class QueuedSendItem : ObservableObject
     public int AttachmentCount => Message.Attachments.Count;
 
     public bool HasAttachments => AttachmentCount > 0;
+    public bool CanSteerNow => Message.RunOptions == ChatRunOptions.None;
 
     public IAsyncRelayCommand SteerNowCommand { get; }
 
@@ -78,8 +80,15 @@ public partial class ChatViewModel
 
         if (BlockSendForByokOnly(chat, ResolveSelectedModelForChat(chat), prompt, consumeComposerPrompt: true))
             return;
+        if (BlockComposerResearchForModel(chat, DraftRunOptions, ResolveSelectedModelForChat(chat)))
+            return;
 
-        var message = BuildQueuedSend(chat, prompt);
+        QueueComposerDraftAfterReply(chat, prompt);
+    }
+
+    private void QueueComposerDraftAfterReply(Chat chat, string prompt)
+    {
+        var message = BuildQueuedSend(chat, prompt, runOptions: TakeDraftRunOptions());
         if (message is null)
             return;
 
@@ -199,6 +208,8 @@ public partial class ChatViewModel
         PendingReply ??= message.ReplyTo;
         if (message.ReferencedChats is { Count: > 0 } references)
             ReplaceReferencedChats(references.Concat(PeekReferencedChats() ?? []).DistinctBy(static reference => reference.ChatId));
+        if (message.RunOptions != ChatRunOptions.None)
+            SetDraftRunOptions(message.RunOptions);
 
         SyncQueuedSends();
         FocusComposerAtEndRequested?.Invoke();
@@ -207,7 +218,15 @@ public partial class ChatViewModel
     /// <summary>Steers a queued message into the running reply now, instead of waiting for it to finish.</summary>
     internal async Task SteerQueuedSendNowAsync(ChatMessage message)
     {
-        if (CurrentChat is not { } chat || !RemoveWaitingSend(chat.Id, message))
+        if (CurrentChat is not { } chat)
+            return;
+
+        if (message.RunOptions != ChatRunOptions.None && IsChatRuntimeActive(chat.Id) && !CanStartTurnOnReadySession(chat))
+        {
+            StatusText = Loc.Get("Composer_RunWaitsForReply");
+            return;
+        }
+        if (!RemoveWaitingSend(chat.Id, message))
             return;
 
         EnterTranscript(chat, message);

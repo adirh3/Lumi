@@ -333,11 +333,11 @@ public sealed class MessageReplyTests
         host.ViewModel.BeginReply(Guid.NewGuid(), "quoted", isSelection: true, author: "Lumi");
         var reply = host.ViewModel.PendingReply;
 
-        host.Invoke("QueueBusySendPrompt", host.Chat.Id, "from the phone", null, "Lumi Mobile", null);
+        host.Invoke("QueueBusySendPrompt", host.Chat.Id, "from the phone", null, "Lumi Mobile", null, ChatRunOptions.None);
         Assert.Null(host.Chat.Messages.Single().ReplyTo);
         Assert.Same(reply, host.ViewModel.PendingReply);
 
-        host.Invoke("QueueBusySendPrompt", host.Chat.Id, "from the composer", null, null, null);
+        host.Invoke("QueueBusySendPrompt", host.Chat.Id, "from the composer", null, null, null, ChatRunOptions.None);
         Assert.Same(reply, host.Chat.Messages.Last().ReplyTo);
         Assert.Null(host.ViewModel.PendingReply);
     }

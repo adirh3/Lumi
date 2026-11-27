@@ -131,6 +131,11 @@ public partial class UserMessageItem : TranscriptItem
     public bool HasReferencedChats => ReferencedChats.Count > 0;
     public List<LinkedChatChipItem>? DisplayReferencedChats => HasReferencedChats ? ReferencedChats : null;
 
+    /// <summary>Strategy options this message was sent with (Autopilot, Parallel, Research).</summary>
+    public List<RunOptionChipItem> RunOptions { get; }
+    public bool HasRunOptions => RunOptions.Count > 0;
+    public List<RunOptionChipItem>? DisplayRunOptions => HasRunOptions ? RunOptions : null;
+
     public UserMessageItem(
         ChatMessageViewModel source,
         bool showTimestamps,
@@ -157,6 +162,7 @@ public partial class UserMessageItem : TranscriptItem
                 reference.Title,
                 () => openChatAction?.Invoke(reference.ChatId)))
             .ToList() ?? [];
+        RunOptions = RunOptionChipItem.FromOptions(source.Message.RunOptions);
 
         BeginEditCommand = new RelayCommand(
             () => _beginEditAction?.Invoke(_source.Message),
@@ -255,6 +261,25 @@ public partial class LinkedChatChipItem
 
     [RelayCommand]
     private void Open() => _openAction?.Invoke();
+}
+
+/// <summary>A Strategy option pill shown on a sent user message (Autopilot, Parallel, Research).</summary>
+public sealed record RunOptionChipItem(string Label, string IconKey)
+{
+    public static List<RunOptionChipItem> FromOptions(ChatRunOptions options)
+    {
+        if (options == ChatRunOptions.None)
+            return [];
+
+        var items = new List<RunOptionChipItem>(2);
+        if (options.HasFlag(ChatRunOptions.Autopilot))
+            items.Add(new(Loc.Get("Composer_Autopilot"), TranscriptIcons.Bolt));
+        if (options.HasFlag(ChatRunOptions.Parallel))
+            items.Add(new(Loc.Get("Composer_Parallel"), TranscriptIcons.Branch));
+        if (options.HasFlag(ChatRunOptions.Research))
+            items.Add(new(Loc.Get("Composer_Research"), TranscriptIcons.Search));
+        return items;
+    }
 }
 
 /// <summary>

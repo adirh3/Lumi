@@ -314,6 +314,10 @@ public class ChatMessage
     public bool IsPendingPausedSend { get => _isPendingPausedSend; set => SetPersisted(ref _isPendingPausedSend, value); }
     private bool _isPendingPausedSend;
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public ChatRunOptions RunOptions { get => _runOptions; set => SetPersisted(ref _runOptions, value); }
+    private ChatRunOptions _runOptions;
+
     /// <summary>
     /// The message's position key in the chat's stored transcript (1-based, ordered), or 0 while it
     /// has never been stored. Assigned by the chat store; a copy made with <see cref="Clone"/> is new.
@@ -438,6 +442,7 @@ public class ChatMessage
         Attachments = [..Attachments],
         FailureDisposition = FailureDisposition,
         IsPendingPausedSend = IsPendingPausedSend,
+        RunOptions = RunOptions,
         ReplyTo = ReplyTo?.Clone(),
         ReferencedChats = ReferencedChats?.Select(static reference => reference.Clone()).ToList(),
         ActiveSkills = [..ActiveSkills.Select(static s => new SkillReference
@@ -1106,6 +1111,10 @@ public class Chat : INotifyPropertyChanged
     /// <summary>Folders this chat's sandbox may reach beyond the project's, allowed from approval cards.</summary>
     public List<SandboxFolder> SandboxFolders { get => _sandboxFolders; set => _sandboxFolders = value ?? []; }
     public bool PauseNeedsContinuation { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PauseContinuesAutopilot { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public ChatRunOptions DraftRunOptions { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     /// <summary>

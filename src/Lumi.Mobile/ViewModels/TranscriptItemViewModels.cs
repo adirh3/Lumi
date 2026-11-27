@@ -55,6 +55,21 @@ public abstract partial class TranscriptItemViewModel : ObservableObject, IDispo
     }
 }
 
+public sealed record RunOptionBadge(string Id, string Label)
+{
+    public bool IsAutopilot => string.Equals(Id, RemoteProtocol.RunOptions.Autopilot, StringComparison.Ordinal);
+    public bool IsParallel => string.Equals(Id, RemoteProtocol.RunOptions.Parallel, StringComparison.Ordinal);
+    public bool IsResearch => string.Equals(Id, RemoteProtocol.RunOptions.Research, StringComparison.Ordinal);
+
+    public static RunOptionBadge? FromId(string? raw) => RemoteProtocol.RunOptions.Canonicalize(raw) switch
+    {
+        RemoteProtocol.RunOptions.Autopilot => new(RemoteProtocol.RunOptions.Autopilot, Strings.Get("Autopilot")),
+        RemoteProtocol.RunOptions.Parallel => new(RemoteProtocol.RunOptions.Parallel, Strings.Get("Parallel")),
+        RemoteProtocol.RunOptions.Research => new(RemoteProtocol.RunOptions.Research, Strings.Get("Research")),
+        _ => null
+    };
+}
+
 public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
 {
     [ObservableProperty] private string _text = "";
@@ -64,8 +79,10 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
     [ObservableProperty] private bool _canSendNow;
 
     public ObservableCollection<RemoteAttachment> Attachments { get; } = [];
+    public ObservableCollection<RunOptionBadge> RunOptions { get; } = [];
 
     public bool HasAttachments => Attachments.Count > 0;
+    public bool HasRunOptions => RunOptions.Count > 0;
 
     /// <summary>The time beside "You" over the bubble, as the desktop shows it.</summary>
     public string TimestampText => TranscriptTime.Format(Timestamp);
@@ -97,7 +114,15 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
                      item.Attachments?.Any(existing => existing.Path == file.Path) != true)))
             Attachments.Add(attachment);
 
+        RunOptions.Clear();
+        foreach (var id in RemoteProtocol.RunOptions.Normalize(item.RunOptions))
+        {
+            if (RunOptionBadge.FromId(id) is { } badge)
+                RunOptions.Add(badge);
+        }
+
         OnPropertyChanged(nameof(HasAttachments));
+        OnPropertyChanged(nameof(HasRunOptions));
     }
 
     partial void OnSteerStateChanged(string? value)

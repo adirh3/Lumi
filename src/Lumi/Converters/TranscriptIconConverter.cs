@@ -57,6 +57,8 @@ public sealed class TranscriptIconConverter : IValueConverter
         TranscriptIcons.Data => StrataIcons.Database,
         TranscriptIcons.Question => StrataIcons.Question,
         TranscriptIcons.Mixed => StrataIcons.Layers,
+        TranscriptIcons.Bolt => StrataIcons.Bolt,
+        TranscriptIcons.Branch => StrataIcons.Branch,
         _ => null,
     };
 }

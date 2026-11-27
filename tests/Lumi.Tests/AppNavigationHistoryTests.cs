@@ -494,6 +494,34 @@ public sealed class AppNavigationHistoryTests
     });
 
     [Fact]
+    public Task NewChatStrategy_IsRestoredEvenWithoutDraftText() => Run(async (vm, data) =>
+    {
+        var emptyChat = new Chat { Title = "Empty chat" };
+        data.Chats.Add(emptyChat);
+        vm.ChatVM.ToggleComposerRunOptionCommand.Execute(nameof(ChatRunOptions.Parallel));
+        var draft = vm.ChatVM;
+
+        // Clicking New Chat while already on New Chat keeps the draft's Strategy chip.
+        vm.NewChatCommand.Execute(null);
+        Assert.Null(vm.ChatVM.CurrentChat);
+        Assert.Same(draft, vm.ChatVM);
+        Assert.Equal(ChatRunOptions.Parallel, vm.ChatVM.DraftRunOptions);
+
+        Assert.True(await vm.OpenChatByIdAsync(emptyChat.Id));
+        Assert.Equal(ChatRunOptions.None, vm.ChatVM.DraftRunOptions);
+        vm.ChatVM.ToggleComposerRunOptionCommand.Execute(nameof(ChatRunOptions.Autopilot));
+        Assert.Equal(ChatRunOptions.Autopilot, emptyChat.DraftRunOptions);
+
+        vm.NewChatCommand.Execute(null);
+        Assert.Null(vm.ChatVM.CurrentChat);
+        Assert.NotSame(draft, vm.ChatVM);
+        Assert.Equal(ChatRunOptions.Parallel, vm.ChatVM.DraftRunOptions);
+
+        Assert.True(await vm.OpenChatByIdAsync(emptyChat.Id));
+        Assert.Equal(ChatRunOptions.Autopilot, vm.ChatVM.DraftRunOptions);
+    });
+
+    [Fact]
     public Task NewChatPrompt_IsRestoredEvenWhenTheOpenChatHasNoMessages() => Run(async (vm, data) =>
     {
         var emptyChat = new Chat { Title = "Empty fork" };

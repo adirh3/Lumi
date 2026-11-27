@@ -578,6 +578,8 @@ internal sealed class RemoteCommandRouter
                 return Fail(projectError, chat.Id);
             if (!TryResolveAgentSelection(command, out var agentSelection, out var agentError))
                 return Fail(agentError, chat.Id);
+            if (!TryParseRunOptions(command, out _, out var runOptions, out var runOptionsError))
+                return Fail(runOptionsError, chat.Id);
 
             var owner = await ResolveChatOwnerAsync(chat).ConfigureAwait(true);
             if (owner is null)
@@ -593,6 +595,10 @@ internal sealed class RemoteCommandRouter
 
             if (command.GetBool("stopAndSend") == true && owner.IsChatBusy(chat.Id))
             {
+                if ((runOptions & ChatRunOptions.Research) != 0
+                    && owner.GetResearchUnavailableReasonForChat(chat) is { } researchReason)
+                    return Fail(researchReason, chat.Id);
+
                 var stopAndSendAccepted = await owner
                     .StopAndSendExternalMessageAsync(
                         chat,
@@ -600,7 +606,8 @@ internal sealed class RemoteCommandRouter
                         "Lumi Mobile",
                         command.AuthenticatedDeviceId,
                         command.RequestId,
-                        cancellationToken)
+                        cancellationToken,
+                        runOptions)
                     .ConfigureAwait(true);
                 return stopAndSendAccepted
                     ? Success(Loc.Remote_TurnStoppedMessageQueued, chat.Id)
@@ -610,6 +617,8 @@ internal sealed class RemoteCommandRouter
             // Readiness chooses send versus steer, never whether to honor an explicit session Stop.
             if (owner.IsAssistantBusy(chat.Id))
             {
+                if (runOptions != ChatRunOptions.None)
+                    return Fail(Loc.Get("Composer_RunWaitsForReply"), chat.Id);
                 if (command.GetBool("steer") != true)
                     return Fail(Loc.Remote_ChatAlreadyRunning, chat.Id);
 
@@ -753,7 +762,8 @@ internal sealed class RemoteCommandRouter
                         reservedProjectDirectory,
                         command.AuthenticatedDeviceId,
                         command.RequestId,
-                        interactionReceipt)
+                        interactionReceipt,
+                        runOptions)
                     .ConfigureAwait(true)
                 : await StartInjectedMessageAsync().ConfigureAwait(true);
 
@@ -979,6 +989,8 @@ internal sealed class RemoteCommandRouter
             return Fail(projectError, chat.Id);
         if (!TryResolveAgentSelection(command, out var agentSelection, out var agentError))
             return Fail(agentError, chat.Id);
+        if (!TryParseRunOptions(command, out var runOptionsSpecified, out var runOptions, out var runOptionsError))
+            return Fail(runOptionsError, chat.Id);
 
         // Model-only picks can target an offscreen chat without taking over the desktop window.
         var registeredOwner = TryResolveRegisteredOwner(chat.Id);
@@ -1005,6 +1017,16 @@ internal sealed class RemoteCommandRouter
         if (projectSelection.IsSpecified && chatVm.IsExternalSendReserved(chat.Id))
             return Fail(Loc.Remote_ChatAlreadyStartingTurn, chat.Id);
 
+        if (runOptionsSpecified && (runOptions & ChatRunOptions.Research) != 0)
+        {
+            var effectiveModel = command.Get("model") ?? chatVm.SelectedModel;
+            if (effectiveModel is not null)
+                effectiveModel = chatVm.ResolveModelQualitySelection(
+                    effectiveModel, command.Get("quality") ?? command.Get("reasoningEffort"));
+            if (chatVm.ResearchUnavailableReason(effectiveModel) is { } researchReason)
+                return Fail(researchReason, chat.Id);
+        }
+
         var projectChangeError = await PrepareProjectChangeAsync(
                 chatVm,
                 chat,
@@ -1014,6 +1036,11 @@ internal sealed class RemoteCommandRouter
             return Fail(projectChangeError, chat.Id);
 
         var applied = ApplyChatConfiguration(chatVm, command, projectSelection, agentSelection);
+        if (runOptionsSpecified)
+        {
+            chatVm.SetPersistedDraftRunOptions(chat, runOptions);
+            applied.Add(Loc.Get("Composer_Strategy"));
+        }
         if (applied.Count == 0)
             return Fail(Loc.Remote_NothingToConfigure, chat.Id);
 
@@ -1137,6 +1164,54 @@ internal sealed class RemoteCommandRouter
         }
 
         return applied;
+    }
+
+    private static bool TryParseRunOptions(
+        RemoteCommand command,
+        out bool isSpecified,
+        out ChatRunOptions options,
+        out string error)
+    {
+        options = ChatRunOptions.None;
+        error = "";
+        if (!command.Arguments.TryGetValue("runOptions", out var raw))
+        {
+            isSpecified = false;
+            return true;
+        }
+
+        isSpecified = true;
+        if (string.IsNullOrWhiteSpace(raw))
+            return true;
+
+        foreach (var token in raw.Split(['\r', '\n', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            switch (RemoteProtocol.RunOptions.Canonicalize(token))
+            {
+                case RemoteProtocol.RunOptions.Autopilot:
+                    options |= ChatRunOptions.Autopilot;
+                    break;
+                case RemoteProtocol.RunOptions.Parallel:
+                    options |= ChatRunOptions.Parallel;
+                    break;
+                case RemoteProtocol.RunOptions.Research:
+                    options |= ChatRunOptions.Research;
+                    break;
+                default:
+                    error = Loc.Get("Remote_ArgumentInvalid", "runOptions");
+                    options = ChatRunOptions.None;
+                    return false;
+            }
+        }
+
+        if (options.HasFlag(ChatRunOptions.Research) && options != ChatRunOptions.Research)
+        {
+            error = Loc.Get("Remote_ArgumentInvalid", "runOptions");
+            options = ChatRunOptions.None;
+            return false;
+        }
+
+        return true;
     }
 
     private async Task<string?> PrepareProjectChangeAsync(

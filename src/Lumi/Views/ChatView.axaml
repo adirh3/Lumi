@@ -483,6 +483,16 @@
       </Button>
     </DataTemplate>
 
+    <DataTemplate x:Key="RunOptionChipTemplate" x:DataType="vm:RunOptionChipItem">
+      <Border Classes="transcript-chip-static" Name="RunOptionChip">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <sc:StrataLineIcon Classes="chip-icon"
+                             Data="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}" />
+          <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+
     <!-- A file going back puts back (the edit bar's card) or put back (a receipt's card): what the agent
          did to it as its icon, where it is, and what going back does to it. -->
     <DataTemplate x:Key="RewindFileRowTemplate" x:DataType="vm:RewindFileItem">
@@ -1009,6 +1019,26 @@
     </Style>
     <Style Selector="#Transcript Button.transcript-chip:pointerover sc|StrataLineIcon.chip-chevron">
       <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="#Transcript Border.transcript-chip-static">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="9,0,10,0" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+    <Style Selector="#Transcript Border.transcript-chip-static TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="#Transcript Border.transcript-chip-static sc|StrataLineIcon.chip-icon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Margin" Value="0,0,6,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
 
     <!-- Going back to an earlier message: the receipt under the message an edit sent in its place says what
@@ -4010,6 +4040,13 @@
                   <ItemsPanelTemplate><WrapPanel Classes="transcript-chips" /></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
               </ItemsControl>
+              <ItemsControl ItemsSource="{Binding DisplayRunOptions}"
+                            IsVisible="{Binding HasRunOptions}"
+                            ItemTemplate="{StaticResource RunOptionChipTemplate}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><WrapPanel Classes="transcript-chips" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+              </ItemsControl>
             </StackPanel>
           </sc:StrataChatMessage.Content>
         </sc:StrataChatMessage>
@@ -6239,6 +6276,7 @@
                   </StackPanel>
                   <StackPanel Grid.Column="3" Classes="queue-actions" Orientation="Horizontal" Spacing="2">
                     <Button Classes="subtle queue-steer"
+                            IsVisible="{Binding CanSteerNow}"
                             Command="{Binding SteerNowCommand}"
                             AutomationProperties.Name="{loc:Str Chat_QueuedSteerNow}"
                             AutomationProperties.HelpText="{loc:Str Chat_QueuedSteerNowHelp}"
@@ -6529,7 +6567,10 @@
                              AvailableChats="{Binding AvailableChatChips}"
                              ChatsRequestedCommand="{Binding RefreshChatReferencesCommand}"
                              SkillsManageCommand="{Binding ManageSkillsCommand}"
-                             AvailableFiles="{Binding AvailableFileSuggestions}">
+                             AvailableFiles="{Binding AvailableFileSuggestions}"
+                             DraftOptions="{Binding ComposerRunOptions}"
+                             DraftOptionsLabel="{loc:Str Composer_Strategy}"
+                             ToggleDraftOptionCommand="{Binding ToggleComposerRunOptionCommand}">
         <!-- How much this chat may do on its own: a setting like the model, beside it. -->
         <sc:StrataChatComposer.TrailingContent>
           <sc:StrataModePicker x:Name="ApprovalModePicker"

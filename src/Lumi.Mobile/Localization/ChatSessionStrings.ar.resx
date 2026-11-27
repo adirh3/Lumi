@@ -2084,4 +2084,13 @@
   <data name="WebAppInstallOpenStep" xml:space="preserve"><value>افتح Lumi من أيقونته الجديدة على الشاشة الرئيسية.</value></data>
   <data name="WebAppInstallFallback" xml:space="preserve"><value>لا تجد الخيار؟ افتح هذه الصفحة في Safari على iPhone أو iPad، أو في Chrome على Android.</value></data>
   <data name="WebAppInstallFailed" xml:space="preserve"><value>تعذّر فتح نافذة التثبيت. يمكنك إضافة Lumi باتباع الخطوات أدناه.</value></data>
+  <data name="Strategy" xml:space="preserve"><value>الاستراتيجية</value></data>
+  <data name="StrategyPickerDescription" xml:space="preserve"><value>اختر كيف يعالج Lumi رسالتك التالية.</value></data>
+  <data name="Autopilot" xml:space="preserve"><value>تلقائي</value></data>
+  <data name="AutopilotDetail" xml:space="preserve"><value>متابعة العمل دون انتظار طلب آخر</value></data>
+  <data name="Parallel" xml:space="preserve"><value>متوازٍ</value></data>
+  <data name="ParallelDetail" xml:space="preserve"><value>تفويض الخطوات المستقلة إلى وكلاء</value></data>
+  <data name="Research" xml:space="preserve"><value>بحث</value></data>
+  <data name="ResearchDetail" xml:space="preserve"><value>تقرير موثّق بالمصادر. يُنفّذ منفردًا.</value></data>
+  <data name="ResearchRequiresCopilot" xml:space="preserve"><value>يتطلب البحث نموذج GitHub Copilot مع تسجيل الدخول. لم تُرسل مسودتك.</value></data>
 </root>

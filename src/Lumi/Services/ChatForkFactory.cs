@@ -33,7 +33,8 @@ public readonly record struct ForkPlan(
     string? ComposerPrefill,
     int? SessionForkCutUserTurns,
     MessageReply? ComposerReply = null,
-    IReadOnlyList<ChatReference>? ComposerReferencedChats = null);
+    IReadOnlyList<ChatReference>? ComposerReferencedChats = null,
+    ChatRunOptions ComposerRunOptions = ChatRunOptions.None);
 
 /// <summary>
 /// Builds a forked copy of a <see cref="Chat"/> — an independent chat that carries the source
@@ -116,6 +117,7 @@ public static class ChatForkFactory
             LastReasoningEffortUsed = source.LastReasoningEffortUsed,
             LastContextWindowTierUsed = source.LastContextWindowTierUsed,
             PlanContent = source.PlanContent,
+            DraftRunOptions = throughMessageId is null ? source.DraftRunOptions : ChatRunOptions.None,
 
             // Breadcrumb back to the parent, and which action created this chat.
             ForkedFromChatId = source.Id,
@@ -144,7 +146,8 @@ public static class ChatForkFactory
             draft?.Content,
             sessionForkCutUserTurns,
             RepointReply(draft?.ReplyTo, copiedIds),
-            draft?.ReferencedChats?.Select(static reference => reference.Clone()).ToList());
+            draft?.ReferencedChats?.Select(static reference => reference.Clone()).ToList(),
+            draft?.RunOptions ?? ChatRunOptions.None);
     }
 
     internal static void ReconcileTag(Chat fork, IReadOnlyList<ChatTag> currentTags)

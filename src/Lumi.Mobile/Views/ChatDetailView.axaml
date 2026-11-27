@@ -220,6 +220,46 @@
     <Style Selector="#ComposerContext Button.context-chip.skill sc|StrataLineIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Skill}" />
     </Style>
+    <Style Selector="#ComposerContext Button.context-chip.strategy Border.context-chip-tile">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSelection}" />
+    </Style>
+    <Style Selector="#ComposerContext Button.context-chip.strategy sc|StrataLineIcon.strategy-icon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <Style Selector="#ComposerContext Button.context-chip.strategy sc|StrataLineIcon.chip-dismiss">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="2,0,-2,0" />
+    </Style>
+    <Style Selector="#AddSheet Border.row-tile.strategy sc|StrataLineIcon,
+                     #ContextPickerSheet Border.row-tile.strategy sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+    <Style Selector="#UserRunOptions Border.user-run-option">
+      <Setter Property="Background" Value="{DynamicResource Brush.ComposerChipFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.ComposerChipBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="9,0,10,0" />
+      <Setter Property="Margin" Value="0,0,6,6" />
+    </Style>
+    <Style Selector="#UserRunOptions Border.user-run-option sc|StrataLineIcon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="1.9" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="#UserRunOptions Border.user-run-option TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
     <Style Selector="#ComposerContext TextBlock.context-chip-name">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
       <Setter Property="FontWeight" Value="Medium" />
@@ -1623,6 +1663,24 @@
                                    FontSize="{DynamicResource Font.SizeBody}"
                                    LineHeight="{DynamicResource Font.LineHeightBody}"
                                    Foreground="{DynamicResource Brush.TextPrimary}" />
+              <ItemsControl x:Name="UserRunOptions" ItemsSource="{Binding RunOptions}"
+                            IsVisible="{Binding HasRunOptions}" Margin="0,0,0,-6">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:RunOptionBadge">
+                    <Border x:Name="RunOptionChip" Classes="user-run-option">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <sc:StrataLineIcon IsVisible="{Binding IsAutopilot}" Data="{x:Static sc:StrataIcons.Bolt}" />
+                        <sc:StrataLineIcon IsVisible="{Binding IsParallel}" Data="{x:Static sc:StrataIcons.Branch}" />
+                        <sc:StrataLineIcon IsVisible="{Binding IsResearch}" Data="{x:Static sc:StrataIcons.Search}" />
+                        <TextBlock Text="{Binding Label}" />
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
               <ItemsControl x:Name="UserAttachments" ItemsSource="{Binding Attachments}"
                             IsVisible="{Binding HasAttachments}">
                 <ItemsControl.ItemsPanel>
@@ -2307,7 +2365,7 @@
                                SendWithEnter="{Binding SendWithEnter}"
                                CanSendWithoutPrompt="{Binding Chat.HasAttachments}"
                                AdvancesFillInOnSend="True"
-                               SteerWhileBusy="True"
+                               SteerWhileBusy="{Binding Chat.CanSteerWhileBusy}"
                                OffersStopInSendMenu="True"
                                CanAttach="True"
                                AttachCommand="{Binding Chat.PickAttachmentCommand}"
@@ -2383,6 +2441,35 @@
                           HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
                           IsVisible="{Binding Chat.HasComposerContext}">
               <StackPanel x:Name="ComposerContext" Orientation="Horizontal">
+                <ItemsControl x:Name="ComposerRunOptionChips" ItemsSource="{Binding Chat.RunOptions}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:RunOptionBadge">
+                      <Button Classes="context-chip strategy"
+                              AutomationProperties.Name="{Binding Label, StringFormat={loc:Str RemoveNamed}}"
+                              Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.RemoveRunOptionCommand}"
+                              CommandParameter="{Binding Id}">
+                        <Border Classes="context-chip-surface">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Border Classes="context-chip-tile">
+                              <Panel>
+                                <sc:StrataLineIcon Classes="strategy-icon" IsVisible="{Binding IsAutopilot}" Data="{x:Static sc:StrataIcons.Bolt}" />
+                                <sc:StrataLineIcon Classes="strategy-icon" IsVisible="{Binding IsParallel}" Data="{x:Static sc:StrataIcons.Branch}" />
+                                <sc:StrataLineIcon Classes="strategy-icon" IsVisible="{Binding IsResearch}" Data="{x:Static sc:StrataIcons.Search}" />
+                              </Panel>
+                            </Border>
+                            <TextBlock Classes="context-chip-name" Text="{Binding Label}" />
+                            <sc:StrataLineIcon Classes="chip-dismiss" Data="{x:Static sc:StrataIcons.Cross}" />
+                          </StackPanel>
+                        </Border>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <Button x:Name="ComposerProjectChip" Classes="context-chip project"
                         IsVisible="{Binding Chat.HasProject}"
                         AutomationProperties.Name="{Binding Chat.ProjectName, StringFormat={loc:Str ProjectNamed}}"
@@ -3107,6 +3194,18 @@
               <TextBlock Grid.Column="1" Text="{loc:Str FilesAndPhotos}" VerticalAlignment="Center" />
             </Grid>
           </Button>
+          <Button x:Name="AddStrategyButton" Classes="sheet-item"
+                  IsVisible="{Binding Chat.SupportsRunOptions}"
+                  Command="{Binding Chat.OpenContextPickerCommand}" CommandParameter="Strategy">
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">
+              <Border Classes="row-tile strategy">
+                <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Sliders}" />
+              </Border>
+              <TextBlock Grid.Column="1" Text="{loc:Str Strategy}" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Chat.StrategySummary}" />
+              <PathIcon Grid.Column="3" Classes="sheet-chevron" Data="{DynamicResource Mobile.Icon.ChevronRight}" />
+            </Grid>
+          </Button>
 
           <TextBlock Text="{loc:Str ForThisChat}" Classes="sheet-label" />
           <Button x:Name="AddAgentButton" Classes="sheet-item"
@@ -3181,11 +3280,15 @@
                           CommandParameter="{Binding}">
                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                       <Border Classes="row-tile" Classes.project="{Binding IsProject}"
-                              Classes.connector="{Binding IsConnector}">
+                              Classes.connector="{Binding IsConnector}"
+                              Classes.strategy="{Binding IsStrategy}">
                         <Panel>
                           <TextBlock Text="{Binding Glyph}" IsVisible="{Binding UsesGlyph}" />
                           <PathIcon IsVisible="{Binding IsProject}" Data="{DynamicResource Mobile.Icon.Folder}" />
                           <PathIcon IsVisible="{Binding IsConnector}" Data="{DynamicResource Mobile.Icon.Plug}" />
+                          <sc:StrataLineIcon IsVisible="{Binding IsAutopilot}" Data="{x:Static sc:StrataIcons.Bolt}" />
+                          <sc:StrataLineIcon IsVisible="{Binding IsParallel}" Data="{x:Static sc:StrataIcons.Branch}" />
+                          <sc:StrataLineIcon IsVisible="{Binding IsResearch}" Data="{x:Static sc:StrataIcons.Search}" />
                           <sc:StrataLineIcon IsVisible="{Binding IsNone}" Data="{x:Static sc:StrataIcons.Cross}" />
                         </Panel>
                       </Border>

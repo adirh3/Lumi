@@ -778,4 +778,13 @@
   <data name="WebAppInstallOpenStep" xml:space="preserve"><value>홈 화면의 새 아이콘으로 Lumi를 여세요.</value></data>
   <data name="WebAppInstallFallback" xml:space="preserve"><value>옵션이 없나요? iPhone/iPad에서는 Safari로, Android에서는 Chrome으로 이 페이지를 여세요.</value></data>
   <data name="WebAppInstallFailed" xml:space="preserve"><value>설치 창을 열지 못했어요. 아래 단계에 따라 Lumi를 추가할 수 있어요.</value></data>
+  <data name="Strategy" xml:space="preserve"><value>전략</value></data>
+  <data name="StrategyPickerDescription" xml:space="preserve"><value>Lumi가 다음 메시지를 처리할 전략을 선택하세요.</value></data>
+  <data name="Autopilot" xml:space="preserve"><value>자동실행</value></data>
+  <data name="AutopilotDetail" xml:space="preserve"><value>추가 메시지를 기다리지 않고 계속 진행</value></data>
+  <data name="Parallel" xml:space="preserve"><value>병렬실행</value></data>
+  <data name="ParallelDetail" xml:space="preserve"><value>독립적인 단계를 에이전트에 위임</value></data>
+  <data name="Research" xml:space="preserve"><value>조사</value></data>
+  <data name="ResearchDetail" xml:space="preserve"><value>출처가 포함된 보고서. 단독으로 실행합니다.</value></data>
+  <data name="ResearchRequiresCopilot" xml:space="preserve"><value>조사에는 로그인된 GitHub Copilot 모델이 필요합니다. 초안은 전송되지 않았습니다.</value></data>
 </root>

@@ -115,6 +115,9 @@ public sealed class RemoteChatStatus
 
     /// <summary>MCP servers currently attached to the chat, by name.</summary>
     public List<string> McpNames { get; set; } = [];
+
+    /// <summary>Per-message execution strategies staged on this chat's draft.</summary>
+    public List<string> RunOptions { get; set; } = [];
     public List<RemoteChip> AvailableAgents { get; set; } = [];
     public List<RemoteChip> AvailableSkills { get; set; } = [];
     public List<RemoteChip> AvailableMcps { get; set; } = [];
@@ -288,6 +291,7 @@ public sealed class RemoteTranscriptItem
     public List<RemoteToolCall>? Tools { get; set; }
     public List<RemoteFileChange>? FileChanges { get; set; }
     public List<RemoteAttachment>? Attachments { get; set; }
+    public List<string>? RunOptions { get; set; }
     public List<RemoteSource>? Sources { get; set; }
     public string? SourceDetailsVersion { get; set; }
     public List<RemoteInlineImage>? InlineImages { get; set; }

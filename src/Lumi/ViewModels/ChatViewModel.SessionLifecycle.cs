@@ -413,6 +413,7 @@ public partial class ChatViewModel
         var runtime = GetOrCreateRuntimeState(chat.Id);
         runtime.LastSessionActivityUtc = DateTimeOffset.UtcNow;
         var sessionTurnSequence = runtime.LifecycleTurnSequence;
+        (long Sequence, string Summary)? autopilotCompletion = null;
         var capabilities = GetCapabilities(chat, workDir);
         var nativeMcpServersByToolCallId = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         var appServersByToolCallId = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -1915,7 +1916,7 @@ public partial class ChatViewModel
                         if (IsAuthoritativeSession() && shouldReconcileSubagentTools)
                             ReconcileInProgressSubagentTools(chat, "Completed");
                         FinalizeCompletedTurnStreams(shouldUpdateDisplayedChatUi, interrupted: runtime.ManualStopRequested);
-                        if (IsAuthoritativeSession() && isTopLevelTurnEnd)
+                        if (IsAuthoritativeSession() && isTopLevelTurnEnd && !runtime.IsComposerAutopilot)
                         {
                             PublishTerminalChatLifecycleEventOnce(
                                 chat,
@@ -1927,7 +1928,7 @@ public partial class ChatViewModel
                         // on "Steering…" forever.
                         ResolvePendingSteersAsDelivered(chat.Id);
                         MarkRuntimeWaitingForSessionIdle(runtime);
-                        if (runtime.IsBusy)
+                        if (runtime.IsBusy && !runtime.IsComposerAutopilot)
                             SchedulePostToolReconciliation(chat.Id, treatCompletedTurnAsIdle: true);
                         if (shouldUpdateDisplayedChatUi)
                         {
@@ -1956,12 +1957,61 @@ public partial class ChatViewModel
                             return;
                         }
 
+                        if (runtime.IsComposerAutopilot && !runtime.ManualStopRequested)
+                            return;
+
                         CompleteAssistantResponse(IsDisplayedSession(), aborted: assistantIdle.Data.Aborted == true);
                         QueueSaveChat(chat, saveIndex: false);
                         ScheduleQueuedBusySendDrain(chat.Id);
 
                         // The reply is done: a long session's older exchanges move to the history, as
                         // on reopening, even while work it started goes on in the background.
+                        if (CurrentChat?.Id == chat.Id)
+                            _ = RollTailIntoHistoryAsync(chat);
+                    });
+                    break;
+
+                case SessionAutopilotStoppedEvent autopilotStopped when IsRootAgentEvent(evt):
+                    var autopilotTurnSequence = sessionTurnSequence;
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (!IsAuthoritativeSession() || runtime.LifecycleTurnSequence != autopilotTurnSequence
+                            || !runtime.IsComposerAutopilot || runtime.ManualStopRequested)
+                            return;
+
+                        var synthesizedAnswer = false;
+                        if (autopilotStopped.Data.Reason == "task_complete"
+                            && autopilotCompletion is { } completion && completion.Sequence == autopilotTurnSequence)
+                        {
+                            // Copilot can finish with only task_complete, without an assistant message.
+                            // Keep that answer in the transcript instead of losing it with the status pill.
+                            var lastReplyOrRequest = chat.Messages.FindLast(message => message.Role is "assistant" or "user");
+                            var lastAnswer = streamingMsg?.Content
+                                ?? (lastReplyOrRequest is { Role: "assistant" } ? lastReplyOrRequest.Content : null);
+                            if (!string.Equals(lastAnswer?.Trim(), completion.Summary, StringComparison.Ordinal))
+                            {
+                                FinalizeCompletedTurnStreams(IsDisplayedSession(), interrupted: false);
+                                var answer = new ChatMessage
+                                {
+                                    Role = "assistant",
+                                    Author = agentName,
+                                    Content = completion.Summary,
+                                    Model = turnModelId ?? runtime.ActiveModelId
+                                };
+                                chat.Messages.Add(answer);
+                                if (IsDisplayedSession())
+                                    Messages.Add(new ChatMessageViewModel(answer));
+                                synthesizedAnswer = true;
+                            }
+                            autopilotCompletion = null;
+                        }
+
+                        runtime.IsComposerAutopilot = false;
+                        CompleteAssistantResponse(IsDisplayedSession(), aborted: false);
+                        if (!chat.IsPaused)
+                            PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.TurnEnd);
+                        QueueSaveChat(chat, saveIndex: synthesizedAnswer, touchIndex: synthesizedAnswer);
+                        ScheduleQueuedBusySendDrain(chat.Id);
                         if (CurrentChat?.Id == chat.Id)
                             _ = RollTailIntoHistoryAsync(chat);
                     });
@@ -2007,6 +2057,7 @@ public partial class ChatViewModel
                         reasoningStream.CancelPending();
                         CompleteAndResetSubagentOutputState();
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
+                        _ = TryRestoreInteractiveModeAsync(runtime, session);
                         CompleteAssistantResponse(shouldUpdateDisplayedChatUi, aborted: idle.Data.Aborted == true);
 
                         // In SDK 0.2.2+, session.idle is only emitted once background work is drained.
@@ -2686,10 +2737,18 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case SessionTaskCompleteEvent taskComplete:
+                case SessionTaskCompleteEvent taskComplete when IsRootAgentEvent(evt):
+                    var completionTurnSequence = sessionTurnSequence;
                     Dispatcher.UIThread.Post(() =>
                     {
-                    if (IsDisplayedSession() && !string.IsNullOrWhiteSpace(taskComplete.Data.Summary))
+                    if (!IsAuthoritativeSession() || runtime.LifecycleTurnSequence != completionTurnSequence
+                        || string.IsNullOrWhiteSpace(taskComplete.Data.Summary))
+                        return;
+
+                    if (runtime.IsComposerAutopilot)
+                        autopilotCompletion = (completionTurnSequence, taskComplete.Data.Summary.Trim());
+
+                    if (IsDisplayedSession())
                     {
                         runtime.StatusText = $"✓ {taskComplete.Data.Summary}";
                         StatusText = runtime.StatusText;
@@ -2949,6 +3008,8 @@ public partial class ChatViewModel
         runtime.IsStreaming = false;
         runtime.TurnInProgress = false;
         runtime.IsContinuationTurn = false;
+        if (runtime.Chat?.IsPaused != true)
+            runtime.IsComposerAutopilot = false;
         runtime.HasPendingBackgroundWork = false;
         runtime.ActiveSubagentExecutionDepth = 0;
         Volatile.Write(ref runtime.AssistantTurnStarted, false);
@@ -3055,6 +3116,7 @@ public partial class ChatViewModel
 
     private static bool ShouldKeepRuntimeBusyUntilSessionIdle(ChatRuntimeState runtime)
         => runtime.IsContinuationTurn
+           || runtime.IsComposerAutopilot
            || runtime.PendingSessionUserMessageCount > 0
            || runtime.ActiveToolCount > 0
            || runtime.ActiveSubagentExecutionDepth > 0

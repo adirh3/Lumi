@@ -668,6 +668,7 @@ internal sealed class RemoteEventHub : IDisposable
             case nameof(ChatViewModel.SelectedAgentName):
             case nameof(ChatViewModel.SelectedAgentGlyph):
             case nameof(ChatViewModel.SelectedProjectName):
+            case nameof(ChatViewModel.ComposerRunOptions):
                 MarkStatusDirty(observer.Surface.CurrentChat?.Id);
                 break;
             case nameof(ChatViewModel.ModelCatalogVersion):

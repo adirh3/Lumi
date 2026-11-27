@@ -192,6 +192,7 @@ public partial class ChatViewModel
     /// </summary>
     partial void OnSelectedModelChanged(string? oldValue, string? newValue)
     {
+        OnPropertyChanged(nameof(ComposerRunOptions));
         if (IsEditingMessage
             && !_suppressModelSelectionSideEffects
             && CurrentChat is { } chat

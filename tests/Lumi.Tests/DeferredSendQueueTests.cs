@@ -882,6 +882,7 @@ public sealed partial class DeferredSendQueueTests
                 var sessionId = host.Chat.CopilotSessionId;
                 const string deviceId = "phone-config-race";
                 const string requestId = "message-config-race";
+                host.Chat.DraftRunOptions = ChatRunOptions.Autopilot;
                 var configurationChanged = false;
                 host.DataStore.IndexSaved += () =>
                 {
@@ -921,6 +922,8 @@ public sealed partial class DeferredSendQueueTests
                 Assert.Equal(sequence, host.Runtime.LifecycleTurnSequence);
                 Assert.Equal(["Keep the server alive"], host.QueuedPrompts());
                 var message = Assert.Single(host.Chat.Messages);
+                Assert.Equal(ChatRunOptions.Autopilot, host.Chat.DraftRunOptions);
+                Assert.Equal(ChatRunOptions.None, message.RunOptions);
                 Assert.Equal(MessageSteerState.Queued, message.SteerDelivery);
                 Assert.Equal(requestId, message.RemoteRequestId);
                 Assert.Equal(deviceId, host.Chat.LastRemoteDeviceId);
@@ -2230,8 +2233,11 @@ public sealed partial class DeferredSendQueueTests
         }, CancellationToken.None);
     }
 
-    [Fact]
-    public async Task StopAndSend_PersistsBeforeIdleDrainAndStopsBeforeDelivery()
+    [Theory]
+    [InlineData(ChatRunOptions.None, ChatRunOptions.Autopilot)]
+    [InlineData(ChatRunOptions.Autopilot, ChatRunOptions.None)]
+    public async Task StopAndSend_PersistsBeforeIdleDrainAndStopsBeforeDelivery(
+        ChatRunOptions runOptions, ChatRunOptions remainingDraft)
     {
         using var ui = HeadlessTestSession.Start();
         await ui.Dispatch(async () =>
@@ -2247,6 +2253,7 @@ public sealed partial class DeferredSendQueueTests
             rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
             Dispatcher.UIThread.RunJobs();
             host.ViewModel.PromptText = "desktop draft";
+            host.Chat.DraftRunOptions = ChatRunOptions.Autopilot;
             host.ViewModel.AddAttachment(@"C:\desktop-draft.txt");
 
             const string requestId = "stop-and-send-fixture";
@@ -2264,7 +2271,7 @@ public sealed partial class DeferredSendQueueTests
             };
 
             Assert.True(await host.ViewModel.StopAndSendExternalMessageAsync(
-                host.Chat, "stop and answer this", "Lumi Mobile", "phone", requestId));
+                host.Chat, "stop and answer this", "Lumi Mobile", "phone", requestId, runOptions: runOptions));
             await rpc.SendReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             Assert.True(receiptObserved);
@@ -2273,6 +2280,8 @@ public sealed partial class DeferredSendQueueTests
             Assert.True(rpc.Operations.IndexOf("cancel:preview") < rpc.Operations.IndexOf("send"));
             Assert.Empty(host.QueuedPrompts());
             var message = Assert.Single(host.Chat.Messages, message => message.Role == "user");
+            Assert.Equal(runOptions, message.RunOptions);
+            Assert.Equal(remainingDraft, host.Chat.DraftRunOptions);
             Assert.Equal(requestId, message.RemoteRequestId);
             Assert.Equal(MessageSteerState.None, message.SteerDelivery);
             Assert.Empty(message.Attachments);
@@ -3138,6 +3147,252 @@ public sealed partial class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task ComposerAutopilot_IsScopedToTheDraft_AndHoldsQueuedSendsUntilItStops()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+
+            host.ViewModel.ToggleComposerRunOptionCommand.Execute(nameof(ChatRunOptions.Autopilot));
+            host.ViewModel.PromptText = "Finish the work";
+            await host.ViewModel.SendMessageCommand.ExecuteAsync(null);
+
+            Assert.Equal("autopilot", Assert.Single(rpc.SentMessages).GetProperty("agentMode").GetString());
+            Assert.Equal(ChatRunOptions.Autopilot, Assert.Single(host.Chat.Messages).RunOptions);
+            Assert.DoesNotContain(host.ViewModel.ComposerRunOptions, option => option.IsSelected);
+
+            rpc.Emit(new UserMessageEvent { Data = new UserMessageData { Content = "Finish the work" } });
+            host.ViewModel.PromptText = "Ordinary follow-up";
+            await host.ViewModel.QueueMessageCommand.ExecuteAsync(null);
+            rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
+            Dispatcher.UIThread.RunJobs();
+            Assert.Single(rpc.SentMessages);
+            Assert.Single(host.ViewModel.QueuedSends);
+
+            rpc.Emit(new SessionTaskCompleteEvent { Data = new SessionTaskCompleteData { Summary = "Completed without a separate reply." } });
+            rpc.Emit(new SessionAutopilotStoppedEvent { Data = new SessionAutopilotStoppedData { Reason = "task_complete" } });
+            await rpc.SecondSendReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(2, rpc.SendCount);
+            Assert.True(!rpc.SentMessages[1].TryGetProperty("agentMode", out var mode) || mode.ValueKind == JsonValueKind.Null);
+            Assert.Equal(ChatRunOptions.None, host.Chat.Messages.Last().RunOptions);
+            Assert.Equal("Completed without a separate reply.", Assert.Single(host.Chat.Messages, message => message.Role == "assistant").Content);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ComposerAutopilot_ResumesWithoutAddingAUserBubble()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc);
+            host.MarkRuntimeBusy(turnInProgress: true);
+            host.Runtime.IsComposerAutopilot = true;
+            host.Runtime.PendingSessionUserMessageCount = 1;
+
+            Assert.Null(await host.ViewModel.TrySetChatPausedAsync(host.Chat, true));
+            Assert.True(host.Chat.PauseContinuesAutopilot);
+            Assert.Equal(1, rpc.AbortCount);
+            Assert.Null(await host.ViewModel.TrySetChatPausedAsync(host.Chat, false));
+
+            var resumed = Assert.Single(rpc.SentMessages);
+            Assert.Equal("autopilot", resumed.GetProperty("agentMode").GetString());
+            Assert.Equal("automation-lumi-resume", resumed.GetProperty("source").GetString());
+            Assert.DoesNotContain(host.Chat.Messages, message => message.Role == "user");
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ComposerParallelAndAutopilot_QueueTogetherAndStartOneNativeFleetRun()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc);
+            host.MarkRuntimeBusy(turnInProgress: true);
+
+            host.ViewModel.ToggleComposerRunOptionCommand.Execute(nameof(ChatRunOptions.Autopilot));
+            host.ViewModel.ToggleComposerRunOptionCommand.Execute(nameof(ChatRunOptions.Parallel));
+            host.ViewModel.PromptText = "Split the work";
+            await host.ViewModel.SendMessageCommand.ExecuteAsync(null);
+            Assert.Empty(rpc.Operations);
+            Assert.Equal(ChatRunOptions.Autopilot | ChatRunOptions.Parallel,
+                Assert.Single(host.ViewModel.QueuedSends).Message.RunOptions);
+            Assert.DoesNotContain(host.ViewModel.ComposerRunOptions, option => option.IsSelected);
+
+            host.MarkRuntimeTerminal();
+            host.ApplyDisplayedRuntimeState();
+            await host.DrainAsync();
+
+            Assert.Equal(["mode:autopilot", "fleet"],
+                rpc.Operations.Where(operation => operation == "fleet" || operation.StartsWith("mode:", StringComparison.Ordinal)));
+            Assert.Equal(0, rpc.SendCount);
+            Assert.Contains("Split the work", rpc.FleetPrompt);
+
+            host.MarkRuntimeTerminal();
+            host.ApplyDisplayedRuntimeState();
+            host.ViewModel.PromptText = "Plain follow-up";
+            await host.ViewModel.SendMessageCommand.ExecuteAsync(null);
+
+            Assert.Equal(["mode:autopilot", "fleet", "mode:interactive", "send"],
+                rpc.Operations.Where(operation => operation is "fleet" or "send" || operation.StartsWith("mode:", StringComparison.Ordinal)));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ComposerResearch_UsesTheNativeCommandAndSendsItsPreparedRequestOnce()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc);
+
+            host.ViewModel.ToggleComposerRunOptionCommand.Execute(nameof(ChatRunOptions.Parallel));
+            host.ViewModel.ToggleComposerRunOptionCommand.Execute(nameof(ChatRunOptions.Research));
+            host.ViewModel.PromptText = "Compare the sources";
+            await host.ViewModel.SendMessageCommand.ExecuteAsync(null);
+
+            Assert.Contains("Compare the sources", rpc.ResearchInput);
+            Assert.True(rpc.SendCount == 1, host.Chat.Messages.LastOrDefault(message => message.Role == "error")?.Content);
+            Assert.StartsWith("Native research directive: ", Assert.Single(rpc.SentMessages).GetProperty("prompt").GetString());
+            Assert.DoesNotContain("fleet", rpc.Operations);
+            Assert.Equal(ChatRunOptions.Research, Assert.Single(host.Chat.Messages).RunOptions);
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PauseDuringStrategyPreparation_ResumesTheOriginalPrompt(bool research)
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            var releasePreparation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var rpc = new AbortRpc { RunPreparation = releasePreparation.Task };
+            host.AttachSession(rpc);
+            host.Chat.DraftRunOptions = research
+                ? ChatRunOptions.Research
+                : ChatRunOptions.Autopilot | ChatRunOptions.Parallel;
+            host.ViewModel.PromptText = "Finish this original request";
+            var sending = host.ViewModel.SendMessageCommand.ExecuteAsync(null);
+            await rpc.RunPreparationReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var waitingForResume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            host.Runtime.PauseGate.WaitingChanged += () => waitingForResume.TrySetResult();
+            try
+            {
+                Assert.Null(await host.ViewModel.TrySetChatPausedAsync(host.Chat, paused: true));
+                Assert.False(host.Chat.PauseNeedsContinuation);
+                Assert.Equal(0, rpc.AbortCount);
+                releasePreparation.TrySetResult();
+                await waitingForResume.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Empty(rpc.SentMessages);
+                Assert.Null(rpc.FleetPrompt);
+            }
+            finally
+            {
+                releasePreparation.TrySetResult();
+                await host.ViewModel.TrySetChatPausedAsync(host.Chat, paused: false);
+            }
+
+            await sending.WaitAsync(TimeSpan.FromSeconds(5));
+            var sentPrompt = research
+                ? Assert.Single(rpc.SentMessages).GetProperty("prompt").GetString()
+                : rpc.FleetPrompt;
+            Assert.Contains("Finish this original request", sentPrompt);
+            Assert.Single(host.Chat.Messages, message => message.Role == "user");
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ConnectionRetry_DoesNotUseOrConsumeTheNextDraftsStrategy()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            await TestCopilot.Shared.ConnectAsync();
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc);
+            host.Chat.DraftRunOptions = ChatRunOptions.Parallel;
+            host.ViewModel.PromptText = "A separate follow-up";
+
+            await host.RetryAfterConnectionLossAsync();
+
+            Assert.Contains("Try again", Assert.Single(rpc.SentMessages).GetProperty("prompt").GetString());
+            Assert.Null(rpc.FleetPrompt);
+            Assert.Equal(ChatRunOptions.Parallel, host.Chat.DraftRunOptions);
+            Assert.Equal("A separate follow-up", host.ViewModel.PromptText);
+            Assert.DoesNotContain(host.Chat.Messages, message => message.Role == "user");
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public void ComposerStrategy_PersistsOnChatStorage_ShowsOnSentMessage_AndSurvivesEditAndFork()
+    {
+        var original = new Chat
+        {
+            Title = "Persisted strategy",
+            DraftRunOptions = ChatRunOptions.Autopilot | ChatRunOptions.Parallel
+        };
+        var json = Lumi.Services.Storage.ChatStorageJson.SerializeChat(original);
+        var restored = Lumi.Services.Storage.ChatStorageJson.DeserializeChat(json);
+        Assert.Equal(ChatRunOptions.Autopilot | ChatRunOptions.Parallel, restored.DraftRunOptions);
+        var cloned = AppDataSnapshotFactory.CreateIndexSnapshot(new AppData { Chats = [original] }).Chats.Single();
+        Assert.Equal(original.DraftRunOptions, cloned.DraftRunOptions);
+
+        using var host = DeferredSendHost.Create();
+        host.ViewModel.ToggleComposerRunOptionCommand.Execute(nameof(ChatRunOptions.Parallel));
+        Assert.True(host.ViewModel.ComposerRunOptions.Single(o => o.Id == nameof(ChatRunOptions.Parallel)).IsSelected);
+        var sent = new ChatMessage
+        {
+            Role = "user",
+            Content = "Run with autopilot",
+            RunOptions = ChatRunOptions.Autopilot
+        };
+        host.Chat.Messages.Add(sent);
+        host.ViewModel.Messages.Add(new ChatMessageViewModel(sent));
+
+        var userItem = host.ViewModel.TranscriptTurns
+            .SelectMany(static turn => turn.EnumerateItems())
+            .OfType<UserMessageItem>()
+            .Single(item => item.Message.Id == sent.Id);
+        Assert.True(userItem.HasRunOptions);
+        Assert.Equal(Loc.Get("Composer_Autopilot"), Assert.Single(userItem.RunOptions).Label);
+
+        host.BeginEdit(sent);
+        Assert.Equal(ChatRunOptions.Autopilot, host.ViewModel.DraftRunOptions);
+        host.ViewModel.ToggleComposerRunOptionCommand.Execute(nameof(ChatRunOptions.Parallel));
+        Assert.Equal(ChatRunOptions.Autopilot | ChatRunOptions.Parallel, host.ViewModel.DraftRunOptions);
+        // Draft on the chat itself was untouched while editing.
+        Assert.Equal(ChatRunOptions.Parallel, host.Chat.DraftRunOptions);
+
+        host.ViewModel.CancelComposerEditCommand.Execute(null);
+        Assert.Equal(ChatRunOptions.Parallel, host.ViewModel.DraftRunOptions);
+
+        var fork = ChatForkFactory.CreateFork(original, [sent], sent.Id);
+        Assert.Equal(ChatRunOptions.Autopilot, fork.ComposerRunOptions);
+        var copy = ChatForkFactory.CreateFork(original, [sent], throughMessageId: null);
+        Assert.Equal(ChatRunOptions.Autopilot | ChatRunOptions.Parallel, copy.Chat.DraftRunOptions);
+    }
+
+    [Fact]
     public async Task Queue_WhenNothingRuns_IsAnOrdinarySend()
     {
         using var ui = HeadlessTestSession.Start();
@@ -3345,7 +3600,7 @@ public sealed partial class DeferredSendQueueTests
         }
 
         public void QueuePrompt(string prompt, Guid? chatId = null, string? authorOverride = null)
-            => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null, authorOverride, null);
+            => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null, authorOverride, null, ChatRunOptions.None);
 
         public void BeginEdit(ChatMessage message)
             => Invoke("BeginComposerEdit", message);
@@ -3354,7 +3609,10 @@ public sealed partial class DeferredSendQueueTests
             => (Task)Invoke("DrainQueuedBusySendAsync", chatId ?? Chat.Id)!;
 
         public Task SendCoreAsync(string prompt, bool consumeComposerPrompt = false)
-            => (Task)Invoke("SendMessageCore", prompt, consumeComposerPrompt, null)!;
+            => (Task)Invoke("SendMessageCore", prompt, consumeComposerPrompt, null, false)!;
+
+        public Task RetryAfterConnectionLossAsync()
+            => (Task)Invoke("RetryAfterConnectionLossAsync")!;
 
         public AIFunction BuildQuestionTool()
             => (AIFunction)Invoke("BuildAskQuestionTool", Chat.Id)!;
@@ -3693,8 +3951,13 @@ public sealed partial class DeferredSendQueueTests
         public int BatchMessageCount { get; private set; }
         public bool DrainPaused { get; private set; }
         public TaskCompletionSource SendReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource SecondSendReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int DestroyCount { get; private set; }
         public string? LastSendMode { get; private set; }
+        public string? FleetPrompt { get; private set; }
+        public string? ResearchInput { get; private set; }
+        public Task? RunPreparation { get; init; }
+        public TaskCompletionSource RunPreparationReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public HashSet<string> RunningShells { get; } = [];
         public List<string> CancelledShells { get; } = [];
         public List<string> Operations { get; } = [];
@@ -3802,7 +4065,40 @@ public sealed partial class DeferredSendQueueTests
                 Newtonsoft.Json.JsonConvert.SerializeObject(request)));
             LastSendMode = request.GetValueOrDefault("mode") is { } mode ? Assert.IsType<string>(mode) : null;
             SendReceived.TrySetResult();
+            if (SendCount == 2)
+                SecondSendReceived.TrySetResult();
             return new SendResult { MessageId = Guid.NewGuid().ToString() };
+        }
+
+        [JsonRpcMethod("session.mode.set", UseSingleObjectParameterDeserialization = true)]
+        public async Task<object> SetMode(Dictionary<string, object> request)
+        {
+            Operations.Add($"mode:{request["mode"]}");
+            await WaitForRunPreparationAsync();
+            return new { modeApplied = true };
+        }
+
+        [JsonRpcMethod("session.fleet.start", UseSingleObjectParameterDeserialization = true)]
+        public object StartFleet(Dictionary<string, object> request)
+        {
+            Operations.Add("fleet");
+            FleetPrompt = Assert.IsType<string>(request["prompt"]);
+            return new { started = true };
+        }
+
+        [JsonRpcMethod("session.commands.invoke", UseSingleObjectParameterDeserialization = true)]
+        public async Task<object> InvokeCommand(Dictionary<string, object> request)
+        {
+            Assert.Equal("research", request["name"]);
+            ResearchInput = Assert.IsType<string>(request["input"]);
+            await WaitForRunPreparationAsync();
+            return new { kind = "agent-prompt", prompt = "Native research directive: " + ResearchInput, displayPrompt = ResearchInput };
+        }
+
+        private Task WaitForRunPreparationAsync()
+        {
+            RunPreparationReceived.TrySetResult();
+            return RunPreparation ?? Task.CompletedTask;
         }
 
         [JsonRpcMethod("session.sendMessages", UseSingleObjectParameterDeserialization = true)]

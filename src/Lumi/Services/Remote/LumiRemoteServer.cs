@@ -3612,6 +3612,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             InteractionReceipt = message.InteractionReceipt?.Clone(),
             InteractionStates = message.InteractionStates is null
                 ? null : new Dictionary<string, string>(message.InteractionStates, StringComparer.Ordinal),
+            RunOptions = message.RunOptions,
             IsStreaming = message.IsStreaming,
             IsProgress = message.IsProgress,
             Model = message.Model,

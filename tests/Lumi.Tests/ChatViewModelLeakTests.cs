@@ -2445,7 +2445,7 @@ public sealed class ChatViewModelLeakTests
             IsBusy = true
         };
 
-        await InvokePrivateAsync(vm, "SendMessageCore", "queued prompt", false, null!);
+        await InvokePrivateAsync(vm, "SendMessageCore", "queued prompt", false, null!, false);
 
         Assert.Equal("queued prompt", Assert.Single(chat.Messages).Content);
         Assert.Equal("new draft", vm.PromptText);

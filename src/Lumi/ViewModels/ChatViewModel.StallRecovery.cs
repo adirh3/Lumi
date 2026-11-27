@@ -536,7 +536,8 @@ public partial class ChatViewModel
     }
 
     private static bool ShouldRecoverCompletedTurnIfIdleIsMissing(ChatRuntimeState runtime)
-        => runtime.PendingSessionUserMessageCount > 0
+        => !runtime.IsComposerAutopilot
+           && runtime.PendingSessionUserMessageCount > 0
            && runtime.ActiveToolCount == 0
            && runtime.ActiveSubagentExecutionDepth == 0
            && !runtime.HasPendingBackgroundWork

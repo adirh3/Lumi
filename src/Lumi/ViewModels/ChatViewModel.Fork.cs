@@ -24,11 +24,13 @@ public partial class ChatViewModel
     internal void SetComposerDraft(
         string draft,
         MessageReply? reply = null,
-        IEnumerable<ChatReference>? referencedChats = null)
+        IEnumerable<ChatReference>? referencedChats = null,
+        ChatRunOptions runOptions = ChatRunOptions.None)
     {
         PromptText = draft;
         PendingReply = reply;
         ReplaceReferencedChats(referencedChats);
+        SetDraftRunOptions(runOptions);
         FocusComposerAtEndRequested?.Invoke();
     }
 

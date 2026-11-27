@@ -346,12 +346,14 @@ public partial class ChatViewModel
         string prompt,
         ChatMessage? existing = null,
         string? authorOverride = null,
-        string? remoteRequestId = null)
+        string? remoteRequestId = null,
+        ChatRunOptions runOptions = ChatRunOptions.None)
     {
         if (existing is null && string.IsNullOrWhiteSpace(prompt))
             return null;
 
-        var message = existing ?? CreateQueuedBusySend(chatId, prompt, authorOverride, remoteRequestId: remoteRequestId);
+        var message = existing ?? CreateQueuedBusySend(
+            chatId, prompt, authorOverride, remoteRequestId: remoteRequestId, runOptions: runOptions);
         if (message is null)
             return null;
 
@@ -387,7 +389,8 @@ public partial class ChatViewModel
         string prompt,
         string? authorOverride = null,
         IReadOnlyCollection<string>? explicitAttachmentPaths = null,
-        string? remoteRequestId = null)
+        string? remoteRequestId = null,
+        ChatRunOptions runOptions = ChatRunOptions.None)
     {
         var chat = CurrentChat?.Id == chatId
             ? CurrentChat
@@ -395,7 +398,7 @@ public partial class ChatViewModel
         if (chat is null)
             return null;
 
-        var message = BuildQueuedSend(chat, prompt, authorOverride, explicitAttachmentPaths);
+        var message = BuildQueuedSend(chat, prompt, authorOverride, explicitAttachmentPaths, runOptions);
         if (message is not null)
         {
             message.RemoteRequestId = remoteRequestId;
@@ -412,7 +415,8 @@ public partial class ChatViewModel
         Chat chat,
         string prompt,
         string? authorOverride = null,
-        IReadOnlyCollection<string>? explicitAttachmentPaths = null)
+        IReadOnlyCollection<string>? explicitAttachmentPaths = null,
+        ChatRunOptions runOptions = ChatRunOptions.None)
     {
         if (string.IsNullOrWhiteSpace(prompt))
             return null;
@@ -438,7 +442,8 @@ public partial class ChatViewModel
             // Composer sends carry no author override (remote and orchestrated ones always do), so
             // only they take the composer's pending reply and the chats it brings in.
             ReplyTo = authorOverride is null ? TakePendingReply(chatId) : null,
-            ReferencedChats = authorOverride is null ? TakeReferencedChats(chatId) : null
+            ReferencedChats = authorOverride is null ? TakeReferencedChats(chatId) : null,
+            RunOptions = runOptions
         };
 
         if (explicitAttachmentPaths is null && CurrentChat?.Id == chatId)
@@ -641,7 +646,7 @@ public partial class ChatViewModel
         // behind these instead of overtaking them.
         while (TryDequeueBusySend(chatId, out var message))
         {
-            if (CurrentChat is not { } chat || chat.Id != chatId)
+            if (CurrentChat is not { } chat || chat.Id != chatId || message.RunOptions != ChatRunOptions.None)
             {
                 QueueBusySendPrompt(chatId, message.Content, message);
                 return;

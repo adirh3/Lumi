@@ -782,4 +782,13 @@
   <data name="WebAppInstallOpenStep" xml:space="preserve"><value>Abra o Lumi pelo novo ícone na Tela de Início.</value></data>
   <data name="WebAppInstallFallback" xml:space="preserve"><value>Não encontra a opção? Abra esta página no Safari no iPhone/iPad ou no Chrome no Android.</value></data>
   <data name="WebAppInstallFailed" xml:space="preserve"><value>Não foi possível abrir a janela de instalação. Você pode adicionar o Lumi seguindo os passos abaixo.</value></data>
+  <data name="Strategy" xml:space="preserve"><value>Estratégia</value></data>
+  <data name="StrategyPickerDescription" xml:space="preserve"><value>Escolha como a Lumi conduz sua próxima mensagem.</value></data>
+  <data name="Autopilot" xml:space="preserve"><value>Autopiloto</value></data>
+  <data name="AutopilotDetail" xml:space="preserve"><value>Continuar sem esperar outra mensagem</value></data>
+  <data name="Parallel" xml:space="preserve"><value>Paralelo</value></data>
+  <data name="ParallelDetail" xml:space="preserve"><value>Delegar etapas independentes a agentes</value></data>
+  <data name="Research" xml:space="preserve"><value>Pesquisa</value></data>
+  <data name="ResearchDetail" xml:space="preserve"><value>Relatório com fontes. É executada separadamente.</value></data>
+  <data name="ResearchRequiresCopilot" xml:space="preserve"><value>A pesquisa exige um modelo do GitHub Copilot com login ativo. Seu rascunho não foi enviado.</value></data>
 </root>

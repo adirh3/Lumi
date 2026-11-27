@@ -39,6 +39,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private readonly Action<Action> _post;
     private readonly SemaphoreSlim _configurationGate = new(1, 1);
     private readonly List<(ChatSurfaceIdentity Surface, long HostGeneration, CancellationTokenSource Cancellation)> _stagedSends = [];
+    private readonly List<ChatSurfaceIdentity> _runOptionsSendsInFlight = [];
     private string? _preferredModel;
     private long _revision = -1;
     private string? _revisionEpoch;
@@ -54,6 +55,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private CancellationTokenSource? _fileSuggestionCts;
     private long _fileSuggestionVersion;
     private bool _restoringDraftState;
+    private bool _useByokOnly;
     private int _uploadsInFlight;
 
     /// <summary>
@@ -1919,7 +1921,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             ? target.PromptText
             : source.PromptText;
         var retry = target.PendingRetry ?? source.PendingRetry;
-        if (retry is not null && !retry.Payload.Matches(promptText, attachments))
+        if (retry is not null && !retry.Payload.Matches(promptText, attachments, GetDraftRunOptions(configuration, retry)))
             retry = null;
 
         return new DraftState(
@@ -2015,6 +2017,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
             _worktreeChoiceExplicit = true;
             UseWorktree = useWorktree;
         }
+        if (_pendingConfiguration.TryGetScalar("runOptions", out _) || _pendingRetry?.RestoresRunOptions == true)
+            SyncRunOptions(GetDraftRunOptions(_pendingConfiguration, _pendingRetry));
 
         foreach (var skill in _pendingConfiguration.AddSkills)
             AddPendingChip(SkillChips, AvailableSkills, skill, "✦");
@@ -2064,7 +2068,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             attachments.Add(attachment);
 
         var retry = draft.PendingRetry;
-        if (retry is not null && !retry.Payload.Matches(draft.PromptText, attachments))
+        if (retry is not null && !retry.Payload.Matches(draft.PromptText, attachments, GetDraftRunOptions(draft.Configuration, retry)))
             retry = retry with { PayloadEdited = true };
 
         StoreDraft(surface, draft with
@@ -2091,7 +2095,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private void ClearPendingRetryIfPayloadChanged()
     {
         if (_pendingRetry is { PayloadEdited: false } pending &&
-            !pending.Payload.Matches(PromptText, Attachments))
+            !pending.Payload.Matches(PromptText, Attachments, GetSelectedRunOptionIds()))
         {
             // Editing starts a new explicit send, but the old request still needs a receipt check.
             _pendingRetry = pending with { PayloadEdited = true };
@@ -2154,6 +2158,28 @@ public sealed partial class MobileChatViewModel : ObservableObject
             {
                 if (wasWorking && IsCurrentSurfaceActivation(surface, activation))
                     ReportModelConfigurationFailure(pending, result.Error);
+                if (!IsAmbiguousFailure(result)
+                    && pending.TryGetScalar("runOptions", out var rejectedRunOptions)
+                    && RemoteProtocol.RunOptions.Parse(rejectedRunOptions).Contains(RemoteProtocol.RunOptions.Research, StringComparer.Ordinal))
+                {
+                    var rejectedOnly = new PendingChatConfiguration();
+                    rejectedOnly.SetScalar("runOptions", rejectedRunOptions);
+                    if (IsCurrentSurfaceActivation(surface, activation)
+                        && _pendingConfiguration.TryGetScalar("runOptions", out var currentRunOptions)
+                        && currentRunOptions == rejectedRunOptions)
+                    {
+                        _pendingConfiguration.RemoveApplied(rejectedOnly);
+                        SyncRunOptions([]);
+                        ErrorText = result.Error;
+                    }
+                    else if (!IsCurrentSurface(surface))
+                    {
+                        var rejectedDraft = GetDraft(surface);
+                        var pruned = rejectedDraft.Configuration.Clone();
+                        pruned.RemoveApplied(rejectedOnly);
+                        StoreDraft(surface, rejectedDraft with { Configuration = pruned });
+                    }
+                }
                 return;
             }
 
@@ -2185,7 +2211,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         var previousSurface = CurrentSurface;
         SaveDraft(previousSurface);
 
-        if (chatId == Guid.Empty)
+        if (chatId == Guid.Empty && !HasParkedBlankStrategyDraft())
             _blankSurfaceGeneration++;
 
         // Drafts belong to chats, but async completions belong to this particular activation. A user
@@ -2209,6 +2235,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsInteractivePickerOpen = false;
             ChatSurfaceReset?.Invoke();
             Suggestions.Clear();
+            RunOptions.Clear();
             SkillChips.Clear();
             McpChips.Clear();
             QualityLevels.Clear();
@@ -2280,6 +2307,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(HasQualityLevels));
         OnPropertyChanged(nameof(HasContextWindowTiers));
         OnPropertyChanged(nameof(HasModelSettings));
+        OnPropertyChanged(nameof(SupportsRunOptions));
+        OnPropertyChanged(nameof(CanUseResearch));
         RefreshEffortLevels();
         RefreshContextWindowTiers();
         RefreshBlankModelDefaults();
@@ -2292,8 +2321,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
     {
         Interlocked.Increment(ref _hostGeneration);
         _pendingStopRequestIds.Clear();
+        _runOptionsSendsInFlight.Clear();
         _drafts.Clear();
         _surfaceMappings.Clear();
+        _pendingConfiguration.RemoveScalar("runOptions");
         _preferredModel = null;
         _modelDefaults.Clear();
         _modelEfforts.Clear();
@@ -2309,6 +2340,15 @@ public sealed partial class MobileChatViewModel : ObservableObject
         Reset(Guid.Empty, Strings.Get("NewChat"));
         _drafts.Clear();
         _surfaceMappings.Clear();
+    }
+
+    private bool HasParkedBlankStrategyDraft()
+    {
+        var blank = new ChatSurfaceIdentity(Guid.Empty, _blankSurfaceGeneration);
+        return _blankSendInFlightGeneration != blank.BlankGeneration
+            && !_surfaceMappings.ContainsKey(blank)
+            && _drafts.TryGetValue(blank, out var draft)
+            && draft.Configuration.TryGetScalar("runOptions", out var options) && options.Length > 0;
     }
 
     public void ApplyTranscript(RemoteTranscript transcript, long? statusVersionAtRequest = null)
@@ -2660,7 +2700,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
         };
         StoreDraft(surface, completed);
         if (isCurrent)
+        {
+            if (pending.RestoresRunOptions)
+                SyncRunOptions([]);
             ApplyDraft(completed, restoreSelections: true);
+        }
 
         if (surface.IsBlank)
         {
@@ -2823,6 +2867,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
             Sync(ContextWindowTiers, status.ContextWindowTiers);
             SyncChips(SkillChips, status.SkillNames, AvailableSkills, "✦");
             SyncChips(McpChips, status.McpNames, AvailableMcps, "⚙");
+            if (!_pendingConfiguration.TryGetScalar("runOptions", out _)
+                && _pendingRetry?.RestoresRunOptions != true
+                && !HasRunOptionsSendInFlight(CurrentSurface))
+                SyncRunOptions(status.RunOptions);
             if (status.HasComposerCatalogs)
             {
                 SyncCatalog(AvailableAgents, status.AvailableAgents, "◉");
@@ -2910,6 +2958,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public void ApplyCatalogs(RemoteSettings settings)
     {
         _preferredModel = settings.PreferredModel;
+        _useByokOnly = settings.UseByokOnly;
+        OnPropertyChanged(nameof(SupportsRunOptions));
+        OnPropertyChanged(nameof(CanUseResearch));
 
         // Handed models while nothing is selected, the composer selects the first one. That fills a
         // gap in the view and is not the user's choice: taken for one, it outranked the PC's preferred
@@ -2997,6 +3048,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(ModelDisplayName));
         OnPropertyChanged(nameof(ModelSummary));
         OnPropertyChanged(nameof(RunSettingsSummary));
+        OnPropertyChanged(nameof(CanUseResearch));
+        if (IsContextPickerOpen && ContextPickerKind == ContextPickerKind.Strategy)
+            RefreshContextOptions();
     }
 
     public void ApplyLibraryCatalogs(RemoteLibrary library, bool reconcileProjectSelection = true)
@@ -3402,7 +3456,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         && HasSendDraft;
 
     [RelayCommand(CanExecute = nameof(CanSend))]
-    private Task SendAsync() => SendCoreAsync(IsWorking ? SendMode.Steer : SendMode.Send);
+    private Task SendAsync() => SendCoreAsync(!IsWorking ? SendMode.Send
+        : HasRunOptions ? SendMode.StopAndSend : SendMode.Steer);
 
     private async Task SendCoreAsync(SendMode mode)
     {
@@ -3420,9 +3475,16 @@ public sealed partial class MobileChatViewModel : ObservableObject
             return;
 
         var attached = Attachments.ToArray();
-        var payload = new SendPayload(draftText, attached, TotalRawMessageCount + 1);
+        var runOptions = GetSelectedRunOptionIds();
+        if (runOptions.Contains(RemoteProtocol.RunOptions.Research, StringComparer.Ordinal) && !CanUseResearch)
+        {
+            ErrorText = Strings.Get("ResearchRequiresCopilot");
+            return;
+        }
+
+        var payload = new SendPayload(draftText, attached, runOptions, TotalRawMessageCount + 1);
         var matchingRetry = _pendingRetry is { PayloadEdited: false } pendingRetry &&
-                            pendingRetry.Payload.Matches(draftText, attached)
+                            pendingRetry.Payload.Matches(draftText, attached, runOptions)
             ? pendingRetry
             : null;
         if (matchingRetry is not null &&
@@ -3442,6 +3504,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // the timeout remains pending and is flushed after the original request is acknowledged.
         var pendingConfiguration = matchingRetry?.Configuration.Clone() ??
                                    _pendingConfiguration.Clone();
+        // Strategy choices travel with this message rather than persisting onto the next draft.
+        pendingConfiguration.RemoveScalar("runOptions");
+        _pendingConfiguration.RemoveScalar("runOptions");
         if (surface.IsBlank && matchingRetry is null)
             CaptureBlankModelSelection(pendingConfiguration);
         var effectiveMode = matchingRetry?.Mode ?? mode;
@@ -3454,13 +3519,20 @@ public sealed partial class MobileChatViewModel : ObservableObject
         var prompt = BuildSendPrompt(payload);
 
         Attachments.Clear();
+        RunOptions.Clear();
+        var trackedRunOptionsSend = payload.RunOptions.Length > 0;
+        if (trackedRunOptionsSend)
+        {
+            Interlocked.Increment(ref _statusVersion);
+            _runOptionsSendsInFlight.Add(surface);
+        }
         OnPropertyChanged(nameof(HasAttachments));
         OnPropertyChanged(nameof(CanChooseWorktree));
         NotifySendCommandsCanExecuteChanged();
 
         BeginAwaitingVisibleActivity();
         IsBusy = true;
-        var echo = AddPendingEcho(text, requestId, effectiveMode, attached);
+        var echo = AddPendingEcho(text, requestId, effectiveMode, attached, payload.RunOptions);
         if (surface.ChatId != Guid.Empty)
             ChatActivitySubmitted?.Invoke(surface.ChatId, text);
 
@@ -3481,6 +3553,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
 
         pendingConfiguration.ApplyTo(command, includeCreationAliases: surface.IsBlank);
+        if (payload.RunOptions.Length > 0)
+            command.WithList("runOptions", payload.RunOptions);
 
         if (effectiveMode == SendMode.Steer)
             command.With("steer", "true");
@@ -3508,6 +3582,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
+            if (trackedRunOptionsSend)
+                _runOptionsSendsInFlight.Remove(surface);
             ReturnCancelledDraft();
             return;
         }
@@ -3610,10 +3686,20 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
         finally
         {
+            if (trackedRunOptionsSend)
+                _runOptionsSendsInFlight.Remove(surface);
             _configurationGate.Release();
             if (!_pendingConfiguration.IsEmpty && ChatId != Guid.Empty)
                 _ = FlushPendingConfigurationAsync();
         }
+    }
+
+    private bool HasRunOptionsSendInFlight(ChatSurfaceIdentity surface)
+    {
+        if (_runOptionsSendsInFlight.Count == 0)
+            return false;
+        var resolved = ResolveSurface(surface);
+        return _runOptionsSendsInFlight.Any(candidate => ResolveSurface(candidate) == resolved);
     }
 
     private void RestoreSendDraftForSurface(
@@ -3647,6 +3733,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
             sentConfiguration,
             overwriteScalars: false,
             overwriteCollectionValues: false);
+        var restoreRunOptions = sentPayload.RunOptions.Length > 0 && !configuration.TryGetScalar("runOptions", out _);
+        if (restoreRunOptions && !preserveRequestIdentity)
+            configuration.SetScalar("runOptions", RemoteProtocol.RunOptions.Format(sentPayload.RunOptions));
         var retry = preserveRequestIdentity
             ? new PendingRetry(
                 requestId,
@@ -3656,7 +3745,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 _now(),
                 ReplayAllowed: true)
             {
-                PayloadEdited = !sentPayload.Matches(promptText, attachments),
+                PayloadEdited = !sentPayload.Matches(promptText, attachments,
+                    restoreRunOptions ? sentPayload.RunOptions : GetDraftRunOptions(configuration)),
+                RestoresRunOptions = restoreRunOptions,
                 ErrorText = error
             }
             : null;
@@ -3840,7 +3931,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         string text,
         string requestId,
         SendMode mode,
-        IReadOnlyList<PendingAttachment>? attachments = null)
+        IReadOnlyList<PendingAttachment> attachments,
+        IReadOnlyList<string> runOptions)
     {
         _pendingEchoBaselineRevision = _revision;
         _pendingEchoRequestId = requestId;
@@ -3868,12 +3960,13 @@ public sealed partial class MobileChatViewModel : ObservableObject
             Kind = RemoteProtocol.ItemKinds.User,
             Text = text,
             Timestamp = DateTimeOffset.Now,
-            Attachments = attachments?.Select(file => new RemoteAttachment
+            Attachments = attachments.Select(file => new RemoteAttachment
             {
                 FileName = file.FileName,
                 Path = file.Path,
                 Extension = Path.GetExtension(file.FileName)
             }).ToList(),
+            RunOptions = runOptions.Count > 0 ? [.. runOptions] : null,
             SteerState = mode switch
             {
                 SendMode.Steer => "Steering",
@@ -4306,14 +4399,31 @@ public sealed partial class MobileChatViewModel : ObservableObject
             };
     }
 
-    private sealed record SendPayload(string PromptText, PendingAttachment[] Attachments, int BeforeMessageIndex)
+    private static IReadOnlyList<string> GetDraftRunOptions(PendingChatConfiguration configuration, PendingRetry? retry = null) =>
+        configuration.TryGetScalar("runOptions", out var raw)
+            ? RemoteProtocol.RunOptions.Parse(raw)
+            : retry is { RestoresRunOptions: true } ? retry.Payload.RunOptions : [];
+
+    private sealed record SendPayload(
+        string PromptText,
+        PendingAttachment[] Attachments,
+        string[] RunOptions,
+        int BeforeMessageIndex)
     {
-        public bool Matches(string promptText, IReadOnlyList<PendingAttachment> attachments) =>
+        public bool Matches(
+            string promptText,
+            IReadOnlyList<PendingAttachment> attachments,
+            IReadOnlyList<string> runOptions) =>
             string.Equals(PromptText, promptText, StringComparison.Ordinal) &&
-            Attachments.SequenceEqual(attachments);
+            Attachments.SequenceEqual(attachments) &&
+            RunOptions.SequenceEqual(runOptions, StringComparer.Ordinal);
 
         public SendPayload Copy() =>
-            this with { Attachments = [.. Attachments] };
+            this with
+            {
+                Attachments = [.. Attachments],
+                RunOptions = [.. RunOptions]
+            };
     }
 
     private static string BuildSendPrompt(SendPayload payload)
@@ -4335,6 +4445,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         bool ReplayAllowed)
     {
         public bool PayloadEdited { get; init; }
+        // A possibly accepted send can restore chips locally for retry, not stage them on the PC again.
+        public bool RestoresRunOptions { get; init; }
         public string? ErrorText { get; init; }
 
         public PendingRetry Copy() =>
@@ -4565,6 +4677,9 @@ public interface IRemoteCommandSink
 
     /// <summary>True when the PC lists the picker's rows and takes pins from the phone.</summary>
     bool SupportsModelPins => false;
+
+    /// <summary>True when the PC supports per-message Strategy options (Autopilot, Parallel, Research).</summary>
+    bool SupportsRunOptions => false;
 
     Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command);
 

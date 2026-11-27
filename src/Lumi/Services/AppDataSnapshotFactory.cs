@@ -491,6 +491,8 @@ internal static class AppDataSnapshotFactory
             IsPinned = source.IsPinned,
             IsPaused = source.IsPaused,
             PauseNeedsContinuation = source.PauseNeedsContinuation,
+            PauseContinuesAutopilot = source.PauseContinuesAutopilot,
+            DraftRunOptions = source.DraftRunOptions,
         };
     }
 }

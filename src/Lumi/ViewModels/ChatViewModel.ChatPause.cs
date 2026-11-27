@@ -23,9 +23,11 @@ public partial class ChatViewModel
 
     private async Task SendPauseAwareAsync(
         Chat chat, CopilotSession session, MessageOptions options, CancellationToken cancellationToken,
-        bool useStoredModelOptions = false, Action? validateBeforeSubmit = null)
+        bool useStoredModelOptions = false, Action? validateBeforeSubmit = null,
+        ChatRunOptions runOptions = ChatRunOptions.None)
     {
         var runtime = GetOrCreateRuntimeState(chat.Id);
+        MessageOptions prepared;
         runtime.IsPreparingModelForTurn = true;
         try
         {
@@ -42,6 +44,12 @@ public partial class ChatViewModel
                 if (chat.IsPaused || selection != ReadTurnModelSelection(chat, useStoredModelOptions))
                     continue;
 
+                prepared = await PrepareComposerRunAsync(chat, runtime, session, options, runOptions, cancellationToken);
+                if (chat.IsPaused)
+                    await runtime.PauseGate.WaitAsync(cancellationToken);
+                if (selection != ReadTurnModelSelection(chat, useStoredModelOptions))
+                    continue;
+
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!IsCachedSessionProviderConsistentWithSelection(chat.Id, session))
                     throw new InvalidOperationException(Loc.Get("ModelSwitch_CannotUse", DescribeModelSelection(chat)));
@@ -53,7 +61,7 @@ public partial class ChatViewModel
         {
             runtime.IsPreparingModelForTurn = false;
         }
-        await session.SendAsync(options, cancellationToken);
+        await SubmitComposerRunAsync(runtime, session, prepared, runOptions, cancellationToken);
     }
 
     public bool IsPaused => CurrentChat?.IsPaused == true;
@@ -125,6 +133,7 @@ public partial class ChatViewModel
             {
                 var hasSubmittedTurn = HasSubmittedCopilotTurn(runtime) && !runtime.PauseGate.IsWaiting;
                 chat.PauseNeedsContinuation = hasSubmittedTurn;
+                chat.PauseContinuesAutopilot = hasSubmittedTurn && runtime.IsComposerAutopilot;
                 SetChatPaused(chat, true);
                 if (!hasSubmittedTurn)
                     return null;
@@ -164,6 +173,7 @@ public partial class ChatViewModel
             ClearManualStopRequested(chat.Id);
             BeginChatLifecycleTurn(chat);
             runtime.IsContinuationTurn = true;
+            runtime.IsComposerAutopilot = chat.PauseContinuesAutopilot;
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
             chat.PauseNeedsContinuation = false;
             SetChatPaused(chat, false);
@@ -184,8 +194,21 @@ public partial class ChatViewModel
             }
             if (!IsCachedSessionProviderConsistentWithSelection(chat.Id, resumedSession))
                 throw new InvalidOperationException(Loc.Get("ModelSwitch_CannotUse", DescribeModelSelection(chat)));
-            await resumedSession.Rpc.SendMessagesAsync([], cancellationToken: cancellation.Token);
+            if (runtime.IsComposerAutopilot)
+            {
+                // An empty batch can resume the agent loop, but it does not start a native Autopilot run.
+                runtime.ExpectTurnStartUserEcho = true;
+                await resumedSession.SendAsync(new MessageOptions
+                {
+                    Prompt = "Continue the interrupted work in this conversation. Use the existing plan and verify the result.",
+                    AgentMode = AgentMode.Autopilot,
+                    Source = MessageSource.Automation("lumi-resume")
+                }, cancellation.Token);
+            }
+            else
+                await resumedSession.Rpc.SendMessagesAsync([], cancellationToken: cancellation.Token);
 #pragma warning restore GHCP001
+            chat.PauseContinuesAutopilot = false;
             QueueSaveChatIndex(chat);
             return null;
         }
@@ -195,6 +218,7 @@ public partial class ChatViewModel
             if (paused)
             {
                 chat.PauseNeedsContinuation = false;
+                chat.PauseContinuesAutopilot = false;
                 SetChatPaused(chat, false);
                 if (_sessionCache.TryGetValue(chat.Id, out var session))
                 {

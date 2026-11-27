@@ -161,7 +161,8 @@ public static class DesignPreview
         // one on a connected account.
         shell.Client.UsePreviewCapabilities(
             RemoteProtocol.Capabilities.ModelPinsV1,
-            RemoteProtocol.Capabilities.MessageEditingV1);
+            RemoteProtocol.Capabilities.MessageEditingV1,
+            RemoteProtocol.Capabilities.RunOptionsV1);
         shell.Chat.ApplyCatalogs(new RemoteSettings
         {
             PreferredModel = "gpt-6.1-sol",

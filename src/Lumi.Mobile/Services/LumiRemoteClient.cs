@@ -181,6 +181,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         _capabilities.Contains(RemoteProtocol.Capabilities.PhoneNotificationsV1);
     public bool SupportsExplorerPictures =>
         _capabilities.Contains(RemoteProtocol.Capabilities.ExplorerPicturesV1);
+    public bool SupportsRunOptions =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.RunOptionsV1);
 
     /// <summary>True once this host has proven a compatible protocol; a resume can skip the handshake.</summary>
     public bool HasCompatibleBootstrap => _hasCompatibleBootstrap;

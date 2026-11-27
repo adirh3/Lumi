@@ -3,21 +3,23 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Lumi.Remote.Protocol;
 using StrataTheme.Controls;
 using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
 
-/// <summary>What a context picker chooses for the chat: who Lumi is, where the chat lives, and what it may use.</summary>
+/// <summary>What a context picker chooses for the chat: who Lumi is, where the chat lives, what it may use, and the strategy for the next message.</summary>
 public enum ContextPickerKind
 {
     Agent,
     Project,
     Skills,
-    Connectors
+    Connectors,
+    Strategy
 }
 
-/// <summary>One row of a context picker: an agent, project, skill or connector the PC offers.</summary>
+/// <summary>One row of a context picker: an agent, project, skill, connector, or strategy the PC offers.</summary>
 public sealed partial class ContextOption : ObservableObject
 {
     internal ContextOption(
@@ -67,9 +69,17 @@ public sealed partial class ContextOption : ObservableObject
 
     public bool IsConnector => Kind == ContextPickerKind.Connectors;
 
+    public bool IsStrategy => Kind == ContextPickerKind.Strategy;
+
+    public bool IsAutopilot => IsStrategy && string.Equals(Name, RemoteProtocol.RunOptions.Autopilot, StringComparison.Ordinal);
+
+    public bool IsParallel => IsStrategy && string.Equals(Name, RemoteProtocol.RunOptions.Parallel, StringComparison.Ordinal);
+
+    public bool IsResearch => IsStrategy && string.Equals(Name, RemoteProtocol.RunOptions.Research, StringComparison.Ordinal);
+
     /// <summary>
-    /// The chosen agent or project wears the sheet's selection band, as a single choice does; skills and
-    /// connectors, of which a chat often has several on, show only their check so the list stays calm.
+    /// The chosen agent or project wears the sheet's selection band, as a single choice does; skills,
+    /// connectors, and strategies show only their check so the list stays calm.
     /// </summary>
     public bool IsHighlighted => IsSelected && Kind is ContextPickerKind.Agent or ContextPickerKind.Project;
 
@@ -107,16 +117,32 @@ public sealed partial class MobileChatViewModel
 
     public ObservableCollection<ContextOption> ContextOptions { get; } = [];
 
+    /// <summary>Per-message execution strategies staged on the composer draft.</summary>
+    public ObservableCollection<RunOptionBadge> RunOptions { get; } = [];
+
+    public bool SupportsRunOptions => _sink.SupportsRunOptions;
+
+    public bool HasRunOptions => RunOptions.Count > 0;
+
+    /// <summary>Messages with a Strategy cannot steer mid-turn; the composer switches to Stop &amp; Send.</summary>
+    public bool CanSteerWhileBusy => !HasRunOptions;
+
+    public bool CanUseResearch => !_useByokOnly && !IsModelByok(Model);
+
     public bool HasAgent => !string.IsNullOrWhiteSpace(AgentName);
 
     public bool HasProject => !string.IsNullOrWhiteSpace(ProjectName);
 
     /// <summary>
-    /// Whether the composer shows chips: the project, agent and skills, as the desktop's composer does.
+    /// Whether the composer shows chips: strategy, project, agent and skills, as the desktop's composer does.
     /// Connectors are tools the chat may use rather than what a message carries; the desktop keeps them
     /// behind its Connectors button, and the phone behind +.
     /// </summary>
-    public bool HasComposerContext => HasAgent || HasProject || SkillChips.Count > 0;
+    public bool HasComposerContext => HasRunOptions || HasAgent || HasProject || SkillChips.Count > 0;
+
+    public string StrategySummary => RunOptions.Count == 0
+        ? Strings.Get("None")
+        : string.Join(", ", RunOptions.Select(static option => option.Label));
 
     public string AgentSummary => HasAgent ? AgentName! : Strings.Get("None");
 
@@ -131,6 +157,7 @@ public sealed partial class MobileChatViewModel
         ContextPickerKind.Agent => Strings.Get("Agent"),
         ContextPickerKind.Project => Strings.Get("Project"),
         ContextPickerKind.Skills => Strings.Get("Skills"),
+        ContextPickerKind.Strategy => Strings.Get("Strategy"),
         _ => Strings.Get("Connectors")
     };
 
@@ -139,6 +166,7 @@ public sealed partial class MobileChatViewModel
         ContextPickerKind.Agent => Strings.Get("AgentPickerDescription"),
         ContextPickerKind.Project => Strings.Get("ProjectPickerDescription"),
         ContextPickerKind.Skills => Strings.Get("SkillsPickerDescription"),
+        ContextPickerKind.Strategy => Strings.Get("StrategyPickerDescription"),
         _ => Strings.Get("ConnectorsPickerDescription")
     };
 
@@ -149,11 +177,13 @@ public sealed partial class MobileChatViewModel
         ContextPickerKind.Agent => Strings.Get("NoAgentsOnPc"),
         ContextPickerKind.Project => Strings.Get("NoProjectsOnPc"),
         ContextPickerKind.Skills => Strings.Get("NoSkillsOnPc"),
+        ContextPickerKind.Strategy => "",
         _ => Strings.Get("NoConnectorsEnabled")
     };
 
     private void InitializeComposerContext()
     {
+        RunOptions.CollectionChanged += OnRunOptionsChanged;
         SkillChips.CollectionChanged += OnContextChipsChanged;
         McpChips.CollectionChanged += OnContextChipsChanged;
         AvailableAgents.CollectionChanged += OnContextCatalogChanged;
@@ -179,7 +209,21 @@ public sealed partial class MobileChatViewModel
                 OnPropertyChanged(nameof(HasComposerContext));
                 SyncContextSelection();
                 break;
+            case nameof(Model):
+                OnPropertyChanged(nameof(CanUseResearch));
+                if (IsContextPickerOpen && ContextPickerKind == ContextPickerKind.Strategy)
+                    RefreshContextOptions();
+                break;
         }
+    }
+
+    private void OnRunOptionsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(HasRunOptions));
+        OnPropertyChanged(nameof(CanSteerWhileBusy));
+        OnPropertyChanged(nameof(HasComposerContext));
+        OnPropertyChanged(nameof(StrategySummary));
+        SyncContextSelection();
     }
 
     private void OnContextChipsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -199,6 +243,7 @@ public sealed partial class MobileChatViewModel
     private void OpenAddSheet()
     {
         CanPickProject = CanChangeProjectSelection;
+        OnPropertyChanged(nameof(SupportsRunOptions));
         IsAddSheetOpen = true;
     }
 
@@ -215,12 +260,111 @@ public sealed partial class MobileChatViewModel
     {
         if (!Enum.TryParse<ContextPickerKind>(kind, ignoreCase: true, out var parsed))
             return;
+        if (parsed == ContextPickerKind.Strategy && !SupportsRunOptions)
+            return;
 
         CanPickProject = CanChangeProjectSelection;
         ContextPickerKind = parsed;
         RefreshContextOptions();
         IsAddSheetOpen = false;
         IsContextPickerOpen = true;
+    }
+
+    /// <summary>Removes one staged Strategy chip straight from the composer.</summary>
+    [RelayCommand]
+    private void RemoveRunOption(string? id)
+    {
+        var canonical = RemoteProtocol.RunOptions.Canonicalize(id);
+        if (canonical is null)
+            return;
+
+        var remaining = GetSelectedRunOptionIds()
+            .Where(existing => !string.Equals(existing, canonical, StringComparison.Ordinal))
+            .ToList();
+        ApplyUserRunOptions(remaining);
+    }
+
+    /// <summary>Toggles one Strategy option with desktop parity (Autopilot + Parallel combinable, Research exclusive).</summary>
+    [RelayCommand]
+    private void ToggleRunOption(string? id)
+    {
+        var canonical = RemoteProtocol.RunOptions.Canonicalize(id);
+        if (canonical is null)
+            return;
+
+        var current = GetSelectedRunOptionIds();
+        var isSelected = current.Contains(canonical, StringComparer.Ordinal);
+        List<string> next;
+        if (isSelected)
+        {
+            next = current.Where(existing => !string.Equals(existing, canonical, StringComparison.Ordinal)).ToList();
+        }
+        else if (canonical == RemoteProtocol.RunOptions.Research)
+        {
+            if (!CanUseResearch)
+                return;
+            next = [RemoteProtocol.RunOptions.Research];
+        }
+        else if (current.Contains(RemoteProtocol.RunOptions.Research, StringComparer.Ordinal))
+        {
+            next = [canonical];
+        }
+        else
+        {
+            next = [.. current, canonical];
+        }
+
+        ApplyUserRunOptions(next);
+    }
+
+    private void ApplyUserRunOptions(IEnumerable<string> ids)
+    {
+        var normalized = RemoteProtocol.RunOptions.Normalize(ids);
+        if (GetSelectedRunOptionIds().SequenceEqual(normalized, StringComparer.Ordinal))
+            return;
+
+        SyncRunOptions(normalized);
+        if (_pendingRetry is { RestoresRunOptions: true } retry)
+            _pendingRetry = retry with { RestoresRunOptions = false };
+        ClearPendingRetryIfPayloadChanged();
+        if (IsContextPickerOpen && ContextPickerKind == ContextPickerKind.Strategy)
+            RefreshContextOptions();
+
+        var formatted = RemoteProtocol.RunOptions.Format(normalized);
+        if (ChatId == Guid.Empty && formatted.Length == 0)
+        {
+            _pendingConfiguration.RemoveScalar("runOptions");
+            OnPropertyChanged(nameof(HasUnsentWork));
+            return;
+        }
+
+        PushConfiguration("runOptions", formatted);
+    }
+
+    private string[] GetSelectedRunOptionIds() =>
+        RunOptions.Select(static badge => badge.Id).ToArray();
+
+    private void SyncRunOptions(IEnumerable<string>? ids)
+    {
+        var normalized = RemoteProtocol.RunOptions.Normalize(ids);
+        if (GetSelectedRunOptionIds().SequenceEqual(normalized, StringComparer.Ordinal))
+            return;
+
+        RunOptions.Clear();
+        foreach (var id in normalized)
+        {
+            if (RunOptionBadge.FromId(id) is { } badge)
+                RunOptions.Add(badge);
+        }
+    }
+
+    private bool IsModelByok(string? model)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+            return false;
+        if (model.StartsWith("byok:", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return _modelRows.TryGetValue(model, out var row) && !string.IsNullOrWhiteSpace(row.Account);
     }
 
     /// <summary>
@@ -270,6 +414,9 @@ public sealed partial class MobileChatViewModel
                 else
                     AddPendingChip(McpChips, AvailableMcps, option.Name, "⚙");
                 break;
+            case ContextPickerKind.Strategy:
+                ToggleRunOption(option.Name);
+                break;
         }
 
         SyncContextSelection();
@@ -306,6 +453,34 @@ public sealed partial class MobileChatViewModel
                 AddChipsMissingFromCatalog(McpChips, AvailableMcps, ContextPickerKind.Connectors);
                 AddCatalog(AvailableMcps, ContextPickerKind.Connectors, enabled: true);
                 break;
+            case ContextPickerKind.Strategy:
+            {
+                var canUseResearch = CanUseResearch;
+                var researchSelected = RunOptions.Any(static badge => badge.IsResearch);
+                ContextOptions.Add(new ContextOption(
+                    ContextPickerKind.Strategy,
+                    RemoteProtocol.RunOptions.Autopilot,
+                    Strings.Get("Autopilot"),
+                    RemoteProtocol.RunOptions.Autopilot,
+                    null,
+                    Strings.Get("AutopilotDetail")));
+                ContextOptions.Add(new ContextOption(
+                    ContextPickerKind.Strategy,
+                    RemoteProtocol.RunOptions.Parallel,
+                    Strings.Get("Parallel"),
+                    RemoteProtocol.RunOptions.Parallel,
+                    null,
+                    Strings.Get("ParallelDetail")));
+                ContextOptions.Add(new ContextOption(
+                    ContextPickerKind.Strategy,
+                    RemoteProtocol.RunOptions.Research,
+                    Strings.Get("Research"),
+                    RemoteProtocol.RunOptions.Research,
+                    null,
+                    Strings.Get(canUseResearch ? "ResearchDetail" : "ResearchRequiresCopilot"),
+                    isEnabled: canUseResearch || researchSelected));
+                break;
+            }
         }
 
         SyncContextSelection();
@@ -346,6 +521,7 @@ public sealed partial class MobileChatViewModel
         ContextPickerKind.Agent => option.IsNone ? !HasAgent : Matches(option, AgentValue, AgentName),
         ContextPickerKind.Project => option.IsNone ? !HasProject : Matches(option, ProjectValue, ProjectName),
         ContextPickerKind.Skills => SkillChips.Any(chip => SameName(chip.Name, option.Name)),
+        ContextPickerKind.Strategy => RunOptions.Any(badge => string.Equals(badge.Id, option.Name, StringComparison.Ordinal)),
         _ => McpChips.Any(chip => SameName(chip.Name, option.Name))
     };
 
