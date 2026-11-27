@@ -184,6 +184,7 @@ public partial class ChatViewModel
                      .Concat(_ctsSources.Keys)
                      .Concat(_runtimeStates.Keys)
                      .Concat(_chatBrowserServices.Keys)
+                     .Concat(_jobBrowserSessions.Keys)
                      .Distinct()
                      .ToList())
         {
@@ -786,6 +787,7 @@ public partial class ChatViewModel
 
     private void DisposeBrowserService(Guid chatId)
     {
+        _ = ReleaseJobBrowserSessionAsync(chatId);
         if (_chatBrowserServices.TryRemove(chatId, out var browserSvc))
         {
             _ = browserSvc.DisposeAsync();
@@ -1339,10 +1341,8 @@ public partial class ChatViewModel
         FailQueuedBusySends(chat.Id);
         ReleaseSessionResources(chat.Id, cancelActiveRequest: false);
         RemoveSuggestionTracking(chat.Id);
-        // Intentionally keep the chat's BrowserService alive. A browser session belongs to the
-        // chat, not its transient runtime state, so switching away and back restores the page
-        // instead of losing the browser (and its toggle button). The service is disposed when the
-        // chat is deleted (CleanupSession) or the app shuts down (Dispose).
+        // Keep interactive browser sessions across chat switches. Job-owned browsers instead
+        // follow the terminal session lifecycle (ReleaseJobBrowserSessionAsync).
         _runtimeStates.Remove(chat.Id);
         OnPropertyChanged(nameof(IsSessionActive));
 

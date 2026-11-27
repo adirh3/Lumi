@@ -1782,6 +1782,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     internal void PublishTerminalChatLifecycleEventOnce(Chat chat, string eventType, string? detail = null)
     {
+        // Turn-end may leave subagents and attached tools running. Only a terminal session
+        // releases a job's browser; a paused job needs its pages when it resumes.
+        if (!chat.IsPaused && eventType is ChatLifecycleEventTypes.Idle
+            or ChatLifecycleEventTypes.Error or ChatLifecycleEventTypes.Aborted)
+            _ = ReleaseJobBrowserSessionAsync(chat.Id);
+
         var runtime = GetOrCreateRuntimeState(chat.Id);
         long turnSequence;
         lock (runtime)
@@ -3634,7 +3640,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         public static ExternalMessageStartResult Rejected(string error) => new(false, error);
     }
 
-    public Task SendBackgroundJobMessageAsync(
+    public async Task SendBackgroundJobMessageAsync(
         BackgroundJob job,
         string triggerContext,
         CancellationToken cancellationToken = default,
@@ -3658,14 +3664,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 Loc.Jobs_ByokOnlyBlocked);
         }
 
-            var prompt = BuildBackgroundJobPrompt(job, triggerContext);
-            return SendExternalMessageAsync(
+        var prompt = BuildBackgroundJobPrompt(job, triggerContext);
+        var browserSessionStarted = false;
+        try
+        {
+            await SendExternalMessageAsync(
                 targetChat,
                 prompt,
                 $"Lumi Job - {job.Name}",
                 cancellationToken,
+                onAccepted: () =>
+                {
+                    BeginJobBrowserSession(targetChat.Id);
+                    browserSessionStarted = true;
+                },
                 validateBeforeSend: validateDelivery);
-            }
+        }
+        catch
+        {
+            if (browserSessionStarted && (!targetChat.IsPaused || cancellationToken.IsCancellationRequested))
+                await ReleaseJobBrowserSessionAsync(targetChat.Id);
+            throw;
+        }
+        // SendAsync acknowledges the send, not session.idle. The lifecycle event owns cleanup.
+    }
 
             /// <summary>
             /// Sends an externally-authored message (a background job trigger, or an orchestrated instruction

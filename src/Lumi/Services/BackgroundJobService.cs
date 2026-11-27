@@ -159,12 +159,12 @@ public sealed class BackgroundJobService : IDisposable
     private bool IsChatBusy(Guid chatId)
     {
         if (_chatSurfaceRegistry.TryGetLiveOwner(chatId, out var liveSurface))
-            return liveSurface.IsChatBusyForSend(chatId);
+            return liveSurface.IsChatBusyForBackgroundJob(chatId);
 
         if (_chatSurfaceRegistry.TryGetOwner(chatId, out var visibleSurface))
-            return visibleSurface.IsChatBusyForSend(chatId);
+            return visibleSurface.IsChatBusyForBackgroundJob(chatId);
 
-        return _fallbackChatViewModel?.IsChatBusyForSend(chatId) == true;
+        return _fallbackChatViewModel?.IsChatBusyForBackgroundJob(chatId) == true;
     }
 
     public void Start()

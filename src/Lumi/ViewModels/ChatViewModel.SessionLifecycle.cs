@@ -3189,6 +3189,7 @@ public partial class ChatViewModel
 
     private void DetachSessionAfterRemoteShutdown(Chat chat, bool wasActive)
     {
+        _ = ReleaseJobBrowserSessionAsync(chat.Id);
         CancelPermissionRequests(chat.Id);
         DisposeSessionSubscription(chat.Id);
         // The session already ended server-side (SessionShutdownEvent), so its host runtime and MCP
@@ -3246,12 +3247,16 @@ public partial class ChatViewModel
                 c => string.Equals(c.CopilotSessionId, sessionId, StringComparison.Ordinal));
             if (chat is null) return;
 
+            _ = ReleaseJobBrowserSessionAsync(chat.Id);
             DetachPersistedSession(chat, sessionId);
         });
     }
 
     private void ResetAfterCopilotReconnect()
     {
+        foreach (var chatId in _jobBrowserSessions.Keys.ToArray())
+            _ = ReleaseJobBrowserSessionAsync(chatId);
+
         foreach (var chatId in _permissionRequests.Keys.Select(key => key.ChatId).Distinct().ToList())
             CancelPermissionRequests(chatId);
         _retiredPermissionRequests.Clear();
