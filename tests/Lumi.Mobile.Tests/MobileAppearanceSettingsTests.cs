@@ -129,6 +129,14 @@ public sealed class MobileAppearanceSettingsTests
         var resources = application.Resources;
         var dictionaries = resources.MergedDictionaries.Count;
         var tunedBubble = Resolve<ISolidColorBrush>(application, "Brush.ChatUserSurface", ThemeVariant.Dark).Color;
+        // The bubble as drawn is lit from its surface exactly as every other palette lights theirs.
+        Assert.Equal(
+            Stops(MobileAccentPalettes.UserSurfaceFill(tunedBubble, MobileAccentPalettes.Find(MobileAccentPalettes.DefaultId).Dark, dark: true)),
+            Stops(Resolve<IGradientBrush>(application, "Brush.ChatUserSurfaceFill", ThemeVariant.Dark)));
+        var tunedLightBubble = Resolve<ISolidColorBrush>(application, "Brush.ChatUserSurface", ThemeVariant.Light).Color;
+        Assert.Equal(
+            Stops(MobileAccentPalettes.UserSurfaceFill(tunedLightBubble, MobileAccentPalettes.Find(MobileAccentPalettes.DefaultId).Light, dark: false)),
+            Stops(Resolve<IGradientBrush>(application, "Brush.ChatUserSurfaceFill", ThemeVariant.Light)));
         var tunedSelection = Resolve<ISolidColorBrush>(application, "Brush.NavigationSelected", ThemeVariant.Light).Color;
         await using var shell = new MobileShellViewModel(store: session.NewStore(), post: action => action());
         try
@@ -150,6 +158,9 @@ public sealed class MobileAppearanceSettingsTests
             Assert.Equal(tunedSelection.A, selection.A);
             Assert.NotEqual(tunedBubble, Resolve<ISolidColorBrush>(application, "Brush.ChatUserSurface", ThemeVariant.Dark).Color);
             Assert.Equal(ocean.Light.Bubble, Resolve<ISolidColorBrush>(application, "Brush.ChatUserSurface", ThemeVariant.Light).Color);
+            Assert.Equal(
+                Stops(MobileAccentPalettes.UserSurfaceFill(ocean.Light.Bubble, ocean.Light, dark: false)),
+                Stops(Resolve<IGradientBrush>(application, "Brush.ChatUserSurfaceFill", ThemeVariant.Light)));
 
             // Another palette replaces the first instead of stacking on it.
             shell.AccentChoices.Single(choice => choice.Id == "sunset").SelectCommand.Execute(null);
@@ -326,6 +337,9 @@ public sealed class MobileAppearanceSettingsTests
         Assert.True(application.TryGetResource(key, variant, out var value), $"{key} is missing.");
         return Assert.IsAssignableFrom<T>(value);
     }
+
+    private static string Stops(IGradientBrush brush) =>
+        string.Join(",", brush.GradientStops.Select(stop => $"{stop.Offset}:{stop.Color}"));
 
     private static async Task RunAsync(Func<HeadlessMobileSession, Task> body)
     {

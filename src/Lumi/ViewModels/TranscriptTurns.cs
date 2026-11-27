@@ -768,7 +768,14 @@ public sealed class TranscriptTurnControl : UserControl
             return;
 
         var shell = host.GetVisualAncestors().OfType<StrataChatShell>().FirstOrDefault();
-        if (shell?.IsFollowingTail != false)
+        if (shell?.IsFollowingTail == false)
+            return;
+
+        // A message you send rises from the composer and settles into place from its pointed corner.
+        if (GetHostedItem(host) is UserMessageItem)
+            SlideFadeEntrance.PlayComposited(
+                host, offsetY: 26, TimeSpan.FromMilliseconds(340), fromScale: 0.94, scaleOrigin: new Point(1, 1));
+        else
             SlideFadeEntrance.Play(host);
     }
 

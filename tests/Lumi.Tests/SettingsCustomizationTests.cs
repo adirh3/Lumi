@@ -70,6 +70,36 @@ public sealed class SettingsCustomizationTests
         => Assert.Equal(expected, AccentPalettes.Normalize(id));
 
     /// <summary>
+    /// Lumi's palette writes nothing, so the user's bubble fill the other palettes derive must, for Lumi's
+    /// indigo, be exactly the one Strata draws by default.
+    /// </summary>
+    [Fact]
+    public async Task BubbleFill_DerivedForLumi_IsStratasOwn()
+    {
+        using var session = HeadlessTestSession.Start();
+        var strata = new List<string>();
+        var derived = new List<string>();
+
+        await session.Dispatch(() =>
+        {
+            var lumi = AccentPalettes.Find(AccentPalettes.DefaultId);
+            foreach (var dark in new[] { true, false })
+            {
+                Application.Current!.TryGetResource(
+                    "Brush.ChatUserBubbleFill", dark ? ThemeVariant.Dark : ThemeVariant.Light, out var own);
+                strata.Add(Stops(own as Avalonia.Media.IGradientBrush));
+                derived.Add(Stops(AccentPalettes.BubbleFill(lumi.For(dark), dark)));
+            }
+        }, CancellationToken.None);
+
+        Assert.Equal(strata, derived);
+        Assert.DoesNotContain("", strata);
+
+        static string Stops(Avalonia.Media.IGradientBrush? brush) =>
+            brush is null ? "" : string.Join(",", brush.GradientStops.Select(stop => $"{stop.Offset}:{stop.Color}"));
+    }
+
+    /// <summary>
     /// The phone offers the desktop's palettes: the same ids, in the same order, under the same names and with
     /// every tone the same, so a palette looks alike on the PC and the phone.
     /// </summary>

@@ -160,8 +160,9 @@
     </Style>
     <!-- Your message wears the chat's own bubble. -->
     <Style Selector="Border.preview-bubble">
-      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserSurface}" />
-      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserSurfaceFill}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.ChatUserBubble}" />
+      <Setter Property="CornerRadius" Value="18" />
       <Setter Property="Padding" Value="14,10,14,11" />
       <Setter Property="HorizontalAlignment" Value="Right" />
     </Style>

@@ -324,9 +324,15 @@ internal sealed class TranscriptTurnView : Decorator
             if (_chat?.CanAnimateArrival == true
                 && position is { } point
                 && new Rect(point, container.Bounds.Size).Intersects(_viewport))
-                SlideFadeEntrance.PlayComposited(container,
-                    offsetY: item is UserTurnItemViewModel ? 18 : 12,
-                    duration: TimeSpan.FromMilliseconds(280));
+            {
+                // A message you send rises from the composer and settles into place from its pointed corner.
+                if (item is UserTurnItemViewModel)
+                    SlideFadeEntrance.PlayComposited(container, offsetY: 22,
+                        duration: TimeSpan.FromMilliseconds(320), fromScale: 0.94, scaleOrigin: new Point(1, 1));
+                else
+                    SlideFadeEntrance.PlayComposited(container, offsetY: 12,
+                        duration: TimeSpan.FromMilliseconds(280));
+            }
             else
                 container.Opacity = 1;
         }

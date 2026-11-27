@@ -3,6 +3,14 @@ namespace Lumi.Remote.Protocol;
 /// <summary>Separates the mobile attachment instructions from the visible user message.</summary>
 public static class RemoteUserMessageContent
 {
+    /// <summary>Identifies a message sent on the user's behalf without repeating the profile name.</summary>
+    public static string? ExternalSenderLabel(string? author, bool showMobileOrigin = false)
+        => author is "Lumi Manager"
+           || author?.StartsWith("Lumi Manager · ", StringComparison.Ordinal) == true
+           || (showMobileOrigin && author is "Lumi Mobile")
+            ? author
+            : null;
+
     public static (string Text, List<RemoteAttachment> Attachments) Parse(string? content, string? author)
     {
         var text = content ?? "";

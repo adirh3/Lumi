@@ -73,7 +73,9 @@ public sealed record RunOptionBadge(string Id, string Label)
 public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
 {
     [ObservableProperty] private string _text = "";
-    [ObservableProperty] private string _author = Strings.Get("You");
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ExternalSender))]
+    private string _author = Strings.Get("You");
     [ObservableProperty] private DateTimeOffset? _timestamp;
     [ObservableProperty] private string? _steerState;
     [ObservableProperty] private bool _canSendNow;
@@ -84,7 +86,8 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
     public bool HasAttachments => Attachments.Count > 0;
     public bool HasRunOptions => RunOptions.Count > 0;
 
-    /// <summary>The time beside "You" over the bubble, as the desktop shows it.</summary>
+    public string? ExternalSender => RemoteUserMessageContent.ExternalSenderLabel(Author);
+
     public string TimestampText => TranscriptTime.Format(Timestamp);
 
     public bool HasSteerStatus => SteerState is "Queued" or "Steering" or "Steered" or "Failed";

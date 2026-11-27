@@ -29,19 +29,17 @@
       <Setter Property="ClipToBounds" Value="False" />
     </Style>
 
-    <!-- The user's bubble: the desktop's, a step larger for the phone's 16dp text. -->
+    <!-- The user's bubble: the desktop's, lit and rimmed the same, a step larger for the phone's 16dp text. -->
     <Style Selector="sc|StrataChatMessage.mobile-message:user /template/ Border#PART_Bubble">
-      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserSurface}" />
-      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserSurfaceFill}" />
+      <Setter Property="CornerRadius" Value="18" />
       <Setter Property="Padding" Value="14,10,14,11" />
       <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.ChatUserBubble}" />
     </Style>
-    <Style Selector="sc|StrataChatMessage.mobile-message:user /template/ Grid#PART_MetaRow">
-      <Setter Property="Margin" Value="0,0,4,5" />
-    </Style>
-    <Style Selector="sc|StrataChatMessage.mobile-message:user /template/ Grid#PART_MetaRow TextBlock">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <!-- Keyboard focus keeps the bubble's shape and draws its ring just inside the edge, as the desktop's does. -->
+    <Style Selector="sc|StrataChatMessage.mobile-message:user:focus-visible /template/ Border#PART_Bubble">
+      <Setter Property="BoxShadow" Value="inset 0 0 0 2 #A6818CF8" />
     </Style>
     <!-- The desktop's hover toolbar beside a message never shows on a phone, so it must not keep its
          room either: it would squeeze every bubble into a narrow column. -->
@@ -1468,9 +1466,20 @@
     <Style Selector="sc|StrataQuestionCard:touch /template/ TextBlock#PART_AnswerText">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
     </Style>
-    <!-- Inside the user's bubble the chip sits on the accent, so it keeps to a neutral glass. -->
+    <!-- Inside the user's bubble the chip is a light glass on its colour rather than a dark tile. -->
     <Style Selector="sc|StrataChatMessage:user sc|StrataFileAttachment.transcript-file /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserBubbleChip}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.ChatUserBubbleChipRim}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="sc|StrataChatMessage:user sc|StrataFileAttachment.transcript-file:pressed /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserBubbleChipHover}" />
+    </Style>
+    <Style Selector="sc|StrataChatMessage:user sc|StrataFileAttachment.transcript-file /template/ Border#PART_IconBox">
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserBubbleChip}" />
+    </Style>
+    <Style Selector="sc|StrataChatMessage:user sc|StrataFileAttachment.transcript-file /template/ StackPanel#PART_MetaRow > TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.ChatUserBubbleText}" />
     </Style>
     <Style Selector="#Transcript WrapPanel.transcript-files">
       <Setter Property="ItemSpacing" Value="8" />
@@ -1643,14 +1652,16 @@
 
   <UserControl.DataTemplates>
 
-    <!-- The user's turn: the desktop's bubble with "You · 16:40" over it and what they attached inside. -->
+    <!-- The user's turn: the desktop's bubble with what they attached inside, and its time under it once tapped
+         (the phone's stand-in for the desktop's hover). -->
     <DataTemplate DataType="vm:UserTurnItemViewModel">
       <StackPanel Spacing="4" Margin="48,16,0,6">
-        <sc:StrataChatMessage x:Name="UserMessageBubble" Role="User" Classes="mobile-message"
+        <sc:StrataChatMessage x:Name="UserMessageBubble" Role="User" Classes="mobile-message compact-user-meta"
                               Theme="{StaticResource StrataChatMessage.Hosted}"
                               HorizontalAlignment="Right"
-                              Author="{Binding Author}"
+                              Author="{Binding ExternalSender}"
                               Timestamp="{Binding TimestampText}"
+                              RevealActionsOnClick="True"
                               behaviors:NativeTextSelection.IsEnabled="True"
                               behaviors:NativeTextSelection.Text="{Binding Text}"
                               behaviors:NativeTextSelection.Command="{Binding OpenActionsCommand}">

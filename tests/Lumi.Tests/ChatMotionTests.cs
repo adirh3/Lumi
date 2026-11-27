@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Headless;
 using Avalonia.Media;
+using Avalonia.Rendering.Composition;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -422,7 +423,10 @@ public sealed class ChatMotionTests
                 await FlushLayoutAsync(window);
                 var host = Assert.Single(turn.RealizedItemsHost!.Children);
                 Assert.False(item.HasPendingEntranceAnimation);
-                Assert.Contains(host.Transitions!, t => t is TransformOperationsTransition);
+                using (window.CaptureRenderedFrame())
+                    Dispatcher.UIThread.RunJobs();
+                var visual = Assert.IsAssignableFrom<CompositionVisual>(ElementComposition.GetElementVisual(host));
+                Assert.Equal(new Vector3D(host.Bounds.Width, host.Bounds.Height, 0), visual.CenterPoint);
 
                 window.Content = null;
                 turn.ReleaseRealizedHost();
@@ -430,6 +434,9 @@ public sealed class ChatMotionTests
                 await FlushLayoutAsync(window);
                 var remounted = Assert.Single(turn.RealizedItemsHost!.Children);
                 Assert.NotSame(host, remounted);
+                using (window.CaptureRenderedFrame())
+                    Dispatcher.UIThread.RunJobs();
+                Assert.Equal(default, ElementComposition.GetElementVisual(remounted)!.CenterPoint);
                 Assert.Null(remounted.Transitions);
                 Assert.Equal(1, remounted.Opacity);
             }

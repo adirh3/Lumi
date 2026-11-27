@@ -87,6 +87,7 @@ public partial class UserMessageItem : TranscriptItem
     [ObservableProperty] private bool _isEditEnabled = true;
 
     public string? Author => _source.Author;
+    public string? ExternalSender => Lumi.Remote.Protocol.RemoteUserMessageContent.ExternalSenderLabel(Author, showMobileOrigin: true);
     public string? TimestampToolTip => string.IsNullOrEmpty(TimestampText) ? null : _source.TimestampToolTip;
     public ChatMessage Message => _source.Message;
 

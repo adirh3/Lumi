@@ -331,8 +331,9 @@
 
     <!-- ═══════════════ Conversation ═══════════════ -->
     <Style Selector="Border.ob-user-bubble">
-      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserBubble}" />
-      <Setter Property="CornerRadius" Value="18,18,6,18" />
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserBubbleFill}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.ChatUserBubble}" />
+      <Setter Property="CornerRadius" Value="18" />
       <Setter Property="Padding" Value="14,9" />
       <Setter Property="MaxWidth" Value="440" />
       <Setter Property="HorizontalAlignment" Value="Right" />

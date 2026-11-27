@@ -168,6 +168,7 @@ public static class AccentPalettes
         SetColor("ChatUserBubbleText", tones.BubbleText);
         SetColor("ChatUserBubbleTextSecondary", tones.BubbleTextSecondary);
         SetColor("ChatUserBubbleSelection", tones.BubbleSelection);
+        dictionary["Brush.ChatUserBubbleFill"] = BubbleFill(tones, dark);
         dictionary["Color.AccentViolet"] = tones.Secondary;
         dictionary["Color.AccentRose"] = tones.Tertiary;
 
@@ -195,6 +196,16 @@ public static class AccentPalettes
     }
 
     private const Avalonia.RelativeUnit RelativeUnit = Avalonia.RelativeUnit.Relative;
+
+    /// <summary>
+    /// The user's bubble as drawn: its colour lit from the top-left (toward the accent in the dark, toward
+    /// white in the light), settling toward the palette's secondary. Lumi's indigo gives Strata's own
+    /// <c>Brush.ChatUserBubbleFill</c>.
+    /// </summary>
+    internal static LinearGradientBrush BubbleFill(Tones tones, bool dark)
+        => dark
+            ? Diagonal(Mix(tones.Bubble, tones.Accent, 0.18), Mix(tones.Bubble, tones.Secondary, 0.08))
+            : Diagonal(Mix(tones.Bubble, Colors.White, 0.35), Mix(tones.Bubble, tones.Secondary, 0.06));
 
     private static Tones T(
         string accent, string hover, string pressed, string subtle, string subtleHover, string link,

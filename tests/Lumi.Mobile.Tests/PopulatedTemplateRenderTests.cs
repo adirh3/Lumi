@@ -536,7 +536,7 @@ public sealed class PopulatedTemplateRenderTests
 
     /// <summary>
     /// The phone's transcript wears the desktop's: a bubble keeps the width its words need instead of
-    /// leaving room for a hover toolbar no phone shows, "You · time" sits over it, the files a turn made
+    /// leaving room for a hover toolbar no phone shows, its time appears on demand, the files a turn made
     /// sit inside the answer that closes it ahead of its sources and the footer that names the model
     /// and time, finished work folds behind one line, and live work is a glass chip with the Strata line.
     /// </summary>
@@ -599,7 +599,8 @@ public sealed class PopulatedTemplateRenderTests
                             Id = "t2",
                             Items =
                             [
-                                new RemoteTranscriptItem { Id = "u2", Kind = RemoteProtocol.ItemKinds.User, Timestamp = answered, Text = "Run them on my Fold." },
+                                new RemoteTranscriptItem { Id = "u2", Kind = RemoteProtocol.ItemKinds.User, Timestamp = answered,
+                                    Author = "Lumi Manager · Device checks", Text = "Run them on my Fold." },
                                 new RemoteTranscriptItem
                                 {
                                     Id = "w2", Kind = RemoteProtocol.ItemKinds.Activity, ActivityId = "w2", Status = "InProgress",
@@ -622,18 +623,29 @@ public sealed class PopulatedTemplateRenderTests
                 T Named<T>(Visual root, string name) where T : Control =>
                     root.GetVisualDescendants().OfType<T>().Single(control => control.Name == name && control.IsEffectivelyVisible);
 
-                // The user's bubble: "You · time" over it, the attachment inside it, and the width its words
-                // need: no column kept for the desktop's hover toolbar.
+                // The user's bubble: no header over it, its time under it only once tapped, the attachment
+                // inside it, and the width its words need: no column kept for the desktop's hover toolbar.
                 var user = window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataChatMessage>()
                     .Single(message => message.DataContext is UserTurnItemViewModel { Id: "u1" });
-                Assert.Equal("You", user.Author);
+                Assert.Null(user.Author);
                 Assert.Equal(Time(asked), user.Timestamp);
+                Assert.False(user.GetVisualDescendants().OfType<WrapPanel>().Single(panel => panel.Name == "PART_HeaderRow").IsVisible);
+                var userTime = user.GetVisualDescendants().OfType<TextBlock>()
+                    .Single(block => block.Name == "PART_RevealedTimestamp");
+                Assert.Equal(Time(asked), userTime.Text);
+                Assert.False(userTime.IsVisible);
+                user.AreActionsRevealed = true;
+                Assert.True(userTime.IsVisible);
+                user.AreActionsRevealed = false;
                 Assert.DoesNotContain(user.GetVisualDescendants().OfType<Border>(),
                     border => border.Name == "PART_ActionLayer");
                 var bubble = user.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "PART_Bubble");
                 Assert.True(bubble.Bounds.Width >= 300, $"The bubble is {bubble.Bounds.Width:0} dp wide in a 412 dp window.");
                 Assert.Contains(bubble.GetVisualDescendants().OfType<StrataTheme.Controls.StrataFileAttachment>(),
                     file => file.Classes.Contains("transcript-file"));
+                var delegated = window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataChatMessage>()
+                    .Single(message => message.DataContext is UserTurnItemViewModel { Id: "u2" });
+                Assert.Equal("Lumi Manager · Device checks", Named<TextBlock>(delegated, "PART_Author").Text);
 
                 // The closing answer carries the turn's files, then its sources, then the footer.
                 Assert.DoesNotContain(shell.Chat.Turns[0].DisplayItems, item => item is FileItemViewModel);

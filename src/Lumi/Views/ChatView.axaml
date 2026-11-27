@@ -1232,6 +1232,52 @@
       <Setter Property="LineSpacing" Value="6" />
     </Style>
 
+    <!-- Inside your bubble, files and chips are a light glass on its colour rather than dark tiles,
+         with the bubble's own text colours. -->
+    <Style Selector="#Transcript sc|StrataChatMessage:user sc|StrataFileAttachment.transcript-file /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserBubbleChip}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.ChatUserBubbleChipRim}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="#Transcript sc|StrataChatMessage:user sc|StrataFileAttachment.transcript-file:pointerover /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserBubbleChipHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.ChatUserBubbleChipRim}" />
+    </Style>
+    <Style Selector="#Transcript sc|StrataChatMessage:user sc|StrataFileAttachment.transcript-file /template/ Border#PART_IconBox">
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserBubbleChip}" />
+    </Style>
+    <Style Selector="#Transcript sc|StrataChatMessage:user sc|StrataFileAttachment.transcript-file /template/ TextBlock#PART_FileName">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.ChatUserBubbleText}" />
+    </Style>
+    <Style Selector="#Transcript sc|StrataChatMessage:user sc|StrataFileAttachment.transcript-file /template/ StackPanel#PART_MetaRow > TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.ChatUserBubbleTextSecondary}" />
+    </Style>
+    <Style Selector="#Transcript sc|StrataChatMessage:user Button.transcript-chip">
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserBubbleChip}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.ChatUserBubbleChipRim}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.ChatUserBubbleTextSecondary}" />
+    </Style>
+    <Style Selector="#Transcript sc|StrataChatMessage:user Button.transcript-chip /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="#Transcript sc|StrataChatMessage:user Button.transcript-chip:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserBubbleChipHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.ChatUserBubbleChipRim}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="#Transcript sc|StrataChatMessage:user Button.transcript-chip TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.ChatUserBubbleTextSecondary}" />
+    </Style>
+    <Style Selector="#Transcript sc|StrataChatMessage:user Button.transcript-chip sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.ChatUserBubbleTextSecondary}" />
+    </Style>
+    <Style Selector="#Transcript sc|StrataChatMessage:user Button.transcript-chip:pointerover TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.ChatUserBubbleText}" />
+    </Style>
+    <Style Selector="#Transcript sc|StrataChatMessage:user Button.transcript-chip:pointerover sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.ChatUserBubbleText}" />
+    </Style>
+
     <!-- ── Sub-agent runs ──────────────────────────────────────────────
          Chat-side density: one glass chip per agent. The row is a pure hit target — the Strata
          agent-run chip inside owns all chrome, state and hover — so its template draws nothing but
@@ -3953,10 +3999,10 @@
     <!-- ── User message ─────────────────────────────── -->
     <DataTemplate DataType="vm:UserMessageItem">
       <StackPanel HorizontalAlignment="Stretch" Spacing="4">
-        <sc:StrataChatMessage Role="User"
+        <sc:StrataChatMessage Role="User" Classes="compact-user-meta"
                               HorizontalAlignment="Right"
                               MaxWidth="640"
-                              Author="{Binding Author}"
+                              Author="{Binding ExternalSender}"
                               Timestamp="{Binding TimestampText}"
                               TimestampToolTip="{Binding TimestampToolTip}"
                               IsEditable="{Binding IsEditEnabled}"
@@ -3968,6 +4014,7 @@
                               CanFork="True"
                               ForkMenuHeader="{loc:Str Menu_ForkAndEdit}"
                               Classes.editing-source="{Binding IsBeingEdited}"
+                              Classes.motion-disabled="{Binding !$parent[views:ChatView].((vm:ChatViewModel)DataContext).AreAnimationsEnabled}"
                               Classes.steer-pending="{Binding Source.IsSteerInProgress}">
           <!-- Ghost → solidify transition when a steered message is applied. -->
           <sc:StrataChatMessage.Transitions>

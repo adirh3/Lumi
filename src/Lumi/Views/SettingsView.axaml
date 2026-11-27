@@ -774,8 +774,9 @@
                     BorderBrush="{DynamicResource Mg.CardBorder}" BorderThickness="1">
               <Grid RowDefinitions="*,Auto" Margin="16,14,16,12">
                 <StackPanel Spacing="9">
-                  <Border HorizontalAlignment="Right" CornerRadius="12,12,4,12" Padding="11,6" MaxWidth="280"
-                          Background="{DynamicResource Brush.ChatUserBubble}">
+                  <Border HorizontalAlignment="Right" CornerRadius="12" Padding="11,6" MaxWidth="280"
+                          Background="{DynamicResource Brush.ChatUserBubbleFill}"
+                          BoxShadow="{DynamicResource Shadow.ChatUserBubble}">
                     <TextBlock Text="{loc:Str Settings_PreviewUser}" FontSize="12" TextWrapping="Wrap"
                                Foreground="{DynamicResource Brush.ChatUserBubbleText}" />
                   </Border>

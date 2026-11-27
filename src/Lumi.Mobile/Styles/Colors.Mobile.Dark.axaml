@@ -113,6 +113,11 @@
   <BoxShadows x:Key="Shadow.Island">0 1 2 0 #40000000, 0 12 32 -12 #99000000</BoxShadows>
   <SolidColorBrush x:Key="Brush.ChatPaneSeparation" Color="#14FFFFFF" />
   <SolidColorBrush x:Key="Brush.ChatUserSurface" Color="#2C2A63" />
+  <!-- Your bubble as drawn: MobileAccentPalettes.UserSurfaceFill of the surface above, in Lumi's indigo. -->
+  <LinearGradientBrush x:Key="Brush.ChatUserSurfaceFill" StartPoint="0%,0%" EndPoint="100%,100%">
+    <GradientStop Offset="0" Color="#3B3C7E" />
+    <GradientStop Offset="1" Color="#36326F" />
+  </LinearGradientBrush>
 
   <!-- Grouped rows: a raised graphite card with a hairline rim and dividers between rows. -->
   <SolidColorBrush x:Key="Brush.GroupSurface" Color="#2A2A2F" />

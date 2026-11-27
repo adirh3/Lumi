@@ -168,6 +168,10 @@ public static class MobileAccentPalettes
         SetColor("ChatUserBubbleText", tones.BubbleText);
         SetColor("ChatUserBubbleTextSecondary", tones.BubbleTextSecondary);
         SetColor("ChatUserBubbleSelection", tones.BubbleSelection);
+        // The user's bubble as Strata draws it (action receipts); the desktop's AccentPalettes.BubbleFill.
+        dictionary["Brush.ChatUserBubbleFill"] = dark
+            ? Diagonal(Mix(tones.Bubble, tones.Accent, 0.18), Mix(tones.Bubble, tones.Secondary, 0.08))
+            : Diagonal(Mix(tones.Bubble, Colors.White, 0.35), Mix(tones.Bubble, tones.Secondary, 0.06));
         dictionary["Color.AccentViolet"] = tones.Secondary;
         dictionary["Color.AccentRose"] = tones.Tertiary;
 
@@ -198,10 +202,21 @@ public static class MobileAccentPalettes
         dictionary["Brush.AccentText"] = new SolidColorBrush(tones.Link);
         dictionary["Brush.AccentSolid"] = new SolidColorBrush(dark ? tones.Pressed : tones.Accent);
         // Your messages: the desktop's bubble, softened toward the graphite in the dark so it sits as
-        // quietly on an OLED screen as the indigo one does.
-        dictionary["Brush.ChatUserSurface"] = new SolidColorBrush(dark ? Mix(tones.Bubble, DarkGroupSurface, 0.3) : tones.Bubble);
+        // quietly on an OLED screen as the indigo one does, and lit as the desktop's is.
+        var surface = dark ? Mix(tones.Bubble, DarkGroupSurface, 0.3) : tones.Bubble;
+        dictionary["Brush.ChatUserSurface"] = new SolidColorBrush(surface);
+        dictionary["Brush.ChatUserSurfaceFill"] = UserSurfaceFill(surface, tones, dark);
         return dictionary;
     }
+
+    /// <summary>
+    /// The phone's bubble as drawn: its surface lit from the top-left (toward the accent in the dark, toward
+    /// white in the light), settling toward the palette's secondary, as the desktop's bubble is.
+    /// </summary>
+    internal static LinearGradientBrush UserSurfaceFill(Color surface, Tones tones, bool dark)
+        => dark
+            ? Diagonal(Mix(surface, tones.Accent, 0.18), Mix(surface, tones.Secondary, 0.08))
+            : Diagonal(Mix(surface, Colors.White, 0.35), Mix(surface, tones.Secondary, 0.06));
 
     private static Tones T(
         string accent, string hover, string pressed, string subtle, string subtleHover, string link,

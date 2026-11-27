@@ -101,6 +101,11 @@
   <BoxShadows x:Key="Shadow.Island">0 1 2 0 #0F1E1E3C, 0 10 30 -10 #2E1E1E3C</BoxShadows>
   <SolidColorBrush x:Key="Brush.ChatPaneSeparation" Color="#1418181C" />
   <SolidColorBrush x:Key="Brush.ChatUserSurface" Color="#E6E1FF" />
+  <!-- Your bubble as drawn: MobileAccentPalettes.UserSurfaceFill of the surface above, in Lumi's indigo. -->
+  <LinearGradientBrush x:Key="Brush.ChatUserSurfaceFill" StartPoint="0%,0%" EndPoint="100%,100%">
+    <GradientStop Offset="0" Color="#EFECFF" />
+    <GradientStop Offset="1" Color="#E0D7FE" />
+  </LinearGradientBrush>
 
   <SolidColorBrush x:Key="Brush.GroupSurface" Color="#FFFFFF" />
   <SolidColorBrush x:Key="Brush.GroupBorder" Color="#1418181C" />
