@@ -1956,6 +1956,7 @@ public class UserSettings
     public bool DefaultsSeeded { get; set; }
     public bool CodingLumiSeeded { get; set; }
     public bool CodingLumiBrowserToolsSeeded { get; set; }
+    public bool CodeReviewerIndependenceSeeded { get; set; }
     public bool CurrentChatManagementToolSeeded { get; set; }
     public string Language { get; set; } = "en";
     public bool LaunchAtStartup { get; set; }

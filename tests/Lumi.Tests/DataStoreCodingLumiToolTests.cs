@@ -39,6 +39,11 @@ public sealed class DataStoreCodingLumiToolTests
             Assert.True(codingLumi.IsBuiltIn);
             Assert.True(codingLumi.HasExplicitToolSelection);
             Assert.True(data.Settings.CodingLumiBrowserToolsSeeded);
+            Assert.True(data.Settings.CodeReviewerIndependenceSeeded);
+            var codeReviewer = Assert.Single(data.Skills, skill => skill.Name == "Code Reviewer Pro");
+            Assert.Contains("## Review Independence", codeReviewer.Content, StringComparison.Ordinal);
+            Assert.Contains("agent_type: \"code-review\"", codeReviewer.Content, StringComparison.Ordinal);
+            Assert.DoesNotContain("\n    ## Review Independence", codeReviewer.Content, StringComparison.Ordinal);
             string[] existingTools =
             [
                 "lumi_fetch",
@@ -316,5 +321,65 @@ public sealed class DataStoreCodingLumiToolTests
         Assert.Contains("- Verify findings against the requested change before acting.", skill.Content, StringComparison.Ordinal);
         Assert.Contains("do not generate broad combinatorial suites for hypothetical risks.", skill.Content, StringComparison.Ordinal);
         Assert.False(DataStore.RemoveRetiredCodingHelpers(data));
+    }
+
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void CodeReviewerIndependenceMigration_InsertsSectionAndPreservesCustomBody(string introNewline)
+    {
+        var skill = new Skill
+        {
+            Name = "Code Reviewer Pro",
+            IsBuiltIn = true,
+            Content = "# Code Reviewer Pro" + introNewline + introNewline
+                + "You are a senior engineer conducting a professional code review. Inspect the actual diff and surrounding repository code, and verify each finding."
+                + introNewline + introNewline
+                + "## Review Process\n\n### 1. My custom scope gate\nKeep my custom rules."
+        };
+        var data = new AppData { Skills = [skill] };
+
+        Assert.True(DataStore.MigrateCodeReviewerIndependence(data));
+        Assert.True(data.Settings.CodeReviewerIndependenceSeeded);
+
+        var independenceIndex = skill.Content.IndexOf("## Review Independence", StringComparison.Ordinal);
+        var processIndex = skill.Content.IndexOf("## Review Process", StringComparison.Ordinal);
+        Assert.True(independenceIndex > 0 && independenceIndex < processIndex);
+        Assert.Contains("agent_type: \"code-review\"", skill.Content, StringComparison.Ordinal);
+        Assert.Contains("### 1. My custom scope gate\nKeep my custom rules.", skill.Content, StringComparison.Ordinal);
+
+        // Snapshot + JSON round-trip preserves the seeded flag and prevents re-applying after user removal.
+        var snapshot = AppDataSnapshotFactory.CreateIndexSnapshot(data);
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!;
+        Assert.True(restored.Settings.CodeReviewerIndependenceSeeded);
+        Assert.False(DataStore.MigrateCodeReviewerIndependence(restored));
+
+        restored.Skills[0].Content = restored.Skills[0].Content.Replace("## Review Independence", "## Removed", StringComparison.Ordinal);
+        Assert.False(DataStore.MigrateCodeReviewerIndependence(restored));
+        Assert.DoesNotContain("## Review Independence", restored.Skills[0].Content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CodeReviewerIndependenceMigration_LeavesCustomOrRewrittenSkillsUntouched()
+    {
+        var customNamed = new Skill
+        {
+            Name = "Code Reviewer Pro",
+            IsBuiltIn = false,
+            Content = "# Code Reviewer Pro\n\nYou are a senior engineer conducting a professional code review.\n\n## Review Process"
+        };
+        var rewrittenBuiltIn = new Skill
+        {
+            Name = "Code Reviewer Pro",
+            IsBuiltIn = true,
+            Content = "# My Completely Rewritten Review Skill\n\n## Review Process"
+        };
+        var data = new AppData { Skills = [customNamed, rewrittenBuiltIn] };
+
+        Assert.True(DataStore.MigrateCodeReviewerIndependence(data));
+        Assert.DoesNotContain("## Review Independence", customNamed.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Review Independence", rewrittenBuiltIn.Content, StringComparison.Ordinal);
+        Assert.False(DataStore.MigrateCodeReviewerIndependence(data));
     }
 }

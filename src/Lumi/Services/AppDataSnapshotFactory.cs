@@ -23,6 +23,7 @@ internal static class AppDataSnapshotFactory
                 DefaultsSeeded = settings.DefaultsSeeded,
                 CodingLumiSeeded = settings.CodingLumiSeeded,
                 CodingLumiBrowserToolsSeeded = settings.CodingLumiBrowserToolsSeeded,
+                CodeReviewerIndependenceSeeded = settings.CodeReviewerIndependenceSeeded,
                 CurrentChatManagementToolSeeded = settings.CurrentChatManagementToolSeeded,
                 Language = settings.Language,
                 LaunchAtStartup = settings.LaunchAtStartup,

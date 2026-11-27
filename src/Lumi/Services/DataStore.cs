@@ -151,6 +151,11 @@ public partial class DataStore : IChatContentSearch
             Save();
             SyncSkillFiles();
         }
+        if (MigrateCodeReviewerIndependence(_data))
+        {
+            Save();
+            SyncSkillFiles();
+        }
         if (RemoveRetiredFeatureManagerSkill(_data))
         {
             Save();
@@ -1378,10 +1383,12 @@ public partial class DataStore : IChatContentSearch
             Description = Loc.GetEnglish(nameof(Loc.BuiltIn_CodeReviewer_Description)),
             IconGlyph = "🔍",
             IsBuiltIn = true,
-            Content = """
+            Content = $"""
                 # Code Reviewer Pro
 
                 You are a senior engineer conducting a professional code review. Inspect the actual diff and surrounding repository code, and verify each finding.
+
+                {CodeReviewerIndependenceSection}
 
                 ## Review Process
 
@@ -1548,8 +1555,52 @@ public partial class DataStore : IChatContentSearch
 
         _data.Settings.CodingLumiSeeded = true;
         _data.Settings.CodingLumiBrowserToolsSeeded = true;
+        _data.Settings.CodeReviewerIndependenceSeeded = true;
         Save();
         SyncSkillFiles();
+    }
+
+    private const string CodeReviewerIndependenceSection = """
+        ## Review Independence
+        - **If you authored or edited the changes in this conversation** (including re-reviews after applying fixes), do not self-review in context. Delegate the review to a fresh, neutral, read-only `code-review` subagent (via `task` with `agent_type: "code-review"` when available).
+        - **Keep the reviewer unprimed:** pass only the goal/requirements and how to inspect the diff or changed files. Do not share your own conclusions, rationales, or prior review findings.
+        - **If you did not write the code** (for example, reviewing an external PR or branch in a fresh chat) or subagents are unavailable, conduct the review directly.
+        - Treat subagent findings as hypotheses: verify them against the code and requirements before reporting or applying fixes.
+        """;
+
+    internal static bool MigrateCodeReviewerIndependence(AppData data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (data.Settings.CodeReviewerIndependenceSeeded)
+            return false;
+
+        var skill = FindBuiltInSkill(data, "Code Reviewer Pro");
+        if (skill is not null
+            && !skill.Content.Contains("## Review Independence", StringComparison.OrdinalIgnoreCase)
+            && skill.Content.Contains("You are a senior engineer conducting a professional code review.", StringComparison.Ordinal))
+        {
+            const string crlfMarker = "\r\n\r\n## Review Process";
+            const string lfMarker = "\n\n## Review Process";
+            var markerIndex = skill.Content.IndexOf(crlfMarker, StringComparison.Ordinal);
+            var newline = "\r\n";
+            if (markerIndex < 0)
+            {
+                markerIndex = skill.Content.IndexOf(lfMarker, StringComparison.Ordinal);
+                newline = "\n";
+            }
+
+            if (markerIndex >= 0)
+            {
+                var section = CodeReviewerIndependenceSection.Replace("\r\n", "\n", StringComparison.Ordinal);
+                if (newline == "\r\n")
+                    section = section.Replace("\n", "\r\n", StringComparison.Ordinal);
+
+                skill.Content = skill.Content.Insert(markerIndex, $"{newline}{newline}{section}");
+            }
+        }
+
+        data.Settings.CodeReviewerIndependenceSeeded = true;
+        return true;
     }
 
     internal static bool MigrateCodingLumiBrowserTools(AppData data)
